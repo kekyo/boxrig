@@ -1,0 +1,16 @@
+LIBRARY boxrig-win32-ogl.dll
+EXPORTS
+    boxrig_wgl_binding_create
+    boxrig_wgl_binding_destroy
+    boxrig_wgl_surface_create
+    boxrig_wgl_surface_make_current
+    boxrig_wgl_surface_release_current
+    boxrig_wgl_surface_get_runtime
+    boxrig_wgl_surface_window
+    boxrig_wgl_surface_supports_srgb
+    boxrig_wgl_surface_swap
+    boxrig_wgl_surface_destroy
+    boxrig_win32_opengl_terminal_component_create_child
+    boxrig_win32_opengl_terminal_component_create_on_target
+    boxrig_wgl_surface_get_info
+    boxrig_win32_opengl_terminal_component_get_diagnostics

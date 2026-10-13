@@ -1,0 +1,9 @@
+prefix=${pcfiledir}/../..
+libdir=${prefix}/lib
+includedir=${prefix}/include
+
+Name: boxrig-render-d3d11
+Description: Borrowed offscreen Direct3D 11 and Direct2D renderer
+Version: 0.0.0
+Libs: -L${libdir} -lboxrig-render-d3d11 -lboxrig-win32 -lboxrig-ui -lboxrig -ldxguid -lole32 -luuid -lgdi32 -limm32 -luser32
+Cflags: -I${includedir}

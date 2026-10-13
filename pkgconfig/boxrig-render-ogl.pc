@@ -1,0 +1,12 @@
+prefix=${pcfiledir}/../..
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: boxrig-render-ogl
+Description: Borrowed-context OpenGL terminal renderer for boxrig
+Version: 0.0.0
+Requires.private: gl, pango >= 1.50, pangocairo, pangoft2, cairo >= 1.18, fontconfig
+Libs: -L${libdir} -lboxrig-render-ogl -lboxrig-ui -lboxrig
+Libs.private: -lpthread -lm
+Cflags: -I${includedir}

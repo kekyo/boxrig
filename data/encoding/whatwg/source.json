@@ -1,0 +1,15 @@
+{
+  "retrieved": "2026-10-02",
+  "files": [
+    {
+      "file": "index-jis0208.txt",
+      "url": "https://encoding.spec.whatwg.org/index-jis0208.txt",
+      "sha256": "341dcde7e8b984e9c7bbf5ed75c8da7c6087d47083a1a2b3ed558bfd5bef9468"
+    },
+    {
+      "file": "LICENSE",
+      "url": "https://raw.githubusercontent.com/whatwg/encoding/main/LICENSE",
+      "sha256": "85dc6f5ccb57a6fe8c33d158f9fc8fc7ee5655a5d3db2cdd131c6a3d0f48a864"
+    }
+  ]
+}

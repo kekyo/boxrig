@@ -1,0 +1,516 @@
+/* boxrig - A highly independent, general-purpose terminal emulator parser library
+ * Copyright (c) Kouji Matsui. (@kekyo@mi.kekyo.net)
+ * Under MIT.
+ * https://github.com/kekyo/boxrig/
+ *
+ * This file intentionally has no include guard. Define
+ * BOXRIG_FRONTEND_CONFORMANCE_CASE before including it. Each row records the
+ * current conformance verdict and observable test target for X11, Win32,
+ * GTK 3, GTK 4, and native Wayland, in that order.
+ */
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    ARTIFACT_CORE_UI_BOUNDARY,
+    "artifact.core-ui-public-boundary",
+    BUILD_ARTIFACT,
+    "Public-header compile, archive symbols, and installed custom UI",
+    COMMON, "test-core-ui-boundary",
+    COMMON, "test-core-ui-boundary",
+    COMMON, "test-core-ui-boundary",
+    COMMON, "test-core-ui-boundary",
+    COMMON, "test-core-ui-boundary")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    ARTIFACT_FRONTEND_PACKAGE,
+    "artifact.frontend-package",
+    BUILD_ARTIFACT,
+    "Frontend public headers, archives, and installed package metadata",
+    NATIVE, "test_ui_platform_fixture",
+    NATIVE, "win32-amd64+win32-i686",
+    NATIVE, "test-gtk3-package",
+    NATIVE, "test-gtk4-package",
+    NATIVE, "test-wayland-package")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    VALUE_CORE_UI_SEMANTICS,
+    "value.core-ui-semantics",
+    CORE_UI_VALUE,
+    "Core terminal/session and portable UI values including recognition and selection",
+    COMMON, "test_terminal+test_parser+test_graphics+test_screen+test_session+test_ui+test_selection+test_text_layout+test_composition+test_notification_policy+test_scrollbar+test_input_shortcuts+test_ui_lifecycle+test_color+test_blink_phase+test_animation_clock+test_animation_runtime+test_animation_poll",
+    COMMON, "test_terminal+test_parser+test_graphics+test_screen+test_session+test_ui+test_selection+test_text_layout+test_composition+test_notification_policy+test_scrollbar+test_input_shortcuts+test_ui_lifecycle+test_color+test_blink_phase+test_animation_clock+test_animation_runtime+test_animation_poll",
+    COMMON, "test_terminal+test_parser+test_graphics+test_screen+test_session+test_ui+test_selection+test_text_layout+test_composition+test_notification_policy+test_scrollbar+test_input_shortcuts+test_ui_lifecycle+test_color+test_blink_phase+test_animation_clock+test_animation_runtime+test_animation_poll",
+    COMMON, "test_terminal+test_parser+test_graphics+test_screen+test_session+test_ui+test_selection+test_text_layout+test_composition+test_notification_policy+test_scrollbar+test_input_shortcuts+test_ui_lifecycle+test_color+test_blink_phase+test_animation_clock+test_animation_runtime+test_animation_poll",
+    COMMON, "test_terminal+test_parser+test_graphics+test_screen+test_session+test_ui+test_selection+test_text_layout+test_composition+test_notification_policy+test_scrollbar+test_input_shortcuts+test_ui_lifecycle+test_color+test_blink_phase+test_animation_clock+test_animation_runtime+test_animation_poll")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    VALUE_NOTIFICATION_DISPATCH,
+    "value.notification-dispatch",
+    CORE_UI_VALUE,
+    "Owned requests, provider acceptance, cancellation and exactly-once completion",
+    COMMON, "test-notification-dispatch",
+    COMMON, "test-notification-dispatch+test-win32-notifications",
+    COMMON, "test-notification-dispatch",
+    COMMON, "test-notification-dispatch",
+    COMMON, "test-notification-dispatch")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    NATIVE_FREEDESKTOP_NOTIFICATIONS,
+    "native.freedesktop-notifications",
+    NATIVE_FRONTEND,
+    "Asynchronous session-bus notifications, window state, poll and GLib source ownership",
+    NATIVE, "test-freedesktop-notifications+test-notification-package+test_x11_notifications",
+    UNSUPPORTED_BY_CONTRACT, "reason:Freedesktop provider requires POSIX poll and session D-Bus; Win32 uses its Shell provider",
+    NATIVE, "test-freedesktop-notifications+test-notification-samples+test-notification-package",
+    NATIVE, "test-freedesktop-notifications+test-notification-samples+test-notification-package",
+    NATIVE, "test-freedesktop-notifications+test-notification-samples+test-notification-package")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    VALUE_BACKGROUND_LAYERS,
+    "value.background-layers",
+    CORE_UI_VALUE,
+    "Numeric RGBA, copied bounded images, placement and foreground-preserving composition",
+    COMMON, "test-background-layers",
+    COMMON, "test-background-layers+test-d3d11-renderer+win32-d3d11-renderer.test.ts",
+    COMMON, "test-background-layers",
+    COMMON, "test-background-layers",
+    COMMON, "test-background-layers")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    NATIVE_BACKGROUND_EFFECT,
+    "native.background-effect",
+    NATIVE_FRONTEND,
+    "Host-owned request, availability, region, capability recovery and restoration",
+    NATIVE, "test-x11-background-effect+run_background_effect_video.mjs",
+    NATIVE, "test-win32-background-effect+win32-background-video.test.ts",
+    NATIVE, "test-gtk-background-effect+test-gtk3-background-effect-x11+test-background-effect-packages+run_background_effect_video.mjs",
+    NATIVE, "test-gtk-background-effect+test-background-effect-packages+run_wayland_background_effect_video.sh",
+    NATIVE, "test-wayland-background-effect+test-background-effect-packages+run_wayland_background_effect_video.sh")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    VALUE_CANDIDATE_STATE,
+    "value.candidate-state",
+    CORE_UI_VALUE,
+    "Owned bounded candidates, local revision, focus clearing and selected-row placement",
+    COMMON, "test-ui-candidates",
+    COMMON, "test-ui-candidates",
+    COMMON, "test-ui-candidates",
+    COMMON, "test-ui-candidates",
+    COMMON, "test-ui-candidates")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    RENDERER_CANDIDATES,
+    "renderer.client-candidates",
+    RENDERER_MEANING,
+    "Viewport-local client candidate display and pointer isolation",
+    UNSUPPORTED_BY_CONTRACT, "reason:Native X11 XIM keeps system candidates",
+    UNSUPPORTED_BY_CONTRACT, "reason:Win32 keeps system candidates",
+    NATIVE, "test-gtk3-candidates+test-opengl-candidates+test-gtk-ime-routing",
+    NATIVE, "test-gtk4-candidates+test-opengl-candidates+test-gtk-ime-routing",
+    NATIVE, "test-wayland-input+test-opengl-candidates+test-wayland-candidates-startup")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    VALUE_EDITABLE_DOCUMENT,
+    "value.editable-document",
+    CORE_UI_VALUE,
+    "Bounded document context, independent input generation and atomic owner edits",
+    COMMON, "test-editable-context+test-editable-edits",
+    COMMON, "test-editable-context+test-editable-edits",
+    COMMON, "test-editable-context+test-editable-edits",
+    COMMON, "test-editable-context+test-editable-edits",
+    COMMON, "test-editable-context+test-editable-edits")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    COMPONENT_LIFECYCLE,
+    "component.lifecycle",
+    PORTABLE_COMPONENT,
+    "Create, partial-failure cleanup, and destroy",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    COMPONENT_AUTHORITY,
+    "component.layout-authority",
+    PORTABLE_COMPONENT,
+    "Layout authority conflict and presentation-only attachment",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    COMPONENT_ALLOCATION,
+    "component.metrics-allocation",
+    PORTABLE_COMPONENT,
+    "Metrics, allocation, and effective grid",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    COMPONENT_SIZE_COMMAND,
+    "component.size-command",
+    PORTABLE_COMPONENT,
+    "Preferred grid and take-once host accept or reject transaction",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    COMPONENT_VISIBILITY_FOCUS,
+    "component.visibility-focus",
+    PORTABLE_COMPONENT,
+    "Visibility, focus, unmap, and remap",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    COMPONENT_FRAME_DIRTY,
+    "component.frame-dirty",
+    PORTABLE_COMPONENT,
+    "Model synchronization, frame request, and dirty planes",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    COMPONENT_FONT,
+    "component.font-transaction",
+    PORTABLE_COMPONENT,
+    "Font resource, visual zoom, line height, and direction",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    COMPONENT_KEY_INPUT,
+    "component.key-input",
+    PORTABLE_COMPONENT,
+    "Key routing, backpressure, and physical key series",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    COMPONENT_MOUSE_INPUT,
+    "component.mouse-input",
+    PORTABLE_COMPONENT,
+    "Mouse routing, capture, wheel, and exact fixed-point hit",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    COMPONENT_SELECTION_COPY,
+    "component.selection-copy",
+    PORTABLE_COMPONENT,
+    "Linear and rectangular selection with native copy payload",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    COMPONENT_PASTE,
+    "component.paste-transaction",
+    PORTABLE_COMPONENT,
+    "Paste content, transaction, and terminal backpressure",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    COMPONENT_EDITABLE_PROVIDER,
+    "component.editable-provider-absent",
+    PORTABLE_COMPONENT,
+    "Safe capability result when no editable-document provider is installed",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    COMPONENT_SCROLLBAR,
+    "component.scrollbar",
+    PORTABLE_COMPONENT,
+    "Scrollbar model, synchronized revision, external binding and action",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    COMPONENT_ANNOTATION,
+    "component.annotation",
+    PORTABLE_COMPONENT,
+    "Regex annotation overlap, hit, and stale dirty",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    COMPONENT_TRANSPARENCY,
+    "component.transparency",
+    PORTABLE_COMPONENT,
+    "Transparency request, effective scope, and fallback",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    COMPONENT_DIAGNOSTIC,
+    "component.diagnostic",
+    PORTABLE_COMPONENT,
+    "Capability, diagnostic, queue high-water mark, and sticky failure",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    COMPONENT_PRESENTATION,
+    "component.presentation-scene",
+    PORTABLE_COMPONENT,
+    "Native extent, generation, semantic pixels, alpha, and bounded dirty",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    COMPONENT_QUIESCE,
+    "component.quiesce",
+    PORTABLE_COMPONENT,
+    "Quiesce, late callback suppression, and authority reacquisition",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7",
+    COMMON, "frontend-component-fixture-v7")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    RENDERER_MEANING,
+    "renderer.meaning-scene",
+    RENDERER_MEANING,
+    "Text, image, overlay, alpha, and dirty meaning",
+    COMMON, "test_ui_platform_fixture:x11",
+    COMMON, "test_ui_platform_fixture:win32",
+    COMMON, "test_ui_platform_fixture:pangocairo",
+    COMMON, "test_ui_platform_fixture:pangocairo",
+    COMMON, "test_ui_platform_fixture:pangocairo")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    FRONTEND_PRESENTATION,
+    "frontend.presentation-scene",
+    NATIVE_FRONTEND,
+    "Committed native surface presentation and semantic pixels",
+    NATIVE, "test_x11_component",
+    NATIVE, "test_win32_component",
+    NATIVE, "test_gtk3_widget",
+    NATIVE, "test_gtk4_widget",
+    NATIVE, "test_wayland_weston")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    GTK_RENDER_SELECTION,
+    "native.gtk-render-selection",
+    NATIVE_FRONTEND,
+    "GTK rendering policy, completed backend, retained pixels and failure diagnostics",
+    UNSUPPORTED_BY_CONTRACT, "reason:GTK-specific-rendering-owner",
+    UNSUPPORTED_BY_CONTRACT, "reason:GTK-specific-rendering-owner",
+    NATIVE, "test-gtk3-rendering+test-gtk3-opengl+test-gtk-render-switch",
+    NATIVE, "test-gtk4-rendering+test-gtk4-opengl+test-gtk-render-switch",
+    UNSUPPORTED_BY_CONTRACT, "reason:GTK-specific-rendering-owner")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    NATIVE_INPUT_IME,
+    "native.input-ime",
+    NATIVE_FRONTEND,
+    "Native key, pointer, and input-method protocol ownership",
+    NATIVE, "test_x11_input_adapter+test_x11_component",
+    NATIVE, "test_win32_input_adapter+test_win32_component",
+    NATIVE, "test_gtk3_widget",
+    NATIVE, "test_gtk4_widget",
+    NATIVE, "test_wayland_context")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    NATIVE_EDITABLE_DOCUMENT,
+    "native.editable-document",
+    NATIVE_FRONTEND,
+    "Document availability, native protocol support and owner edits remain distinct",
+    NATIVE, "test-xim-editable",
+    NATIVE, "test-editable-win32",
+    NATIVE, "test-gtk-editable",
+    NATIVE, "test-gtk-editable",
+    NATIVE, "test-wayland-editable")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    NATIVE_CLIPBOARD,
+    "native.clipboard",
+    NATIVE_FRONTEND,
+    "Native clipboard protocol, ownership, cancellation, and limits",
+    NATIVE, "test_x11_host_adapter+test_x11_input_adapter+test_x11_component",
+    NATIVE, "test_win32_input_adapter",
+    NATIVE, "test_gtk3_widget",
+    NATIVE, "test_gtk4_widget",
+    NATIVE, "test_wayland_context")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    NATIVE_RUNTIME_HOST,
+    "native.runtime-host",
+    NATIVE_FRONTEND,
+    "Native host, event loop, PTY/session, window, and transparency ownership",
+    NATIVE, "test_posix_session+test_pty+test_x11_host_adapter+test_x11_notifications+test_x11_event_wait+test_x11_transparency+test_x11_component",
+    NATIVE, "test_win32_session+test_win32_pty+test_win32_host_adapter+test_win32_event_loop+test_win32_transparency+test_win32_host_transparency+test_win32_opacity_native+test_win32_component",
+    NATIVE, "test_posix_session+test_pty+test_gtk3_widget+test_gtk3_sample",
+    NATIVE, "test_posix_session+test_pty+test_gtk4_widget+test_gtk4_sample",
+    NATIVE, "test_posix_session+test_pty+test_wayland_context+test_wayland_weston")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    SAMPLE_CONTROLLED_PTY,
+    "sample.controlled-pty",
+    SAMPLE_POLICY,
+    "Controlled PTY host state, input, selection, geometry, and shutdown",
+    NATIVE, "test_frontend_sample_x11:X11",
+    NATIVE, "test_win32_sample:shared-scenario-amd64+i686",
+    NATIVE, "test_frontend_sample_x11:GTK3+run_frontend_sample_scenario:GTK3-wayland",
+    NATIVE, "test_frontend_sample_x11:GTK4+run_frontend_sample_scenario:GTK4-wayland",
+    NATIVE, "run_frontend_sample_scenario:native-wayland")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    SAMPLE_PASTE_BACKPRESSURE,
+    "sample.paste-backpressure",
+    SAMPLE_POLICY,
+    "Native clipboard paste drains real outbound pressure and retries exact bytes",
+    NATIVE, "test_frontend_sample_x11:X11:paste-pressure",
+    NATIVE, "test_win32_sample:shared-scenario-amd64+i686:paste-pressure",
+    NATIVE, "test_frontend_sample_x11:GTK3+run_frontend_sample_scenario:GTK3-wayland:paste-pressure",
+    NATIVE, "test_frontend_sample_x11:GTK4+run_frontend_sample_scenario:GTK4-wayland:paste-pressure",
+    NATIVE, "run_frontend_sample_scenario:native-wayland:paste-pressure")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    SAMPLE_OVERLAYS,
+    "sample.overlays",
+    SAMPLE_POLICY,
+    "Native sample search annotation hover image cursor IME and opacity updates",
+    NATIVE, "test_frontend_sample_x11:X11:overlays",
+    NATIVE, "test_win32_sample:shared-scenario-amd64+i686:overlays",
+    NATIVE, "test_frontend_sample_x11:GTK3+run_frontend_sample_scenario:GTK3-wayland:overlays",
+    NATIVE, "test_frontend_sample_x11:GTK4+run_frontend_sample_scenario:GTK4-wayland:overlays",
+    NATIVE, "run_frontend_sample_scenario:native-wayland:overlays")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    SAMPLE_GEOMETRY,
+    "sample.geometry",
+    SAMPLE_POLICY,
+    "Native resize maximize and restore converge public core/view grids and idle size commands",
+    NATIVE, "test_frontend_sample_x11:X11:geometry",
+    NATIVE, "test_win32_sample:shared-scenario-amd64+i686:geometry",
+    NATIVE, "test_frontend_sample_x11:GTK3+run_frontend_sample_scenario:GTK3-wayland:geometry",
+    NATIVE, "test_frontend_sample_x11:GTK4+run_frontend_sample_scenario:GTK4-wayland:geometry",
+    NATIVE, "run_frontend_sample_scenario:native-wayland:geometry")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    SAMPLE_PTY_RESIZE_QUERY,
+    "sample.pty-resize-query",
+    SAMPLE_POLICY,
+    "The live child observes the same resized and restored grid as the sample",
+    NATIVE, "test_frontend_sample_x11:X11:geometry",
+    P2, "test-p2-win32:shared-scenario-amd64+i686:geometry",
+    NATIVE, "test_frontend_sample_x11:GTK3+run_frontend_sample_scenario:GTK3-wayland:geometry",
+    NATIVE, "test_frontend_sample_x11:GTK4+run_frontend_sample_scenario:GTK4-wayland:geometry",
+    NATIVE, "run_frontend_sample_scenario:native-wayland:geometry")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    SAMPLE_SHUTDOWN_OWNERSHIP,
+    "sample.shutdown-ownership",
+    SAMPLE_POLICY,
+    "Child exit, initial close, and copied-state close release borrowers, callbacks, native objects, and PTY resources",
+    NATIVE, "test_frontend_sample_x11:X11:sample-probe",
+    NATIVE, "test_win32_sample:shared-scenario-amd64+i686:sample-probe",
+    NATIVE, "test_frontend_sample_x11:GTK3+run_frontend_sample_scenario:GTK3-wayland:sample-probe",
+    NATIVE, "test_frontend_sample_x11:GTK4+run_frontend_sample_scenario:GTK4-wayland:sample-probe",
+    NATIVE, "run_frontend_sample_scenario:native-wayland:sample-probe")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    SAMPLE_PENDING_CLIPBOARD,
+    "sample.pending-clipboard",
+    SAMPLE_POLICY,
+    "Real pending native read cancellation and late completion on child exit and window close",
+    NATIVE, "test_frontend_sample_x11:X11:pending-clipboard",
+    UNSUPPORTED_BY_CONTRACT, "reason:Win32-clipboard-read-is-synchronous",
+    NATIVE, "test_frontend_sample_x11:GTK3+run_frontend_sample_scenario:GTK3-wayland:pending-clipboard",
+    NATIVE, "test_frontend_sample_x11:GTK4+run_frontend_sample_scenario:GTK4-wayland:pending-clipboard",
+    NATIVE, "run_frontend_sample_scenario:native-wayland:pending-clipboard")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    P2_X11_IME,
+    "p2.x11-ime",
+    EXTERNAL_P2,
+    "Real XIM preedit and candidate behavior",
+    P2, "test-p2-x11",
+    UNSUPPORTED_BY_CONTRACT, "reason:not-an-XIM-frontend",
+    UNSUPPORTED_BY_CONTRACT, "reason:GtkIM-owned",
+    UNSUPPORTED_BY_CONTRACT, "reason:GtkIM-owned",
+    UNSUPPORTED_BY_CONTRACT, "reason:text-input-v3-owned")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    P2_WIN32_IME_DWM,
+    "p2.win32-ime-dwm",
+    EXTERNAL_P2,
+    "Real MS-IME candidate and DWM movement behavior",
+    UNSUPPORTED_BY_CONTRACT, "reason:not-a-Win32-frontend",
+    P2, "test-p2-win32",
+    UNSUPPORTED_BY_CONTRACT, "reason:not-a-Win32-frontend",
+    UNSUPPORTED_BY_CONTRACT, "reason:not-a-Win32-frontend",
+    UNSUPPORTED_BY_CONTRACT, "reason:not-a-Win32-frontend")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    NATIVE_SCROLLBAR_VISIBILITY,
+    "native.scrollbar-visibility",
+    NATIVE_FRONTEND,
+    "Standard bar policies, allocation transaction, capture and external ownership",
+    NATIVE, "test_x11_component+test-native-scrollbar",
+    NATIVE, "test_win32_component+win32-scrollbar.test.ts",
+    NATIVE, "test_gtk3_widget+test-scrollbar-gtk-scale+test-native-scrollbar",
+    NATIVE, "test_gtk4_widget+test-scrollbar-gtk-scale+test-native-scrollbar",
+    NATIVE, "test_wayland_context+test_wayland_weston+test-native-scrollbar")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    RENDERER_CURSOR_FILL,
+    "renderer.cursor-fill",
+    RENDERER_MEANING,
+    "DECSCUSR, filled glyph contrast, one-cell clip, phases, layers and IME",
+    NATIVE, "test_x11_text_blink+test_opengl_blink",
+    NATIVE, "test_win32_blink+test_d3d11_renderer+win32-cursor-style.test.ts",
+    NATIVE, "test_pangocairo_blink+test-native-cursor-style-videos",
+    NATIVE, "test_pangocairo_blink+test-native-cursor-style-videos",
+    NATIVE, "test_pangocairo_blink+test_opengl_blink+test-native-cursor-style-videos")

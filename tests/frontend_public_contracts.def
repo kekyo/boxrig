@@ -1,0 +1,1539 @@
+/* boxrig - A highly independent, general-purpose terminal emulator parser library
+ * Copyright (c) Kouji Matsui. (@kekyo@mi.kekyo.net)
+ * Under MIT.
+ * https://github.com/kekyo/boxrig/
+ *
+ * Explicit public declaration inventory. Do not regenerate during tests:
+ * additions require a reviewed case and every applicable frontend verdict.
+ * Each symbol names its primary contract case; runtime assertions remain in
+ * that case's suites and the shared component's per-frontend pass ledger.
+ * Masks use X11=1, Win32=2, GTK3=4, GTK4=8, native Wayland=16.
+ */
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/ui/notification_dispatch.h", VALUE_NOTIFICATION_DISPATCH, 31u,
+    "boxrig_notification_dispatcher_create "
+    "boxrig_notification_dispatcher_process "
+    "boxrig_notification_dispatcher_set_window_state "
+    "boxrig_notification_dispatcher_complete "
+    "boxrig_notification_dispatcher_destroy")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/notification/freedesktop.h", NATIVE_FREEDESKTOP_NOTIFICATIONS, 31u,
+    "boxrig_freedesktop_notifications_create "
+    "boxrig_freedesktop_notifications_process "
+    "boxrig_freedesktop_notifications_set_window_state "
+    "boxrig_freedesktop_notifications_prepare_poll "
+    "boxrig_freedesktop_notifications_dispatch_poll "
+    "boxrig_freedesktop_notifications_destroy")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/notification/glib.h", NATIVE_FREEDESKTOP_NOTIFICATIONS, 31u,
+    "boxrig_freedesktop_notifications_source_new")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/ui/view.h", VALUE_BACKGROUND_LAYERS, 31u,
+    "boxrig_ui_view_set_background_color "
+    "boxrig_ui_view_get_background_color "
+    "boxrig_ui_view_set_background_image "
+    "boxrig_ui_view_get_background_image "
+    "boxrig_ui_background_image_place")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/ui/image.h", VALUE_BACKGROUND_LAYERS, 31u,
+    "boxrig_composite_premultiplied_image_behind")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/gtk3/background_effect.h", NATIVE_BACKGROUND_EFFECT, 4u,
+    "boxrig_gtk3_background_effect_create "
+    "boxrig_gtk3_background_effect_set "
+    "boxrig_gtk3_background_effect_get_state "
+    "boxrig_gtk3_background_effect_destroy")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/gtk4/background_effect.h", NATIVE_BACKGROUND_EFFECT, 8u,
+    "boxrig_gtk4_background_effect_create "
+    "boxrig_gtk4_background_effect_set "
+    "boxrig_gtk4_background_effect_get_state "
+    "boxrig_gtk4_background_effect_destroy")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/wayland/background_effect.h", NATIVE_BACKGROUND_EFFECT, 16u,
+    "boxrig_wayland_background_effect_create "
+    "boxrig_wayland_background_effect_set "
+    "boxrig_wayland_background_effect_ready "
+    "boxrig_wayland_background_effect_get_state "
+    "boxrig_wayland_background_effect_destroy")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/win32/background_effect.h", NATIVE_BACKGROUND_EFFECT, 2u,
+    "boxrig_win32_background_effect_create "
+    "boxrig_win32_background_effect_set "
+    "boxrig_win32_background_effect_refresh "
+    "boxrig_win32_background_effect_get_state "
+    "boxrig_win32_background_effect_destroy")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/x11/background_effect.h", NATIVE_BACKGROUND_EFFECT, 1u,
+    "boxrig_x11_background_effect_create "
+    "boxrig_x11_background_effect_set "
+    "boxrig_x11_background_effect_refresh "
+    "boxrig_x11_background_effect_process_event "
+    "boxrig_x11_background_effect_get_state "
+    "boxrig_x11_background_effect_destroy")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/win32/opengl.h", RENDERER_MEANING, 2u,
+    "boxrig_wgl_binding_create "
+    "boxrig_wgl_binding_destroy")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/gtk3/terminal_widget.h", COMPONENT_LIFECYCLE, 4u,
+    "boxrig_gtk3_terminal_widget_get_type "
+    "boxrig_gtk3_terminal_widget_config_default "
+    "boxrig_gtk3_terminal_widget_create "
+    "boxrig_gtk3_terminal_widget_view "
+    "boxrig_gtk3_terminal_widget_model "
+    "boxrig_gtk3_terminal_widget_composition")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/gtk3/terminal_widget.h", COMPONENT_QUIESCE, 4u,
+    "boxrig_gtk3_terminal_widget_quiesce")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/gtk3/terminal_widget.h", GTK_RENDER_SELECTION, 4u,
+    "boxrig_gtk3_terminal_widget_create_with_render_state "
+    "boxrig_gtk3_terminal_widget_set_render_policy "
+    "boxrig_gtk3_terminal_widget_get_render_state")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/gtk4/terminal_widget.h", GTK_RENDER_SELECTION, 8u,
+    "boxrig_gtk4_terminal_widget_create_with_render_state "
+    "boxrig_gtk4_terminal_widget_set_render_policy "
+    "boxrig_gtk4_terminal_widget_get_render_state")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/gtk3/terminal_widget.h", COMPONENT_ALLOCATION, 4u,
+    "boxrig_gtk3_terminal_widget_set_window_state "
+    "boxrig_gtk3_terminal_widget_get_layout "
+    "boxrig_gtk3_terminal_widget_get_effective_metrics")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/gtk3/terminal_widget.h", FRONTEND_PRESENTATION, 4u,
+    "boxrig_gtk3_terminal_widget_take_layout_action "
+    "boxrig_gtk3_terminal_widget_complete_grid_resize "
+    "boxrig_gtk3_terminal_widget_set_geometry_hints")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/gtk3/terminal_widget.h", COMPONENT_SIZE_COMMAND, 4u,
+    "boxrig_gtk3_terminal_widget_set_preferred_grid "
+    "boxrig_gtk3_terminal_widget_get_preferred_grid "
+    "boxrig_gtk3_terminal_widget_get_size_command_state "
+    "boxrig_gtk3_terminal_widget_complete_size_command")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/gtk3/terminal_widget.h", COMPONENT_FONT, 4u,
+    "boxrig_gtk3_terminal_widget_set_font_specification "
+    "boxrig_gtk3_terminal_widget_get_font_specification "
+    "boxrig_gtk3_terminal_widget_set_font_rendering_policy "
+    "boxrig_gtk3_terminal_widget_get_font_rendering_policy "
+    "boxrig_gtk3_terminal_widget_register_font_file "
+    "boxrig_gtk3_terminal_widget_register_font_memory "
+    "boxrig_gtk3_terminal_widget_primary_font_resource "
+    "boxrig_gtk3_terminal_widget_font_catalog_revision "
+    "boxrig_gtk3_terminal_widget_set_line_height_adjustment "
+    "boxrig_gtk3_terminal_widget_get_line_height_adjustment "
+    "boxrig_gtk3_terminal_widget_visual_zoom "
+    "boxrig_gtk3_terminal_widget_visual_zoom_reset "
+    "boxrig_gtk3_terminal_widget_set_text_direction "
+    "boxrig_gtk3_terminal_widget_text_direction")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/gtk3/terminal_widget.h", COMPONENT_FRAME_DIRTY, 4u,
+    "boxrig_gtk3_terminal_widget_set_frame_request_callback "
+    "boxrig_gtk3_terminal_widget_frame")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/gtk3/terminal_widget.h", COMPONENT_KEY_INPUT, 4u,
+    "boxrig_gtk3_terminal_widget_set_key_router")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/gtk3/terminal_widget.h", COMPONENT_MOUSE_INPUT, 4u,
+    "boxrig_gtk3_terminal_widget_set_mouse_router "
+    "boxrig_gtk3_terminal_widget_hit_test")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/gtk3/terminal_widget.h", COMPONENT_EDITABLE_PROVIDER, 4u,
+    "boxrig_gtk3_terminal_widget_view_action_capabilities")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/gtk3/terminal_widget.h", COMPONENT_SELECTION_COPY, 4u,
+    "boxrig_gtk3_terminal_widget_apply_view_action")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/gtk3/terminal_widget.h", COMPONENT_PASTE, 4u,
+    "boxrig_gtk3_terminal_widget_queue_paste")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/gtk3/terminal_widget.h", COMPONENT_VISIBILITY_FOCUS, 4u,
+    "boxrig_gtk3_terminal_widget_set_visible "
+    "boxrig_gtk3_terminal_widget_visible")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/gtk3/terminal_widget.h", COMPONENT_SCROLLBAR, 4u,
+    "boxrig_gtk3_terminal_widget_get_scrollbar_model "
+    "boxrig_gtk3_terminal_widget_apply_scrollbar_action")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/gtk3/terminal_widget.h", COMPONENT_TRANSPARENCY, 4u,
+    "boxrig_gtk3_terminal_widget_set_transparency "
+    "boxrig_gtk3_terminal_widget_get_transparency")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/gtk3/terminal_widget.h", COMPONENT_DIAGNOSTIC, 4u,
+    "boxrig_gtk3_terminal_widget_capabilities "
+    "boxrig_gtk3_terminal_widget_get_diagnostic "
+    "boxrig_gtk3_terminal_widget_get_ime_state")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/gtk3/terminal_widget.h", COMPONENT_PRESENTATION, 4u,
+    "boxrig_gtk3_terminal_widget_has_presentation "
+    "boxrig_gtk3_terminal_widget_presentation_generation")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/gtk4/terminal_widget.h", COMPONENT_LIFECYCLE, 8u,
+    "boxrig_gtk4_terminal_widget_get_type "
+    "boxrig_gtk4_terminal_widget_config_default "
+    "boxrig_gtk4_terminal_widget_create "
+    "boxrig_gtk4_terminal_widget_view "
+    "boxrig_gtk4_terminal_widget_model "
+    "boxrig_gtk4_terminal_widget_composition")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/gtk4/terminal_widget.h", COMPONENT_QUIESCE, 8u,
+    "boxrig_gtk4_terminal_widget_quiesce")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/gtk4/terminal_widget.h", COMPONENT_ALLOCATION, 8u,
+    "boxrig_gtk4_terminal_widget_set_window_state "
+    "boxrig_gtk4_terminal_widget_get_layout "
+    "boxrig_gtk4_terminal_widget_take_layout_action "
+    "boxrig_gtk4_terminal_widget_complete_grid_resize "
+    "boxrig_gtk4_terminal_widget_get_effective_metrics")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/gtk4/terminal_widget.h", COMPONENT_SIZE_COMMAND, 8u,
+    "boxrig_gtk4_terminal_widget_set_preferred_grid "
+    "boxrig_gtk4_terminal_widget_get_preferred_grid "
+    "boxrig_gtk4_terminal_widget_get_size_command_state "
+    "boxrig_gtk4_terminal_widget_complete_size_command")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/gtk4/terminal_widget.h", COMPONENT_FONT, 8u,
+    "boxrig_gtk4_terminal_widget_set_font_specification "
+    "boxrig_gtk4_terminal_widget_get_font_specification "
+    "boxrig_gtk4_terminal_widget_set_font_rendering_policy "
+    "boxrig_gtk4_terminal_widget_get_font_rendering_policy "
+    "boxrig_gtk4_terminal_widget_register_font_file "
+    "boxrig_gtk4_terminal_widget_register_font_memory "
+    "boxrig_gtk4_terminal_widget_primary_font_resource "
+    "boxrig_gtk4_terminal_widget_font_catalog_revision "
+    "boxrig_gtk4_terminal_widget_set_line_height_adjustment "
+    "boxrig_gtk4_terminal_widget_get_line_height_adjustment "
+    "boxrig_gtk4_terminal_widget_visual_zoom "
+    "boxrig_gtk4_terminal_widget_visual_zoom_reset "
+    "boxrig_gtk4_terminal_widget_set_text_direction "
+    "boxrig_gtk4_terminal_widget_text_direction")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/gtk4/terminal_widget.h", COMPONENT_FRAME_DIRTY, 8u,
+    "boxrig_gtk4_terminal_widget_set_frame_request_callback "
+    "boxrig_gtk4_terminal_widget_frame_ready "
+    "boxrig_gtk4_terminal_widget_frame")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/gtk4/terminal_widget.h", COMPONENT_KEY_INPUT, 8u,
+    "boxrig_gtk4_terminal_widget_set_key_router")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/gtk4/terminal_widget.h", COMPONENT_MOUSE_INPUT, 8u,
+    "boxrig_gtk4_terminal_widget_set_mouse_router "
+    "boxrig_gtk4_terminal_widget_hit_test")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/gtk4/terminal_widget.h", COMPONENT_EDITABLE_PROVIDER, 8u,
+    "boxrig_gtk4_terminal_widget_view_action_capabilities")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/gtk4/terminal_widget.h", COMPONENT_SELECTION_COPY, 8u,
+    "boxrig_gtk4_terminal_widget_apply_view_action")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/gtk4/terminal_widget.h", COMPONENT_PASTE, 8u,
+    "boxrig_gtk4_terminal_widget_queue_paste")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/gtk4/terminal_widget.h", COMPONENT_VISIBILITY_FOCUS, 8u,
+    "boxrig_gtk4_terminal_widget_set_visible "
+    "boxrig_gtk4_terminal_widget_visible")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/gtk4/terminal_widget.h", COMPONENT_SCROLLBAR, 8u,
+    "boxrig_gtk4_terminal_widget_get_scrollbar_model "
+    "boxrig_gtk4_terminal_widget_apply_scrollbar_action")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/gtk4/terminal_widget.h", COMPONENT_TRANSPARENCY, 8u,
+    "boxrig_gtk4_terminal_widget_set_transparency "
+    "boxrig_gtk4_terminal_widget_get_transparency")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/gtk4/terminal_widget.h", COMPONENT_DIAGNOSTIC, 8u,
+    "boxrig_gtk4_terminal_widget_capabilities "
+    "boxrig_gtk4_terminal_widget_get_diagnostic "
+    "boxrig_gtk4_terminal_widget_get_ime_state")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/gtk4/terminal_widget.h", COMPONENT_PRESENTATION, 8u,
+    "boxrig_gtk4_terminal_widget_has_presentation "
+    "boxrig_gtk4_terminal_widget_presentation_generation")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/posix.h", NATIVE_RUNTIME_HOST, 29u,
+    "boxrig_posix_read_graphics_transport "
+    "boxrig_posix_pty_input_batch_initialize "
+    "boxrig_posix_pty_input_batch_pending "
+    "boxrig_posix_pty_input_batch_service "
+    "boxrig_posix_pty_spawn "
+    "boxrig_posix_pty_descriptor "
+    "boxrig_posix_pty_child "
+    "boxrig_posix_pty_resize "
+    "boxrig_posix_pty_wait "
+    "boxrig_posix_pty_destroy "
+    "boxrig_posix_pty_session_create")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/session.h", VALUE_CORE_UI_SEMANTICS, 31u,
+    "boxrig_session_config_default "
+    "boxrig_session_create "
+    "boxrig_session_destroy "
+    "boxrig_session_terminal "
+    "boxrig_session_interests "
+    "boxrig_session_input_pending "
+    "boxrig_session_dispatch "
+    "boxrig_session_resize")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/terminal.h", VALUE_CORE_UI_SEMANTICS, 31u,
+    "boxrig_terminal_config_default "
+    "boxrig_terminal_create "
+    "boxrig_terminal_destroy "
+    "boxrig_terminal_measure_text_cluster "
+    "boxrig_terminal_feed "
+    "boxrig_terminal_finish_input "
+    "boxrig_terminal_resize "
+    "boxrig_terminal_size "
+    "boxrig_terminal_scrollback_rows "
+    "boxrig_terminal_scrollback_capacity "
+    "boxrig_terminal_set_scrollback_capacity "
+    "boxrig_terminal_text_revision "
+    "boxrig_terminal_text_fragment_count "
+    "boxrig_terminal_get_text_fragment "
+    "boxrig_terminal_get_text_position "
+    "boxrig_terminal_rebase_text_range "
+    "boxrig_terminal_create_text_snapshot "
+    "boxrig_terminal_create_text_snapshot_rows "
+    "boxrig_text_snapshot_destroy "
+    "boxrig_text_snapshot_data "
+    "boxrig_text_snapshot_line_count "
+    "boxrig_text_snapshot_revision "
+    "boxrig_text_snapshot_position_at_byte_offset "
+    "boxrig_text_snapshot_byte_offset_at_position "
+    "boxrig_terminal_create_text_search "
+    "boxrig_text_search_resume "
+    "boxrig_text_search_destroy "
+    "boxrig_terminal_register_text_monitor "
+    "boxrig_terminal_unregister_text_monitor "
+    "boxrig_terminal_text_monitor_count "
+    "boxrig_terminal_dispatch_text_monitors "
+    "boxrig_terminal_text_monitor_event_peek "
+    "boxrig_terminal_text_monitor_event_consume "
+    "boxrig_terminal_text_monitor_needs_rescan "
+    "boxrig_terminal_rescan_text_monitor "
+    "boxrig_text_recognizer_limits_default "
+    "boxrig_terminal_register_text_recognizer "
+    "boxrig_terminal_unregister_text_recognizer "
+    "boxrig_terminal_text_recognizer_count "
+    "boxrig_terminal_resume_text_recognizers "
+    "boxrig_terminal_text_recognizer_event_peek "
+    "boxrig_terminal_text_recognizer_event_consume "
+    "boxrig_terminal_query_text_recognizer_line_results "
+    "boxrig_terminal_query_recognition_hits "
+    "boxrig_terminal_text_recognizer_needs_rescan "
+    "boxrig_terminal_rescan_text_recognizer "
+    "boxrig_terminal_viewport_offset "
+    "boxrig_terminal_active_buffer_revision "
+    "boxrig_terminal_active_text_screen "
+    "boxrig_terminal_set_viewport_offset "
+    "boxrig_terminal_get_cell "
+    "boxrig_terminal_resolve_viewport_cell "
+    "boxrig_terminal_get_palette_color "
+    "boxrig_terminal_get_dynamic_color "
+    "boxrig_terminal_color_revision "
+    "boxrig_terminal_get_cursor "
+    "boxrig_terminal_synchronized_output "
+    "boxrig_terminal_take_dirty "
+    "boxrig_terminal_validate_cell_pixel_geometry "
+    "boxrig_terminal_set_cell_pixel_geometry "
+    "boxrig_terminal_acquire_animation_clock "
+    "boxrig_animation_clock_release "
+    "boxrig_animation_clock_update_monotonic_time "
+    "boxrig_terminal_update_monotonic_time "
+    "boxrig_terminal_next_animation_deadline "
+    "boxrig_terminal_image_revision "
+    "boxrig_terminal_image_count "
+    "boxrig_terminal_image_handle_at "
+    "boxrig_terminal_get_image "
+    "boxrig_terminal_image_placement_count "
+    "boxrig_terminal_get_image_placement "
+    "boxrig_terminal_take_image_dirty "
+    "boxrig_terminal_invalidate "
+    "boxrig_terminal_host_item_peek "
+    "boxrig_terminal_host_item_consume "
+    "boxrig_terminal_complete_host_request "
+    "boxrig_terminal_send_key "
+    "boxrig_terminal_send_paste "
+    "boxrig_terminal_send_focus "
+    "boxrig_terminal_mouse_reporting_enabled "
+    "boxrig_terminal_alternate_scroll_enabled "
+    "boxrig_terminal_send_mouse "
+    "boxrig_terminal_send_text "
+    "boxrig_terminal_send_bytes "
+    "boxrig_terminal_output_peek "
+    "boxrig_terminal_output_consume")
+
+BOXRIG_PUBLIC_CONTRACT(
+    CAPABILITY, "include/boxrig/ui/component.h", COMPONENT_DIAGNOSTIC, 31u,
+    "BOXRIG_UI_COMPONENT_CAPABILITY_OWNED_VISIBLE_CHILD "
+    "BOXRIG_UI_COMPONENT_CAPABILITY_VIEW_DIRTY "
+    "BOXRIG_UI_COMPONENT_CAPABILITY_FONT_RESOURCES "
+    "BOXRIG_UI_COMPONENT_CAPABILITY_INPUT_METHOD "
+    "BOXRIG_UI_COMPONENT_CAPABILITY_NATIVE_CHILD_SCROLLBAR "
+    "BOXRIG_UI_COMPONENT_CAPABILITY_CLIPBOARD_PASTE "
+    "BOXRIG_UI_COMPONENT_CAPABILITY_SIZE_COMMAND "
+    "BOXRIG_UI_COMPONENT_CAPABILITY_TARGET_ALPHA "
+    "BOXRIG_UI_COMPONENT_CAPABILITY_BORROWED_TARGET "
+    "BOXRIG_UI_COMPONENT_CAPABILITY_COMPOSITED_SCROLLBAR "
+    "BOXRIG_UI_COMPONENT_CAPABILITY_EXTERNAL_PRESENTATION")
+
+BOXRIG_PUBLIC_CONTRACT(
+    FAILURE, "include/boxrig/ui/component.h", COMPONENT_DIAGNOSTIC, 31u,
+    "BOXRIG_UI_COMPONENT_FAILURE_NONE "
+    "BOXRIG_UI_COMPONENT_FAILURE_NATIVE_INPUT_OVERFLOW "
+    "BOXRIG_UI_COMPONENT_FAILURE_INPUT "
+    "BOXRIG_UI_COMPONENT_FAILURE_INPUT_METHOD "
+    "BOXRIG_UI_COMPONENT_FAILURE_CLIPBOARD "
+    "BOXRIG_UI_COMPONENT_FAILURE_RENDERER "
+    "BOXRIG_UI_COMPONENT_FAILURE_ANIMATION")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/ui/composition.h", VALUE_CORE_UI_SEMANTICS, 31u,
+    "boxrig_composition_limits_default "
+    "boxrig_composition_create "
+    "boxrig_composition_set_commit_sink "
+    "boxrig_composition_destroy "
+    "boxrig_composition_apply_event "
+    "boxrig_composition_retry_commit "
+    "boxrig_composition_cancel_pending_commit "
+    "boxrig_composition_focus_changed "
+    "boxrig_composition_synchronize "
+    "boxrig_composition_terminate "
+    "boxrig_composition_get_view "
+    "boxrig_composition_get_cluster")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/ui/editable.h", VALUE_CORE_UI_SEMANTICS, 31u,
+    "boxrig_ui_editable_limits_default "
+    "boxrig_ui_view_editable_document "
+    "boxrig_ui_editable_document_set_limits "
+    "boxrig_ui_editable_document_publish "
+    "boxrig_ui_editable_document_clear "
+    "boxrig_ui_editable_document_get_snapshot "
+    "boxrig_ui_editable_document_begin_reconversion "
+    "boxrig_ui_editable_document_confirm_reconversion_range "
+    "boxrig_ui_editable_document_cancel_reconversion "
+    "boxrig_ui_editable_document_commit_reconversion "
+    "boxrig_ui_editable_document_take_replacement "
+    "boxrig_ui_editable_document_complete_replacement "
+    "boxrig_ui_editable_document_reconversion_state")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/ui/editable.h", VALUE_EDITABLE_DOCUMENT, 31u,
+    "boxrig_ui_editable_document_publish_context "
+    "boxrig_ui_editable_document_get_context "
+    "boxrig_ui_editable_document_invalidate_input "
+    "boxrig_ui_editable_document_input_generation "
+    "boxrig_ui_editable_document_set_apply_handler "
+    "boxrig_ui_editable_document_capabilities "
+    "boxrig_ui_editable_document_apply_edit")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/ui/image.h", VALUE_CORE_UI_SEMANTICS, 31u,
+    "boxrig_premultiplied_image_create "
+    "boxrig_premultiplied_image_destroy "
+    "boxrig_composite_premultiplied_image")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/ui/input.h", VALUE_CORE_UI_SEMANTICS, 31u,
+    "boxrig_ui_view_action_supported")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/ui/input_text.h", VALUE_CORE_UI_SEMANTICS, 31u,
+    "boxrig_input_text_normalize_utf8 boxrig_input_text_chunk_length")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/ui/lifecycle.h", VALUE_CORE_UI_SEMANTICS, 31u,
+    "boxrig_ui_lifecycle_initialize "
+    "boxrig_ui_lifecycle_get_state "
+    "boxrig_ui_lifecycle_accepts_events "
+    "boxrig_ui_lifecycle_begin_shutdown "
+    "boxrig_ui_lifecycle_mark_detached "
+    "boxrig_ui_lifecycle_mark_stopped")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/ui/notification.h", VALUE_CORE_UI_SEMANTICS, 31u,
+    "boxrig_notification_policy_config_default "
+    "boxrig_notification_policy_create "
+    "boxrig_notification_policy_evaluate "
+    "boxrig_notification_policy_record_success "
+    "boxrig_notification_policy_destroy")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/ui/color.h", VALUE_CORE_UI_SEMANTICS, 31u,
+    "boxrig_ui_color_filter_result_default "
+    "boxrig_ui_color_resolve_rgb")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/ui/pixel.h", VALUE_CORE_UI_SEMANTICS, 31u,
+    "boxrig_ui_background_opacity_from_percent "
+    "boxrig_ui_argb32_premultiply "
+    "boxrig_ui_argb32_source_over "
+    "boxrig_ui_argb32_for_role")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/ui/scrollbar.h", VALUE_CORE_UI_SEMANTICS, 31u,
+    "boxrig_scrollbar_model_read "
+    "boxrig_scrollbar_apply_action "
+    "boxrig_scrollbar_calculate_thumb "
+    "boxrig_scrollbar_position_from_thumb")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/ui/shortcut.h", VALUE_CORE_UI_SEMANTICS, 31u,
+    "boxrig_ui_zoom_shortcut_match "
+    "boxrig_ui_background_opacity_shortcut_match "
+    "boxrig_ui_clipboard_shortcut_match "
+    "boxrig_ui_background_opacity_shortcut_next")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/ui/text_layout.h", VALUE_CORE_UI_SEMANTICS, 31u,
+    "boxrig_text_layout_create "
+    "boxrig_text_layout_retain "
+    "boxrig_text_layout_destroy "
+    "boxrig_text_layout_estimated_bytes "
+    "boxrig_text_layout_column_count "
+    "boxrig_text_layout_run_count "
+    "boxrig_text_layout_get_run "
+    "boxrig_text_layout_logical_to_visual "
+    "boxrig_text_layout_visual_to_logical "
+    "boxrig_text_layout_dirty_ranges "
+    "boxrig_text_layout_visual_ranges "
+    "boxrig_font_specification_default "
+    "boxrig_font_rendering_policy_default "
+    "boxrig_font_catalog_limits_default "
+    "boxrig_font_catalog_create "
+    "boxrig_font_catalog_destroy "
+    "boxrig_font_catalog_register_file "
+    "boxrig_font_catalog_register_memory "
+    "boxrig_font_catalog_remove "
+    "boxrig_font_catalog_get_resource "
+    "boxrig_font_catalog_revision "
+    "boxrig_font_catalog_usage "
+    "boxrig_font_specification_validate "
+    "boxrig_font_rendering_policy_validate "
+    "boxrig_font_visual_step_policy_default "
+    "boxrig_font_effective_metrics_apply_line_height "
+    "boxrig_font_visual_step_sequence_create "
+    "boxrig_font_visual_step_sequence_destroy "
+    "boxrig_font_visual_step_sequence_current "
+    "boxrig_font_visual_step_sequence_peek "
+    "boxrig_font_visual_step_sequence_advance "
+    "boxrig_font_visual_step_sequence_peek_reset "
+    "boxrig_font_visual_step_sequence_reset")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/ui/view.h", VALUE_CORE_UI_SEMANTICS, 31u,
+    "boxrig_ui_color_resolve_cell "
+    "boxrig_ui_view_set_color_filter "
+    "boxrig_ui_view_invalidate_colors "
+    "boxrig_ui_view_color_revision "
+    "boxrig_ui_view_has_color_filter "
+    "boxrig_ui_view_set_focused "
+    "boxrig_ui_view_focused "
+    "boxrig_ui_view_resolve_colors "
+    "boxrig_ui_view_set_blink_config "
+    "boxrig_ui_view_get_blink_config "
+    "boxrig_ui_view_update_monotonic_time "
+    "boxrig_ui_view_next_animation_deadline "
+    "boxrig_ui_view_cursor_blink_visible "
+    "boxrig_ui_view_text_blink_visible "
+    "boxrig_ui_view_set_cursor_style "
+    "boxrig_ui_view_get_cursor_style "
+    "boxrig_ui_view_reset_cursor_style "
+    "boxrig_ui_view_set_selection_style "
+    "boxrig_ui_view_get_selection_style "
+    "boxrig_ui_view_reset_selection_style "
+    "boxrig_ui_view_notify_local_input "
+    "boxrig_ui_view_set_composition_active "
+    "boxrig_ui_view_config_default "
+    "boxrig_ui_transparency_config_default "
+    "boxrig_ui_transparency_resolve "
+    "boxrig_ui_model_create "
+    "boxrig_ui_model_destroy "
+    "boxrig_ui_model_terminal "
+    "boxrig_ui_model_synchronize "
+    "boxrig_ui_model_get_canonical_cell_metrics "
+    "boxrig_ui_host_item_consumer_create "
+    "boxrig_ui_host_item_consumer_destroy "
+    "boxrig_ui_host_item_consumer_terminal "
+    "boxrig_ui_host_item_consumer_peek "
+    "boxrig_ui_host_item_consumer_consume "
+    "boxrig_ui_host_item_consumer_complete "
+    "boxrig_ui_view_create "
+    "boxrig_ui_view_destroy "
+    "boxrig_ui_view_model "
+    "boxrig_ui_view_terminal "
+    "boxrig_ui_view_acquire_layout_authority "
+    "boxrig_ui_view_release_layout_authority "
+    "boxrig_ui_view_is_layout_authority "
+    "boxrig_ui_view_validate_cell_metrics "
+    "boxrig_ui_view_commit_cell_metrics "
+    "boxrig_ui_view_set_frame_request_callback "
+    "boxrig_ui_view_set_visible "
+    "boxrig_ui_view_frame_requested "
+    "boxrig_ui_view_peek_dirty "
+    "boxrig_ui_view_get_row_dirty "
+    "boxrig_ui_view_consume_dirty "
+    "boxrig_ui_view_invalidate "
+    "boxrig_ui_view_set_geometry_capabilities "
+    "boxrig_ui_view_get_geometry_capabilities "
+    "boxrig_ui_view_accept_allocation "
+    "boxrig_ui_view_apply_layout_change "
+    "boxrig_ui_view_get_size_command_state "
+    "boxrig_ui_view_complete_size_command "
+    "boxrig_ui_view_get_layout "
+    "boxrig_ui_view_set_preferred_grid "
+    "boxrig_ui_view_get_preferred_grid "
+    "boxrig_ui_view_peek_layout_action "
+    "boxrig_ui_view_take_layout_action "
+    "boxrig_ui_view_store_row_layout "
+    "boxrig_ui_view_hit_test "
+    "boxrig_ui_view_hit_test_with_composition "
+    "boxrig_ui_view_replace_text_annotations "
+    "boxrig_ui_view_clear_text_annotations "
+    "boxrig_ui_view_query_text_annotation_visual_ranges "
+    "boxrig_ui_view_query_text_annotation_hits "
+    "boxrig_ui_view_begin_selection "
+    "boxrig_ui_view_begin_selection_with_options "
+    "boxrig_ui_view_update_selection "
+    "boxrig_ui_view_get_selection "
+    "boxrig_ui_view_query_selection_rows "
+    "boxrig_ui_view_query_selection_row_ranges "
+    "boxrig_ui_view_clear_selection "
+    "boxrig_ui_view_selection_visual_ranges "
+    "boxrig_ui_view_begin_search "
+    "boxrig_ui_view_resume_search "
+    "boxrig_ui_view_get_search_result "
+    "boxrig_ui_view_reveal_search_result "
+    "boxrig_ui_view_clear_search "
+    "boxrig_ui_view_search_visual_ranges "
+    "boxrig_ui_view_update_hyperlink_hover "
+    "boxrig_ui_view_get_hyperlink_hover "
+    "boxrig_ui_view_clear_hyperlink_hover "
+    "boxrig_ui_view_hyperlink_hover_visual_ranges "
+    "boxrig_ui_view_create_selection_snapshot "
+    "boxrig_ui_view_set_transparency_config "
+    "boxrig_ui_view_report_transparency_capabilities "
+    "boxrig_ui_view_get_transparency "
+    "boxrig_ui_view_attach_render_target "
+    "boxrig_ui_view_detach_render_target "
+    "boxrig_ui_view_get_render_target")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/ui/view.h", VALUE_CANDIDATE_STATE, 31u,
+    "boxrig_ui_view_set_candidates "
+    "boxrig_ui_view_get_candidates "
+    "boxrig_ui_view_clear_candidates")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OVERLAY, "include/boxrig/ui/view.h", RENDERER_CANDIDATES, 31u,
+    "BOXRIG_UI_OVERLAY_CANDIDATES")
+
+BOXRIG_PUBLIC_CONTRACT(
+    CAPABILITY, "include/boxrig/ui/view.h", COMPONENT_SIZE_COMMAND, 31u,
+    "BOXRIG_UI_GEOMETRY_SIZE_COMMAND "
+    "BOXRIG_UI_GEOMETRY_RESIZE_INCREMENTS")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OVERLAY, "include/boxrig/ui/view.h", RENDERER_MEANING, 31u,
+    "BOXRIG_UI_OVERLAY_SEARCH_MATCH "
+    "BOXRIG_UI_OVERLAY_SELECTION "
+    "BOXRIG_UI_OVERLAY_HYPERLINK_HOVER "
+    "BOXRIG_UI_OVERLAY_CURSOR "
+    "BOXRIG_UI_OVERLAY_IME")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/wayland.h", NATIVE_RUNTIME_HOST, 16u,
+    "boxrig_wayland_context_config_default "
+    "boxrig_wayland_context_create "
+    "boxrig_wayland_context_destroy "
+    "boxrig_wayland_context_dispatch "
+    "boxrig_wayland_context_prepare_ime_poll "
+    "boxrig_wayland_context_dispatch_ime_poll "
+    "boxrig_wayland_context_prepare_wait_sources "
+    "boxrig_wayland_context_dispatch_wait_sources "
+    "boxrig_wayland_context_note_flushed "
+    "boxrig_wayland_context_update_monotonic_time "
+    "boxrig_wayland_context_get_serial "
+    "boxrig_wayland_context_get_diagnostic")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/wayland.h", COMPONENT_LIFECYCLE, 16u,
+    "boxrig_wayland_terminal_component_config_default "
+    "boxrig_wayland_terminal_component_create "
+    "boxrig_wayland_terminal_component_destroy "
+    "boxrig_wayland_terminal_component_view "
+    "boxrig_wayland_terminal_component_composition")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/wayland.h", COMPONENT_QUIESCE, 16u,
+    "boxrig_wayland_terminal_component_quiesce")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/wayland.h", FRONTEND_PRESENTATION, 16u,
+    "boxrig_wayland_terminal_component_surface "
+    "boxrig_wayland_terminal_component_take_host_action "
+    "boxrig_wayland_terminal_component_complete_parent_commit")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/wayland.h", COMPONENT_KEY_INPUT, 16u,
+    "boxrig_wayland_terminal_component_set_ime_window_offset "
+    "boxrig_wayland_terminal_component_set_key_router")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/wayland.h", COMPONENT_MOUSE_INPUT, 16u,
+    "boxrig_wayland_terminal_component_set_mouse_router "
+    "boxrig_wayland_terminal_component_hit_test")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/wayland.h", COMPONENT_EDITABLE_PROVIDER, 16u,
+    "boxrig_wayland_terminal_component_view_action_capabilities")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/wayland.h", COMPONENT_SELECTION_COPY, 16u,
+    "boxrig_wayland_terminal_component_apply_view_action")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/wayland.h", COMPONENT_FONT, 16u,
+    "boxrig_wayland_terminal_component_set_font_specification "
+    "boxrig_wayland_terminal_component_get_font_specification "
+    "boxrig_wayland_terminal_component_set_font_rendering_policy "
+    "boxrig_wayland_terminal_component_get_font_rendering_policy "
+    "boxrig_wayland_terminal_component_register_font_file "
+    "boxrig_wayland_terminal_component_register_font_memory "
+    "boxrig_wayland_terminal_component_primary_font_resource "
+    "boxrig_wayland_terminal_component_font_catalog_revision "
+    "boxrig_wayland_terminal_component_set_line_height_adjustment "
+    "boxrig_wayland_terminal_component_get_line_height_adjustment "
+    "boxrig_wayland_terminal_component_visual_zoom "
+    "boxrig_wayland_terminal_component_visual_zoom_reset "
+    "boxrig_wayland_terminal_component_set_text_direction "
+    "boxrig_wayland_terminal_component_text_direction")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/wayland.h", COMPONENT_ALLOCATION, 16u,
+    "boxrig_wayland_terminal_component_get_effective_metrics "
+    "boxrig_wayland_terminal_component_allocate "
+    "boxrig_wayland_terminal_component_get_layout "
+    "boxrig_wayland_terminal_component_take_layout_action "
+    "boxrig_wayland_terminal_component_complete_grid_resize")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/wayland.h", COMPONENT_SIZE_COMMAND, 16u,
+    "boxrig_wayland_terminal_component_complete_size_command")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/wayland.h", COMPONENT_VISIBILITY_FOCUS, 16u,
+    "boxrig_wayland_terminal_component_set_visible")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/wayland.h", COMPONENT_FRAME_DIRTY, 16u,
+    "boxrig_wayland_terminal_component_frame")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/wayland.h", COMPONENT_TRANSPARENCY, 16u,
+    "boxrig_wayland_terminal_component_set_transparency "
+    "boxrig_wayland_terminal_component_get_transparency")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/wayland.h", COMPONENT_DIAGNOSTIC, 16u,
+    "boxrig_wayland_terminal_component_capabilities "
+    "boxrig_wayland_terminal_component_get_diagnostic")
+
+BOXRIG_PUBLIC_CONTRACT(
+    FAILURE, "include/boxrig/wayland.h", NATIVE_RUNTIME_HOST, 16u,
+    "BOXRIG_WAYLAND_FAILURE_NONE "
+    "BOXRIG_WAYLAND_FAILURE_REQUIRED_GLOBAL_MISSING "
+    "BOXRIG_WAYLAND_FAILURE_REQUIRED_GLOBAL_REMOVED "
+    "BOXRIG_WAYLAND_FAILURE_DISPLAY "
+    "BOXRIG_WAYLAND_FAILURE_WORK_QUEUE_OVERFLOW "
+    "BOXRIG_WAYLAND_FAILURE_RESOURCE "
+    "BOXRIG_WAYLAND_FAILURE_INPUT_QUEUE_OVERFLOW "
+    "BOXRIG_WAYLAND_FAILURE_KEYMAP "
+    "BOXRIG_WAYLAND_FAILURE_INPUT "
+    "BOXRIG_WAYLAND_FAILURE_ANIMATION")
+
+BOXRIG_PUBLIC_CONTRACT(
+    CAPABILITY, "include/boxrig/wayland.h", NATIVE_INPUT_IME, 16u,
+    "BOXRIG_WAYLAND_INPUT_CAPABILITY_KEYBOARD "
+    "BOXRIG_WAYLAND_INPUT_CAPABILITY_POINTER "
+    "BOXRIG_WAYLAND_INPUT_CAPABILITY_TEXT_INPUT_V3 "
+    "BOXRIG_WAYLAND_INPUT_CAPABILITY_XKB_COMPOSE "
+    "BOXRIG_WAYLAND_INPUT_CAPABILITY_IBUS")
+
+BOXRIG_PUBLIC_CONTRACT(
+    CAPABILITY, "include/boxrig/wayland.h", NATIVE_CLIPBOARD, 16u,
+    "BOXRIG_WAYLAND_CLIPBOARD_CAPABILITY_CLIPBOARD "
+    "BOXRIG_WAYLAND_CLIPBOARD_CAPABILITY_PRIMARY")
+
+BOXRIG_PUBLIC_CONTRACT(
+    FAILURE, "include/boxrig/wayland.h", NATIVE_CLIPBOARD, 16u,
+    "BOXRIG_WAYLAND_CLIPBOARD_FAILURE_NONE "
+    "BOXRIG_WAYLAND_CLIPBOARD_FAILURE_PROTOCOL_UNAVAILABLE "
+    "BOXRIG_WAYLAND_CLIPBOARD_FAILURE_SERIAL_UNAVAILABLE "
+    "BOXRIG_WAYLAND_CLIPBOARD_FAILURE_OFFER_UNAVAILABLE "
+    "BOXRIG_WAYLAND_CLIPBOARD_FAILURE_MIME_UNSUPPORTED "
+    "BOXRIG_WAYLAND_CLIPBOARD_FAILURE_BUSY "
+    "BOXRIG_WAYLAND_CLIPBOARD_FAILURE_LIMIT_EXCEEDED "
+    "BOXRIG_WAYLAND_CLIPBOARD_FAILURE_IO "
+    "BOXRIG_WAYLAND_CLIPBOARD_FAILURE_INVALID_TEXT")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/win32/component.h", COMPONENT_LIFECYCLE, 2u,
+    "boxrig_win32_terminal_component_config_default "
+    "boxrig_win32_terminal_component_create_child "
+    "boxrig_win32_terminal_component_create_on_target "
+    "boxrig_win32_terminal_component_destroy "
+    "boxrig_win32_terminal_component_view "
+    "boxrig_win32_terminal_component_composition "
+    "boxrig_win32_terminal_component_model")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/win32/component.h", COMPONENT_QUIESCE, 2u,
+    "boxrig_win32_terminal_component_quiesce")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/win32/component.h", FRONTEND_PRESENTATION, 2u,
+    "boxrig_win32_terminal_component_native_hosting "
+    "boxrig_win32_terminal_component_owned_window "
+    "boxrig_win32_terminal_component_presentation_window "
+    "boxrig_win32_terminal_component_input_window "
+    "boxrig_win32_terminal_component_input_window_owned "
+    "boxrig_win32_terminal_component_scrollbar_window "
+    "boxrig_win32_terminal_component_activity_handle "
+    "boxrig_win32_terminal_component_dispatch_activity")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/win32/component.h", COMPONENT_ALLOCATION, 2u,
+    "boxrig_win32_terminal_component_set_target_extent "
+    "boxrig_win32_terminal_component_allocate "
+    "boxrig_win32_terminal_component_get_layout "
+    "boxrig_win32_terminal_component_take_layout_action "
+    "boxrig_win32_terminal_component_complete_grid_resize "
+    "boxrig_win32_terminal_component_get_effective_metrics")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/win32/component.h", NATIVE_INPUT_IME, 2u,
+    "boxrig_win32_terminal_component_set_editable_document_provider "
+    "boxrig_win32_terminal_component_dispatch_message "
+    "boxrig_win32_terminal_component_resynchronize_ime_placement "
+    "boxrig_win32_terminal_component_ime_placement_status")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/win32/component.h", P2_WIN32_IME_DWM, 2u,
+    "boxrig_win32_terminal_component_pretranslate_message")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/win32/component.h", COMPONENT_SIZE_COMMAND, 2u,
+    "boxrig_win32_terminal_component_set_preferred_grid "
+    "boxrig_win32_terminal_component_get_preferred_grid "
+    "boxrig_win32_terminal_component_get_size_command_state "
+    "boxrig_win32_terminal_component_complete_size_command")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/win32/component.h", COMPONENT_FONT, 2u,
+    "boxrig_win32_terminal_component_set_font_specification "
+    "boxrig_win32_terminal_component_get_font_specification "
+    "boxrig_win32_terminal_component_set_font_rendering_policy "
+    "boxrig_win32_terminal_component_get_font_rendering_policy "
+    "boxrig_win32_terminal_component_register_font_file "
+    "boxrig_win32_terminal_component_register_font_memory "
+    "boxrig_win32_terminal_component_primary_font_resource "
+    "boxrig_win32_terminal_component_font_catalog_revision "
+    "boxrig_win32_terminal_component_set_line_height_adjustment "
+    "boxrig_win32_terminal_component_get_line_height_adjustment "
+    "boxrig_win32_terminal_component_visual_zoom "
+    "boxrig_win32_terminal_component_visual_zoom_reset "
+    "boxrig_win32_terminal_component_set_text_direction "
+    "boxrig_win32_terminal_component_text_direction")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/win32/component.h", COMPONENT_FRAME_DIRTY, 2u,
+    "boxrig_win32_terminal_component_set_frame_request_callback "
+    "boxrig_win32_terminal_component_frame")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/win32/component.h", COMPONENT_VISIBILITY_FOCUS, 2u,
+    "boxrig_win32_terminal_component_set_visible "
+    "boxrig_win32_terminal_component_visible "
+    "boxrig_win32_terminal_component_request_focus "
+    "boxrig_win32_terminal_component_focused")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/win32/component.h", COMPONENT_KEY_INPUT, 2u,
+    "boxrig_win32_terminal_component_set_key_router")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/win32/component.h", COMPONENT_MOUSE_INPUT, 2u,
+    "boxrig_win32_terminal_component_set_mouse_router "
+    "boxrig_win32_terminal_component_hit_test")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/win32/component.h", COMPONENT_EDITABLE_PROVIDER, 2u,
+    "boxrig_win32_terminal_component_view_action_capabilities")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/win32/component.h", COMPONENT_SELECTION_COPY, 2u,
+    "boxrig_win32_terminal_component_apply_view_action")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/win32/component.h", COMPONENT_PASTE, 2u,
+    "boxrig_win32_terminal_component_queue_paste")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/win32/component.h", COMPONENT_SCROLLBAR, 2u,
+    "boxrig_win32_terminal_component_get_scrollbar_model "
+    "boxrig_win32_terminal_component_apply_scrollbar_action")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/win32/component.h", COMPONENT_TRANSPARENCY, 2u,
+    "boxrig_win32_terminal_component_set_transparency "
+    "boxrig_win32_terminal_component_get_transparency")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/win32/component.h", COMPONENT_DIAGNOSTIC, 2u,
+    "boxrig_win32_terminal_component_capabilities "
+    "boxrig_win32_terminal_component_get_diagnostic")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/win32/event.h", NATIVE_RUNTIME_HOST, 2u,
+    "boxrig_win32_sample_monotonic_time "
+    "boxrig_win32_animation_wait_timeout")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/win32/host.h", NATIVE_RUNTIME_HOST, 2u,
+    "boxrig_win32_host_policy_default "
+    "boxrig_win32_host_adapter_create "
+    "boxrig_win32_host_adapter_process_items "
+    "boxrig_win32_host_adapter_destroy")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/win32/input.h", NATIVE_INPUT_IME, 2u,
+    "boxrig_win32_input_adapter_create "
+    "boxrig_win32_input_adapter_set_editable_document "
+    "boxrig_win32_input_adapter_set_key_router "
+    "boxrig_win32_input_adapter_set_mouse_router "
+    "boxrig_win32_input_adapter_view_action_capabilities "
+    "boxrig_win32_input_adapter_apply_view_action "
+    "boxrig_win32_input_adapter_set_cell_size "
+    "boxrig_win32_input_adapter_set_viewport_origin "
+    "boxrig_win32_input_adapter_composition "
+    "boxrig_win32_input_adapter_composition_start "
+    "boxrig_win32_input_adapter_composition_update_utf16 "
+    "boxrig_win32_input_adapter_composition_complete "
+    "boxrig_win32_input_adapter_composition_cancel "
+    "boxrig_win32_input_adapter_composition_commit_utf16 "
+    "boxrig_win32_input_adapter_synchronize_candidate "
+    "boxrig_win32_input_adapter_resynchronize_candidate "
+    "boxrig_win32_input_adapter_pretranslate_message "
+    "boxrig_win32_input_adapter_process_message "
+    "boxrig_win32_input_adapter_retry "
+    "boxrig_win32_input_adapter_blocked "
+    "boxrig_win32_input_adapter_destroy")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/win32/input.h", NATIVE_CLIPBOARD, 2u,
+    "boxrig_win32_input_adapter_queue_paste")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/win32/pty.h", NATIVE_RUNTIME_HOST, 2u,
+    "boxrig_win32_pty_spawn "
+    "boxrig_win32_pty_input_handle "
+    "boxrig_win32_pty_output_handle "
+    "boxrig_win32_pty_process_handle "
+    "boxrig_win32_pty_resize "
+    "boxrig_win32_pty_close "
+    "boxrig_win32_pty_destroy")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/win32/renderer.h", RENDERER_MEANING, 2u,
+    "boxrig_win32_renderer_create "
+    "boxrig_win32_renderer_destroy "
+    "boxrig_win32_renderer_cell_width "
+    "boxrig_win32_renderer_cell_height "
+    "boxrig_win32_renderer_set_composited_scrollbar "
+    "boxrig_win32_renderer_set_composited_scrollbar_interaction "
+    "boxrig_win32_renderer_apply_transparency_state "
+    "boxrig_win32_renderer_set_surface_size "
+    "boxrig_win32_renderer_get_surface "
+    "boxrig_win32_renderer_register_font_file "
+    "boxrig_win32_renderer_register_font_memory "
+    "boxrig_win32_renderer_set_font "
+    "boxrig_win32_renderer_get_effective_metrics "
+    "boxrig_win32_renderer_set_line_height_adjustment "
+    "boxrig_win32_renderer_visual_zoom "
+    "boxrig_win32_renderer_visual_zoom_reset "
+    "boxrig_win32_renderer_primary_font_resource "
+    "boxrig_win32_renderer_font_catalog_revision "
+    "boxrig_win32_renderer_set_direction_policy "
+    "boxrig_win32_renderer_layout_line "
+    "boxrig_win32_renderer_reset_render_statistics "
+    "boxrig_win32_renderer_get_render_statistics "
+    "boxrig_win32_renderer_present "
+    "boxrig_win32_renderer_update "
+    "boxrig_win32_renderer_update_view "
+    "boxrig_win32_renderer_update_composition "
+    "boxrig_win32_renderer_update_view_composition "
+    "boxrig_win32_renderer_take_present_dirty "
+    "boxrig_win32_renderer_draw "
+    "boxrig_win32_renderer_draw_composition")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/win32/session.h", NATIVE_RUNTIME_HOST, 2u,
+    "boxrig_win32_pty_session_create "
+    "boxrig_win32_pty_session_destroy "
+    "boxrig_win32_pty_session_activity_handle "
+    "boxrig_win32_pty_session_interests "
+    "boxrig_win32_pty_session_dispatch "
+    "boxrig_win32_pty_session_resize")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/win32/transparency.h", NATIVE_RUNTIME_HOST, 2u,
+    "boxrig_win32_transparency_context_create "
+    "boxrig_win32_transparency_context_destroy "
+    "boxrig_win32_transparency_context_get_support "
+    "boxrig_win32_transparency_context_get_state "
+    "boxrig_win32_transparency_context_set_config "
+    "boxrig_win32_transparency_context_get_window_requirements "
+    "boxrig_win32_transparency_context_bind_host "
+    "boxrig_win32_transparency_context_bind_prepared_host "
+    "boxrig_win32_transparency_context_synchronize_layout "
+    "boxrig_win32_transparency_context_set_visible "
+    "boxrig_win32_transparency_context_process_host_message "
+    "boxrig_win32_transparency_context_visual_window "
+    "boxrig_win32_transparency_context_scrollbar_window "
+    "boxrig_win32_transparency_context_fallback_window "
+    "boxrig_win32_transparency_context_set_scroll_info "
+    "boxrig_win32_transparency_context_get_scroll_info "
+    "boxrig_win32_transparency_context_present "
+    "boxrig_win32_transparency_context_present_opaque")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/win32/host_transparency.h", NATIVE_RUNTIME_HOST, 2u,
+    "boxrig_win32_opacity_config_default "
+    "boxrig_win32_transparency_host_create "
+    "boxrig_win32_transparency_host_destroy "
+    "boxrig_win32_transparency_host_request "
+    "boxrig_win32_transparency_host_get_state "
+    "boxrig_win32_transparency_host_report "
+    "boxrig_win32_transparency_host_commit "
+    "boxrig_win32_transparency_host_cancel")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/x11/component.h", COMPONENT_LIFECYCLE, 1u,
+    "boxrig_x11_terminal_component_config_default "
+    "boxrig_x11_terminal_component_create_child "
+    "boxrig_x11_terminal_component_create_on_target "
+    "boxrig_x11_terminal_component_destroy "
+    "boxrig_x11_terminal_component_view "
+    "boxrig_x11_terminal_component_composition "
+    "boxrig_x11_terminal_component_model")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/x11/component.h", COMPONENT_QUIESCE, 1u,
+    "boxrig_x11_terminal_component_quiesce")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/x11/component.h", FRONTEND_PRESENTATION, 1u,
+    "boxrig_x11_terminal_component_native_hosting "
+    "boxrig_x11_terminal_component_owned_window "
+    "boxrig_x11_terminal_component_presentation_window "
+    "boxrig_x11_terminal_component_input_window "
+    "boxrig_x11_terminal_component_input_window_owned "
+    "boxrig_x11_terminal_component_scrollbar_window")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/x11/component.h", COMPONENT_ALLOCATION, 1u,
+    "boxrig_x11_terminal_component_set_target_extent "
+    "boxrig_x11_terminal_component_allocate "
+    "boxrig_x11_terminal_component_get_layout "
+    "boxrig_x11_terminal_component_take_layout_action "
+    "boxrig_x11_terminal_component_complete_grid_resize "
+    "boxrig_x11_terminal_component_get_effective_metrics")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/x11/component.h", COMPONENT_SIZE_COMMAND, 1u,
+    "boxrig_x11_terminal_component_set_preferred_grid "
+    "boxrig_x11_terminal_component_get_preferred_grid "
+    "boxrig_x11_terminal_component_get_size_command_state "
+    "boxrig_x11_terminal_component_complete_size_command")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/x11/component.h", COMPONENT_FONT, 1u,
+    "boxrig_x11_terminal_component_set_font_specification "
+    "boxrig_x11_terminal_component_get_font_specification "
+    "boxrig_x11_terminal_component_set_font_rendering_policy "
+    "boxrig_x11_terminal_component_get_font_rendering_policy "
+    "boxrig_x11_terminal_component_register_font_file "
+    "boxrig_x11_terminal_component_register_font_memory "
+    "boxrig_x11_terminal_component_primary_font_resource "
+    "boxrig_x11_terminal_component_font_catalog_revision "
+    "boxrig_x11_terminal_component_set_line_height_adjustment "
+    "boxrig_x11_terminal_component_get_line_height_adjustment "
+    "boxrig_x11_terminal_component_visual_zoom "
+    "boxrig_x11_terminal_component_visual_zoom_reset "
+    "boxrig_x11_terminal_component_set_text_direction "
+    "boxrig_x11_terminal_component_text_direction")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/x11/component.h", COMPONENT_FRAME_DIRTY, 1u,
+    "boxrig_x11_terminal_component_set_frame_request_callback "
+    "boxrig_x11_terminal_component_frame")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/x11/opengl_component.h", COMPONENT_LIFECYCLE, 1u,
+    "boxrig_x11_opengl_component_config_default "
+    "boxrig_x11_opengl_terminal_component_get_window_requirements "
+    "boxrig_x11_opengl_terminal_component_create_child "
+    "boxrig_x11_opengl_terminal_component_create_child_with_config "
+    "boxrig_x11_opengl_terminal_component_create_on_target")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/wayland/opengl_component.h", COMPONENT_LIFECYCLE, 16u,
+    "boxrig_wayland_opengl_component_config_default "
+    "boxrig_wayland_opengl_terminal_component_create "
+    "boxrig_wayland_opengl_terminal_component_create_with_config")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/wayland/opengl_component.h", COMPONENT_DIAGNOSTIC, 16u,
+    "boxrig_wayland_opengl_terminal_component_get_diagnostic")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/x11/component.h", COMPONENT_VISIBILITY_FOCUS, 1u,
+    "boxrig_x11_terminal_component_request_focus "
+    "boxrig_x11_terminal_component_focused "
+    "boxrig_x11_terminal_component_set_visible "
+    "boxrig_x11_terminal_component_visible")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/x11/component.h", COMPONENT_KEY_INPUT, 1u,
+    "boxrig_x11_terminal_component_set_key_router")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/x11/component.h", COMPONENT_MOUSE_INPUT, 1u,
+    "boxrig_x11_terminal_component_set_mouse_router "
+    "boxrig_x11_terminal_component_hit_test")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/x11/component.h", COMPONENT_EDITABLE_PROVIDER, 1u,
+    "boxrig_x11_terminal_component_view_action_capabilities")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/x11/component.h", COMPONENT_SELECTION_COPY, 1u,
+    "boxrig_x11_terminal_component_apply_view_action")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/x11/component.h", COMPONENT_PASTE, 1u,
+    "boxrig_x11_terminal_component_queue_paste")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/x11/component.h", COMPONENT_SCROLLBAR, 1u,
+    "boxrig_x11_terminal_component_get_scrollbar_model "
+    "boxrig_x11_terminal_component_apply_scrollbar_action")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/x11/component.h", COMPONENT_TRANSPARENCY, 1u,
+    "boxrig_x11_terminal_component_set_transparency "
+    "boxrig_x11_terminal_component_get_transparency")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/x11/component.h", COMPONENT_DIAGNOSTIC, 1u,
+    "boxrig_x11_terminal_component_capabilities "
+    "boxrig_x11_terminal_component_get_diagnostic")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/x11/component.h", NATIVE_INPUT_IME, 1u,
+    "boxrig_x11_terminal_component_dispatch_event")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/x11/event.h", NATIVE_RUNTIME_HOST, 1u,
+    "boxrig_x11_animation_poll_create "
+    "boxrig_x11_sample_monotonic_time "
+    "boxrig_x11_animation_poll_timeout "
+    "boxrig_x11_event_batch_initialize "
+    "boxrig_x11_event_batch_has_capacity "
+    "boxrig_x11_event_batch_record "
+    "boxrig_x11_event_batch_should_apply_resize "
+    "boxrig_x11_event_batch_take_resize "
+    "boxrig_x11_font_resize_transaction_initialize "
+    "boxrig_x11_font_resize_transaction_begin "
+    "boxrig_x11_font_resize_transaction_resolve")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/x11/host.h", NATIVE_RUNTIME_HOST, 1u,
+    "boxrig_x11_host_policy_default "
+    "boxrig_x11_host_adapter_create "
+    "boxrig_x11_host_adapter_process_items "
+    "boxrig_x11_host_adapter_process_event "
+    "boxrig_x11_host_adapter_poll_descriptor_count "
+    "boxrig_x11_host_adapter_prepare_poll "
+    "boxrig_x11_host_adapter_process_poll "
+    "boxrig_x11_host_adapter_destroy")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/x11/input.h", NATIVE_INPUT_IME, 1u,
+    "boxrig_x11_input_adapter_create "
+    "boxrig_x11_input_adapter_set_key_router "
+    "boxrig_x11_input_adapter_set_mouse_router "
+    "boxrig_x11_input_adapter_view_action_capabilities "
+    "boxrig_x11_input_adapter_apply_view_action "
+    "boxrig_x11_input_adapter_quiesce "
+    "boxrig_x11_input_adapter_set_cell_size "
+    "boxrig_x11_input_adapter_set_viewport_origin "
+    "boxrig_x11_input_adapter_composition "
+    "boxrig_x11_input_adapter_preedit_start "
+    "boxrig_x11_input_adapter_preedit_draw "
+    "boxrig_x11_input_adapter_preedit_caret "
+    "boxrig_x11_input_adapter_preedit_done "
+    "boxrig_x11_input_adapter_preedit_cancel "
+    "boxrig_x11_input_adapter_commit_utf8 "
+    "boxrig_x11_input_adapter_synchronize_candidate "
+    "boxrig_x11_input_adapter_process_event "
+    "boxrig_x11_input_adapter_retry "
+    "boxrig_x11_input_adapter_blocked "
+    "boxrig_x11_input_adapter_destroy")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/x11/input.h", NATIVE_EDITABLE_DOCUMENT, 1u,
+    "boxrig_x11_input_adapter_set_editable_document "
+    "boxrig_x11_input_adapter_string_conversion_supported")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/x11/input.h", NATIVE_CLIPBOARD, 1u,
+    "boxrig_x11_input_adapter_set_clipboard_transfer_limits "
+    "boxrig_x11_input_adapter_queue_paste")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/x11/renderer.h", RENDERER_MEANING, 1u,
+    "boxrig_x11_renderer_create "
+    "boxrig_x11_renderer_apply_transparency_state "
+    "boxrig_x11_renderer_destroy "
+    "boxrig_x11_renderer_cell_width "
+    "boxrig_x11_renderer_cell_height "
+    "boxrig_x11_renderer_set_surface_size "
+    "boxrig_x11_renderer_set_target_extent "
+    "boxrig_x11_renderer_set_viewport "
+    "boxrig_x11_renderer_expose "
+    "boxrig_x11_renderer_register_font_file "
+    "boxrig_x11_renderer_register_font_memory "
+    "boxrig_x11_renderer_set_font "
+    "boxrig_x11_renderer_get_effective_metrics "
+    "boxrig_x11_renderer_set_line_height_adjustment "
+    "boxrig_x11_renderer_visual_zoom "
+    "boxrig_x11_renderer_visual_zoom_reset "
+    "boxrig_x11_renderer_primary_font_resource "
+    "boxrig_x11_renderer_font_catalog_revision "
+    "boxrig_x11_renderer_set_direction_policy "
+    "boxrig_x11_renderer_layout_line "
+    "boxrig_x11_renderer_reset_render_statistics "
+    "boxrig_x11_renderer_get_render_statistics "
+    "boxrig_x11_renderer_draw "
+    "boxrig_x11_renderer_draw_view "
+    "boxrig_x11_renderer_draw_composition "
+    "boxrig_x11_renderer_draw_view_composition")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/x11/scrollbar.h", NATIVE_RUNTIME_HOST, 1u,
+    "boxrig_x11_scrollbar_pixel_width "
+    "boxrig_x11_scrollbar_create "
+    "boxrig_x11_scrollbar_window "
+    "boxrig_x11_scrollbar_destroy "
+    "boxrig_x11_scrollbar_resize "
+    "boxrig_x11_scrollbar_set_visible "
+    "boxrig_x11_scrollbar_synchronize "
+    "boxrig_x11_scrollbar_process_event")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/x11/transparency.h", NATIVE_RUNTIME_HOST, 1u,
+    "boxrig_x11_transparency_context_create "
+    "boxrig_x11_transparency_context_destroy "
+    "boxrig_x11_transparency_context_get_support "
+    "boxrig_x11_transparency_context_get_state "
+    "boxrig_x11_transparency_context_set_config "
+    "boxrig_x11_transparency_context_get_window_requirements "
+    "boxrig_x11_transparency_context_bind_window "
+    "boxrig_x11_transparency_context_refresh "
+    "boxrig_x11_transparency_context_process_event")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/x11/wait.h", NATIVE_RUNTIME_HOST, 1u,
+    "boxrig_x11_wait_for_activity")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/render/runtime.h", RENDERER_MEANING, 31u,
+    "boxrig_gl_runtime_create "
+    "boxrig_gl_runtime_get_capabilities "
+    "boxrig_gl_runtime_set_target_generation "
+    "boxrig_gl_runtime_begin_target "
+    "boxrig_gl_runtime_end_target "
+    "boxrig_gl_runtime_create_texture "
+    "boxrig_gl_runtime_upload_texture "
+    "boxrig_gl_runtime_draw_quads "
+    "boxrig_gl_runtime_delete_texture "
+    "boxrig_gl_runtime_insert_fence "
+    "boxrig_gl_runtime_poll_fence "
+    "boxrig_gl_runtime_delete_fence "
+    "boxrig_gl_runtime_get_state_counters "
+    "boxrig_gl_runtime_destroy")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/render/opengl.h", RENDERER_MEANING, 31u,
+    "boxrig_ogl_renderer_config_default "
+    "boxrig_ogl_renderer_create "
+    "boxrig_ogl_renderer_destroy "
+    "boxrig_ogl_renderer_cell_width "
+    "boxrig_ogl_renderer_cell_height "
+    "boxrig_ogl_renderer_set_direction_policy "
+    "boxrig_ogl_renderer_apply_transparency_state "
+    "boxrig_ogl_renderer_set_target "
+    "boxrig_ogl_renderer_set_composited_scrollbar "
+    "boxrig_ogl_renderer_set_composited_scrollbar_interaction "
+    "boxrig_ogl_renderer_layout_line "
+    "boxrig_ogl_renderer_draw_view "
+    "boxrig_ogl_renderer_draw_view_composition "
+    "boxrig_ogl_renderer_lifecycle_create "
+    "boxrig_ogl_renderer_target_lost "
+    "boxrig_ogl_renderer_fail_next "
+    "boxrig_ogl_renderer_get_render_statistics")
+
+BOXRIG_PUBLIC_CONTRACT(
+    FAILURE, "include/boxrig/render/opengl.h", RENDERER_MEANING, 31u,
+    "BOXRIG_OGL_FAILURE_NONE "
+    "BOXRIG_OGL_FAILURE_ALLOCATION "
+    "BOXRIG_OGL_FAILURE_GLYPH_RASTER "
+    "BOXRIG_OGL_FAILURE_UPLOAD "
+    "BOXRIG_OGL_FAILURE_DRAW "
+    "BOXRIG_OGL_FAILURE_FENCE")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/ui/renderer_lifecycle.h", RENDERER_MEANING, 31u,
+    "boxrig_renderer_lifecycle_config_default "
+    "boxrig_renderer_lifecycle_create "
+    "boxrig_renderer_lifecycle_destroy "
+    "boxrig_renderer_lifecycle_prepare_frame "
+    "boxrig_renderer_lifecycle_accept_frame "
+    "boxrig_renderer_lifecycle_abort_frame "
+    "boxrig_renderer_lifecycle_prepare_target "
+    "boxrig_renderer_lifecycle_commit_target "
+    "boxrig_renderer_lifecycle_abort_target "
+    "boxrig_renderer_lifecycle_target_lost "
+    "boxrig_renderer_lifecycle_fail_next "
+    "boxrig_renderer_lifecycle_get_counters")
+
+BOXRIG_PUBLIC_CONTRACT(
+    FAILURE, "include/boxrig/ui/renderer_lifecycle.h", RENDERER_MEANING, 31u,
+    "BOXRIG_RENDERER_FAILURE_NONE "
+    "BOXRIG_RENDERER_FAILURE_PREPARE_FRAME "
+    "BOXRIG_RENDERER_FAILURE_FINISH_FRAME "
+    "BOXRIG_RENDERER_FAILURE_PRESENT_FRAME "
+    "BOXRIG_RENDERER_FAILURE_PREPARE_TARGET "
+    "BOXRIG_RENDERER_FAILURE_COMMIT_TARGET")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/win32/wgl.h", RENDERER_MEANING, 2u,
+    "boxrig_wgl_surface_create "
+    "boxrig_wgl_surface_destroy "
+    "boxrig_wgl_surface_make_current "
+    "boxrig_wgl_surface_release_current "
+    "boxrig_wgl_surface_get_info "
+    "boxrig_wgl_surface_get_runtime "
+    "boxrig_wgl_surface_window "
+    "boxrig_wgl_surface_supports_srgb "
+    "boxrig_wgl_surface_swap")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/render/d3d11.h", RENDERER_MEANING, 2u,
+    "boxrig_d3d11_renderer_config_default "
+    "boxrig_d3d11_renderer_create "
+    "boxrig_d3d11_renderer_destroy "
+    "boxrig_d3d11_renderer_prepare_frame "
+    "boxrig_d3d11_renderer_accept_frame "
+    "boxrig_d3d11_renderer_abort_frame "
+    "boxrig_d3d11_renderer_set_target "
+    "boxrig_d3d11_renderer_register_font_file "
+    "boxrig_d3d11_renderer_register_font_memory "
+    "boxrig_d3d11_renderer_set_font "
+    "boxrig_d3d11_renderer_get_metrics "
+    "boxrig_d3d11_renderer_layout_line "
+    "boxrig_d3d11_renderer_set_scrollbar "
+    "boxrig_d3d11_renderer_get_diagnostic "
+    "boxrig_d3d11_renderer_get_statistics")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/win32/opengl_component.h", COMPONENT_LIFECYCLE, 2u,
+    "boxrig_win32_opengl_terminal_component_create_child "
+    "boxrig_win32_opengl_terminal_component_create_on_target")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/win32/opengl_component.h", COMPONENT_DIAGNOSTIC, 2u,
+    "boxrig_win32_opengl_terminal_component_get_diagnostics")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/win32/d3d11_component.h", COMPONENT_LIFECYCLE, 2u,
+    "boxrig_win32_d3d11_config_default "
+    "boxrig_win32_d3d11_terminal_component_create_child "
+    "boxrig_win32_d3d11_terminal_component_create_on_target")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/win32/d3d11_component.h", COMPONENT_DIAGNOSTIC, 2u,
+    "boxrig_win32_d3d11_terminal_component_get_diagnostics")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/win32/opacity_native.h", NATIVE_RUNTIME_HOST, 2u,
+    "boxrig_win32_opacity_native_create "
+    "boxrig_win32_opacity_native_apply "
+    "boxrig_win32_opacity_native_refresh "
+    "boxrig_win32_opacity_native_destroy")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/ui/blink.h", VALUE_CORE_UI_SEMANTICS, 31u,
+    "boxrig_ui_blink_config_default")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/ui/animation.h", VALUE_CORE_UI_SEMANTICS, 31u,
+    "boxrig_ui_animation_runtime_create "
+    "boxrig_ui_animation_runtime_destroy "
+    "boxrig_ui_animation_runtime_attach "
+    "boxrig_ui_animation_runtime_detach "
+    "boxrig_ui_animation_runtime_dispatch "
+    "boxrig_ui_animation_runtime_status")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/ui/animation_poll.h", VALUE_CORE_UI_SEMANTICS, 31u,
+    "boxrig_ui_animation_poll_create "
+    "boxrig_ui_animation_poll_destroy "
+    "boxrig_ui_animation_poll_runtime "
+    "boxrig_ui_animation_poll_prepare_wait "
+    "boxrig_ui_animation_poll_dispatch")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/wayland.h", NATIVE_RUNTIME_HOST, 16u,
+    "boxrig_wayland_animation_poll_create")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/ui/decoration.h", VALUE_CORE_UI_SEMANTICS, 31u,
+    "boxrig_ui_cursor_style_default "
+    "boxrig_ui_selection_style_default")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/x11/component.h", COMPONENT_SCROLLBAR, 1u,
+    "boxrig_x11_terminal_component_get_scrollbar_state")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/x11/component.h", NATIVE_SCROLLBAR_VISIBILITY, 1u,
+    "boxrig_x11_terminal_component_set_scrollbar_visibility "
+    "boxrig_x11_terminal_component_get_scrollbar_visibility")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/win32/component.h", COMPONENT_SCROLLBAR, 2u,
+    "boxrig_win32_terminal_component_get_scrollbar_state")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/win32/component.h", NATIVE_SCROLLBAR_VISIBILITY, 2u,
+    "boxrig_win32_terminal_component_set_scrollbar_visibility "
+    "boxrig_win32_terminal_component_get_scrollbar_visibility")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/gtk3/terminal_widget.h", COMPONENT_SCROLLBAR, 4u,
+    "boxrig_gtk3_terminal_widget_get_scrollbar_state")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/gtk3/terminal_widget.h", NATIVE_SCROLLBAR_VISIBILITY, 4u,
+    "boxrig_gtk3_terminal_widget_set_scrollbar_visibility "
+    "boxrig_gtk3_terminal_widget_get_scrollbar_visibility "
+    "boxrig_gtk3_terminal_widget_create_scroll_container")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/gtk4/terminal_widget.h", COMPONENT_SCROLLBAR, 8u,
+    "boxrig_gtk4_terminal_widget_get_scrollbar_state")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/gtk4/terminal_widget.h", NATIVE_SCROLLBAR_VISIBILITY, 8u,
+    "boxrig_gtk4_terminal_widget_set_scrollbar_visibility "
+    "boxrig_gtk4_terminal_widget_get_scrollbar_visibility "
+    "boxrig_gtk4_terminal_widget_create_scroll_container")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/wayland.h", COMPONENT_SCROLLBAR, 16u,
+    "boxrig_wayland_terminal_component_get_scrollbar_state "
+    "boxrig_wayland_terminal_component_get_scrollbar_model "
+    "boxrig_wayland_terminal_component_apply_scrollbar_action")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/wayland.h", NATIVE_SCROLLBAR_VISIBILITY, 16u,
+    "boxrig_wayland_terminal_component_set_scrollbar_visibility "
+    "boxrig_wayland_terminal_component_get_scrollbar_visibility")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/ui/view.h", COMPONENT_SCROLLBAR, 31u,
+    "boxrig_ui_view_get_scrollbar_state "
+    "boxrig_ui_view_apply_scrollbar_action")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/win32/pty.h", NATIVE_RUNTIME_HOST, 2u,
+    "boxrig_win32_pty_config_default "
+    "boxrig_win32_pty_spawn_with_config "
+    "boxrig_win32_pty_get_diagnostics")
+
+BOXRIG_PUBLIC_CONTRACT(
+    FAILURE, "include/boxrig/win32/pty.h", NATIVE_RUNTIME_HOST, 2u,
+    "BOXRIG_WIN32_PTY_FAILURE_NONE "
+    "BOXRIG_WIN32_PTY_FAILURE_DLL "
+    "BOXRIG_WIN32_PTY_FAILURE_HOST "
+    "BOXRIG_WIN32_PTY_FAILURE_ARCHITECTURE "
+    "BOXRIG_WIN32_PTY_FAILURE_EXPORTS "
+    "BOXRIG_WIN32_PTY_FAILURE_CAPABILITY "
+    "BOXRIG_WIN32_PTY_FAILURE_OTHER")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/win32/transparency.h", NATIVE_RUNTIME_HOST, 2u,
+    "boxrig_win32_transparency_context_set_scrollbar_visible")

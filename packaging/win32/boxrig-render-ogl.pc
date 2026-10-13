@@ -1,0 +1,11 @@
+prefix=${pcfiledir}/../..
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: boxrig-render-ogl
+Description: Borrowed-context OpenGL terminal renderer with DirectWrite
+Version: 0.0.0
+Libs: -L${libdir} -lboxrig-render-ogl -lboxrig-ui -lboxrig
+Libs.private: -lboxrig-win32 -lboxrig-ui -lboxrig -lole32 -luuid -lgdi32 -limm32 -luser32 -lm
+Cflags: -I${includedir}

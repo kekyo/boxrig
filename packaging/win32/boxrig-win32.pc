@@ -1,0 +1,10 @@
+prefix=${pcfiledir}/../..
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: boxrig-win32
+Description: Software Win32 terminal component, input and host interfaces
+Version: 0.0.0
+Libs: -L${libdir} -lboxrig-win32 -lboxrig-ui -lboxrig -lole32 -luuid -lgdi32 -limm32 -luser32 -lshell32
+Cflags: -I${includedir}

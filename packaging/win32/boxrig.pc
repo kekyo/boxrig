@@ -1,0 +1,9 @@
+prefix=${pcfiledir}/../..
+libdir=${prefix}/lib
+includedir=${prefix}/include
+
+Name: boxrig
+Description: Independent terminal core without a window-system dependency
+Version: 0.0.0
+Libs: -L${libdir} -lboxrig
+Cflags: -I${includedir}

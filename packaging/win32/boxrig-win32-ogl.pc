@@ -1,0 +1,12 @@
+prefix=${pcfiledir}/../..
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: boxrig-win32-ogl
+Description: Optional WGL binding and double-buffered child surface for boxrig
+Version: 0.0.0
+Requires: boxrig-render-ogl
+Libs: -L${libdir} -lboxrig-win32-ogl -lboxrig-win32 -lboxrig-ui -lboxrig -lole32 -luuid -lgdi32 -limm32 -luser32
+Libs.private: -lcomctl32 -lopengl32 -lgdi32 -luser32
+Cflags: -I${includedir}

@@ -1,0 +1,12 @@
+prefix=${pcfiledir}/../..
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: boxrig-background-gtk3
+Description: Optional GTK 3 toplevel background effects for boxrig
+Version: 0.0.0
+Requires: gtk+-3.0 >= 3.24
+Requires.private: boxrig-background-wayland, x11, xfixes
+Libs: -L${libdir} -lboxrig-background-gtk3
+Cflags: -I${includedir}

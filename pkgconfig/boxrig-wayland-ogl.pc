@@ -1,0 +1,13 @@
+prefix=${pcfiledir}/../..
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: boxrig-wayland-ogl
+Description: EGL/OpenGL native Wayland terminal component for boxrig
+Version: 0.0.0
+Requires: boxrig-wayland
+Requires.private: boxrig-render-ogl, wayland-egl, egl, gl, pango >= 1.50, pangocairo, pangoft2, cairo >= 1.18, fontconfig
+Libs: -L${libdir} -lboxrig-wayland-ogl
+Libs.private: -lpthread -lm
+Cflags: -I${includedir}

@@ -1,0 +1,21 @@
+{
+  "name": "boxrig-codegen",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dependencies": "reskill",
+    "build": "vite build",
+    "test": "vitest run && tsc --noEmit && prettier --check ."
+  },
+  "devDependencies": {
+    "@types/node": "26.3.0",
+    "funcity": "1.5.0",
+    "prettier": "3.9.6",
+    "prettier-max": "1.16.0",
+    "resolved-killer": "1.1.0",
+    "typescript": "6.0.3",
+    "vite": "8.2.2",
+    "vitest": "4.1.11"
+  }
+}

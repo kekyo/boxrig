@@ -1,0 +1,25 @@
+{
+  "name": "boxrig-p2-win32-ime-test",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dependencies": "reskill",
+    "test": "prettier --check . && tsc --noEmit && vitest run --no-file-parallelism"
+  },
+  "dependencies": {
+    "agent-rover": "0.10.0",
+    "async-primitives": "1.7.0"
+  },
+  "devDependencies": {
+    "@types/node": "26.3.0",
+    "@types/pngjs": "6.0.5",
+    "pngjs": "7.0.0",
+    "prettier": "3.9.6",
+    "prettier-max": "1.16.0",
+    "resolved-killer": "1.1.0",
+    "typescript": "6.0.3",
+    "vite": "8.2.2",
+    "vitest": "4.1.11"
+  }
+}

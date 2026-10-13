@@ -1,0 +1,3 @@
+# Preserve the bytes of upstream license snapshots and their recorded hashes.
+packaging/licenses/*.txt -text
+packaging/licenses/ConPTY-NOTICE.md -text

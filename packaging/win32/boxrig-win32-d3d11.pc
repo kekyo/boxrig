@@ -1,0 +1,10 @@
+prefix=${pcfiledir}/../..
+libdir=${prefix}/lib
+includedir=${prefix}/include
+
+Name: boxrig-win32-d3d11
+Description: Managed Win32 Direct3D 11 and DirectComposition component
+Version: 0.0.0
+Requires: boxrig-render-d3d11
+Libs: -L${libdir} -lboxrig-win32-d3d11 -lcomctl32
+Cflags: -I${includedir}

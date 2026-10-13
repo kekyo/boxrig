@@ -1,0 +1,12 @@
+prefix=${pcfiledir}/../..
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: boxrig-wayland
+Description: Native Wayland retained terminal presentation for boxrig
+Version: 0.0.0
+Requires: wayland-client >= 1.22, xkbcommon >= 1.6
+Requires.private: ibus-1.0 >= 1.5.29, pango >= 1.50, pangocairo, pangoft2, cairo >= 1.18, fontconfig
+Libs: -L${libdir} -lboxrig-wayland -lboxrig-ui -lboxrig
+Cflags: -I${includedir}

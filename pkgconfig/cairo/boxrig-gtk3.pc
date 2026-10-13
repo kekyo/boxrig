@@ -1,0 +1,12 @@
+prefix=${pcfiledir}/../..
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: boxrig-gtk3
+Description: GTK 3 retained terminal widget for boxrig
+Version: 0.0.0
+Requires: gtk+-3.0 >= 3.24
+Requires.private: wayland-client >= 1.22, ibus-1.0 >= 1.5.29, pango >= 1.50, pangocairo, pangoft2, cairo >= 1.18, fontconfig
+Libs: -L${libdir} -lboxrig-gtk3 -lboxrig-ui -lboxrig -lm
+Cflags: -I${includedir}

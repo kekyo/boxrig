@@ -1,0 +1,27 @@
+[
+  {
+    "file": "MinGW-w64-LICENSE.txt",
+    "url": "https://raw.githubusercontent.com/mingw-w64/mingw-w64/v11.0.1/COPYING.MinGW-w64-runtime/COPYING.MinGW-w64-runtime.txt",
+    "sha256": "e9b2dc02451ea29092a1f25fa0f3c07207ed421f1807dffb0c4e6dce69dee7bd"
+  },
+  {
+    "file": "GCC-Runtime-Library-Exception.txt",
+    "url": "https://raw.githubusercontent.com/gcc-mirror/gcc/releases/gcc-13.2.0/COPYING.RUNTIME",
+    "sha256": "9d6b43ce4d8de0c878bf16b54d8e7a10d9bd42b75178153e3af6a815bdc90f74"
+  },
+  {
+    "file": "GPL-3.0.txt",
+    "url": "https://raw.githubusercontent.com/gcc-mirror/gcc/releases/gcc-13.2.0/COPYING3",
+    "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903"
+  },
+  {
+    "file": "ConPTY-NOTICE.md",
+    "url": "https://raw.githubusercontent.com/microsoft/terminal/v1.24.11911.0/NOTICE.md",
+    "sha256": "e7fbaadee6ab20c28b87730a510ee5f5815d8fb4bd88d1d54d282dc2a74c0726"
+  },
+  {
+    "file": "LGPL-2.1.txt",
+    "url": "https://raw.githubusercontent.com/GNOME/glib/2.80.0/LICENSES/LGPL-2.1-or-later.txt",
+    "sha256": "fa6f36630bb1e0c571d34b2bbdf188d08495c9dbf58f28cac112f303fc1f58fb"
+  }
+]

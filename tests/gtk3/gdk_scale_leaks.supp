@@ -1,0 +1,7 @@
+# GTK 3.24.41 loses the GList returned by gdk_screen_get_toplevel_windows
+# when XSETTINGS changes the window scale. Only those list-node allocations
+# are excluded; boxrig callbacks run after this getter has returned.
+# https://github.com/GNOME/gtk/blob/3.24.41/gdk/x11/gdkscreen-x11.c#L1131-L1160
+# Keep leak detection enabled, report suppression counts, and apply this file
+# only to the isolated runtime-scale gate. Remove it when GTK frees the list.
+leak:gdk_screen_get_toplevel_windows
