@@ -102,12 +102,31 @@ static boxrig_ui_status edit(const boxrig_ui_editable_replacement_request *reque
     edits++;
     return BOXRIG_UI_OK;
 }
+static boxrig_ui_status real_edit(const boxrig_ui_editable_replacement_request *request,
+    const boxrig_ui_editable_document_snapshot *proposed, void *data)
+{
+    const char *converted = *(char **)data;
+    CHECK(converted != NULL);
+    CHECK(request->range.offset == 3 && request->range.length == 6);
+    CHECK(request->replacement_length == strlen(converted));
+    CHECK(memcmp(request->replacement, converted, strlen(converted)) == 0);
+    CHECK(proposed->context_length == strlen(converted) + 6);
+    CHECK(memcmp(proposed->context, "前", 3) == 0);
+    CHECK(memcmp(proposed->context + 3, converted, strlen(converted)) == 0);
+    CHECK(memcmp(proposed->context + 3 + strlen(converted), "後", 3) == 0);
+    edits++;
+    return BOXRIG_UI_OK;
+}
 static void real_mozc(void)
 {
     const char *display = g_getenv("DISPLAY");
     CHECK(display != NULL && strrchr(display, ':') != NULL);
     char *service = g_strdup_printf("org.fcitx.Fcitx-%d", atoi(strrchr(display, ':') + 1));
-    GDBusConnection *bus = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, NULL);
+    const char *address = g_getenv("BOXRIG_TEST_FCITX4_REAL_ADDRESS");
+    CHECK(address != NULL);
+    GDBusConnection *bus = g_dbus_connection_new_for_address_sync(address,
+        G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_CLIENT | G_DBUS_CONNECTION_FLAGS_MESSAGE_BUS_CONNECTION,
+        NULL, NULL, NULL);
     CHECK(bus != NULL);
     GVariant *reply = g_dbus_connection_call_sync(bus, service, "/inputmethod", "org.fcitx.Fcitx.InputMethod",
         "SetCurrentIM", g_variant_new("(s)", "mozc"), G_VARIANT_TYPE_UNIT, G_DBUS_CALL_FLAGS_NO_AUTO_START, 60000, NULL, NULL);
@@ -120,6 +139,7 @@ static void real_mozc(void)
     for (const char *letter = "kisha"; *letter != 0; letter++) key((guint)*letter);
     boxrig_composition_view text = composition();
     CHECK(text.active && text.text_length == strlen("きしゃ") && memcmp(text.text, "きしゃ", text.text_length) == 0);
+    CHECK(text.segment_count != 0 && (text.segments[0].feedback & BOXRIG_COMPOSITION_FEEDBACK_UNDERLINE) != 0);
     output("");
     key(GDK_KEY_space);
     text = composition();
@@ -134,12 +154,30 @@ static void real_mozc(void)
     key(GDK_KEY_Escape);
     CHECK(!composition().active);
     output("");
+    boxrig_ui_editable_document *document = boxrig_ui_view_editable_document(boxrig_gtk3_terminal_widget_view(widget));
+    boxrig_ui_editable_context_input context = {.document_identity = 1, .document_revision = 1,
+        .context = "前かな後", .context_length = strlen("前かな後"), .cursor = 9, .anchor = 3};
+    converted = NULL;
+    CHECK(boxrig_ui_editable_document_set_apply_handler(document, real_edit, &converted) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_editable_document_publish_context(document, &context) == BOXRIG_UI_OK);
+    for (const char *letter = "kisha"; *letter != 0; letter++) key((guint)*letter);
+    key(GDK_KEY_space);
+    text = composition();
+    CHECK(text.active && text.text_length != 0);
+    converted = g_strndup(text.text, text.text_length);
+    key(GDK_KEY_Return);
+    CHECK(edits == 1 && !composition().active);
+    output("");
+    CHECK(boxrig_ui_editable_document_clear(document) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_editable_document_set_apply_handler(document, NULL, NULL) == BOXRIG_UI_OK);
+    g_free(converted);
     key('a');
     focus(false);
     output(g_getenv("BOXRIG_TEST_FCITX4_NO_FOCUS_COMMIT") == NULL ? "あ" : "");
     g_free(service);
+    CHECK(g_dbus_connection_close_sync(bus, NULL, NULL));
     g_object_unref(bus);
-    puts("PASS GTK 3 real fcitx4/Mozc conversion, commit, cancellation and configured focus commit");
+    puts("PASS GTK 3 real fcitx4/Mozc decorated preedit, conversion, document edit, cancellation and configured focus commit");
 }
 int main(void)
 {

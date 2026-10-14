@@ -1107,6 +1107,7 @@ void boxrig_ime_destroy(boxrig_ime_client *bus)
         free(session);
     }
     g_clear_object(&bus->connection);
+    if (bus->backend != NULL && bus->backend->destroy != NULL) bus->backend->destroy(bus);
     g_object_unref(bus->cancel);
     g_main_context_pop_thread_default(bus->loop);
     g_main_context_unref(bus->loop);

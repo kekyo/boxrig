@@ -72,7 +72,14 @@ if ! wait -n -p completed "$daemon_pid" "$ready_pid" || [[ "$completed" != "$rea
     exit 1
 fi
 ready_pid=
-if ! "$@"; then
+# The application receives a different, empty session bus. Its direct input
+# must discover the daemon through the binary file, or the explicit address.
+export BOXRIG_TEST_FCITX4_REAL_ADDRESS=$DBUS_SESSION_BUS_ADDRESS
+unset FCITX_DBUS_ADDRESS
+if [[ -n ${BOXRIG_TEST_FCITX4_EXPLICIT_ADDRESS:-} ]]; then
+    export FCITX_DBUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS
+fi
+if ! dbus-run-session --config-file=tests/ime/session.conf -- "$@"; then
     cat "$probe_root/daemon.log" >&2
     exit 1
 fi

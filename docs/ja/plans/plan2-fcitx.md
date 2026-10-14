@@ -496,4 +496,20 @@ GTKの公開設定、選択理由、診断と付属ターミナルに`fcitx4`の
 
 実デーモンには、ホストとは別のDebian 13コンテナを使用しました。`fcitx-bin`は`1:4.2.9.9-2+b1`、`fcitx-mozc`は`2.29.5160.102+dfsg-1.4`です。専用のセッションバス、Xvfb、設定ディレクトリーを使い、非特権ユーザーで実行しています。日本語変換、確定、取消と、`DontCommitPreeditWhenUnfocus`の両設定で終了時の確定を検証できました。[Debianのfcitxパッケージ](https://packages.debian.org/trixie/fcitx-bin)、[設定項目の公式定義](https://github.com/fcitx/fcitx/blob/4.2.9.9/data/config.desc)
 
-再実行するコマンドは`bash tests/ime/run_distribution.sh debian13 fcitx4`です。パッケージ一覧、イメージ作成ログ、試験結果は`build/test-results/ime-distributions/debian13-fcitx4/`にあります。現在の実デーモン試験はセッションバスへの明示接続です。専用アドレス、アドレスファイルの検証と変更監視は未実装のため、段階4はまだ完了していません。文字列パネルと自動検出は、引き続き段階5で実装します。
+再実行するコマンドは`bash tests/ime/run_distribution.sh debian13 fcitx4`です。パッケージ一覧、イメージ作成ログ、試験結果は`build/test-results/ime-distributions/debian13-fcitx4/`にあります。この時点の実デーモン試験はセッションバスへの明示接続でした。続いて専用アドレスの探索と再接続を実装しました。文字列パネルと自動検出は、引き続き段階5で実装します。
+
+### 段階4の接続先探索と再接続
+
+接続先の探索順序は、`FCITX_DBUS_ADDRESS`の明示指定、アドレスファイル、セッションバスです。明示アドレスが不正、接続不能、またはfcitxの所有者がいない場合は未接続とします。明示先が使えないことを理由に別のバスへ接続しません。アドレスファイルがない場合や検証に失敗した場合は、セッションバス上のサービス所有者を確認します。いずれも検出のためにIMEを起動しません。
+
+ファイルは最大1025バイトを非同期で読み、1024バイトを超えたものを拒否します。NUL終端と後続する2個のPIDがちょうど全体の長さと一致すること、PIDが正で生存すること、D-Busアドレスとして解釈できることを確認します。PIDはコピーして取り出し、非整列のメモリーを整数として参照しません。マシンIDはD-Bus用ファイル、次に`/etc/machine-id`を読み、32桁の16進数を検証します。
+
+読み込みと接続には別々の世代を持たせました。変更通知が重なった場合は読み込みを中止し、ストリームを閉じてから最新の内容を読み直します。旧世代の完了通知は接続先を変更できません。接続先が変わると、旧コンテキストと送信済みキーを無効にして作り直します。要求の解放と監視の終了通知を回収してから、バックエンドの状態を解放します。[GIOの非同期読み込み](https://docs.gtk.org/gio/method.InputStream.read_all_async.html)、[名前監視終了時の契約](https://docs.gtk.org/gio/func.bus_unwatch_name.html)
+
+`test-fcitx4-address`では、IMEのないセッションバスと、別のバスにある模擬fcitxを使います。明示アドレス、正常なファイル、不正な形式、上限超過、NUL欠落、終了済みPID、PIDが0の場合、表示番号の範囲外を検証しました。サービス名の消失・再取得、ファイルの変更・削除、親ディレクトリーが後から作られる場合も成功しています。表示番号72と`DISPLAY`なしの0を含め、16ケースがASan／UBSanで成功しました。接続し直した後に旧キーの確定通知が届いても、文字を反映せず再送もしないことを確認しています。
+
+テストにはローカルファイル用のGIOを指定しています。ホストのGVfsを読み込んだ試験では、初期化時の割り当てに124バイトの終了時リークが報告されました。ローカルファイル用のGIOでは、リーク検査を有効にしたまま成功しています。製品コードのGIO設定は変更していません。[GVfsを含む試験の記録](../../../build/test-results/fcitx4/address-gvfs.log)と、`build/test-results/fcitx4/address-red.log`、`address-green.log`、`address-regression.log`を比較できます。
+
+実デーモン試験では、アプリケーションのセッションバスをfcitxのバスから分離しました。Debian 13のfcitx 4.2.9.9／Mozcで、アドレスファイルからの接続と`FCITX_DBUS_ADDRESS`による接続が成功しています。装飾付き未確定文字、日本語変換、選択範囲を含む文書への確定、取消、フォーカス喪失時の確定設定を検証しました。SYSTEM表示用の試験イメージには、[fcitx-ui-classic](https://packages.debian.org/trixie/fcitx-ui-classic)も追加しています。
+
+ホスト側の`test-fcitx4`、`test-fcitx4-focus`、`test-fcitx4-address`、`test-gtk-fcitx4`と、関連する`test-fcitx5`、`test-fcitx5-auto`、`test-ime-discovery`、`test-gtk-ibus-direct`が成功しました。第7節の段階4の完了条件を満たしたため、次は段階5の文字列パネルと自動検出です。

@@ -13,6 +13,8 @@ typedef struct boxrig_ime_backend {
     void (*initialize)(boxrig_ime_client *client);
     void (*connect)(boxrig_ime_client *client);
     void (*stop)(boxrig_ime_client *client);
+    /* Optional provider state release after all pending callbacks drain. */
+    void (*destroy)(boxrig_ime_client *client);
     void (*start)(boxrig_ime_session *session);
     void (*drop)(boxrig_ime_session *session);
     /* Optional server-owned focus commit. Detach the old proxy immediately,
@@ -43,6 +45,7 @@ typedef struct boxrig_ime_selection {
 struct boxrig_ime_client {
     size_t maximum_sessions;
     const boxrig_ime_backend *backend;
+    void *backend_data;
     boxrig_ime_selection *selection;
     const char *name;
     void (*selection_changed)(void *, bool);

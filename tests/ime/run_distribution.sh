@@ -18,9 +18,9 @@ case "$generation" in
         ;;
     fcitx4)
         version=4.2.9.9
-        packages='fcitx fcitx-mozc fcitx-frontend-gtk3'
+        packages='fcitx fcitx-mozc fcitx-ui-classic fcitx-frontend-gtk3'
         daemon_package=fcitx-bin
-        targets='test-fcitx4 test-fcitx4-focus test-gtk-fcitx4 test-fcitx4-real'
+        targets='test-fcitx4 test-fcitx4-focus test-fcitx4-address test-gtk-fcitx4 test-fcitx4-real'
         ;;
     *) echo 'IME generation must be fcitx5 or fcitx4' >&2; exit 2 ;;
 esac

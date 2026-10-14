@@ -9,6 +9,8 @@
 #define INTERFACE "org.fcitx.Fcitx.InputContext"
 static GDBusConnection *connection;
 static GDBusNodeInfo *node;
+static char *service;
+static guint owner;
 static guint contexts, keys, capabilities, focused, resets;
 static char *surrounding;
 static gint rectangle[4];
@@ -18,6 +20,7 @@ typedef struct context {
 } context;
 static context *active;
 static GDBusMethodInvocation *held;
+static GDBusMethodInvocation *held_waiter;
 static guint focus_outs, server_commits;
 static guint focus_commit_count = 1;
 static bool allow_commit = true;
@@ -47,7 +50,8 @@ static const char xml[] =
     "<arg type='i' direction='out'/><arg type='i' direction='out'/></method>"
     "<method name='Lifecycle'><arg type='u' direction='out'/><arg type='u' direction='out'/>"
     "<arg type='u' direction='out'/><arg type='b' direction='out'/></method>"
-    "<method name='CompleteKey'/><method name='FailKey'/>"
+    "<method name='CompleteKey'/><method name='FailKey'/><method name='WaitHeld'/>"
+    "<method name='Owned'><arg type='b' direction='in'/></method>"
     "<method name='AllowCommit'><arg type='b' direction='in'/></method>"
     "<method name='CommitCount'><arg type='u' direction='in'/></method></interface></node>";
 
@@ -79,6 +83,15 @@ static void method(GDBusConnection *bus, const char *sender, const char *path,
 {
     (void)bus; (void)interface;
     context *input = data;
+    if (strcmp(name, "Owned") == 0) {
+        gboolean owned;
+        g_variant_get(parameters, "(b)", &owned);
+        if (owner != 0) g_bus_unown_name(owner);
+        owner = owned ? g_bus_own_name_on_connection(connection, service, G_BUS_NAME_OWNER_FLAGS_NONE,
+            NULL, NULL, NULL, NULL) : 0;
+        g_dbus_method_invocation_return_value(invocation, NULL);
+        return;
+    }
     if (strcmp(name, "CreateICv3") == 0) {
         const char *program;
         gint pid;
@@ -94,6 +107,12 @@ static void method(GDBusConnection *bus, const char *sender, const char *path,
     }
     if (strcmp(name, "Lifecycle") == 0) {
         g_dbus_method_invocation_return_value(invocation, g_variant_new("(uuub)", contexts, focus_outs, server_commits, held != NULL));
+        return;
+    }
+    if (strcmp(name, "WaitHeld") == 0) {
+        CHECK(held_waiter == NULL);
+        if (held != NULL) g_dbus_method_invocation_return_value(invocation, NULL);
+        else held_waiter = g_object_ref(invocation);
         return;
     }
     if (strcmp(name, "CompleteKey") == 0 || strcmp(name, "FailKey") == 0) {
@@ -172,7 +191,15 @@ static void method(GDBusConnection *bus, const char *sender, const char *path,
             CHECK(g_strcmp0(surrounding, "前かな後") == 0);
             emit(sender, path, "DeleteSurroundingText", g_variant_new("(iu)", -2, 2u));
             emit(sender, path, "CommitString", g_variant_new("(s)", "記者"));
-        } else if (symbol == 'h') { CHECK(held == NULL); held = g_object_ref(invocation); return; }
+        } else if (symbol == 'h') {
+            CHECK(held == NULL);
+            held = g_object_ref(invocation);
+            if (held_waiter != NULL) {
+                g_dbus_method_invocation_return_value(held_waiter, NULL);
+                g_clear_object(&held_waiter);
+            }
+            return;
+        }
         else if (symbol == 'e') {
             emit(sender, path, "CommitString", g_variant_new("(s)", "uncertain"));
             g_dbus_method_invocation_return_dbus_error(invocation, "org.boxrig.Uncertain", "Key outcome is unknown");
@@ -195,9 +222,9 @@ int main(void)
     CHECK(g_dbus_connection_register_object(connection, "/inputmethod", node->interfaces[0], &methods, NULL, NULL, NULL));
     CHECK(g_dbus_connection_register_object(connection, "/org/boxrig/Fcitx4Probe", node->interfaces[2], &methods, NULL, NULL, NULL));
     const char *number = g_getenv("BOXRIG_TEST_FCITX4_DISPLAY_NUMBER");
-    char *service = g_strdup_printf("org.fcitx.Fcitx-%s", number == NULL ? "72" : number);
-    CHECK(g_bus_own_name_on_connection(connection, service, G_BUS_NAME_OWNER_FLAGS_NONE, acquired, NULL, NULL, NULL));
-    g_free(service);
+    service = g_strdup_printf("org.fcitx.Fcitx-%s", number == NULL ? "72" : number);
+    owner = g_bus_own_name_on_connection(connection, service, G_BUS_NAME_OWNER_FLAGS_NONE, acquired, NULL, NULL, NULL);
+    CHECK(owner != 0);
     GMainLoop *loop = g_main_loop_new(NULL, FALSE);
     g_main_loop_run(loop);
     return 0;

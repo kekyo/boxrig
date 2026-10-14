@@ -1,8 +1,7 @@
 /* boxrig - Under MIT. */
 #include "../ime/client_private.h"
 #include "../ime/preedit.h"
-#include <errno.h>
-#include <limits.h>
+#include "connection.h"
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -179,59 +178,6 @@ static void start(boxrig_ime_session *session)
         G_DBUS_CALL_FLAGS_NO_AUTO_START, -1, session->cancel, context_created, session);
 }
 
-static void appeared(GDBusConnection *connection, const char *name, const char *owner, gpointer data)
-{
-    (void)name;
-    boxrig_ime_client *bus = data;
-    if (!bus->closing) boxrig_ime_owner_appeared(bus, connection, owner);
-}
-static void vanished(GDBusConnection *connection, const char *name, gpointer data)
-{
-    (void)connection; (void)name;
-    boxrig_ime_client *bus = data;
-    if (bus->closing) return;
-    bus->connection_generation++;
-    g_clear_pointer(&bus->connection_owner, g_free);
-    boxrig_ime_failed_connection(bus);
-}
-static void watch_released(gpointer data)
-{ boxrig_ime_client *bus = data; bus->subscriptions--; }
-
-static char *service_name(void)
-{
-    const char *display = g_getenv("DISPLAY");
-    if (display == NULL || display[0] == 0) return g_strdup("org.fcitx.Fcitx-0");
-    const char *number = strrchr(display, ':');
-    if (number == NULL || number[1] < '0' || number[1] > '9') return NULL;
-    char *end;
-    errno = 0;
-    long value = strtol(number + 1, &end, 10);
-    if (errno != 0 || value < 0 || value > INT_MAX) return NULL;
-    if (*end == '.') {
-        end++;
-        if (*end < '0' || *end > '9') return NULL;
-        while (*end >= '0' && *end <= '9') end++;
-    }
-    return *end == 0 ? g_strdup_printf("org.fcitx.Fcitx-%ld", value) : NULL;
-}
-static void connect_bus(boxrig_ime_client *bus)
-{
-    if (bus->watcher != 0 || bus->closing) return;
-    char *name = service_name();
-    if (name == NULL) { boxrig_ime_failed_connection(bus); return; }
-    bus->shared_connection = true;
-    bus->state = BOXRIG_IME_CONNECTING;
-    bus->selection_changed(bus->data, true);
-    bus->subscriptions++;
-    bus->watcher = g_bus_watch_name(G_BUS_TYPE_SESSION, name, G_BUS_NAME_WATCHER_FLAGS_NONE,
-        appeared, vanished, bus, watch_released);
-    g_free(name);
-}
-static void stop(boxrig_ime_client *bus)
-{
-    if (bus->watcher != 0) g_bus_unwatch_name(bus->watcher);
-    bus->watcher = 0;
-}
 static void drop(boxrig_ime_session *session)
 {
     g_signal_handlers_disconnect_by_data(session->proxy, session);
@@ -323,7 +269,8 @@ static void key(boxrig_ime_session *session, const boxrig_ime_key *key, boxrig_i
         G_VARIANT_TYPE("(i)"), G_DBUS_CALL_FLAGS_NO_AUTO_START, -1, session->cancel, key_processed, request);
 }
 const boxrig_ime_backend boxrig_ime_fcitx4_backend = {
-    .kind = BOXRIG_IME_BACKEND_FCITX4, .initialize = connect_bus, .connect = connect_bus, .stop = stop,
+    .kind = BOXRIG_IME_BACKEND_FCITX4, .initialize = boxrig_fcitx4_initialize,
+    .connect = boxrig_fcitx4_connect, .stop = boxrig_fcitx4_stop, .destroy = boxrig_fcitx4_destroy,
     .start = start, .drop = drop, .finish = finish, .reset = reset,
     .surrounding = surrounding, .cursor = cursor, .key = key
 };
