@@ -3409,7 +3409,7 @@ void boxrig_gtk4_input_update_candidate(
         double x = point.x + tx, y = point.y + ty;
         if (x < INT_MIN || x > INT_MAX || y < INT_MIN || y > INT_MAX) return;
         int32_t relative[4] = {(int32_t)x, (int32_t)y, rectangle.width, rectangle.height};
-        boxrig_ime_cursor(input->ibus, &input->ibus_target, relative, true);
+        boxrig_ime_cursor(input->ibus, &input->ibus_target, relative, true, output_scale);
         boxrig_ime_diagnostic diagnostic;
         boxrig_ime_get_diagnostic(input->ibus, &diagnostic);
         if (diagnostic.contexts != 0 && boxrig_ime_is_focused(input->ibus_session, &input->ibus_target)) {

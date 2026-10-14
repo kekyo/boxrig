@@ -147,6 +147,20 @@ static GVariant *query(const char *name, const GVariantType *type)
     CHECK(reply != NULL && failure == NULL);
     return reply;
 }
+
+static void cursor_at(double scale, bool relative, const gint expected[4], guint updates)
+{
+    const int32_t logical[] = {-3, 11, 5, 7};
+    boxrig_ime_cursor(client, &target, logical, relative, scale);
+    GVariant *reply = query("Cursor", G_VARIANT_TYPE("(iiiidu)"));
+    gint rectangle[4];
+    gdouble actual_scale;
+    guint count;
+    g_variant_get(reply, "(iiiidu)", &rectangle[0], &rectangle[1], &rectangle[2], &rectangle[3], &actual_scale, &count);
+    CHECK(memcmp(rectangle, expected, sizeof(rectangle)) == 0);
+    CHECK(actual_scale == (relative ? scale : 1.0) && count == updates);
+    g_variant_unref(reply);
+}
 int main(void)
 {
     /* Cancel before name discovery completes; no default-loop dispatch is
@@ -187,6 +201,14 @@ int main(void)
     CHECK(seen_keys == 6 && focused == 1 && destroyed == 0);
     CHECK((capabilities & (UINT64_C(1) << 38)) != 0);
     g_variant_unref(inspection);
+    /* Positions include negative offsets. Fractional scaling must enclose the
+     * logical rectangle, and a scale-only change must reach the daemon. */
+    cursor_at(1.0, true, (gint[]){-3, 11, 5, 7}, 1);
+    cursor_at(2.0, true, (gint[]){-6, 22, 10, 14}, 2);
+    cursor_at(2.0, true, (gint[]){-6, 22, 10, 14}, 2);
+    cursor_at(1.25, true, (gint[]){-4, 13, 7, 10}, 3);
+    /* X11 coordinates already include the scale and the root-window origin. */
+    cursor_at(2.0, false, (gint[]){-3, 11, 5, 7}, 4);
     boxrig_ui_editable_document *document = boxrig_ui_view_editable_document(view);
     boxrig_ui_editable_context_input context = {.document_identity = 1, .document_revision = 1,
         .context = "前かな後", .context_length = strlen("前かな後"), .cursor = 9, .anchor = 9};

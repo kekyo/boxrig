@@ -390,8 +390,9 @@ static void key(boxrig_ime_session *session, const boxrig_ime_key *key, boxrig_i
         key->modifiers | (key->release ? IBUS_RELEASE_MASK : 0), -1, session->cancel, key_processed, request);
 }
 
-static void cursor(boxrig_ime_session *session, const int32_t rectangle[4], bool relative)
+static void cursor(boxrig_ime_session *session, const int32_t rectangle[4], bool relative, double scale)
 {
+    (void)scale; /* IBus takes logical surface coordinates or physical root coordinates. */
     if (relative) ibus_input_context_set_cursor_location_relative(session->proxy,
         rectangle[0], rectangle[1], rectangle[2], rectangle[3]);
     else ibus_input_context_set_cursor_location(session->proxy,

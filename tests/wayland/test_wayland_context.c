@@ -9474,6 +9474,56 @@ static void test_fcitx5_native_input(void)
         check_ibus_output(terminal, "");
         g_object_unref(bus);
     } else {
+        GDBusConnection *probe = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, NULL);
+        CHECK(probe != NULL);
+        boxrig_ui_component_allocation allocation = {.width = 600, .height = 300,
+            .window_state = BOXRIG_UI_WINDOW_NORMAL};
+        boxrig_ui_layout_result layout;
+        CHECK(boxrig_wayland_terminal_component_allocate(component, &allocation, &layout) == BOXRIG_UI_OK);
+        const uint32_t scales[] = {150, 240, 120};
+        for (size_t index = 0; index < G_N_ELEMENTS(scales); index++) {
+            wp_fractional_scale_v1_send_preferred_scale(server.fractional_scale_resource, scales[index]);
+            pump(&server); dispatch_context(context);
+            for (size_t buffer = 0; buffer < server.shm_buffer_create_count; buffer++)
+                if (server.shm_buffers[buffer] != NULL && server.shm_buffer_busy[buffer]) release_buffer(&server, buffer);
+            for (size_t callback = 0; callback < server.frame_callback_count; callback++)
+                if (server.frame_callbacks[callback] != NULL) complete_frame(&server, callback);
+            pump(&server);
+            boxrig_ui_component_frame_result frame;
+            for (;;) {
+                CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+                CHECK(boxrig_wayland_terminal_component_frame(component, &frame) == BOXRIG_UI_OK);
+                boxrig_ui_layout_action resize;
+                if (!boxrig_wayland_terminal_component_take_layout_action(component, &resize)) break;
+                CHECK(resize.kind == BOXRIG_UI_LAYOUT_ACTION_GRID_RESIZE);
+                CHECK(boxrig_terminal_resize(terminal, resize.value.grid_resize.rows,
+                    resize.value.grid_resize.columns) == BOXRIG_STATUS_OK);
+                CHECK(boxrig_wayland_terminal_component_complete_grid_resize(component, resize.revision, true) == BOXRIG_UI_OK);
+            }
+            int origin = 32 + 8 * (int)index;
+            CHECK(boxrig_wayland_terminal_component_set_ime_window_offset(component, origin, 48) == BOXRIG_UI_OK);
+            ibus_test_key(&server, KEY_ESC);
+            ibus_test_drain(&server, context, component);
+            GVariant *position = g_dbus_connection_call_sync(probe, "org.fcitx.Fcitx5", "/org/boxrig/FcitxProbe",
+                "org.boxrig.FcitxProbe", "Cursor", NULL, G_VARIANT_TYPE("(iiiidu)"),
+                G_DBUS_CALL_FLAGS_NO_AUTO_START, 60000, NULL, NULL);
+            CHECK(position != NULL);
+            gint x, y, width, height;
+            gdouble scale;
+            guint updates;
+            g_variant_get(position, "(iiiidu)", &x, &y, &width, &height, &scale, &updates);
+            if (updates == 0 || scale != scales[index] / 120.0)
+                fprintf(stderr, "Fcitx cursor scale case %zu: updates=%u scale=%g rectangle=%d,%d,%d,%d\n",
+                    index, updates, scale, x, y, width, height);
+            CHECK(updates > 0 && scale == scales[index] / 120.0);
+            CHECK(x == origin * scale && y == 48 * scale);
+            boxrig_font_effective_metrics metrics;
+            CHECK(boxrig_wayland_terminal_component_get_effective_metrics(component, &metrics) == BOXRIG_FONT_CATALOG_OK);
+            CHECK(width >= (gint)metrics.cell_width && width < (gint)metrics.cell_width + 4);
+            CHECK(height >= (gint)metrics.cell_height && height < (gint)metrics.cell_height + 4);
+            g_variant_unref(position);
+        }
+        g_object_unref(probe);
         if (client_candidates) {
             CHECK(component_state.candidate_owner == BOXRIG_UI_CANDIDATE_OWNER_NONE);
             ibus_test_key(&server, KEY_V);

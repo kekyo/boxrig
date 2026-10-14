@@ -3268,7 +3268,7 @@ void boxrig_gtk3_input_update_candidate(
                 candidate[index] = (int32_t)root[index];
             }
         }
-        boxrig_ime_cursor(input->ibus, &input->ibus_target, candidate, relative);
+        boxrig_ime_cursor(input->ibus, &input->ibus_target, candidate, relative, output_scale);
         boxrig_ime_diagnostic diagnostic;
         boxrig_ime_get_diagnostic(input->ibus, &diagnostic);
         if (diagnostic.contexts != 0 && boxrig_ime_is_focused(input->ibus_session, &input->ibus_target)) {

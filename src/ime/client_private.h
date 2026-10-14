@@ -19,7 +19,7 @@ typedef struct boxrig_ime_backend {
     void (*surrounding)(boxrig_ime_session *session, const char *text,
         uint32_t cursor, uint32_t anchor, bool available);
     void (*key)(boxrig_ime_session *session, const boxrig_ime_key *key, boxrig_ime_request *request);
-    void (*cursor)(boxrig_ime_session *session, const int32_t rectangle[4], bool relative);
+    void (*cursor)(boxrig_ime_session *session, const int32_t rectangle[4], bool relative, double scale);
 } boxrig_ime_backend;
 extern const boxrig_ime_backend boxrig_ime_ibus_backend;
 extern const boxrig_ime_backend boxrig_ime_fcitx5_backend;
@@ -67,6 +67,7 @@ struct boxrig_ime_session {
     size_t references;
     bool pending, cursor_valid, cursor_relative, preedit_visible;
     int32_t rectangle[4];
+    double cursor_scale;
     uint64_t capabilities;
     bool preedit_commit;
     bool candidates_confirmed;

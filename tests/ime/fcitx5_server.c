@@ -13,6 +13,9 @@ static GDBusConnection *previous_connection;
 static guint name_owner;
 static unsigned int next_context, keys, resets, focused, destroyed;
 static guint64 capabilities;
+static gint cursor_rectangle[4];
+static gdouble cursor_scale;
+static guint cursor_updates;
 static char *surrounding;
 static GDBusMethodInvocation *held;
 
@@ -35,6 +38,9 @@ static const char xml[] =
     "<interface name='org.boxrig.FcitxProbe'><method name='Inspect'>"
     "<arg type='u' direction='out'/><arg type='u' direction='out'/><arg type='u' direction='out'/>"
     "<arg type='u' direction='out'/><arg type='t' direction='out'/><arg type='s' direction='out'/></method>"
+    "<method name='Cursor'><arg type='i' direction='out'/><arg type='i' direction='out'/>"
+    "<arg type='i' direction='out'/><arg type='i' direction='out'/><arg type='d' direction='out'/>"
+    "<arg type='u' direction='out'/></method>"
     "<method name='Complete'/><method name='Replace'/><method name='FailPrevious'/></interface></node>";
 static GDBusNodeInfo *node;
 static const GDBusInterfaceVTable methods;
@@ -100,6 +106,12 @@ static void method(GDBusConnection *bus, const char *sender, const char *path,
             capabilities, surrounding == NULL ? "" : surrounding));
         return;
     }
+    if (strcmp(name, "Cursor") == 0) {
+        g_dbus_method_invocation_return_value(invocation, g_variant_new("(iiiidu)",
+            cursor_rectangle[0], cursor_rectangle[1], cursor_rectangle[2], cursor_rectangle[3],
+            cursor_scale, cursor_updates));
+        return;
+    }
     if (strcmp(name, "Replace") == 0) {
         CHECK(previous_connection == NULL && held != NULL);
         previous_connection = connection;
@@ -128,7 +140,11 @@ static void method(GDBusConnection *bus, const char *sender, const char *path,
     } else if (strcmp(name, "FocusIn") == 0) focused++;
     else if (strcmp(name, "Reset") == 0) resets++;
     else if (strcmp(name, "DestroyIC") == 0) destroyed++;
-    else if (strcmp(name, "SetCapability") == 0) g_variant_get(parameters, "(t)", &capabilities);
+    else if (strcmp(name, "SetCursorRectV2") == 0) {
+        g_variant_get(parameters, "(iiiid)", &cursor_rectangle[0], &cursor_rectangle[1],
+            &cursor_rectangle[2], &cursor_rectangle[3], &cursor_scale);
+        cursor_updates++;
+    } else if (strcmp(name, "SetCapability") == 0) g_variant_get(parameters, "(t)", &capabilities);
     else if (strcmp(name, "SetSurroundingText") == 0) {
         guint cursor, anchor;
         g_free(surrounding);

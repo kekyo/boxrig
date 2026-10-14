@@ -259,6 +259,23 @@ int main(void)
         real_mozc();
         goto cleanup;
     }
+    /* The host's diagnostic exposes logical surface coordinates on Wayland
+     * and physical root coordinates on X11. Check what actually reached IME. */
+    GDBusConnection *probe = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, NULL);
+    CHECK(probe != NULL && state.candidate_valid);
+    GVariant *position = g_dbus_connection_call_sync(probe, "org.fcitx.Fcitx5", "/org/boxrig/FcitxProbe",
+        "org.boxrig.FcitxProbe", "Cursor", NULL, G_VARIANT_TYPE("(iiiidu)"),
+        G_DBUS_CALL_FLAGS_NO_AUTO_START, 60000, NULL, NULL);
+    CHECK(position != NULL);
+    gint actual[4];
+    gdouble actual_scale;
+    guint updates;
+    g_variant_get(position, "(iiiidu)", &actual[0], &actual[1], &actual[2], &actual[3], &actual_scale, &updates);
+    int factor = state.candidate_surface_relative ? gtk_widget_get_scale_factor(GTK_WIDGET(widget)) : 1;
+    CHECK(updates > 0 && actual_scale == factor);
+    for (size_t index = 0; index < G_N_ELEMENTS(actual); index++) CHECK(actual[index] == state.candidate[index] * factor);
+    g_variant_unref(position);
+    g_object_unref(probe);
     if (client_candidates) {
         CHECK(state.candidate_owner == BOXRIG_UI_CANDIDATE_OWNER_NONE);
         key('v');

@@ -215,7 +215,8 @@ void boxrig_wayland_ibus_cursor(boxrig_wayland_terminal_component *component, bo
     int64_t y = (int64_t)rectangle[1] + component->candidate_y + component->ime_window_y;
     if (x < INT32_MIN || x > INT32_MAX || y < INT32_MIN || y > INT32_MAX) return;
     rectangle[0] = (int32_t)x; rectangle[1] = (int32_t)y;
-    boxrig_ime_cursor(component->context->ibus, &component->ibus_target, rectangle, true);
+    boxrig_ime_cursor(component->context->ibus, &component->ibus_target, rectangle, true,
+        component->scale_numerator / 120.0);
 }
 
 boxrig_ui_status boxrig_wayland_terminal_component_set_ime_window_offset(

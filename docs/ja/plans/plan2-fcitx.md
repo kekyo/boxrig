@@ -329,3 +329,11 @@ fcitx 5の`UpdateClientSideUI`をページ候補モデルへ接続しました�
 GTK 3／X11では`FCITX_X11_USE_CLIENT_SIDE_UI=True`を指定した場合と、指定せず能力が抑制される場合を分けています。後者では候補通知がなくても通常の変換と確定が成立し、診断はUNCONFIRMEDを保ちます。この抑制はデーモンがX11表示グループを認識した場合に適用されるため、GUI試験ではデーモンも試験専用のXvfb／Westonへ接続します。[上流の表示グループと能力調整](https://github.com/fcitx/fcitx5/blob/5.1.7/src/frontend/dbusfrontend/dbusfrontend.cpp)
 
 試験専用D-Busではサービスの自動起動を無効にし、デスクトップのポータルやキーリングを起動しないようにしました。入力エンジンの設定と実行ディレクトリも分離しています。native Waylandのこの試験はプロトコル検証用コンポジターを使っており、実コンポジターでの候補配置は未完了です。倍率、自動検出、公開診断の整理、残る対象バージョンと全体テストも引き続き段階3で実施します。
+
+### 段階3の座標と倍率を補正
+
+共通IME層へサーフェス倍率を渡すようにしました。IBusには従来の論理座標を渡し、fcitx 5のWayland経路では出力ピクセルへ変換して`SetCursorRectV2`の倍率とともに送信します。X11の絶対座標はホスト側で既に出力ピクセルへ変換済みのため、そのまま送信します。[公式GTKの座標変換](https://github.com/fcitx/fcitx5-gtk/blob/5.1.1/gtk4/fcitximcontext.cpp)、[倍率付きAPIのコメント](https://github.com/fcitx/fcitx5-gtk/blob/5.1.1/fcitx-gclient/fcitxgclient.c)
+
+分数倍率では矩形の端を外側へ丸め、負の位置でもカーソルを囲む範囲を保ちます。矩形が同じでも倍率が変わった場合は再送し、範囲外の値は送信しません。通信ドライバーは1倍、2倍、1.25倍、重複更新、X11絶対座標を検証します。新しい呼び出し契約でのREDを確認してから実装し、`test-fcitx5`と`test-ibus-candidates`が成功しました。
+
+`test-fcitx5-scale`ではGTK 3／X11、GTK 3／Wayland、GTK 4／Waylandの2倍表示を検証しています。`test-wayland-fcitx5`には1.25倍→2倍→1倍の変更とウィンドウ位置の変更を追加し、通知された座標と文字セルの範囲を確認しました。native Waylandの試験はホストのグリッド変更を完了させてから倍率を観測します。既存IBus経路の`test-gtk-ibus-direct`と`test-wayland-input`も成功しています。

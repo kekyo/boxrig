@@ -1,6 +1,7 @@
 /* boxrig - Under MIT. */
 #include "../ime/client_private.h"
 #include "../ime/preedit.h"
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -347,10 +348,24 @@ static void drop(boxrig_ime_session *session)
     g_clear_object(&session->proxy);
 }
 static void reset(boxrig_ime_session *session) { call(session, "Reset", NULL); }
-static void cursor(boxrig_ime_session *session, const int32_t rectangle[4], bool relative)
+static void cursor(boxrig_ime_session *session, const int32_t rectangle[4], bool relative, double scale)
 {
-    (void)relative;
-    call(session, "SetCursorRectV2", g_variant_new("(iiiid)", rectangle[0], rectangle[1], rectangle[2], rectangle[3], 1.0));
+    int32_t pixels[4];
+    memcpy(pixels, rectangle, sizeof(pixels));
+    if (relative) {
+        /* Fcitx's V2 rectangle is in output pixels, with a separate surface
+         * scale. Round the two edges outwards, including negative offsets. */
+        for (size_t axis = 0; axis < 2; axis++) {
+            double first = floor(rectangle[axis] * scale);
+            double last = ceil(((double)rectangle[axis] + rectangle[axis + 2]) * scale);
+            double extent = last - first;
+            if (!isfinite(first) || !isfinite(last) || first < INT32_MIN || first > INT32_MAX ||
+                last < INT32_MIN || last > INT32_MAX || extent < 0 || extent > INT32_MAX) return;
+            pixels[axis] = (int32_t)first;
+            pixels[axis + 2] = (int32_t)extent;
+        }
+    }
+    call(session, "SetCursorRectV2", g_variant_new("(iiiid)", pixels[0], pixels[1], pixels[2], pixels[3], scale));
 }
 static void key_processed(GObject *source, GAsyncResult *result, gpointer data)
 {

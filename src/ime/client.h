@@ -101,9 +101,10 @@ void boxrig_ime_focus(boxrig_ime_session *session, boxrig_ime_target *target,
 void boxrig_ime_update(boxrig_ime_client *client);
 /* Refresh document/cursor state without dispatching pending callbacks. */
 void boxrig_ime_refresh(boxrig_ime_client *client);
-/* The caller selects surface-local logical or absolute root coordinates. */
+/* Surface-relative rectangles use logical coordinates and the surface scale.
+ * Absolute root rectangles are already physical pixels; their scale is ignored. */
 void boxrig_ime_cursor(boxrig_ime_client *client, boxrig_ime_target *target,
-    const int32_t rectangle[4], bool relative);
+    const int32_t rectangle[4], bool relative, double scale);
 void boxrig_ime_get_diagnostic(const boxrig_ime_client *client,
     boxrig_ime_diagnostic *diagnostic);
 /* Fcitx may suppress the requested client panel. Until a notification arrives,

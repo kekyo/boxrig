@@ -2,6 +2,7 @@
 #include "client_private.h"
 
 #include <limits.h>
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -775,16 +776,19 @@ boxrig_ui_status boxrig_ime_filter_key(boxrig_ime_session *session,
 }
 
 void boxrig_ime_cursor(boxrig_ime_client *bus, boxrig_ime_target *component,
-    const int32_t rectangle[4], bool relative)
+    const int32_t rectangle[4], bool relative, double scale)
 {
-    if (!boxrig_ime_selected(bus)) return;
+    if (!boxrig_ime_selected(bus) || rectangle == NULL || rectangle[2] < 0 || rectangle[3] < 0) return;
+    if (!relative) scale = 1.0;
+    if (!isfinite(scale) || scale <= 0) return;
     for (boxrig_ime_session *session = bus->sessions; session != NULL; session = session->next) {
         if (session->component != component || session->proxy == NULL ||
-            (session->cursor_valid && session->cursor_relative == relative &&
+            (session->cursor_valid && session->cursor_relative == relative && session->cursor_scale == scale &&
              memcmp(session->rectangle, rectangle, sizeof(session->rectangle)) == 0)) continue;
-        bus->backend->cursor(session, rectangle, relative);
+        bus->backend->cursor(session, rectangle, relative, scale);
         memcpy(session->rectangle, rectangle, sizeof(session->rectangle));
         session->cursor_relative = relative;
+        session->cursor_scale = scale;
         session->cursor_valid = true;
     }
 }
