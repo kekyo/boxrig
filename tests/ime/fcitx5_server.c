@@ -1,5 +1,6 @@
 /* boxrig - Under MIT. */
 #include <gio/gio.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -42,6 +43,33 @@ static void register_server(void);
 static void emit(const char *sender, const char *path, const char *name, GVariant *value)
 {
     CHECK(g_dbus_connection_emit_signal(connection, sender, path, INTERFACE, name, value, NULL));
+}
+
+static void panel(const char *sender, const char *path, guint action)
+{
+    CHECK((capabilities & (UINT64_C(1) << 39)) != 0);
+    if (action == 't') {
+        emit(sender, path, "UpdateClientSideUI", g_variant_new("(s)", "wrong signature"));
+        return;
+    }
+    GVariantBuilder preedit, above, below, entries;
+    g_variant_builder_init(&preedit, G_VARIANT_TYPE("a(si)"));
+    g_variant_builder_init(&above, G_VARIANT_TYPE("a(si)"));
+    g_variant_builder_init(&below, G_VARIANT_TYPE("a(si)"));
+    g_variant_builder_init(&entries, G_VARIANT_TYPE("a(ss)"));
+    if (action != 'h') {
+        g_variant_builder_add(&preedit, "(si)", "よみ", 8);
+        g_variant_builder_add(&above, "(si)", "上", 0);
+        g_variant_builder_add(&below, "(si)", "下", 0);
+        if (action != 'w') {
+            g_variant_builder_add(&entries, "(ss)", "1", action == 'n' ? "貴社" : "汽車");
+            g_variant_builder_add(&entries, "(ss)", "2", action == 'n' ? "喜捨" : "記者");
+        }
+    }
+    emit(sender, path, "UpdateClientSideUI", g_variant_new("(a(si)ia(si)a(si)a(ss)iibb)",
+        &preedit, action == 'h' ? -1 : 3, &above, &below, &entries,
+        action == 'q' ? 7 : action == 'w' || action == 'h' ? -1 : action == 'n' ? 0 : 1,
+        1, action == 'n', action == 'v'));
 }
 
 static void method(GDBusConnection *bus, const char *sender, const char *path,
@@ -133,6 +161,7 @@ static void method(GDBusConnection *bus, const char *sender, const char *path,
         } else if (symbol == 'b') emit(sender, path, "CommitString", g_variant_new("(s)", "汽車🙂"));
         else if (symbol == 'c') emit(sender, path, "ForwardKey", g_variant_new("(uub)", 0xff0d, 4, TRUE));
         else if (symbol == 'f') emit(sender, path, "ForwardKey", g_variant_new("(uub)", 'x', 0, FALSE));
+        else if (symbol == 'v' || symbol == 'n' || symbol == 'w' || symbol == 'h' || symbol == 'q' || symbol == 't') panel(sender, path, symbol);
         else if (symbol == 'd') {
             emit(sender, path, "DeleteSurroundingText", g_variant_new("(iu)", -2, 2));
             emit(sender, path, "CommitString", g_variant_new("(s)", "記者"));

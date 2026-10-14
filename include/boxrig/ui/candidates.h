@@ -15,14 +15,14 @@
 
 /** Candidate presentation preference, independent of the input owner. */
 typedef enum boxrig_ui_candidate_policy {
-    BOXRIG_UI_CANDIDATE_AUTO = 0, /**< Prefer system display; direct Wayland IBus uses client display as a fallback. */
+    BOXRIG_UI_CANDIDATE_AUTO = 0, /**< Prefer system display; direct Wayland IMEs request client display as a fallback. */
     BOXRIG_UI_CANDIDATE_SYSTEM, /**< Leave candidate display with the system input method. */
     BOXRIG_UI_CANDIDATE_CLIENT /**< Request client display without overriding explicit input routes. */
 } boxrig_ui_candidate_policy;
 
 /** Actual owner of candidate presentation, separate from input routing. */
 typedef enum boxrig_ui_candidate_owner {
-    BOXRIG_UI_CANDIDATE_OWNER_NONE = 0, /**< Input route is still being established. */
+    BOXRIG_UI_CANDIDATE_OWNER_NONE = 0, /**< Input route or client panel support is not yet confirmed. */
     BOXRIG_UI_CANDIDATE_OWNER_SYSTEM, /**< The selected system input method owns its popup. */
     BOXRIG_UI_CANDIDATE_OWNER_CLIENT /**< The view owns a viewport-local candidate overlay. */
 } boxrig_ui_candidate_owner;
@@ -30,11 +30,12 @@ typedef enum boxrig_ui_candidate_owner {
 /** Reason for the current candidate display owner. */
 typedef enum boxrig_ui_candidate_reason {
     BOXRIG_UI_CANDIDATE_PENDING = 0, /**< Input selection or connection is pending. */
-    BOXRIG_UI_CANDIDATE_READY, /**< Direct IBus and a candidate renderer are ready. */
+    BOXRIG_UI_CANDIDATE_READY, /**< Direct IME and a candidate renderer are ready. */
     BOXRIG_UI_CANDIDATE_SYSTEM_REQUEST, /**< The caller requested system display. */
     BOXRIG_UI_CANDIDATE_STANDARD_INPUT, /**< The selected input route owns system candidates. */
     BOXRIG_UI_CANDIDATE_NO_RENDERER, /**< The selected renderer cannot present client candidates. */
-    BOXRIG_UI_CANDIDATE_IBUS_UNAVAILABLE /**< The direct IBus connection is unavailable. */
+    BOXRIG_UI_CANDIDATE_IBUS_UNAVAILABLE, /**< The direct IBus connection is unavailable. */
+    BOXRIG_UI_CANDIDATE_UNCONFIRMED /**< Client display was requested but no panel notification has confirmed it. */
 } boxrig_ui_candidate_reason;
 
 /** Engine preference; horizontal pages may become vertical in a narrow view. */

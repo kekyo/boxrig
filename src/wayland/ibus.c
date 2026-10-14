@@ -73,12 +73,15 @@ static boxrig_ui_status apply_effect(void *data, boxrig_ime_effect *effect,
     if (effect->type == BOXRIG_IME_CANDIDATES) {
         const boxrig_ime_candidates *source = &effect->value.candidates;
         boxrig_ui_candidate_snapshot snapshot = {
+            .format = source->format,
             .count = source->count, .page_size = source->page_size, .cursor = source->cursor,
             .orientation = source->orientation,
             .visible = source->visible, .cursor_visible = source->cursor_visible,
             .auxiliary_visible = source->auxiliary_visible,
+            .auxiliary_above_visible = source->auxiliary_above_visible,
+            .has_previous_page = source->has_previous_page, .has_next_page = source->has_next_page,
             .items = (const char *const *)source->items, .labels = (const char *const *)source->labels,
-            .auxiliary = source->auxiliary};
+            .auxiliary = source->auxiliary, .auxiliary_above = source->auxiliary_above};
         *blocked = false;
         *accepted = true;
         return boxrig_ui_view_set_candidates(component->view, &snapshot);
@@ -115,8 +118,7 @@ static void initialize_target(boxrig_wayland_terminal_component *component)
         .maximum_bytes = component->config.maximum_ime_bytes, .data = component,
         .wake = wake_target, .error = target_error, .enqueue = enqueue_reply,
         .forward = forward_key, .apply = apply_effect, .cursor = update_cursor,
-        .clear_candidates = component->context->config.input_method != BOXRIG_WAYLAND_IME_FCITX5 &&
-            component->context->config.candidate_policy != BOXRIG_UI_CANDIDATE_SYSTEM
+        .clear_candidates = component->context->config.candidate_policy != BOXRIG_UI_CANDIDATE_SYSTEM
             ? clear_candidates : NULL};
 }
 

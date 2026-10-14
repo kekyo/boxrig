@@ -52,7 +52,7 @@ static void report_ime_state(boxrig_term_wayland_application *application)
     static const char *const policies[] = {"auto", "system", "client"};
     static const char *const owners[] = {"none", "system", "client"};
     static const char *const reasons[] = {"pending", "ready", "system-request",
-        "standard-input", "no-renderer", "ibus-unavailable"};
+        "standard-input", "no-renderer", "ibus-unavailable", "unconfirmed"};
     application->reported_candidate_state = state;
     application->reported_input_method = context.input_method;
     application->reported_ibus_state = context.ibus_state;

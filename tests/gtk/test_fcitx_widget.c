@@ -166,6 +166,26 @@ static void real_mozc(void)
     CHECK(text.active && text.text_length == strlen("きしゃ") && memcmp(text.text, "きしゃ", text.text_length) == 0);
     output("");
     key(GDK_KEY_space);
+    if (getenv("BOXRIG_TEST_FCITX_CANDIDATES") != NULL) {
+        key(GDK_KEY_space);
+        boxrig_ui_candidate_view panel;
+        CHECK(boxrig_ui_view_get_candidates(widget_view(widget), &panel) == BOXRIG_UI_OK);
+        boxrig_gtk_ime_state state;
+        if (getenv("BOXRIG_TEST_FCITX_SUPPRESSED") != NULL) {
+            CHECK(panel.snapshot.count == 0);
+            CHECK(widget_ime_state(widget, &state) == BOXRIG_UI_OK);
+            CHECK(state.candidate_owner == BOXRIG_UI_CANDIDATE_OWNER_NONE);
+            CHECK(state.candidate_reason == BOXRIG_UI_CANDIDATE_UNCONFIRMED);
+        } else {
+            CHECK(panel.snapshot.format == BOXRIG_UI_CANDIDATE_PAGE && panel.snapshot.count > 0);
+            CHECK(panel.snapshot.has_next_page);
+            key(GDK_KEY_Page_Down);
+            CHECK(boxrig_ui_view_get_candidates(widget_view(widget), &panel) == BOXRIG_UI_OK);
+            CHECK(panel.snapshot.has_previous_page && panel.snapshot.count > 0);
+            CHECK(widget_ime_state(widget, &state) == BOXRIG_UI_OK);
+            CHECK(state.candidate_owner == BOXRIG_UI_CANDIDATE_OWNER_CLIENT);
+        }
+    }
     text = composition();
     CHECK(text.active && text.text_length != 0);
     CHECK(text.text_length != strlen("きしゃ") || memcmp(text.text, "きしゃ", text.text_length) != 0);
@@ -198,7 +218,8 @@ int main(void)
     CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
     widget_config wc = widget_config_default();
     wc.ime_policy = BOXRIG_GTK_IME_FCITX5;
-    wc.candidate_policy = BOXRIG_UI_CANDIDATE_SYSTEM;
+    bool client_candidates = getenv("BOXRIG_TEST_FCITX_CANDIDATES") != NULL;
+    wc.candidate_policy = client_candidates ? BOXRIG_UI_CANDIDATE_CLIENT : BOXRIG_UI_CANDIDATE_SYSTEM;
     wc.render_policy = BOXRIG_GTK_RENDER_CAIRO;
     wc.frame_request_callback = request_frame;
     wc.frame_request_context = &dispatch_requested;
@@ -233,10 +254,27 @@ int main(void)
     CHECK(widget_ime_state(widget, &state) == BOXRIG_UI_OK);
     CHECK(state.active_route == BOXRIG_GTK_IME_ROUTE_FCITX5);
     CHECK(state.reason == BOXRIG_GTK_IME_REASON_EXPLICIT_FCITX5);
-    CHECK(state.candidate_owner == BOXRIG_UI_CANDIDATE_OWNER_SYSTEM);
+    if (!client_candidates) CHECK(state.candidate_owner == BOXRIG_UI_CANDIDATE_OWNER_SYSTEM);
     if (getenv("BOXRIG_TEST_FCITX_REAL") != NULL) {
         real_mozc();
         goto cleanup;
+    }
+    if (client_candidates) {
+        CHECK(state.candidate_owner == BOXRIG_UI_CANDIDATE_OWNER_NONE);
+        key('v');
+        boxrig_ui_candidate_view panel;
+        CHECK(boxrig_ui_view_get_candidates(widget_view(widget), &panel) == BOXRIG_UI_OK);
+        CHECK(panel.snapshot.format == BOXRIG_UI_CANDIDATE_PAGE && panel.snapshot.count == 2);
+        CHECK(panel.snapshot.cursor == 1 && panel.snapshot.has_next_page);
+        CHECK(strcmp(panel.snapshot.auxiliary_above, "上よみ") == 0 && strcmp(panel.snapshot.auxiliary, "下") == 0);
+        CHECK(widget_ime_state(widget, &state) == BOXRIG_UI_OK);
+        CHECK(state.candidate_owner == BOXRIG_UI_CANDIDATE_OWNER_CLIENT);
+        key('w');
+        CHECK(boxrig_ui_view_get_candidates(widget_view(widget), &panel) == BOXRIG_UI_OK);
+        CHECK(panel.snapshot.count == 0 && panel.snapshot.auxiliary_above_visible && panel.snapshot.auxiliary_visible);
+        key('h');
+        CHECK(boxrig_ui_view_get_candidates(widget_view(widget), &panel) == BOXRIG_UI_OK);
+        CHECK(!panel.snapshot.visible && !panel.snapshot.auxiliary_above_visible && !panel.snapshot.auxiliary_visible);
     }
     key('a');
     boxrig_composition_view text = composition();

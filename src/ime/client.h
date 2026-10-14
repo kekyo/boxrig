@@ -39,11 +39,13 @@ typedef enum boxrig_ime_effect_type {
 #define BOXRIG_IME_CANDIDATES_MAXIMUM 1024u
 #define BOXRIG_IME_CANDIDATE_BYTES_MAXIMUM 65536u
 typedef struct boxrig_ime_candidates {
+    boxrig_ui_candidate_format format;
     size_t count, page_size, cursor;
     boxrig_ui_candidate_orientation orientation;
     bool visible, cursor_visible, round, auxiliary_visible;
+    bool auxiliary_above_visible, has_previous_page, has_next_page;
     char **items, **labels;
-    char *auxiliary;
+    char *auxiliary, *auxiliary_above;
 } boxrig_ime_candidates;
 
 /* A transaction owns its effects, including all text and segment storage. */
@@ -104,6 +106,10 @@ void boxrig_ime_cursor(boxrig_ime_client *client, boxrig_ime_target *target,
     const int32_t rectangle[4], bool relative);
 void boxrig_ime_get_diagnostic(const boxrig_ime_client *client,
     boxrig_ime_diagnostic *diagnostic);
+/* Fcitx may suppress the requested client panel. Until a notification arrives,
+ * NONE distinguishes an unconfirmed request from a confirmed client owner. */
+boxrig_ui_candidate_owner boxrig_ime_candidate_owner(const boxrig_ime_client *client,
+    const boxrig_ime_target *target);
 boxrig_ui_status boxrig_ime_filter_key(boxrig_ime_session *session,
     boxrig_ime_target *target, uint64_t generation, const boxrig_ime_key *key,
     boxrig_ime_request **request,

@@ -33,6 +33,7 @@ static boxrig_ui_status edit(const boxrig_ui_editable_replacement_request *reque
 static void wake(void *data, bool waiting) { (void)data; (void)waiting; }
 static void error(void *data, bool resource) { (void)data; CHECK(!resource); errors++; }
 static void cursor(void *data) { (void)data; }
+static void clear_candidates(void *data) { (void)data; boxrig_ui_view_clear_candidates(target.view); }
 static void selection(void *data, bool selected) { (void)data; (void)selected; }
 static void enqueue(void *data, void *seat, boxrig_ime_request *request)
 { (void)data; (void)seat; CHECK(queued < 32); queue[queued++] = request; }
@@ -48,7 +49,17 @@ static boxrig_ui_status apply(void *data, boxrig_ime_effect *effect, bool *block
 {
     (void)data;
     *blocked = false; *accepted = true;
-    if (effect->type == BOXRIG_IME_KEY) forwards++;
+    if (effect->type == BOXRIG_IME_CANDIDATES) {
+        boxrig_ime_candidates *source = &effect->value.candidates;
+        boxrig_ui_candidate_snapshot snapshot = {.format = source->format,
+            .count = source->count, .page_size = source->page_size, .cursor = source->cursor,
+            .visible = source->visible, .cursor_visible = source->cursor_visible,
+            .has_previous_page = source->has_previous_page, .has_next_page = source->has_next_page,
+            .items = (const char *const *)source->items, .labels = (const char *const *)source->labels,
+            .auxiliary = source->auxiliary, .auxiliary_visible = source->auxiliary_visible,
+            .auxiliary_above = source->auxiliary_above, .auxiliary_above_visible = source->auxiliary_above_visible};
+        CHECK(boxrig_ui_view_set_candidates(target.view, &snapshot) == BOXRIG_UI_OK);
+    } else if (effect->type == BOXRIG_IME_KEY) forwards++;
     else if (effect->type == BOXRIG_IME_COMPOSITION) {
         const boxrig_composition_event *event = &effect->value.composition;
         if (event->type == BOXRIG_COMPOSITION_COMMIT) {
@@ -230,10 +241,51 @@ int main(void)
     CHECK(key('b') && commits == 3 && strcmp(committed, "汽車🙂") == 0);
     boxrig_ime_get_diagnostic(client, &state);
     CHECK(state.state == BOXRIG_IME_READY && state.errors == disconnect_errors);
+    boxrig_ime_focus(session, NULL, false, ++generation);
+    drain();
+    target.clear_candidates = clear_candidates;
+    focus();
+    CHECK(boxrig_ime_candidate_owner(client, &target) == BOXRIG_UI_CANDIDATE_OWNER_NONE);
+    CHECK(key('v'));
+    boxrig_ui_candidate_view panel;
+    CHECK(boxrig_ui_view_get_candidates(view, &panel) == BOXRIG_UI_OK);
+    CHECK(panel.snapshot.format == BOXRIG_UI_CANDIDATE_PAGE && panel.snapshot.count == 2);
+    CHECK(panel.snapshot.cursor == 1 && panel.snapshot.cursor_visible && panel.snapshot.has_next_page);
+    CHECK(!panel.snapshot.has_previous_page);
+    CHECK(strcmp(panel.snapshot.items[1], "記者") == 0 && strcmp(panel.snapshot.labels[1], "2") == 0);
+    CHECK(strcmp(panel.snapshot.auxiliary_above, "上よみ") == 0 && strcmp(panel.snapshot.auxiliary, "下") == 0);
+    CHECK(boxrig_ime_candidate_owner(client, &target) == BOXRIG_UI_CANDIDATE_OWNER_CLIENT);
+    CHECK(key('n'));
+    CHECK(boxrig_ui_view_get_candidates(view, &panel) == BOXRIG_UI_OK);
+    CHECK(panel.snapshot.count == 2 && panel.snapshot.cursor == 0 && panel.snapshot.has_previous_page);
+    CHECK(!panel.snapshot.has_next_page && strcmp(panel.snapshot.items[0], "貴社") == 0);
+    CHECK(key('w'));
+    CHECK(boxrig_ui_view_get_candidates(view, &panel) == BOXRIG_UI_OK);
+    CHECK(panel.snapshot.count == 0 && panel.snapshot.auxiliary_visible && panel.snapshot.auxiliary_above_visible);
+    CHECK(key('h'));
+    CHECK(boxrig_ui_view_get_candidates(view, &panel) == BOXRIG_UI_OK);
+    CHECK(panel.snapshot.count == 0 && !panel.snapshot.visible && !panel.snapshot.auxiliary_visible && !panel.snapshot.auxiliary_above_visible);
+    CHECK(key('v') && key('q'));
+    CHECK(boxrig_ui_view_get_candidates(view, &panel) == BOXRIG_UI_OK);
+    CHECK(panel.snapshot.count == 0 && errors == 1);
+    CHECK(key('v') && key('t'));
+    CHECK(boxrig_ui_view_get_candidates(view, &panel) == BOXRIG_UI_OK);
+    CHECK(panel.snapshot.count == 0 && errors == 2);
+    target.maximum_bytes = 8;
+    CHECK(key('v'));
+    target.maximum_bytes = 65536;
+    CHECK(boxrig_ui_view_get_candidates(view, &panel) == BOXRIG_UI_OK);
+    CHECK(panel.snapshot.count == 0 && errors == 3);
+    CHECK(key('v'));
+    boxrig_ime_focus(session, NULL, false, ++generation);
+    drain();
+    CHECK(boxrig_ui_view_get_candidates(view, &panel) == BOXRIG_UI_OK && panel.snapshot.count == 0);
+    target.clear_candidates = NULL;
+    focus();
     CHECK(key('e'));
     boxrig_ime_get_diagnostic(client, &state);
     CHECK(state.state == BOXRIG_IME_UNAVAILABLE && state.errors == disconnect_errors + 1);
-    CHECK(commits == 3 && errors == 0);
+    CHECK(commits == 3 && errors == 3);
     boxrig_ime_remove_session(session);
     drain();
     boxrig_ime_destroy(client);

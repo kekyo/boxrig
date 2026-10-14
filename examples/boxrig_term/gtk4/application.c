@@ -118,7 +118,7 @@ static void report_ime_state(boxrig_term_gtk4_application *application)
     static const char *const candidate_policies[] = {"auto", "system", "client"};
     static const char *const candidate_owners[] = {"none", "system", "client"};
     static const char *const candidate_reasons[] = {"pending", "ready", "system-request",
-        "standard-input", "no-renderer", "ibus-unavailable"};
+        "standard-input", "no-renderer", "ibus-unavailable", "unconfirmed"};
     application->reported_ime_state = state;
     application->ime_state_reported = true;
     fprintf(stdout, "boxrig_term: ime-policy=%d ime-route=%s ime-reason=%s gtk=%u.%u.%u display=%s module=%s registry=%d/%d text-input-version=%u ibus=%d contexts=%zu errors=%zu candidate-policy=%s candidate-owner=%s candidate-reason=%s candidate-revision=%" PRIu64 " candidate-count=%zu candidate-cursor=%zu candidate-visible=%d auxiliary-visible=%d\n",

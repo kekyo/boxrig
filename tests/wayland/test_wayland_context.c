@@ -9399,7 +9399,8 @@ static void test_fcitx5_native_input(void)
     struct wl_registry *registry = create_host_registry(&server, &host);
     boxrig_wayland_context_config config = boxrig_wayland_context_config_default();
     config.input_method = BOXRIG_WAYLAND_IME_FCITX5;
-    config.candidate_policy = BOXRIG_UI_CANDIDATE_SYSTEM;
+    bool client_candidates = getenv("BOXRIG_TEST_FCITX_CANDIDATES") != NULL;
+    config.candidate_policy = client_candidates ? BOXRIG_UI_CANDIDATE_CLIENT : BOXRIG_UI_CANDIDATE_SYSTEM;
     boxrig_wayland_context *context = NULL;
     CHECK(boxrig_wayland_context_create(server.client_display, server.client_queue, &config, &context) == BOXRIG_UI_OK);
     pump(&server); pump(&server); pump(&server);
@@ -9424,6 +9425,10 @@ static void test_fcitx5_native_input(void)
     CHECK(diagnostic.input_method == BOXRIG_WAYLAND_IME_FCITX5);
     CHECK((diagnostic.input_capabilities & BOXRIG_WAYLAND_INPUT_CAPABILITY_FCITX5) != 0);
     CHECK((diagnostic.input_capabilities & BOXRIG_WAYLAND_INPUT_CAPABILITY_IBUS) == 0);
+    boxrig_wayland_component_diagnostic component_state;
+    CHECK(boxrig_wayland_terminal_component_get_diagnostic(component, &component_state) == BOXRIG_UI_OK);
+    CHECK((component_state.input_capabilities & BOXRIG_WAYLAND_INPUT_CAPABILITY_FCITX5) != 0);
+    CHECK((component_state.input_capabilities & BOXRIG_WAYLAND_INPUT_CAPABILITY_IBUS) == 0);
     CHECK(!server.text_current_enabled[0]);
     if (getenv("BOXRIG_TEST_FCITX_REAL") != NULL) {
         GDBusConnection *bus = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, NULL);
@@ -9442,6 +9447,17 @@ static void test_fcitx5_native_input(void)
         check_ibus_output(terminal, "");
         ibus_test_key(&server, KEY_SPACE);
         ibus_test_drain(&server, context, component);
+        if (client_candidates) {
+            ibus_test_key(&server, KEY_SPACE);
+            ibus_test_drain(&server, context, component);
+            boxrig_ui_candidate_view panel;
+            CHECK(boxrig_ui_view_get_candidates(boxrig_wayland_terminal_component_view(component), &panel) == BOXRIG_UI_OK);
+            CHECK(panel.snapshot.format == BOXRIG_UI_CANDIDATE_PAGE && panel.snapshot.count > 0 && panel.snapshot.has_next_page);
+            ibus_test_key(&server, KEY_PAGEDOWN);
+            ibus_test_drain(&server, context, component);
+            CHECK(boxrig_ui_view_get_candidates(boxrig_wayland_terminal_component_view(component), &panel) == BOXRIG_UI_OK);
+            CHECK(panel.snapshot.count > 0 && panel.snapshot.has_previous_page);
+        }
         CHECK(boxrig_composition_get_view(boxrig_wayland_terminal_component_composition(component), &text) == BOXRIG_COMPOSITION_OK);
         CHECK(text.active && text.text_length != 0);
         CHECK(text.text_length != strlen("きしゃ") || memcmp(text.text, "きしゃ", text.text_length) != 0);
@@ -9458,6 +9474,21 @@ static void test_fcitx5_native_input(void)
         check_ibus_output(terminal, "");
         g_object_unref(bus);
     } else {
+        if (client_candidates) {
+            CHECK(component_state.candidate_owner == BOXRIG_UI_CANDIDATE_OWNER_NONE);
+            ibus_test_key(&server, KEY_V);
+            ibus_test_drain(&server, context, component);
+            boxrig_ui_candidate_view panel;
+            CHECK(boxrig_ui_view_get_candidates(boxrig_wayland_terminal_component_view(component), &panel) == BOXRIG_UI_OK);
+            CHECK(panel.snapshot.format == BOXRIG_UI_CANDIDATE_PAGE && panel.snapshot.count == 2 && panel.snapshot.cursor == 1);
+            CHECK(strcmp(panel.snapshot.auxiliary_above, "上よみ") == 0 && strcmp(panel.snapshot.auxiliary, "下") == 0);
+            CHECK(boxrig_wayland_terminal_component_get_diagnostic(component, &component_state) == BOXRIG_UI_OK);
+            CHECK(component_state.candidate_owner == BOXRIG_UI_CANDIDATE_OWNER_CLIENT);
+            ibus_test_key(&server, KEY_H);
+            ibus_test_drain(&server, context, component);
+            CHECK(boxrig_ui_view_get_candidates(boxrig_wayland_terminal_component_view(component), &panel) == BOXRIG_UI_OK);
+            CHECK(panel.snapshot.count == 0 && !panel.snapshot.auxiliary_visible && !panel.snapshot.auxiliary_above_visible);
+        }
         ibus_test_key(&server, KEY_A);
         ibus_test_drain(&server, context, component);
         boxrig_composition_view text;

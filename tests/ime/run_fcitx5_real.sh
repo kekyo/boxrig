@@ -1,7 +1,19 @@
 #!/usr/bin/env bash
 # boxrig - Under MIT. Run under dbus-run-session, with an isolated display.
 set -euo pipefail
+addons=dbus,dbusfrontend,keyboard,mozc
+# GUI callers provide a private Xvfb/Weston display. Protocol-only native
+# tests must not attach the daemon to a desktop inherited from the shell.
+if [ "${1:-}" = --display ]; then
+    shift
+    addons+=,xcb,classicui
+    if [ "${GDK_BACKEND:-}" = wayland ]; then addons+=,wayland; fi
+fi
 probe_root=$(mktemp -d "${TMPDIR:-/tmp}/boxrig-fcitx5-real.XXXXXX")
+if [ "${GDK_BACKEND:-}" != wayland ]; then
+    export XDG_RUNTIME_DIR="$probe_root/runtime"
+    mkdir -m 700 "$XDG_RUNTIME_DIR"
+fi
 daemon_pid=
 ready_pid=
 cleanup() {
@@ -59,7 +71,7 @@ cat > "$XDG_CONFIG_HOME/fcitx5/config" <<'EOF'
 [Behavior]
 ActiveByDefault=True
 EOF
-fcitx5 -D --keep --disable all --enable dbus,dbusfrontend,keyboard,mozc \
+fcitx5 -D --keep --disable all --enable "$addons" \
     > "$probe_root/daemon.log" 2>&1 &
 daemon_pid=$!
 # Name ownership is the readiness signal, without activating a second daemon.

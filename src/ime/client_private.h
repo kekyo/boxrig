@@ -69,6 +69,7 @@ struct boxrig_ime_session {
     int32_t rectangle[4];
     uint64_t capabilities;
     bool preedit_commit;
+    bool candidates_confirmed;
     /* Optional commit text excludes protocol fragments marked DontCommit. */
     char *preedit_commit_text;
     boxrig_ime_effect preedit;

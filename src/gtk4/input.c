@@ -1771,12 +1771,15 @@ static boxrig_ui_status apply_ibus_effect(void *data, boxrig_ime_effect *effect,
     if (effect->type == BOXRIG_IME_CANDIDATES) {
         const boxrig_ime_candidates *source = &effect->value.candidates;
         boxrig_ui_candidate_snapshot snapshot = {
+            .format = source->format,
             .count = source->count, .page_size = source->page_size, .cursor = source->cursor,
             .orientation = source->orientation,
             .visible = source->visible, .cursor_visible = source->cursor_visible,
             .auxiliary_visible = source->auxiliary_visible,
+            .auxiliary_above_visible = source->auxiliary_above_visible,
+            .has_previous_page = source->has_previous_page, .has_next_page = source->has_next_page,
             .items = (const char *const *)source->items, .labels = (const char *const *)source->labels,
-            .auxiliary = source->auxiliary};
+            .auxiliary = source->auxiliary, .auxiliary_above = source->auxiliary_above};
         return boxrig_ui_view_set_candidates(input->view, &snapshot);
     }
     if (effect->type == BOXRIG_IME_KEY) {
@@ -1862,8 +1865,7 @@ static bool initialize_ibus(boxrig_gtk4_input *input)
         .maximum_bytes = boxrig_composition_limits_default().maximum_text_bytes,
         .wake = ibus_wake, .error = ibus_error, .enqueue = enqueue_ibus_reply,
         .forward = ibus_forward_key, .apply = apply_ibus_effect, .cursor = ibus_cursor,
-        .clear_candidates = input->ime_state.requested_policy != BOXRIG_GTK_IME_FCITX5 &&
-            input->candidate_policy != BOXRIG_UI_CANDIDATE_SYSTEM ? clear_ibus_candidates : NULL};
+        .clear_candidates = input->candidate_policy != BOXRIG_UI_CANDIDATE_SYSTEM ? clear_ibus_candidates : NULL};
     input->ibus = boxrig_ime_create(input->ime_state.requested_policy == BOXRIG_GTK_IME_FCITX5 ?
         BOXRIG_IME_BACKEND_FCITX5 : BOXRIG_IME_BACKEND_IBUS, true, 1, "boxrig-gtk4-wayland", ibus_selection_changed, input);
     if (input->ibus == NULL) return false;
@@ -3456,12 +3458,12 @@ void boxrig_gtk4_input_get_ime_state(const boxrig_gtk4_input *input, boxrig_gtk_
     state->ibus_errors = diagnostic.errors + input->ibus_errors;
     state->candidate_policy = input->candidate_policy;
     state->candidate_owner = state->active_route == BOXRIG_GTK_IME_ROUTE_PENDING
-        ? BOXRIG_UI_CANDIDATE_OWNER_NONE : input->ibus_selected &&
-          input->ibus_target.clear_candidates != NULL ? BOXRIG_UI_CANDIDATE_OWNER_CLIENT :
-          BOXRIG_UI_CANDIDATE_OWNER_SYSTEM;
+        ? BOXRIG_UI_CANDIDATE_OWNER_NONE : input->ibus_selected ?
+          boxrig_ime_candidate_owner(input->ibus, &input->ibus_target) : BOXRIG_UI_CANDIDATE_OWNER_SYSTEM;
     state->candidate_reason = state->active_route == BOXRIG_GTK_IME_ROUTE_PENDING ? BOXRIG_UI_CANDIDATE_PENDING :
         input->candidate_policy == BOXRIG_UI_CANDIDATE_SYSTEM ? BOXRIG_UI_CANDIDATE_SYSTEM_REQUEST :
         input->ibus_requested && diagnostic.state == BOXRIG_IME_UNAVAILABLE ? BOXRIG_UI_CANDIDATE_IBUS_UNAVAILABLE :
+        state->candidate_owner == BOXRIG_UI_CANDIDATE_OWNER_NONE ? BOXRIG_UI_CANDIDATE_UNCONFIRMED :
         !input->ibus_selected ? BOXRIG_UI_CANDIDATE_STANDARD_INPUT :
         BOXRIG_UI_CANDIDATE_READY;
     boxrig_ui_candidate_view candidates;
@@ -3470,7 +3472,7 @@ void boxrig_gtk4_input_get_ime_state(const boxrig_gtk4_input *input, boxrig_gtk_
     state->candidate_count = candidates.snapshot.count;
     state->candidate_cursor = candidates.snapshot.cursor;
     state->candidate_visible = candidates.snapshot.visible;
-    state->auxiliary_visible = candidates.snapshot.auxiliary_visible;
+    state->auxiliary_visible = candidates.snapshot.auxiliary_visible || candidates.snapshot.auxiliary_above_visible;
 
     if (input->ibus_requested && diagnostic.state == BOXRIG_IME_UNAVAILABLE)
         state->reason = diagnostic.backend == BOXRIG_IME_BACKEND_FCITX5 ?

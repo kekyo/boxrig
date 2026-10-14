@@ -25,6 +25,7 @@ void boxrig_ime_free_candidates(boxrig_ime_candidates *table)
     free(table->items);
     free(table->labels);
     free(table->auxiliary);
+    free(table->auxiliary_above);
     memset(table, 0, sizeof(*table));
 }
 
@@ -73,6 +74,7 @@ boxrig_ui_status boxrig_ime_copy_candidates(const boxrig_ime_candidates *source,
     *target = *source;
     target->items = target->labels = NULL;
     target->auxiliary = NULL;
+    target->auxiliary_above = NULL;
     boxrig_ui_status status = boxrig_ime_allocate_candidates(target);
     for (size_t index = 0; status == BOXRIG_UI_OK && index < source->count; index++)
         status = boxrig_ime_copy_candidate_text(source->items[index], &target->items[index], &budget);
@@ -80,6 +82,8 @@ boxrig_ui_status boxrig_ime_copy_candidates(const boxrig_ime_candidates *source,
         status = boxrig_ime_copy_candidate_text(source->labels[index], &target->labels[index], &budget);
     if (status == BOXRIG_UI_OK)
         status = boxrig_ime_copy_candidate_text(source->auxiliary, &target->auxiliary, &budget);
+    if (status == BOXRIG_UI_OK)
+        status = boxrig_ime_copy_candidate_text(source->auxiliary_above, &target->auxiliary_above, &budget);
     if (status != BOXRIG_UI_OK) boxrig_ime_free_candidates(target);
     return status;
 }
@@ -250,6 +254,17 @@ static void finish_signal(boxrig_ime_request *request, bool separate)
 bool boxrig_ime_owns_candidates(const boxrig_ime_session *session)
 {
     return session->component != NULL && session->component->clear_candidates != NULL;
+}
+
+boxrig_ui_candidate_owner boxrig_ime_candidate_owner(const boxrig_ime_client *client,
+    const boxrig_ime_target *target)
+{
+    if (!boxrig_ime_selected(client) || target == NULL || target->clear_candidates == NULL)
+        return BOXRIG_UI_CANDIDATE_OWNER_SYSTEM;
+    if (client->backend->kind == BOXRIG_IME_BACKEND_IBUS) return BOXRIG_UI_CANDIDATE_OWNER_CLIENT;
+    for (boxrig_ime_session *session = client->sessions; session != NULL; session = session->next)
+        if (session->component == target && session->candidates_confirmed) return BOXRIG_UI_CANDIDATE_OWNER_CLIENT;
+    return BOXRIG_UI_CANDIDATE_OWNER_NONE;
 }
 
 void boxrig_ime_publish_candidates(boxrig_ime_session *session)
@@ -428,6 +443,7 @@ void boxrig_ime_forward(boxrig_ime_session *session, uint32_t symbol, uint32_t c
 
 static void drop_proxy(boxrig_ime_session *session)
 {
+    session->candidates_confirmed = false;
     clear_candidates(session);
     if (session->proxy != NULL) session->owner->backend->drop(session);
     session->cursor_valid = false;
