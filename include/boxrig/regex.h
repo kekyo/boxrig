@@ -9,6 +9,7 @@
 
 #include "boxrig/status.h"
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -24,6 +25,10 @@ extern "C" {
 #define BOXRIG_REGEX_QUANTIFIER_CAPACITY_MAX ((size_t)4096u)
 /** Maximum input bytes copied by one matcher. */
 #define BOXRIG_REGEX_INPUT_BYTE_CAPACITY_MAX ((size_t)(16u * 1024u * 1024u))
+/** Maximum numbered groups, excluding the whole match (group zero). */
+#define BOXRIG_REGEX_CAPTURE_CAPACITY_MAX ((size_t)256u)
+/** Maximum capture-register bytes retained by one matcher. */
+#define BOXRIG_REGEX_CAPTURE_BYTE_CAPACITY_MAX ((size_t)(256u * 1024u * 1024u))
 
 /** Stable machine-readable result of compiling a bounded regular expression. */
 typedef enum boxrig_text_regex_diagnostic_code {
@@ -48,7 +53,9 @@ typedef enum boxrig_text_regex_diagnostic_code {
     /** A finite quantifier exceeds its configured upper bound. */
     BOXRIG_TEXT_REGEX_QUANTIFIER_LIMIT,
     /** Thompson compilation exceeds its configured state capacity. */
-    BOXRIG_TEXT_REGEX_STATE_LIMIT
+    BOXRIG_TEXT_REGEX_STATE_LIMIT,
+    /** Group count or per-matcher capture storage exceeds its capacity. */
+    BOXRIG_TEXT_REGEX_CAPTURE_LIMIT
 } boxrig_text_regex_diagnostic_code;
 
 /** Compile failure location without a borrowed error-message pointer. */
@@ -63,6 +70,8 @@ typedef struct boxrig_text_regex_diagnostic {
 typedef struct boxrig_regex_program boxrig_regex_program;
 /** Owned input and incremental state for one search. */
 typedef struct boxrig_regex_matcher boxrig_regex_matcher;
+/** Immutable matched bytes and captures, independent of input/terminal lifetime. */
+typedef struct boxrig_regex_result boxrig_regex_result;
 
 /** Positive bounds; zero never means unlimited. */
 typedef struct boxrig_regex_limits {
@@ -74,6 +83,10 @@ typedef struct boxrig_regex_limits {
     size_t quantifier_capacity;
     /** Maximum input bytes per matcher, at most BOXRIG_REGEX_INPUT_BYTE_CAPACITY_MAX. */
     size_t input_byte_capacity;
+    /** Maximum numbered groups excluding zero, at most 256. */
+    size_t capture_capacity;
+    /** Maximum capture-register bytes per matcher, at most 256 MiB. */
+    size_t capture_byte_capacity;
 } boxrig_regex_limits;
 
 /** Outcome of bounded matching work. */
@@ -94,9 +107,20 @@ typedef struct boxrig_regex_match {
     size_t end;
 } boxrig_regex_match;
 
+/** Half-open UTF-8 byte range relative to boxrig_regex_result_data(). */
+typedef struct boxrig_regex_capture {
+    /** True even for a participating empty group; false for an absent group. */
+    bool participated;
+    /** Inclusive byte offset, or zero for an absent group. */
+    size_t start;
+    /** Exclusive byte offset, or zero for an absent group. */
+    size_t end;
+} boxrig_regex_capture;
+
 /**
  * Returns finite default limits.
- * @return 64 KiB patterns, 32768 states, 4096 repetitions, and 1 MiB inputs.
+ * @return 64 KiB patterns, 32768 states, 4096 repetitions, 1 MiB inputs,
+ *         32 groups, and 16 MiB capture-register storage.
  */
 boxrig_regex_limits boxrig_regex_limits_default(void);
 
@@ -108,12 +132,20 @@ boxrig_regex_limits boxrig_regex_limits_default(void);
  * @param diagnostic_out Required compile result and pattern byte offset.
  * @param program_out Required owned reference, cleared on failure.
  * @return OK, INVALID_ARGUMENT, LIMIT_EXCEEDED, or OUT_OF_MEMORY.
- * @remarks Supports literals, scalar dot/classes, grouping, alternation,
+ * @remarks Supports literals, scalar dot/classes, numbered (expression) and
+ * named (?<name>expression) groups, noncapturing (?:expression), alternation,
  * ?, *, +, finite {m}/{m,n}, ^/$ input anchors, escaped metacharacters,
  * n/r/t and u{hex} escapes, and ASCII d/s/w classes. Empty matches, backreferences,
  * lookaround, and lazy quantifiers are rejected. Matching is case-sensitive.
  * The program owns its compiled data; pattern and limits may be released
  * immediately. Shared use and reference changes must be externally serialized.
+ * Names are unique ASCII identifiers [A-Za-z_][A-Za-z_0-9]*. Groups are numbered
+ * by opening parenthesis, starting at one; zero is the whole match. For equal
+ * whole-match ranges, ordered NFA paths prefer left alternatives and greedy
+ * repetition. An epsilon state is visited once per input position; a repeating
+ * empty path cannot overwrite an already visited path. Repeated groups keep
+ * their last participating value, including when skipped by a later iteration.
+ * Subgroup endpoints may lie inside a grapheme, at UTF-8 scalar boundaries.
  */
 boxrig_status boxrig_regex_compile(
     const uint8_t *pattern, size_t pattern_length,
@@ -143,6 +175,13 @@ void boxrig_regex_program_destroy(boxrig_regex_program *program);
 size_t boxrig_regex_program_state_count(const boxrig_regex_program *program);
 
 /**
+ * Reads the number of numbered groups, excluding zero.
+ * @param program Program to inspect, or NULL.
+ * @return Number of groups, or zero for NULL.
+ */
+size_t boxrig_regex_program_group_count(const boxrig_regex_program *program);
+
+/**
  * Copies and validates UTF-8 input for one leftmost-longest search.
  * @param program Borrowed program; retained on success.
  * @param input UTF-8 bytes, including NUL; NULL only for an empty input.
@@ -156,7 +195,8 @@ size_t boxrig_regex_program_state_count(const boxrig_regex_program *program);
  * Whole matches start/end at extended grapheme boundaries. A start inside
  * a grapheme skips to the next boundary; a UTF-8 continuation offset is invalid.
  * Anchors refer to the full input, independent of start_byte; dot includes LF.
- * Storage is bounded by input_byte_capacity plus compiled state count.
+ * Storage is bounded by input_byte_capacity, compiled state count, and
+ * capture_byte_capacity. Registers are bounded independently of input length.
  */
 boxrig_status boxrig_regex_matcher_create(
     boxrig_regex_program *program, const uint8_t *input, size_t input_length,
@@ -172,7 +212,8 @@ boxrig_status boxrig_regex_matcher_create(
  * @return OK or INVALID_ARGUMENT; IN_PROGRESS is returned through progress_out.
  * @remarks Budgets do not change matching semantics. For a fixed pattern,
  * total search work is linear in input length, including unmatched suffixes.
- * A character-class visit may compare up to the pattern's scalar range count.
+ * A character-class visit may compare up to the pattern's scalar range count;
+ * one transition may copy the program's bounded capture registers.
  */
 boxrig_status boxrig_regex_matcher_resume(
     boxrig_regex_matcher *matcher, size_t work_budget, size_t *work_used_out,
@@ -183,6 +224,62 @@ boxrig_status boxrig_regex_matcher_resume(
  * @param matcher Matcher to release; NULL is ignored.
  */
 void boxrig_regex_matcher_destroy(boxrig_regex_matcher *matcher);
+
+/**
+ * Copies a completed match into an immutable result.
+ * @param matcher Completed successful matcher.
+ * @param result_out Required owned result, cleared on failure.
+ * @return OK, INCOMPLETE while searching, INVALID_ARGUMENT for no match or
+ *         invalid arguments, OUT_OF_MEMORY, or LIMIT_EXCEEDED.
+ * @remarks Copies only matched bytes and group ranges, without rematching.
+ * The result owns a program reference and survives matcher/program destruction.
+ */
+boxrig_status boxrig_regex_matcher_result(
+    const boxrig_regex_matcher *matcher, boxrig_regex_result **result_out);
+
+/**
+ * Borrows matched UTF-8 bytes, including embedded NUL, without a terminator.
+ * @param result Immutable result to inspect.
+ * @param length_out Required byte length; zero on invalid arguments.
+ * @return Bytes valid until result destruction, or NULL for invalid arguments.
+ */
+const uint8_t *boxrig_regex_result_data(
+    const boxrig_regex_result *result, size_t *length_out);
+
+/**
+ * Reads the number of numbered groups, excluding zero.
+ * @param result Immutable result, or NULL.
+ * @return Number of groups, or zero for NULL.
+ */
+size_t boxrig_regex_result_group_count(const boxrig_regex_result *result);
+
+/**
+ * Reads one capture relative to the result's matched bytes.
+ * @param result Immutable result to inspect.
+ * @param group Group zero (whole match) or a numbered group.
+ * @param capture_out Required output, cleared on failure.
+ * @return OK, including absent groups, or INVALID_ARGUMENT for invalid indices.
+ */
+boxrig_status boxrig_regex_result_get_capture(
+    const boxrig_regex_result *result, size_t group,
+    boxrig_regex_capture *capture_out);
+
+/**
+ * Reads a named capture relative to the result's matched bytes.
+ * @param result Immutable result to inspect.
+ * @param name NUL-terminated ASCII group name.
+ * @param capture_out Required output, cleared on failure.
+ * @return OK, including absent groups, or INVALID_ARGUMENT for unknown names.
+ */
+boxrig_status boxrig_regex_result_get_named_capture(
+    const boxrig_regex_result *result, const char *name,
+    boxrig_regex_capture *capture_out);
+
+/**
+ * Releases one owned result reference; externally serialize shared use.
+ * @param result Result to release; NULL is ignored.
+ */
+void boxrig_regex_result_destroy(boxrig_regex_result *result);
 
 #ifdef __cplusplus
 }

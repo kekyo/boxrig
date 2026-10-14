@@ -73,6 +73,12 @@ int main(void)
     assert(boxrig_regex_matcher_resume(matcher, 64, &used, &progress, &match) ==
            BOXRIG_STATUS_OK);
     assert(progress == BOXRIG_REGEX_MATCH && match.start == 0 && match.end == 1);
+    boxrig_regex_result *result = NULL;
+    assert(boxrig_regex_matcher_result(matcher, &result) == BOXRIG_STATUS_OK);
     boxrig_regex_matcher_destroy(matcher);
+    boxrig_regex_capture capture;
+    assert(boxrig_regex_result_get_capture(result, 0, &capture) == BOXRIG_STATUS_OK);
+    assert(capture.participated && capture.end == 1);
+    boxrig_regex_result_destroy(result);
     return 0;
 }

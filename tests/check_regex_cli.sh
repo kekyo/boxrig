@@ -19,4 +19,9 @@ if printf '\343\201' | "$cli" '.' 2> "$directory/error"; then exit 1; else test 
 test "$(cat "$directory/error")" = 'input error at byte 0 (status 1)'
 if printf a | "$cli" '[' 2> "$directory/error"; then exit 1; else test "$?" -eq 2; fi
 test "$(cat "$directory/error")" = 'pattern error at byte 0 (code 3, status 1)'
+output=$(printf 'zb' | "$cli" --captures '(?<missing>a)?(a*)b' 0 1)
+printf '%s\n' "$output" > "$directory/captures"
+tail -n 3 "$directory/captures" > "$directory/actual"
+printf 'group 0 0 1\ngroup 1 absent\ngroup 2 0 0\n' > "$directory/expected"
+cmp "$directory/expected" "$directory/actual"
 echo 'PASS standalone regex CLI'

@@ -292,6 +292,10 @@ typedef struct boxrig_text_recognizer_limits {
     size_t state_capacity;
     /** Maximum upper bound of one finite quantifier. */
     size_t quantifier_capacity;
+    /** Maximum numbered capture groups when compiling a pattern. */
+    size_t capture_capacity;
+    /** Maximum capture-register bytes when compiling a pattern. */
+    size_t capture_byte_capacity;
     /** Maximum projected UTF-8 bytes in one logical line. */
     size_t line_byte_capacity;
     /** Maximum terminal columns in one logical line. */
@@ -300,6 +304,9 @@ typedef struct boxrig_text_recognizer_limits {
     size_t line_match_capacity;
     /** Maximum matches retained across both configured namespaces. */
     size_t result_capacity;
+    /** Maximum matched bytes and capture records per current/staging set.
+     * Both sets may coexist; externally retained results are caller-owned. */
+    size_t result_byte_capacity;
     /** Maximum logical lines retained by current result bookkeeping. */
     size_t dirty_line_capacity;
     /** Maximum projected bytes captured by one immutable baseline. */
@@ -1724,6 +1731,39 @@ boxrig_status boxrig_terminal_register_text_recognizer(
     const boxrig_text_recognizer_options *options,
     boxrig_text_regex_diagnostic *diagnostic_out,
     uint64_t *recognizer_id_out);
+
+/**
+ * Registers a shared immutable regex program without compiling it again.
+ * @param terminal Terminal that owns the new recognizer.
+ * @param program Program retained on success; the caller keeps its reference.
+ * @param scope Logical text namespaces to scan.
+ * @param limits Positive scan/snapshot/result bounds; compiler bounds are
+ *        already fixed by program and are ignored here.
+ * @param recognizer_id_out Required nonzero identity, cleared on failure.
+ * @return OK, INVALID_ARGUMENT, LIMIT_EXCEEDED, or OUT_OF_MEMORY.
+ * @remarks Uses the same captures and matching rules as standalone matchers.
+ */
+boxrig_status boxrig_terminal_register_compiled_text_recognizer(
+    boxrig_terminal *terminal, boxrig_regex_program *program,
+    boxrig_text_recognizer_scope scope,
+    const boxrig_text_recognizer_limits *limits, uint64_t *recognizer_id_out);
+
+/**
+ * Retains the immutable captures recorded when a screen match was recognized.
+ * @param terminal Terminal to inspect.
+ * @param recognizer_id Recognizer identity from a current recognition result.
+ * @param match_id Match identity from that result.
+ * @param result_set_revision Required current result-set revision.
+ * @param result_out Required owned result, cleared on failure.
+ * @return OK, STALE for invalidated/missing results, INVALID_ARGUMENT,
+ *         or LIMIT_EXCEEDED on reference overflow.
+ * @remarks Does not rematch. The reference survives terminal updates, rescans,
+ * unregistering, and destruction. Capture offsets address the result's matched
+ * bytes, including positions inside a grapheme; they are not terminal columns.
+ */
+boxrig_status boxrig_terminal_text_recognizer_result(
+    const boxrig_terminal *terminal, uint64_t recognizer_id, uint64_t match_id,
+    uint64_t result_set_revision, boxrig_regex_result **result_out);
 
 /**
  * Unregisters a recognizer and removes all of its unconsumed events.

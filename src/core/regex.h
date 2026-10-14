@@ -36,4 +36,12 @@ boxrig_status boxrig_regex_cursor_resume(
     boxrig_regex_progress *progress_out,
     boxrig_regex_match *match_out);
 
+size_t boxrig_regex_program_pattern_length(const boxrig_regex_program *program);
+size_t boxrig_regex_result_storage_size(
+    const boxrig_regex_program *program, size_t byte_length);
+boxrig_status boxrig_regex_cursor_create_result(
+    const boxrig_regex_cursor *cursor, const uint8_t *input,
+    const size_t *byte_offsets, boxrig_regex_result **result_out);
+boxrig_status boxrig_regex_result_retain(boxrig_regex_result *result);
+
 #endif

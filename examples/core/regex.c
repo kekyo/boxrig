@@ -33,16 +33,19 @@ static uint8_t *read_stream(FILE *stream, size_t capacity, size_t *length)
 
 int main(int argc, char **argv)
 {
-    bool pattern_file = argc > 1 && strcmp(argv[1], "--pattern-file") == 0;
-    int pattern_argument = pattern_file ? 2 : 1;
+    bool captures = argc > 1 && strcmp(argv[1], "--captures") == 0;
+    int pattern_argument = captures ? 2 : 1;
+    bool pattern_file = argc > pattern_argument &&
+                        strcmp(argv[pattern_argument], "--pattern-file") == 0;
+    if (pattern_file) pattern_argument++;
     size_t start = 0u, budget = 4096u;
     if (argc <= pattern_argument || argc > pattern_argument + 3 ||
         (argc > pattern_argument + 1 &&
          !parse_size(argv[pattern_argument + 1], &start)) ||
         (argc > pattern_argument + 2 &&
          (!parse_size(argv[pattern_argument + 2], &budget) || budget == 0u))) {
-        fputs("Usage: boxrig-regex PATTERN [START_BYTE [WORK_BUDGET]]\n"
-              "       boxrig-regex --pattern-file FILE [START_BYTE [WORK_BUDGET]]\n"
+        fputs("Usage: boxrig-regex [--captures] PATTERN [START_BYTE [WORK_BUDGET]]\n"
+              "       boxrig-regex [--captures] --pattern-file FILE [START_BYTE [WORK_BUDGET]]\n"
               "Reads UTF-8 (including NUL) from stdin. Exit: 0 match, 1 no match, 2 error.\n",
               stderr);
         return 2;
@@ -106,6 +109,26 @@ int main(int argc, char **argv)
     }
     if (progress == BOXRIG_REGEX_MATCH) {
         printf("match %zu %zu work=%zu\n", match.start, match.end, total);
+        if (captures) {
+            boxrig_regex_result *result = NULL;
+            status = boxrig_regex_matcher_result(matcher, &result);
+            if (status != BOXRIG_STATUS_OK) {
+                boxrig_regex_matcher_destroy(matcher);
+                fprintf(stderr, "capture error (status %d)\n", status);
+                return 2;
+            }
+            for (size_t group = 0u; group <= boxrig_regex_result_group_count(result);
+                 group++) {
+                boxrig_regex_capture capture;
+                (void)boxrig_regex_result_get_capture(result, group, &capture);
+                if (capture.participated) {
+                    printf("group %zu %zu %zu\n", group, capture.start, capture.end);
+                } else {
+                    printf("group %zu absent\n", group);
+                }
+            }
+            boxrig_regex_result_destroy(result);
+        }
     } else {
         printf("not-found work=%zu\n", total);
     }

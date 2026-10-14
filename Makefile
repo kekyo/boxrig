@@ -5336,11 +5336,15 @@ include tests/headers/rules.mk
 
 .PHONY: test-regex
 test: test-regex
-test-regex: $(BUILD_DIR)/tests/test_regex $(BUILD_DIR)/boxrig-regex
+test-regex: $(BUILD_DIR)/tests/test_regex $(BUILD_DIR)/tests/test_regex_captures $(BUILD_DIR)/boxrig-regex
 	$(BUILD_DIR)/tests/test_regex
+	$(BUILD_DIR)/tests/test_regex_captures
 	sh tests/check_regex_cli.sh $(BUILD_DIR)/boxrig-regex $(BUILD_DIR)/tests/regex-cli
 
 $(BUILD_DIR)/tests/test_regex: tests/test_regex.c $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(LIBRARY) -lm -o $@
+
+$(BUILD_DIR)/tests/test_regex_captures: tests/test_regex_captures.c $(LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(LIBRARY) -lm -o $@
 
 .PHONY: boxrig-regex
@@ -5355,12 +5359,20 @@ $(MINGW_AMD64_CORE_OBJECTS) $(MINGW_I686_CORE_OBJECTS) $(MINGW_AMD64_UI_OBJECTS)
 
 .PHONY: test-regex-win32
 test: test-regex-win32
-test-regex-win32: $(MINGW_AMD64_BUILD_DIR)/tests/test_regex.exe $(MINGW_I686_BUILD_DIR)/tests/test_regex.exe
+test-regex-win32: $(MINGW_AMD64_BUILD_DIR)/tests/test_regex.exe $(MINGW_I686_BUILD_DIR)/tests/test_regex.exe $(MINGW_AMD64_BUILD_DIR)/tests/test_regex_captures.exe $(MINGW_I686_BUILD_DIR)/tests/test_regex_captures.exe
 	$(WINE_RUN) $(abspath $(MINGW_AMD64_BUILD_DIR)/tests/test_regex.exe)
 	$(WINE_RUN) $(abspath $(MINGW_I686_BUILD_DIR)/tests/test_regex.exe)
+	$(WINE_RUN) $(abspath $(MINGW_AMD64_BUILD_DIR)/tests/test_regex_captures.exe)
+	$(WINE_RUN) $(abspath $(MINGW_I686_BUILD_DIR)/tests/test_regex_captures.exe)
 
 $(MINGW_AMD64_BUILD_DIR)/tests/test_regex.exe: tests/test_regex.c $(MINGW_AMD64_LIBRARY) | $(MINGW_AMD64_BUILD_DIR)/tests
 	$(MINGW_AMD64_CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(MINGW_AMD64_LIBRARY) -o $@
 
 $(MINGW_I686_BUILD_DIR)/tests/test_regex.exe: tests/test_regex.c $(MINGW_I686_LIBRARY) | $(MINGW_I686_BUILD_DIR)/tests
+	$(MINGW_I686_CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(MINGW_I686_LIBRARY) -o $@
+
+$(MINGW_AMD64_BUILD_DIR)/tests/test_regex_captures.exe: tests/test_regex_captures.c $(MINGW_AMD64_LIBRARY) | $(MINGW_AMD64_BUILD_DIR)/tests
+	$(MINGW_AMD64_CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(MINGW_AMD64_LIBRARY) -o $@
+
+$(MINGW_I686_BUILD_DIR)/tests/test_regex_captures.exe: tests/test_regex_captures.c $(MINGW_I686_LIBRARY) | $(MINGW_I686_BUILD_DIR)/tests
 	$(MINGW_I686_CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(MINGW_I686_LIBRARY) -o $@
