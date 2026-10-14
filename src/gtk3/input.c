@@ -918,6 +918,10 @@ static gboolean focus_left(
 
     (void)widget;
     (void)event;
+    /* Invalidate old document replies before the direct provider creates an
+     * authorized finish transaction. Fcitx 4 replies to FocusOut later. */
+    bool direct = input->ibus_selected;
+    if (direct) (void)boxrig_ui_editable_document_invalidate_input(input->document);
     focus_ibus(input, false, true);
     /* A standard context may synchronously commit its preedit on focus-out.
      * Accept that notification for the old input owner before invalidating
@@ -927,7 +931,7 @@ static gboolean focus_left(
     }
     input->focus_epoch++;
     input->im_focused = false;
-    (void)boxrig_ui_editable_document_invalidate_input(input->document);
+    if (!direct) (void)boxrig_ui_editable_document_invalidate_input(input->document);
     reject_surrounding(input);
     for (index = 0; index < BOXRIG_GTK3_PHYSICAL_KEY_STATES; index++) {
         input->physical_keys[index].native_pressed = false;
@@ -1822,7 +1826,8 @@ static bool initialize_ibus(boxrig_gtk3_input *input, bool client_candidates)
         boxrig_ime_create_auto(strcmp(input->ime_state.display_type, "GdkWaylandDisplay") == 0, 1,
             "boxrig-gtk3", input->ime_state.gtk_module, ibus_selection_changed, input) :
         boxrig_ime_create(input->ime_state.requested_policy == BOXRIG_GTK_IME_FCITX5 ?
-        BOXRIG_IME_BACKEND_FCITX5 : BOXRIG_IME_BACKEND_IBUS, strcmp(input->ime_state.display_type, "GdkWaylandDisplay") == 0, 1, "boxrig-gtk3", ibus_selection_changed, input);
+        BOXRIG_IME_BACKEND_FCITX5 : input->ime_state.requested_policy == BOXRIG_GTK_IME_FCITX4 ?
+        BOXRIG_IME_BACKEND_FCITX4 : BOXRIG_IME_BACKEND_IBUS, strcmp(input->ime_state.display_type, "GdkWaylandDisplay") == 0, 1, "boxrig-gtk3", ibus_selection_changed, input);
     if (input->ibus == NULL) return false;
     input->ibus_session = boxrig_ime_add_session(input->ibus, input);
     if (input->ibus_session == NULL) return false;
@@ -2608,7 +2613,7 @@ boxrig_ui_status boxrig_gtk3_input_create(
         config->maximum_events == 0 ||
         config->maximum_clipboard_transfers == 0 ||
         config->maximum_clipboard_bytes == 0 || input_out == NULL ||
-        config->ime_policy < BOXRIG_GTK_IME_AUTO || config->ime_policy > BOXRIG_GTK_IME_FCITX5 ||
+        config->ime_policy < BOXRIG_GTK_IME_AUTO || config->ime_policy > BOXRIG_GTK_IME_FCITX4 ||
         config->candidate_policy < BOXRIG_UI_CANDIDATE_AUTO || config->candidate_policy > BOXRIG_UI_CANDIDATE_CLIENT ||
         ((config->activity_callback == NULL) !=
          (config->activity_context == NULL))) {
@@ -3314,7 +3319,8 @@ void boxrig_gtk3_input_get_ime_state(const boxrig_gtk3_input *input, boxrig_gtk_
     state->active_route = input->ime_probe == NULL || input->ime_pending ? BOXRIG_GTK_IME_ROUTE_PENDING :
         input->ibus_selected ? (diagnostic.backend == BOXRIG_IME_BACKEND_NONE ? BOXRIG_GTK_IME_ROUTE_PENDING :
             diagnostic.backend == BOXRIG_IME_BACKEND_FCITX5 ?
-            BOXRIG_GTK_IME_ROUTE_FCITX5 : BOXRIG_GTK_IME_ROUTE_IBUS) : BOXRIG_GTK_IME_ROUTE_GTK;
+            BOXRIG_GTK_IME_ROUTE_FCITX5 : diagnostic.backend == BOXRIG_IME_BACKEND_FCITX4 ?
+            BOXRIG_GTK_IME_ROUTE_FCITX4 : BOXRIG_GTK_IME_ROUTE_IBUS) : BOXRIG_GTK_IME_ROUTE_GTK;
     state->direct = diagnostic;
     state->direct.errors += input->ibus_adapter_errors;
     state->candidate_policy = input->candidate_policy;

@@ -6,7 +6,6 @@
 #include <string.h>
 
 #define CHECK(value) do { if (!(value)) { fprintf(stderr, "FAIL fcitx4 server %d: %s\n", __LINE__, #value); abort(); } } while (0)
-#define SERVICE "org.fcitx.Fcitx-72"
 #define INTERFACE "org.fcitx.Fcitx.InputContext"
 static GDBusConnection *connection;
 static GDBusNodeInfo *node;
@@ -15,7 +14,7 @@ static char *surrounding;
 static gint rectangle[4];
 typedef struct context {
     char *path, *sender;
-    bool composing;
+    bool composing, strict;
 } context;
 static context *active;
 static GDBusMethodInvocation *held;
@@ -86,6 +85,7 @@ static void method(GDBusConnection *bus, const char *sender, const char *path,
         g_variant_get(parameters, "(&si)", &program, &pid);
         CHECK(program[0] != 0 && pid > 0);
         input = g_new0(context, 1);
+        input->strict = strcmp(program, "boxrig-gtk3") != 0;
         input->path = g_strdup_printf("/inputcontext_%u", ++contexts);
         input->sender = g_strdup(sender);
         CHECK(g_dbus_connection_register_object(connection, input->path, node->interfaces[1], &methods, input, free_context, NULL));
@@ -149,16 +149,19 @@ static void method(GDBusConnection *bus, const char *sender, const char *path,
         guint symbol, code, state, time;
         gint type;
         g_variant_get(parameters, "(uuuiu)", &symbol, &code, &state, &type, &time);
-        CHECK(code == 38 && state == 4 && time == 1234);
-        CHECK(type == (symbol == 'z' ? 1 : 0));
+        CHECK(code == 38 && state == (input->strict ? 4u : 0u) && time == 1234);
+        if (input->strict) CHECK(type == (symbol == 'z' ? 1 : 0));
+        else if (type == 1) { g_dbus_method_invocation_return_value(invocation, g_variant_new("(i)", 0)); return; }
         keys++;
-        if (symbol == 'a' || symbol == 'f') {
-            input->composing = true;
+        if (symbol == 'a' || symbol == 'f' || symbol == 0xff1b) {
+            input->composing = symbol != 0xff1b;
             GVariantBuilder text;
             g_variant_builder_init(&text, G_VARIANT_TYPE("a(si)"));
-            g_variant_builder_add(&text, "(si)", "き", 0);
-            g_variant_builder_add(&text, "(si)", "しゃ", (1 << 3) | (1 << 4));
-            emit(sender, path, "UpdateFormattedPreedit", g_variant_new("(a(si)i)", &text, symbol == 'f' ? 1 : 3));
+            if (symbol != 0xff1b) {
+                g_variant_builder_add(&text, "(si)", "き", 0);
+                g_variant_builder_add(&text, "(si)", "しゃ", (1 << 3) | (1 << 4));
+            }
+            emit(sender, path, "UpdateFormattedPreedit", g_variant_new("(a(si)i)", &text, symbol == 'f' ? 1 : symbol == 0xff1b ? 0 : 3));
         } else if (symbol == 'b') {
             input->composing = false;
             emit(sender, path, "CommitString", g_variant_new("(s)", "汽車🙂"));
@@ -191,7 +194,10 @@ int main(void)
     CHECK(node != NULL);
     CHECK(g_dbus_connection_register_object(connection, "/inputmethod", node->interfaces[0], &methods, NULL, NULL, NULL));
     CHECK(g_dbus_connection_register_object(connection, "/org/boxrig/Fcitx4Probe", node->interfaces[2], &methods, NULL, NULL, NULL));
-    CHECK(g_bus_own_name_on_connection(connection, SERVICE, G_BUS_NAME_OWNER_FLAGS_NONE, acquired, NULL, NULL, NULL));
+    const char *number = g_getenv("BOXRIG_TEST_FCITX4_DISPLAY_NUMBER");
+    char *service = g_strdup_printf("org.fcitx.Fcitx-%s", number == NULL ? "72" : number);
+    CHECK(g_bus_own_name_on_connection(connection, service, G_BUS_NAME_OWNER_FLAGS_NONE, acquired, NULL, NULL, NULL));
+    g_free(service);
     GMainLoop *loop = g_main_loop_new(NULL, FALSE);
     g_main_loop_run(loop);
     return 0;

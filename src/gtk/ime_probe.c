@@ -193,8 +193,10 @@ boxrig_gtk_ime_probe *boxrig_gtk_ime_probe_new(GdkDisplay *display,
 #ifdef GDK_WINDOWING_WAYLAND
     wayland = GDK_IS_WAYLAND_DISPLAY(display);
 #endif
-    bool explicit_direct = policy == BOXRIG_GTK_IME_IBUS || policy == BOXRIG_GTK_IME_FCITX5;
-    boxrig_gtk_ime_reason explicit_reason = policy == BOXRIG_GTK_IME_FCITX5
+    bool explicit_direct = policy == BOXRIG_GTK_IME_IBUS || policy == BOXRIG_GTK_IME_FCITX5 ||
+        policy == BOXRIG_GTK_IME_FCITX4;
+    boxrig_gtk_ime_reason explicit_reason = policy == BOXRIG_GTK_IME_FCITX4
+        ? BOXRIG_GTK_IME_REASON_EXPLICIT_FCITX4 : policy == BOXRIG_GTK_IME_FCITX5
         ? BOXRIG_GTK_IME_REASON_EXPLICIT_FCITX5 : BOXRIG_GTK_IME_REASON_EXPLICIT_IBUS;
     probe->resolved = true;
     probe->state.active_route = BOXRIG_GTK_IME_ROUTE_GTK;
@@ -225,7 +227,7 @@ boxrig_gtk_ime_probe *boxrig_gtk_ime_probe_new(GdkDisplay *display,
          * overriding a deliberately chosen module. */
         if (x11 && probe->state.gtk_major == 4 && explicit_direct &&
             GTK_IS_IM_MULTICONTEXT(context))
-            select_module(probe, policy == BOXRIG_GTK_IME_FCITX5 ? "fcitx" : "ibus");
+            select_module(probe, policy == BOXRIG_GTK_IME_IBUS ? "ibus" : "fcitx");
         else if (policy == BOXRIG_GTK_IME_AUTO && !explicit_module && x11 &&
             GTK_IS_IM_MULTICONTEXT(context) && configured_module(probe) != NULL &&
             (!nonempty(module) || strcmp(module, "xim") == 0 ||

@@ -118,11 +118,11 @@ static void report_ime_state(boxrig_term_gtk4_application *application)
         previous->candidate_reason == state.candidate_reason &&
         previous->candidate_revision == state.candidate_revision &&
         strcmp(previous->gtk_module, state.gtk_module) == 0) return;
-    static const char *const routes[] = {"pending", "gtk", "ibus", "fcitx5"};
+    static const char *const routes[] = {"pending", "gtk", "ibus", "fcitx5", "fcitx4"};
     static const char *const reasons[] = {"pending", "non-wayland", "explicit-gtk",
         "explicit-module", "explicit-ibus", "wayland-clauses", "legacy-direct",
-        "gtk-fallback", "ime-unavailable", "display-closed", "x11-direct", "client-candidates", "explicit-fcitx5"};
-    static const char *const backends[] = {"none", "ibus", "fcitx5"};
+        "gtk-fallback", "ime-unavailable", "display-closed", "x11-direct", "client-candidates", "explicit-fcitx5", "explicit-fcitx4"};
+    static const char *const backends[] = {"none", "ibus", "fcitx5", "fcitx4"};
     static const char *const selections[] = {"explicit", "discovery", "module", "xmodifiers", "address", "single", "priority", "retained"};
     static const char *const candidate_policies[] = {"auto", "system", "client"};
     static const char *const candidate_owners[] = {"none", "system", "client"};
@@ -436,8 +436,9 @@ static void activate_application(
         if (strcmp(ime, "gtk") == 0) widget_config.ime_policy = BOXRIG_GTK_IME_GTK;
         else if (strcmp(ime, "ibus") == 0) widget_config.ime_policy = BOXRIG_GTK_IME_IBUS;
         else if (strcmp(ime, "fcitx5") == 0) widget_config.ime_policy = BOXRIG_GTK_IME_FCITX5;
+        else if (strcmp(ime, "fcitx4") == 0) widget_config.ime_policy = BOXRIG_GTK_IME_FCITX4;
         else {
-            fprintf(stderr, "boxrig_term: BOXRIG_GTK_IME must be auto, gtk, ibus, or fcitx5\n");
+            fprintf(stderr, "boxrig_term: BOXRIG_GTK_IME must be auto, gtk, ibus, fcitx5, or fcitx4\n");
             boxrig_term_gtk4_fail(application);
             return;
         }
