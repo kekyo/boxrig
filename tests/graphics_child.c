@@ -180,7 +180,10 @@ int main(int argc, char **argv)
     raw = original;
     cfmakeraw(&raw);
     assert(tcsetattr(STDIN_FILENO, TCSANOW, &raw) == 0);
-    const char initial[] = "\033[?25l\033[2J\033[HExternal image transport\033]2;boxrig-graphics-loading\007";
+    /* Standard hosts decline remote grid changes while continuing the next
+     * title and graphics requests. A one-cell grid would clip these images. */
+    const char initial[] = "\033[8;1;1t\033[8;0;t\033[8;;0t"
+        "\033[?25l\033[2J\033[HExternal image transport\033]2;boxrig-graphics-loading\007";
     assert(write_bytes(STDOUT_FILENO, initial, sizeof(initial) - 1));
     if (strcmp(argv[2], "animation") == 0) {
         bool success = animation_scenario(report);

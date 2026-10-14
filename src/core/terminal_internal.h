@@ -451,6 +451,9 @@ boxrig_status boxrig_terminal_push_host_item(
     uint32_t flags,
     const uint8_t *payload,
     size_t payload_length);
+boxrig_status boxrig_terminal_push_grid_resize(
+    boxrig_terminal *terminal,
+    const boxrig_grid_size_request *request);
 boxrig_status boxrig_terminal_set_active_hyperlink(
     boxrig_terminal *terminal,
     const uint8_t *id,

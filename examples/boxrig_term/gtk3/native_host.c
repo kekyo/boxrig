@@ -469,6 +469,8 @@ int boxrig_term_gtk3_process_host_items(
             }
         } else if (item.type == BOXRIG_HOST_ITEM_WORKING_DIRECTORY) {
             /* The untrusted URI remains metadata and causes no host action. */
+        } else if (item.type == BOXRIG_HOST_ITEM_GRID_RESIZE) {
+            /* The sample keeps remote sizing separate from user layout. */
         } else if (item.type == BOXRIG_HOST_ITEM_CLIPBOARD_WRITE) {
             boxrig_host_request_result result =
                 write_clipboard(application, &item);

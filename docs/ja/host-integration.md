@@ -37,6 +37,33 @@ boxrig_status discard_host_item(boxrig_terminal *terminal)
 タイトルやベルなど、完了応答を必要としない項目のrequest IDは0です。
 タイトルにはウィンドウ／アイコンの対象と、保存・復元のflagsがあります。
 
+## 行列数の変更要求を扱う
+
+`CSI 8 ; rows ; columns t`は、`BOXRIG_HOST_ITEM_GRID_RESIZE`として通知されます。
+`item.grid_resize`の型は、行と列それぞれの指定を保持する`boxrig_grid_size_request`です。
+この値は直接コピーして保持できます。
+
+| 指定 | mode | ホストでの解釈 |
+| --- | --- | --- |
+| 省略 | `BOXRIG_GRID_SIZE_KEEP` | 処理時の現在寸法を維持 |
+| 正の整数 | `BOXRIG_GRID_SIZE_EXPLICIT` | `cells`で指定された行数・列数 |
+| `0` | `BOXRIG_GRID_SIZE_DISPLAY` | ディスプレイ寸法から行数・列数を決定 |
+
+例えば`CSI 8 ; ; 132 t`は行数を維持して132列を要求します。
+省略と`0`の区別は[XTermの仕様](https://invisible-island.net/xterm/ctlseqs/ctlseqs.html)に従います。
+明示値は`1`から`UINT32_MAX`までで、coreは受信時に画面や履歴をリサイズしません。
+アプリが許可と資源の上限を確認し、実際の行列数を決めてください。
+
+共通UIでは、layout authorityを持つviewの`boxrig_ui_view_set_preferred_grid()`へ許可した行列数を渡せます。
+既存のlayout actionとrevisionでウィンドウ寸法を調整し、確定したgridをcoreと通信路へ反映します。
+拒否する場合はhost itemをconsumeするだけです。
+request IDは`0`で、完了APIの呼び出しや端末への応答は不要です。
+標準のX11・Win32ホストアダプターと付属端末は、通信先からのサイズ変更を適用せずに消費します。
+独自の方針を使うアプリは、ホストキューを処理する際にこの項目を扱ってください。
+
+host queueが満杯の場合は、通常の要求と同様に`feed()`が`WOULD_BLOCK`を返します。
+キューを処理してから、`consumed_out`以降の未消費データを再投入してください。
+
 ## 応答と完了を返す
 
 完了が必要な要求は、consumeした後で同じIDに一度だけ結果を返します。

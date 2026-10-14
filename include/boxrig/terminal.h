@@ -869,8 +869,43 @@ typedef enum boxrig_host_item_type {
     /** Desktop notification display or update request. */
     BOXRIG_HOST_ITEM_NOTIFICATION,
     /** External Kitty graphics data read request. */
-    BOXRIG_HOST_ITEM_GRAPHICS_DATA
+    BOXRIG_HOST_ITEM_GRAPHICS_DATA,
+    /** Untrusted terminal grid-size request; no completion or reply required. */
+    BOXRIG_HOST_ITEM_GRID_RESIZE
 } boxrig_host_item_type;
+
+/** Meaning of one axis in a CSI 8 terminal grid-size request. */
+typedef enum boxrig_grid_size_mode {
+    /** An omitted parameter retains the host's current dimension. */
+    BOXRIG_GRID_SIZE_KEEP = 0,
+    /** A positive parameter specifies a number of character cells. */
+    BOXRIG_GRID_SIZE_EXPLICIT,
+    /** A zero parameter requests the display dimension, resolved by the host. */
+    BOXRIG_GRID_SIZE_DISPLAY
+} boxrig_grid_size_mode;
+
+/** One independent axis of an untrusted terminal grid-size request. */
+typedef struct boxrig_grid_size_axis {
+    /** Whether to retain, explicitly set, or use the display dimension. */
+    boxrig_grid_size_mode mode;
+    /** Positive count for EXPLICIT, otherwise zero. */
+    uint32_t cells;
+} boxrig_grid_size_axis;
+
+/**
+ * Requested character-cell dimensions without changing the terminal grid.
+ * @remarks The host authorizes the request and resolves KEEP/DISPLAY using
+ * its current allocation and display. Explicit counts span 1..UINT32_MAX;
+ * the host must validate its own size and resource limits before applying
+ * them. CSI 8 has no completion response. Use existing layout revisions to
+ * manage native sizing, then resize the core and transport to the actual grid.
+ */
+typedef struct boxrig_grid_size_request {
+    /** Height in character cells. */
+    boxrig_grid_size_axis rows;
+    /** Width in character cells. */
+    boxrig_grid_size_axis columns;
+} boxrig_grid_size_request;
 
 /** Occasion on which a desktop notification may be displayed. */
 typedef enum boxrig_notification_occasion {
@@ -979,6 +1014,11 @@ typedef struct boxrig_host_item {
      * The view remains valid until the terminal is next modified.
      */
     const boxrig_graphics_transport_view *graphics_transport;
+    /**
+     * Inline request for GRID_RESIZE, otherwise zero-initialized. Copying
+     * this value retains both axes independently of the queued item's lifetime.
+     */
+    boxrig_grid_size_request grid_resize;
 } boxrig_host_item;
 
 /** Logical key identifiers accepted by the input encoder. */

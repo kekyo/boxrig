@@ -5363,6 +5363,24 @@ test-packages:
 
 include tests/headers/rules.mk
 
+.PHONY: test-grid-resize test-grid-resize-win32
+test: test-grid-resize test-grid-resize-win32
+test-grid-resize: $(BUILD_DIR)/tests/test_grid_resize
+	$(BUILD_DIR)/tests/test_grid_resize
+
+$(BUILD_DIR)/tests/test_grid_resize: tests/test_grid_resize.c $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(UI_LIBRARY) $(LIBRARY) -o $@
+
+test-grid-resize-win32: $(MINGW_AMD64_BUILD_DIR)/tests/test_grid_resize.exe $(MINGW_I686_BUILD_DIR)/tests/test_grid_resize.exe
+	$(WINE_RUN) $(abspath $(MINGW_AMD64_BUILD_DIR)/tests/test_grid_resize.exe)
+	$(WINE_RUN) $(abspath $(MINGW_I686_BUILD_DIR)/tests/test_grid_resize.exe)
+
+$(MINGW_AMD64_BUILD_DIR)/tests/test_grid_resize.exe: tests/test_grid_resize.c $(MINGW_AMD64_UI_LIBRARY) $(MINGW_AMD64_LIBRARY) | $(MINGW_AMD64_BUILD_DIR)/tests
+	$(MINGW_AMD64_CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(MINGW_AMD64_UI_LIBRARY) $(MINGW_AMD64_LIBRARY) -o $@
+
+$(MINGW_I686_BUILD_DIR)/tests/test_grid_resize.exe: tests/test_grid_resize.c $(MINGW_I686_UI_LIBRARY) $(MINGW_I686_LIBRARY) | $(MINGW_I686_BUILD_DIR)/tests
+	$(MINGW_I686_CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(MINGW_I686_UI_LIBRARY) $(MINGW_I686_LIBRARY) -o $@
+
 .PHONY: test-input-config
 test: test-input-config
 test-input-config: $(BUILD_DIR)/tests/test_terminal_input_config

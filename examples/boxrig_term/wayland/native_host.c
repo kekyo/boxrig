@@ -2240,6 +2240,8 @@ int boxrig_term_wayland_native_host_process_items(
                 return -1;
             }
             continue;
+        } else if (item.type == BOXRIG_HOST_ITEM_GRID_RESIZE) {
+            /* The sample keeps remote sizing separate from user layout. */
         } else if (item.type != BOXRIG_HOST_ITEM_BELL &&
                    item.type != BOXRIG_HOST_ITEM_WORKING_DIRECTORY) {
             return -1;

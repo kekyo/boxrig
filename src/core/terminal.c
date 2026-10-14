@@ -798,6 +798,17 @@ boxrig_status boxrig_terminal_push_host_item(
     return BOXRIG_STATUS_OK;
 }
 
+boxrig_status boxrig_terminal_push_grid_resize(
+    boxrig_terminal *terminal,
+    const boxrig_grid_size_request *request)
+{
+    size_t tail = (terminal->host_item_head + terminal->host_item_count) % terminal->host_item_capacity;
+    boxrig_status status = boxrig_terminal_push_host_item(
+        terminal, BOXRIG_HOST_ITEM_GRID_RESIZE, 0, 0, NULL, 0);
+    if (status == BOXRIG_STATUS_OK) terminal->host_items[tail].item.grid_resize = *request;
+    return status;
+}
+
 static void mark_hyperlink_handle(
     boxrig_terminal *terminal,
     uint32_t handle)

@@ -985,6 +985,11 @@ static bool test_host_adapter(void)
               config.clipboard_capacity,
               &policy,
               &adapter) == 0);
+    CHECK(feed(terminal, (const uint8_t *)"\033[8;25;90t", 10));
+    CHECK(boxrig_win32_host_adapter_process_items(adapter) == 0);
+    size_t kept_rows, kept_columns;
+    boxrig_terminal_size(terminal, &kept_rows, &kept_columns);
+    CHECK(kept_rows == config.rows && kept_columns == config.columns);
     CHECK(feed(terminal, title_stack, sizeof(title_stack) - 1));
     CHECK(boxrig_win32_host_adapter_process_items(adapter) == 0);
     CHECK(GetWindowTextW(window, title, 16) == 7);
