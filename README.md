@@ -34,7 +34,7 @@ The public API is C99 and can be called from C++ or through an FFI.
 - In-terminal images using Kitty graphics
 - Keyboard and mouse handling, and pasting
 - Text selection and copying, searching, occurrence monitoring, and decorations for recognition results
-- Inline IME editing with IBus, fcitx 5, and Win32
+- Text input and preedit display with IBus, fcitx 5/4, and Win32 IME
 - Configurable fonts, display colors, backgrounds, transparency, and scrollbars
 - Support for X11, Wayland, GTK 3/4, and Windows (Win32)
 - OpenGL (GL3, EGL) and Direct2D/Direct3D acceleration

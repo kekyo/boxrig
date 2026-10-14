@@ -29,7 +29,7 @@
 - Kitty graphicsによる端末内の画像表示
 - キーボード、マウスのハンドリング、貼り付け
 - 文字列の選択・コピー、検索、出現の監視、認識結果への装飾
-- IBus、fcitx 5、Win32 IMEによるインライン編集
+- IBus、fcitx 5／4、Win32 IMEによる文字入力と未確定文字表示
 - フォント、表示色、背景、透過、スクロールバーの設定
 - X11、Wayland、GTK3/4、Windows (Win32)環境に対応
 - OpenGL (GL3, EGL)、Direct 2D/3Dアクセラレーションに対応

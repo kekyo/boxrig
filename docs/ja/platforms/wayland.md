@@ -74,14 +74,15 @@ boxrigが借用中の親を勝手にcommitすることはありません。
 
 ## 入力とクリップボード
 
-標準の入力経路ではコンポジター経由のtext-inputを使います。
-直接IBusを使う設定もあります。
+既定のAUTOは、候補方針がCLIENT以外でtext-input-v3 version 2が利用できる場合に、コンポジター経由の入力を優先します。
+それ以外ではIBusとfcitx 5／4を自動検出します。
+アプリケーションからの入力経路の明示指定も可能です。
 周辺文字列、候補表示、入力経路の結果はcontextとコンポーネントの診断から確認します。
 
 クリップボード転送のFDは`prepare_wait_sources()`で取得し、準備状態を`dispatch_wait_sources()`へ渡します。
 FDは借用なので閉じないでください。
 Waylandまたは転送のdispatch後には待機対象を取り直します。
-直接IBusの接続には`prepare_ime_poll()`と`dispatch_ime_poll()`も使います。
+直接IMEの接続には`prepare_ime_poll()`と`dispatch_ime_poll()`も使います。
 
 コンポーネントから端末へ送る入力を禁止するAPIは、`boxrig_wayland_terminal_component_set_input_enabled(component, false)`です。
 禁止・再開のたびに入力世代が変わり、保留キー、IME確定、受信中のclipboard、未開始のpasteを無効にします。

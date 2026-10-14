@@ -38,6 +38,7 @@ boxrig_status commit_text(boxrig_terminal *terminal)
 未確定文字はcompositionとして表示へ重ねます。
 端末のセルへ書き込むと、通信先からの出力と区別できなくなるためです。
 標準コンポーネントはIMEに合わせてカーソルの表示と候補位置も調整します。
+fcitx 4の端末内候補では、未確定文字も候補と同じパネルへ表示します。
 
 候補表示の方針はAUTO、SYSTEM、CLIENTです。
 CLIENTを希望しても、入力経路が候補を提供できなければアプリ内表示は利用できません。
@@ -48,20 +49,34 @@ CLIENTを希望しても、入力経路が候補を提供できなければア�
 | 環境 | 主な入力経路 | 確認する情報 |
 | --- | --- | --- |
 | native X11 | XIM | 接続状態、入力所有者、候補の所有者 |
-| GTK 3／X11、GTK 3／4／Wayland | GtkIMContext、直接IBus、直接fcitx 5 | `get_ime_state()`のroute、reason、direct |
+| GTK 3／X11、GTK 3／4／Wayland | GtkIMContext、直接IBus、直接fcitx 5／4 | `get_ime_state()`のroute、reason、direct |
 | GTK 4／X11 | GtkIMContext | 選択されたGTKモジュール |
-| native Wayland | コンポジターのtext-input、直接IBus、直接fcitx 5 | contextの入力経路とdirect、コンポーネントの候補診断 |
+| native Wayland | コンポジターのtext-input、直接IBus、直接fcitx 5／4 | contextの入力経路とdirect、コンポーネントの候補診断 |
 | Win32 | IMM、編集文書向けのTSF接続 | 入力能力、再変換や編集の可否 |
 
-GTKとnative Waylandの既定方針はAUTOです。GTKでは、明示した`GTK_IM_MODULE`と、GTKが選択済みのfcitxモジュールを優先し、GTKへ入力を委譲します。対応するWaylandの入力経路がある場合も、その経路を使用します。直接接続が必要な場合に、IBusとfcitx 5を検出します。native X11は引き続きXIMを使用します。
+GTKとnative Waylandの既定方針はAUTOです。GTKでは、明示した`GTK_IM_MODULE`と、GTKが選択済みのfcitxモジュールを優先し、GTKへ入力を委譲します。GTKが処理できるWayland環境も、委譲の対象です。直接接続が必要な場合に、IBusとfcitx 5／4を検出します。native X11は引き続きXIMを使用します。
 
-直接接続のAUTOでは、そのホストに適用されるGTKモジュール、`XMODIFIERS`、明示IBusアドレスの順に選択の手掛かりを使います。native Waylandは`GTK_IM_MODULE`を参照しません。設定だけで稼働中とは判断せず、サービスの所有者を確認します。手掛かりがなく複数の独立したサービスが動いている場合は、初回にfcitx 5を優先します。選択後に別のサービスが現れても、接続中の方式を維持します。検出のためにデーモンを起動することはありません。
+native WaylandのAUTOは、候補方針がCLIENT以外でtext-input-v3 version 2が利用できる場合に、コンポジター経由の入力を優先します。CLIENTを明示した場合は直接接続を探索します。入力経路をWAYLANDに固定した場合は、その指定を維持します。
 
-アプリケーションはGTKの`BOXRIG_GTK_IME_FCITX5`、native Waylandの`BOXRIG_WAYLAND_IME_FCITX5`で5系を明示できます。IBusも同様に明示できます。指定した直接接続先が利用できない場合、別の直接接続先へ切り替えず、フレームワークの入力経路を使います。GTK 4／X11では、明示方針もGTKの対応モジュールへ渡します。描画方式とIME方針は別々に選びます。
+直接接続のAUTOでは、そのホストに適用されるGTKモジュール、`XMODIFIERS`、明示アドレスの順に選択の手掛かりを使います。明示アドレスはIBusの`IBUS_ADDRESS`と4系の`FCITX_DBUS_ADDRESS`です。native Waylandは`GTK_IM_MODULE`を参照しません。`fcitx`というモジュール名や`@im=fcitx`は4系と5系の両方を表すため、稼働中のサービスを調べて世代を選びます。
+
+手掛かりがなく複数の独立したサービスが動いている場合、初回の優先順位はfcitx 5、IBus、fcitx 4です。同じ提供元の互換サービスは重複として数えず、5系の直接接続を優先します。選択後に別のサービスが現れても、接続中の方式を維持します。検出のためにデーモンを起動することはありません。
+
+アプリケーションはGTKの`BOXRIG_GTK_IME_FCITX5`／`BOXRIG_GTK_IME_FCITX4`、native Waylandの`BOXRIG_WAYLAND_IME_FCITX5`／`BOXRIG_WAYLAND_IME_FCITX4`で世代を明示できます。IBusも明示指定の対象です。指定した直接接続先が利用できない場合、別の直接接続先へ切り替えず、フレームワークの入力経路を使います。GTK 4／X11の明示指定も、GTKの対応モジュールへの委譲です。描画方式とIME方針は別々に選びます。
+
+fcitx 4は`DISPLAY`の表示番号に対応する接続先を使います。`DISPLAY`がない場合は0です。`FCITX_DBUS_ADDRESS`を設定すると、そのアドレスを優先し、不正または接続不能でも別アドレスへ切り替えません。指定がなければfcitx 4が保存した接続情報とセッションバスを調べます。別のログインセッションの環境変数を持ち込まないでください。[fcitx 4の接続情報](https://github.com/fcitx/fcitx/blob/4.2.9.9/src/lib/fcitx-gclient/fcitxconnection.c)
 
 診断の`direct`には、選択した方式、接続状態、選択理由、設定の競合、複数候補、互換サービスの有無と、要求・エラー・コンテキストの件数が入ります。`CONNECTING`は検出または接続中、`UNAVAILABLE`は対象サービスが利用できない状態です。`DISABLED`ならフレームワークへ委譲しています。`READY`でも各入力先のコンテキスト生成が完了するまでは入力が待機する場合があります。設定名だけで使用中の経路を判断せず、routeと`direct.backend`を確認してください。
 
-fcitx 5のクライアント候補は、受信したページの候補と上下の補助文字列を表示します。ページ内の候補数・選択位置と前後ページの有無を扱い、総候補数や絶対ページ番号は推測しません。有効な候補通知を受信するまでは、所有者をNONE、理由をUNCONFIRMEDで報告します。SYSTEMはシステム表示への委譲を表し、ポップアップが実際に表示されたことを保証する値ではありません。
+fcitx 5のクライアント候補は、受信したページの候補と上下の補助文字列を表示します。ページ内の候補数・選択位置と前後ページの有無を扱い、総候補数や絶対ページ番号は推測しません。
+
+fcitx 4では、未確定文字とカーソル、候補、上下の補助情報を一つの文字列パネルへ表示します。候補をキーボードで選択し、ページ移動、確定、取消を操作できます。通知に含まれない個別候補の選択強調や文節装飾は再現しません。候補の文字列は分割せず表示し、診断の候補数は0です。独自の描画先は`boxrig_ui_candidate_snapshot`の`STRING_PANEL`形式と`panel_text`、`panel_preedit`、`panel_cursor`を使用します。カーソル位置はUTF-8のバイト単位です。[4系の候補通知](https://github.com/fcitx/fcitx/blob/4.2.9.9/src/lib/fcitx-gclient/fcitxclient.c#L1097)、[候補API](../../include/boxrig/ui/candidates.h)
+
+4系のWayland直接接続では、候補のAUTOは描画可能なクライアントパネルを選びます。SYSTEMを明示した場合の位置はシステム側のUIに依存し、全環境での配置を保証しません。GTK 3／X11のSYSTEM表示では、装飾付き未確定文字とシステム候補を使用できます。[4系の相対座標の扱い](https://github.com/fcitx/fcitx/blob/4.2.9.9/src/ui/kimpanel/kimpanel.c#L488)
+
+両世代とも、有効な候補通知を受信するまでは、所有者をNONE、理由をUNCONFIRMEDで報告します。SYSTEMはシステム表示への委譲を表し、ポップアップが実際に表示されたことを保証する値ではありません。fcitx 5の4系互換経路には文字列パネルを提供しない実装があるため、通常はAUTOか5系の明示指定を使ってください。[5系の4系互換実装](https://github.com/fcitx/fcitx5/blob/5.1.12/src/frontend/fcitx4frontend/fcitx4frontend.cpp#L235)
+
+接続先が停止すると未確定文字と候補を消去し、再接続しても古い表示や送信済みキーを再利用しません。4系のフォーカス喪失時の確定は、サーバーの設定に従います。パネルに含まれる操作案内を確定本文として送ることはありません。
 
 X11でfcitx 5のクライアント候補を使うには、デーモン側の`FCITX_X11_USE_CLIENT_SIDE_UI=True`設定が必要な場合があります。Waylandでも、コンポジターやパネル環境によって能力が調整されます。候補が表示されない場合は、設定と候補所有者の診断を確認してください。[fcitx 5の候補表示能力の調整](https://github.com/fcitx/fcitx5/blob/5.1.7/src/frontend/dbusfrontend/dbusfrontend.cpp)、[公式Wayland設定ガイド](https://fcitx-im.org/wiki/Using_Fcitx_5_on_Wayland)
 

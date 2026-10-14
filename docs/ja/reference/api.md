@@ -28,6 +28,7 @@
 | 表示先、配置、フレーム、共通component | [view.h](../../../include/boxrig/ui/view.h)、[component.h](../../../include/boxrig/ui/component.h) | [UI step-by-step](../step-by-step/step-by-step-ui.md) |
 | キー、ショートカット、貼り付け | [input.h](../../../include/boxrig/ui/input.h)、[shortcut.h](../../../include/boxrig/ui/shortcut.h)、[input_text.h](../../../include/boxrig/ui/input_text.h) | [送受信設定](../terminal-io.md) |
 | IMEの未確定文字、候補、編集文書 | [composition.h](../../../include/boxrig/ui/composition.h)、[candidates.h](../../../include/boxrig/ui/candidates.h)、[editable.h](../../../include/boxrig/ui/editable.h) | [入力とIME](../input-ime.md) |
+| 直接IMEの方式、接続状態、選択理由の診断 | [ime.h](../../../include/boxrig/ime.h) | [入力経路の選択](../input-ime.md#入力経路を選ぶ) |
 | フォントと文字配置 | [text_layout.h](../../../include/boxrig/ui/text_layout.h) | [フォントと配置](../fonts-and-layout.md) |
 | 時計、点滅、待機 | [animation.h](../../../include/boxrig/ui/animation.h)、[blink.h](../../../include/boxrig/ui/blink.h)、[animation_poll.h](../../../include/boxrig/ui/animation_poll.h) | [点滅](../blinking.md) |
 | 色、背景画像、カーソル、選択、バー | [color.h](../../../include/boxrig/ui/color.h)、[image.h](../../../include/boxrig/ui/image.h)、[decoration.h](../../../include/boxrig/ui/decoration.h)、[scrollbar.h](../../../include/boxrig/ui/scrollbar.h) | [背景](../background.md)、[装飾](../decorations.md)、[バー](../scrollbars.md) |

@@ -127,8 +127,8 @@ For API configuration, see [Fonts](./fonts-and-layout.md), [Color filters](./col
 
 | Environment variable | Selection |
 | --- | --- |
-| `BOXRIG_GTK_IME=auto/gtk/ibus/fcitx5` | GTK automatic selection, normal GTK, direct IBus, or direct fcitx 5 |
-| `BOXRIG_WAYLAND_IME=auto/wayland/ibus/fcitx5` | Native Wayland automatic selection, text-input-v3, direct IBus, or direct fcitx 5 |
+| `BOXRIG_GTK_IME=auto/gtk/ibus/fcitx5/fcitx4` | GTK automatic selection, normal GTK, direct IBus, or direct fcitx 5/4 |
+| `BOXRIG_WAYLAND_IME=auto/wayland/ibus/fcitx5/fcitx4` | Native Wayland automatic selection, text-input-v3, direct IBus, or direct fcitx 5/4 |
 | `BOXRIG_IME_CANDIDATES=auto/system/client` | Automatic, OS, or in-terminal candidates |
 
 A nonempty `GTK_IM_MODULE` takes priority over GTK automatic selection.
@@ -136,14 +136,16 @@ Use `BOXRIG_GTK_IME=gtk` to select normal GTK only.
 An explicit `wayland` selection on native Wayland also takes priority over in-terminal candidate settings.
 
 The default AUTO policy uses configuration hints and running services to select a direct provider. An already selected fcitx GTK module is preserved.
-Even when CLIENT is requested for fcitx 5, candidate ownership remains NONE until a valid panel notification arrives.
+Even when CLIENT is requested for fcitx 5/4, candidate ownership remains NONE until a valid panel notification arrives.
 
-In-terminal candidates render candidate data from direct IBus or fcitx 5.
+In-terminal candidates render candidate data from direct IBus or fcitx 5/4.
 The normal GTK/Wayland routes do not expose the same candidate list.
-The GTK 4 X11 route leaves candidate-coordinate handling to the GTK module, so selecting `ibus` or `fcitx5` does not switch it to a direct connection.
+The GTK 4 X11 route leaves candidate-coordinate handling to the GTK module, so selecting `ibus`, `fcitx5`, or `fcitx4` does not switch it to a direct connection.
 Select candidates with the keyboard; clicks in their area are not sent to the PTY.
 Candidates disappear on focus loss, and old candidates are not shown again when focus returns.
 Check the effective route using `ime-route`, `direct-backend`, `direct-selection`, `candidate-owner`, and `candidate-reason` diagnostics.
+Fcitx 4 in-terminal candidates combine preedit and candidates in a string panel. Individual candidate counts are unavailable, so `candidate-count=0` also applies while it is visible.
+See [Input and IME](./input-ime.md#choose-an-input-route) for panel and compatibility-service limitations.
 
 The normal demo does not provide an application-owned editable document.
 An unsupported warning when IBus requests surrounding text therefore does not mean that the display cannot show text.
