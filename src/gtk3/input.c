@@ -1630,10 +1630,12 @@ static bool refresh_im_context(boxrig_gtk3_input *input)
         boxrig_ibus_refresh(input->ibus);
         return input->accepting;
     }
-    GtkIMContext *next = gtk_im_multicontext_new();
-    if (next != NULL && input->ime_state.reason == BOXRIG_GTK_IME_REASON_WAYLAND_CLAUSES)
+    /* Direct IBus owns native focus. Preserve its local fallback on reset;
+     * a multicontext would activate a second IBus client after resumption. */
+    GtkIMContext *next = input->ibus_selected ? gtk_im_context_simple_new() : gtk_im_multicontext_new();
+    if (GTK_IS_IM_MULTICONTEXT(next) && input->ime_state.reason == BOXRIG_GTK_IME_REASON_WAYLAND_CLAUSES)
         gtk_im_multicontext_set_context_id(GTK_IM_MULTICONTEXT(next), "wayland");
-    else if (next != NULL && input->ime_state.reason == BOXRIG_GTK_IME_REASON_NON_WAYLAND &&
+    else if (GTK_IS_IM_MULTICONTEXT(next) && input->ime_state.reason == BOXRIG_GTK_IME_REASON_NON_WAYLAND &&
             input->ime_state.requested_policy == BOXRIG_GTK_IME_AUTO &&
             strcmp(input->ime_state.gtk_module, "ibus") == 0)
         gtk_im_multicontext_set_context_id(GTK_IM_MULTICONTEXT(next), "ibus");

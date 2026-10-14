@@ -512,6 +512,7 @@ static void client_ready(GObject *source, GAsyncResult *result, gpointer data)
 {
     GError *error = NULL;
     GVariant *reply = g_dbus_connection_call_finish(G_DBUS_CONNECTION(source), result, &error);
+    if (error != NULL) fprintf(stderr, "IBus client readiness: %s\n", error->message);
     CHECK(reply != NULL && error == NULL);
     const char *name;
     g_variant_get(reply, "(&s)", &name);
