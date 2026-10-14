@@ -111,8 +111,7 @@ static void focus(void)
     for (;;) {
         boxrig_ime_diagnostic state;
         boxrig_ime_get_diagnostic(client, &state);
-        CHECK(state.backend == BOXRIG_IME_BACKEND_FCITX5);
-        if (state.contexts == 1) break;
+        if (state.contexts == 1) { CHECK(state.backend == BOXRIG_IME_BACKEND_FCITX5); break; }
         CHECK(state.state != BOXRIG_IME_UNAVAILABLE);
         dispatch();
     }
@@ -166,8 +165,9 @@ int main(void)
     /* Cancel before name discovery completes; no default-loop dispatch is
      * available to rescue callbacks after the client has been destroyed. */
     for (size_t index = 0; index < 16; index++) {
-        boxrig_ime_client *cancelled = boxrig_ime_create(BOXRIG_IME_BACKEND_FCITX5,
-            true, 1, "boxrig-cancelled-probe", selection, NULL);
+        boxrig_ime_client *cancelled = getenv("BOXRIG_TEST_IME_AUTO") != NULL ?
+            boxrig_ime_create_auto(true, 1, "boxrig-cancelled-probe", NULL, selection, NULL) :
+            boxrig_ime_create(BOXRIG_IME_BACKEND_FCITX5, true, 1, "boxrig-cancelled-probe", selection, NULL);
         CHECK(cancelled != NULL);
         boxrig_ime_destroy(cancelled);
     }
@@ -183,7 +183,9 @@ int main(void)
     CHECK(boxrig_ui_view_create(model, &view_config, &view) == BOXRIG_UI_OK);
     target = (boxrig_ime_target){.view = view, .maximum_events = 32, .maximum_bytes = 65536,
         .wake = wake, .error = error, .enqueue = enqueue, .forward = forward, .apply = apply, .cursor = cursor};
-    client = boxrig_ime_create(BOXRIG_IME_BACKEND_FCITX5, true, 1, "boxrig-fcitx-probe", selection, NULL);
+    client = getenv("BOXRIG_TEST_IME_AUTO") != NULL ?
+        boxrig_ime_create_auto(true, 1, "boxrig-fcitx-probe", NULL, selection, NULL) :
+        boxrig_ime_create(BOXRIG_IME_BACKEND_FCITX5, true, 1, "boxrig-fcitx-probe", selection, NULL);
     CHECK(client != NULL);
     session = boxrig_ime_add_session(client, &target);
     CHECK(session != NULL);

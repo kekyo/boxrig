@@ -236,9 +236,9 @@ GTK3_HEADERS := include/boxrig/gtk3.h $(wildcard include/boxrig/gtk3/*.h) $(wild
 PANGO_CANDIDATE_OBJECT := $(BUILD_DIR)/pangocairo/candidates.o
 GTK3_OBJECTS += $(PANGO_CANDIDATE_OBJECT)
 GTK4_OBJECTS += $(PANGO_CANDIDATE_OBJECT)
-IME_SOURCES := src/ime/client.c src/ibus/client.c src/fcitx5/client.c src/ime/source.c src/ime/preedit.c
+IME_SOURCES := src/ime/client.c src/ime/detect.c src/ibus/client.c src/fcitx5/client.c src/ime/source.c src/ime/preedit.c
 IME_HEADERS := src/ime/client.h src/ime/client_private.h src/ime/source.h src/ime/preedit.h
-IME_OBJECTS := $(BUILD_DIR)/ime/client.o $(BUILD_DIR)/ime/ibus.o $(BUILD_DIR)/ime/fcitx5.o $(BUILD_DIR)/ime/source.o $(BUILD_DIR)/ime/preedit.o
+IME_OBJECTS := $(BUILD_DIR)/ime/client.o $(BUILD_DIR)/ime/detect.o $(BUILD_DIR)/ime/ibus.o $(BUILD_DIR)/ime/fcitx5.o $(BUILD_DIR)/ime/source.o $(BUILD_DIR)/ime/preedit.o
 GTK3_OBJECTS += $(IME_OBJECTS) $(BUILD_DIR)/gtk3/ime_probe.o
 GTK4_OBJECTS += $(IME_OBJECTS) $(BUILD_DIR)/gtk4/ime_probe.o
 WAYLAND_HEADERS := include/boxrig/wayland.h
@@ -5051,6 +5051,9 @@ $(BUILD_DIR)/ime:
 $(BUILD_DIR)/ime/client.o: src/ime/client.c $(IME_HEADERS) | $(BUILD_DIR)/ime
 	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(IBUS_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) -c $< -o $@
 
+$(BUILD_DIR)/ime/detect.o: src/ime/detect.c $(IME_HEADERS) | $(BUILD_DIR)/ime
+	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(IBUS_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) -c $< -o $@
+
 $(BUILD_DIR)/ime/fcitx5.o: src/fcitx5/client.c $(IME_HEADERS) | $(BUILD_DIR)/ime
 	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(IBUS_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) -c $< -o $@
 
@@ -5642,7 +5645,15 @@ $(BUILD_DIR)/tests/test_ime_discovery: tests/ime/test_discovery.c $(IME_SOURCES)
 	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(IBUS_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(IME_SOURCES) $(UI_LIBRARY) $(LIBRARY) $(IBUS_LIBS) $(SANITIZERS) -o $@
 
 .PHONY: test-ime-discovery
-test-ime-discovery: $(BUILD_DIR)/tests/test_ime_discovery
+test-ime-discovery: $(BUILD_DIR)/tests/test_ime_discovery $(BUILD_DIR)/tests/fcitx5_server $(BUILD_DIR)/tests/wayland_ibus_engine
 	GIO_USE_VFS=local ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- $<
+	GIO_USE_VFS=local ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 BOXRIG_TEST_FCITX5=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx5.sh $(BUILD_DIR)/tests/fcitx5_server $<
+	GIO_USE_VFS=local ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 BOXRIG_TEST_FCITX5=1 BOXRIG_TEST_IME_BOTH=1 dbus-run-session --config-file=tests/ime/session.conf -- node tests/wayland/run_ibus_context.mjs tests/ime/run_discovery_with_fcitx.sh "$(TEST_FONT_FILE)" "$(BUILD_DIR)/tests/wayland_ibus_engine" "$(BUILD_DIR)/test-results/ime-discovery" "$(BUILD_DIR)/tests/fcitx5_server" "$(BUILD_DIR)/tests/test_ime_discovery"
 
 test: test-ime-discovery
+
+.PHONY: test-fcitx5-auto-core
+test-fcitx5-auto-core: $(BUILD_DIR)/tests/test_fcitx5 $(BUILD_DIR)/tests/fcitx5_server
+	GIO_USE_VFS=local IBUS_ADDRESS= XMODIFIERS= BOXRIG_TEST_IME_AUTO=1 ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx5.sh $(BUILD_DIR)/tests/fcitx5_server $<
+
+test: test-fcitx5-auto-core

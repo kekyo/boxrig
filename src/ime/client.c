@@ -260,6 +260,8 @@ bool boxrig_ime_owns_candidates(const boxrig_ime_session *session)
 boxrig_ui_candidate_owner boxrig_ime_candidate_owner(const boxrig_ime_client *client,
     const boxrig_ime_target *target)
 {
+    if (client != NULL && client->selection != NULL)
+        return boxrig_ime_candidate_owner(client->selection->active, target);
     if (!boxrig_ime_selected(client) || target == NULL || target->clear_candidates == NULL)
         return BOXRIG_UI_CANDIDATE_OWNER_SYSTEM;
     if (client->backend->kind == BOXRIG_IME_BACKEND_IBUS) return BOXRIG_UI_CANDIDATE_OWNER_CLIENT;
@@ -454,6 +456,7 @@ static void drop_proxy(boxrig_ime_session *session)
 
 void boxrig_ime_failed_connection(boxrig_ime_client *bus)
 {
+    bus->owner_pid = 0;
     bus->errors++;
     bus->state = BOXRIG_IME_UNAVAILABLE;
     for (boxrig_ime_session *session = bus->sessions; session != NULL; session = session->next) {
@@ -463,6 +466,48 @@ void boxrig_ime_failed_connection(boxrig_ime_client *bus)
         wake_component(session->component);
     }
     bus->selection_changed(bus->data, false);
+}
+
+typedef struct boxrig_ime_owner_query {
+    boxrig_ime_client *client;
+    uint64_t generation;
+} boxrig_ime_owner_query;
+
+static void owner_identified(GObject *source, GAsyncResult *result, gpointer data)
+{
+    boxrig_ime_owner_query *query = data;
+    boxrig_ime_client *client = query->client;
+    GVariant *reply = g_dbus_connection_call_finish(G_DBUS_CONNECTION(source), result, NULL);
+    client->pending--;
+    if (!client->closing && client->connection == G_DBUS_CONNECTION(source) &&
+        client->connection_generation == query->generation) {
+        /* PID is optional metadata: some bus implementations do not expose
+         * it. The name watch has already verified the unique owner. */
+        client->owner_pid = 0;
+        if (reply != NULL) g_variant_get(reply, "(u)", &client->owner_pid);
+        client->state = BOXRIG_IME_READY;
+        client->selection_changed(client->data, true);
+        for (boxrig_ime_session *session = client->sessions; session != NULL; session = session->next)
+            boxrig_ime_start_session(session);
+    }
+    if (reply != NULL) g_variant_unref(reply);
+    free(query);
+}
+
+void boxrig_ime_owner_appeared(boxrig_ime_client *client, GDBusConnection *connection, const char *owner)
+{
+    g_set_object(&client->connection, connection);
+    g_free(client->connection_owner);
+    client->connection_owner = g_strdup(owner);
+    client->connection_generation++;
+    client->state = BOXRIG_IME_CONNECTING;
+    boxrig_ime_owner_query *query = malloc(sizeof(*query));
+    if (query == NULL) { boxrig_ime_failed_connection(client); return; }
+    *query = (boxrig_ime_owner_query){client, client->connection_generation};
+    client->pending++;
+    g_dbus_connection_call(connection, "org.freedesktop.DBus", "/org/freedesktop/DBus",
+        "org.freedesktop.DBus", "GetConnectionUnixProcessID", g_variant_new("(s)", owner),
+        G_VARIANT_TYPE("(u)"), G_DBUS_CALL_FLAGS_NO_AUTO_START, -1, client->cancel, owner_identified, query);
 }
 
 void boxrig_ime_connection_closed(GDBusConnection *connection, gboolean remote, GError *error, gpointer data)
@@ -539,20 +584,30 @@ void boxrig_ime_start_session(boxrig_ime_session *session)
     g_main_context_pop_thread_default(bus->loop);
 }
 
-boxrig_ime_client *boxrig_ime_create(boxrig_ime_backend_kind backend, bool wayland, size_t maximum_sessions, const char *name,
+boxrig_ime_client *boxrig_ime_allocate(const boxrig_ime_backend *backend, bool wayland,
+    size_t maximum_sessions, const char *name, GMainContext *loop,
     void (*selection_changed)(void *, bool), void *data)
 {
-    if (backend != BOXRIG_IME_BACKEND_IBUS && backend != BOXRIG_IME_BACKEND_FCITX5) return NULL;
     boxrig_ime_client *bus = calloc(1, sizeof(*bus));
     if (bus == NULL) return NULL;
-    bus->backend = backend == BOXRIG_IME_BACKEND_IBUS ? &boxrig_ime_ibus_backend : &boxrig_ime_fcitx5_backend;
+    bus->backend = backend;
     bus->wayland = wayland;
     bus->maximum_sessions = maximum_sessions;
     bus->name = name;
     bus->selection_changed = selection_changed;
     bus->data = data;
-    bus->loop = g_main_context_new();
+    bus->loop = loop == NULL ? g_main_context_new() : g_main_context_ref(loop);
     bus->cancel = g_cancellable_new();
+    return bus;
+}
+
+boxrig_ime_client *boxrig_ime_create(boxrig_ime_backend_kind backend, bool wayland, size_t maximum_sessions, const char *name,
+    void (*selection_changed)(void *, bool), void *data)
+{
+    if (backend != BOXRIG_IME_BACKEND_IBUS && backend != BOXRIG_IME_BACKEND_FCITX5) return NULL;
+    boxrig_ime_client *bus = boxrig_ime_allocate(backend == BOXRIG_IME_BACKEND_IBUS ?
+        &boxrig_ime_ibus_backend : &boxrig_ime_fcitx5_backend, wayland, maximum_sessions, name, NULL, selection_changed, data);
+    if (bus == NULL) return NULL;
     g_main_context_push_thread_default(bus->loop);
     bus->backend->initialize(bus);
     g_main_context_pop_thread_default(bus->loop);
@@ -567,6 +622,17 @@ boxrig_ime_session *boxrig_ime_add_session(boxrig_ime_client *bus, void *seat)
     session->owner = bus;
     session->seat = seat;
     session->cancel = g_cancellable_new();
+    if (bus->selection != NULL) {
+        for (size_t index = 0; index < G_N_ELEMENTS(session->delegates); index++) {
+            session->delegates[index] = boxrig_ime_add_session(bus->selection->clients[index], seat);
+            if (session->delegates[index] == NULL) {
+                for (size_t previous = 0; previous < index; previous++) boxrig_ime_remove_session(session->delegates[previous]);
+                g_object_unref(session->cancel);
+                free(session);
+                return NULL;
+            }
+        }
+    }
     session->next = bus->sessions;
     bus->sessions = session;
     bus->session_count++;
@@ -584,6 +650,12 @@ void boxrig_ime_focus(boxrig_ime_session *session,
     if (session == NULL) return;
     boxrig_ime_client *bus = session->owner;
     if (session->component == component) return;
+    if (bus->selection != NULL) {
+        session->component = component;
+        session->generation = generation;
+        boxrig_ime_auto_focus(session, commit);
+        return;
+    }
     retire_signals(session);
     if (session->component != NULL && commit &&
         session->preedit_visible && session->preedit_commit &&
@@ -613,6 +685,8 @@ void boxrig_ime_remove_session(boxrig_ime_session *session)
 {
     if (session == NULL) return;
     boxrig_ime_focus(session, NULL, false, session->generation + 1);
+    for (size_t index = 0; index < G_N_ELEMENTS(session->delegates); index++)
+        boxrig_ime_remove_session(session->delegates[index]);
     session->seat = NULL;
 }
 
@@ -746,6 +820,16 @@ boxrig_ui_status boxrig_ime_filter_key(boxrig_ime_session *session,
         *handled = true;
         return BOXRIG_UI_OK;
     }
+    if (session->owner->selection != NULL) {
+        for (size_t index = 0; index < G_N_ELEMENTS(session->delegates); index++) {
+            boxrig_ime_session *delegate = session->delegates[index];
+            if (delegate->owner == session->owner->selection->active)
+                return boxrig_ime_filter_key(delegate, component, generation, key, request_inout, blocked, handled);
+        }
+        *blocked = true;
+        component->wake(component->data, true);
+        return BOXRIG_UI_OK;
+    }
     if (session->pending || session->proxy == NULL) {
         component->wake(component->data, true);
         *blocked = true;
@@ -779,6 +863,10 @@ boxrig_ui_status boxrig_ime_filter_key(boxrig_ime_session *session,
 void boxrig_ime_cursor(boxrig_ime_client *bus, boxrig_ime_target *component,
     const int32_t rectangle[4], bool relative, double scale)
 {
+    if (bus != NULL && bus->selection != NULL) {
+        boxrig_ime_cursor(bus->selection->active, component, rectangle, relative, scale);
+        return;
+    }
     if (!boxrig_ime_selected(bus) || rectangle == NULL || rectangle[2] < 0 || rectangle[3] < 0) return;
     if (!relative) scale = 1.0;
     if (!isfinite(scale) || scale <= 0) return;
@@ -808,6 +896,7 @@ void boxrig_ime_refresh(boxrig_ime_client *bus)
 {
     if (bus == NULL || bus->closing) return;
     g_main_context_push_thread_default(bus->loop);
+    if (bus->selection != NULL) boxrig_ime_auto_refresh(bus);
     for (boxrig_ime_session **link = &bus->sessions; *link != NULL;) {
         boxrig_ime_session *session = *link;
         if (session->seat == NULL && !session->pending && session->references == 0) {
@@ -833,6 +922,22 @@ void boxrig_ime_get_diagnostic(const boxrig_ime_client *bus, boxrig_ime_diagnost
 {
     memset(diagnostic, 0, sizeof(*diagnostic));
     if (bus == NULL) return;
+    if (bus->selection != NULL) {
+        const boxrig_ime_selection *selection = bus->selection;
+        boxrig_ime_get_diagnostic(selection->active, diagnostic);
+        diagnostic->state = bus->state;
+        diagnostic->pending = 0;
+        diagnostic->errors = bus->errors;
+        for (size_t index = 0; index < G_N_ELEMENTS(selection->clients); index++) {
+            diagnostic->pending += selection->clients[index]->pending;
+            diagnostic->errors += selection->clients[index]->errors;
+        }
+        diagnostic->selection_reason = selection->reason;
+        diagnostic->ambiguous = selection->ambiguous;
+        diagnostic->conflicting_hints = selection->conflict;
+        diagnostic->compatibility_alias = selection->alias;
+        return;
+    }
     diagnostic->backend = bus->backend->kind;
     diagnostic->state = bus->state;
     diagnostic->pending = bus->pending;
@@ -894,6 +999,7 @@ boxrig_ui_status boxrig_ime_dispatch_poll(boxrig_ime_client *bus,
     }
     g_main_context_push_thread_default(bus->loop);
     if (g_main_context_check(bus->loop, bus->priority, bus->glib_fds, (gint)count)) g_main_context_dispatch(bus->loop);
+    if (bus->selection != NULL) boxrig_ime_refresh(bus);
     bus->prepared = false;
     g_main_context_pop_thread_default(bus->loop);
     g_main_context_release(bus->loop);
@@ -913,12 +1019,13 @@ void boxrig_ime_destroy(boxrig_ime_client *bus)
     bus->closing = true;
     if (bus->prepared) g_main_context_release(bus->loop);
     g_main_context_push_thread_default(bus->loop);
+    if (bus->selection != NULL) boxrig_ime_auto_destroy(bus);
     if (bus->monitor != NULL) {
         g_signal_handlers_disconnect_by_data(bus->monitor, bus);
         g_file_monitor_cancel(bus->monitor);
         g_clear_object(&bus->monitor);
     }
-    if (bus->backend->stop != NULL) bus->backend->stop(bus);
+    if (bus->backend != NULL && bus->backend->stop != NULL) bus->backend->stop(bus);
     g_cancellable_cancel(bus->cancel);
     for (boxrig_ime_session *session = bus->sessions; session != NULL; session = session->next) {
         drop_proxy(session);

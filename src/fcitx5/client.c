@@ -298,14 +298,7 @@ static void appeared(GDBusConnection *connection, const char *name, const char *
     (void)name;
     boxrig_ime_client *bus = data;
     if (bus->closing) return;
-    g_set_object(&bus->connection, connection);
-    g_free(bus->connection_owner);
-    bus->connection_owner = g_strdup(owner);
-    bus->connection_generation++;
-    bus->state = BOXRIG_IME_READY;
-    bus->selection_changed(bus->data, true);
-    for (boxrig_ime_session *session = bus->sessions; session != NULL; session = session->next)
-        boxrig_ime_start_session(session);
+    boxrig_ime_owner_appeared(bus, connection, owner);
 }
 static void vanished(GDBusConnection *connection, const char *name, gpointer data)
 {

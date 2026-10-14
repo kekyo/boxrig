@@ -24,11 +24,21 @@ typedef struct boxrig_ime_backend {
 extern const boxrig_ime_backend boxrig_ime_ibus_backend;
 extern const boxrig_ime_backend boxrig_ime_fcitx5_backend;
 
+/* Discovery clients share one private loop, but keep their connection and
+ * pending requests separate. Only active receives a focused input target. */
+typedef struct boxrig_ime_selection {
+    boxrig_ime_client *clients[2], *active;
+    boxrig_ime_backend_kind module, modifiers;
+    boxrig_ime_selection_reason reason;
+    bool address, dirty, initialized, ambiguous, conflict, alias;
+} boxrig_ime_selection;
+
 /* Only this private main context dispatches client callbacks. The host polls
  * its sources alongside Wayland and the PTY; no library worker runs input. */
 struct boxrig_ime_client {
     size_t maximum_sessions;
     const boxrig_ime_backend *backend;
+    boxrig_ime_selection *selection;
     const char *name;
     void (*selection_changed)(void *, bool);
     void *data;
@@ -38,6 +48,7 @@ struct boxrig_ime_client {
     guint watcher;
     char *connection_owner;
     uint64_t connection_generation;
+    uint32_t owner_pid;
     bool wayland, shared_connection;
     GCancellable *cancel;
     GFileMonitor *monitor;
@@ -55,6 +66,7 @@ struct boxrig_ime_client {
 struct boxrig_ime_session {
     boxrig_ime_session *next;
     boxrig_ime_client *owner;
+    boxrig_ime_session *delegates[2];
     void *seat;
     boxrig_ime_target *component;
     /* Owned protocol context, interpreted only by the selected backend. */
@@ -122,4 +134,11 @@ void boxrig_ime_commit(boxrig_ime_session *session, const char *text);
 void boxrig_ime_delete(boxrig_ime_session *session, int32_t offset, uint32_t characters);
 void boxrig_ime_forward(boxrig_ime_session *session, uint32_t symbol, uint32_t code, uint32_t modifiers);
 void boxrig_ime_key_complete(boxrig_ime_request *request, bool handled, bool failed);
+boxrig_ime_client *boxrig_ime_allocate(const boxrig_ime_backend *backend, bool wayland,
+    size_t maximum_sessions, const char *name, GMainContext *loop,
+    void (*selection_changed)(void *, bool), void *data);
+void boxrig_ime_owner_appeared(boxrig_ime_client *client, GDBusConnection *connection, const char *owner);
+void boxrig_ime_auto_refresh(boxrig_ime_client *client);
+void boxrig_ime_auto_focus(boxrig_ime_session *session, bool commit);
+void boxrig_ime_auto_destroy(boxrig_ime_client *client);
 #endif

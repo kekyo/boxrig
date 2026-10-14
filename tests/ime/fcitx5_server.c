@@ -11,6 +11,7 @@
 static GDBusConnection *connection;
 static GDBusConnection *previous_connection;
 static guint name_owner;
+static guint ibus_owner;
 static unsigned int next_context, keys, resets, focused, destroyed;
 static guint64 capabilities;
 static gint cursor_rectangle[4];
@@ -41,6 +42,7 @@ static const char xml[] =
     "<method name='Cursor'><arg type='i' direction='out'/><arg type='i' direction='out'/>"
     "<arg type='i' direction='out'/><arg type='i' direction='out'/><arg type='d' direction='out'/>"
     "<arg type='u' direction='out'/></method>"
+    "<method name='Hide'/><method name='Show'/><method name='AliasIBus'/><method name='UnaliasIBus'/>"
     "<method name='Complete'/><method name='Replace'/><method name='FailPrevious'/></interface></node>";
 static GDBusNodeInfo *node;
 static const GDBusInterfaceVTable methods;
@@ -112,7 +114,19 @@ static void method(GDBusConnection *bus, const char *sender, const char *path,
             cursor_scale, cursor_updates));
         return;
     }
-    if (strcmp(name, "Replace") == 0) {
+    if (strcmp(name, "Hide") == 0) {
+        g_bus_unown_name(name_owner);
+        name_owner = 0;
+    } else if (strcmp(name, "Show") == 0) {
+        CHECK(name_owner == 0);
+        name_owner = g_bus_own_name_on_connection(connection, SERVICE, G_BUS_NAME_OWNER_FLAGS_NONE, NULL, NULL, NULL, NULL);
+    } else if (strcmp(name, "AliasIBus") == 0) {
+        CHECK(ibus_owner == 0);
+        ibus_owner = g_bus_own_name_on_connection(connection, "org.freedesktop.IBus", G_BUS_NAME_OWNER_FLAGS_NONE, NULL, NULL, NULL, NULL);
+    } else if (strcmp(name, "UnaliasIBus") == 0) {
+        g_bus_unown_name(ibus_owner);
+        ibus_owner = 0;
+    } else if (strcmp(name, "Replace") == 0) {
         CHECK(previous_connection == NULL && held != NULL);
         previous_connection = connection;
         g_bus_unown_name(name_owner);

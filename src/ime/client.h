@@ -10,9 +10,21 @@ typedef struct boxrig_ime_session boxrig_ime_session;
 typedef struct boxrig_ime_request boxrig_ime_request;
 
 typedef enum boxrig_ime_backend_kind {
-    BOXRIG_IME_BACKEND_IBUS = 0,
+    BOXRIG_IME_BACKEND_NONE = 0,
+    BOXRIG_IME_BACKEND_IBUS,
     BOXRIG_IME_BACKEND_FCITX5
 } boxrig_ime_backend_kind;
+
+typedef enum boxrig_ime_selection_reason {
+    BOXRIG_IME_SELECTION_EXPLICIT = 0,
+    BOXRIG_IME_SELECTION_DISCOVERY,
+    BOXRIG_IME_SELECTION_MODULE,
+    BOXRIG_IME_SELECTION_XMODIFIERS,
+    BOXRIG_IME_SELECTION_ADDRESS,
+    BOXRIG_IME_SELECTION_SINGLE,
+    BOXRIG_IME_SELECTION_PRIORITY,
+    BOXRIG_IME_SELECTION_RETAINED
+} boxrig_ime_selection_reason;
 
 /* Native timestamps are milliseconds; code is evdev (XKB hardware minus 8).
  * Modifiers use the X11/XKB masks, with release and repeat kept separately. */
@@ -84,6 +96,8 @@ typedef struct boxrig_ime_target {
 typedef struct boxrig_ime_diagnostic {
     boxrig_ime_backend_kind backend;
     boxrig_ime_state state;
+    boxrig_ime_selection_reason selection_reason;
+    bool ambiguous, conflicting_hints, compatibility_alias;
     size_t pending, errors, contexts;
 } boxrig_ime_diagnostic;
 
@@ -91,6 +105,10 @@ typedef struct boxrig_ime_diagnostic {
  * No callback dispatches the GTK/default main context. Host owns this client. */
 boxrig_ime_client *boxrig_ime_create(boxrig_ime_backend_kind backend, bool wayland, size_t maximum_sessions,
     const char *name, void (*selection_changed)(void *, bool), void *data);
+/* module is an applicable GTK delegate, or NULL for non-GTK hosts. Framework
+ * delegation must already have been resolved before starting discovery. */
+boxrig_ime_client *boxrig_ime_create_auto(bool wayland, size_t maximum_sessions,
+    const char *name, const char *module, void (*selection_changed)(void *, bool), void *data);
 void boxrig_ime_destroy(boxrig_ime_client *client);
 bool boxrig_ime_selected(const boxrig_ime_client *client);
 boxrig_ime_session *boxrig_ime_add_session(boxrig_ime_client *client, void *seat);
