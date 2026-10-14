@@ -583,3 +583,17 @@ fcitx 5のパネルと自動選択、IBusの候補、GTKの直接IBus経路、Wa
 `test-fcitx4-compat-real`は、実fcitx 5の4系互換フロントエンドを有効にして実行します。4系を明示すると文字の変換・確定は成功しますが、パネル通知がないため候補所有者はNONE、理由はUNCONFIRMEDです。AUTOでは互換サービスを同じ提供元と判定し、5系の直接接続とページ形式の候補を使用します。この両方を確認しました。[互換フロントエンドの未提供機能](https://github.com/fcitx/fcitx5/blob/5.1.12/src/frontend/fcitx4frontend/fcitx4frontend.cpp#L235)
 
 文字列パネル、キー操作、候補の所有者、4／5の区別、互換サービス、切断・再接続、入力禁止とフォーカス変更について、第7節の段階5の完了条件を満たしました。次は段階6として、Debian 13／Ubuntu 24.04／26.04の両世代、全体の回帰試験、公開設定・診断・文書の一致を確認します。
+
+### 段階6の統合確認を開始
+
+公開APIの監査で、`BOXRIG_WAYLAND_INPUT_CAPABILITY_FCITX4`が公開契約の一覧に未登録であることを検出しました。native WaylandのIME入力契約へ登録し、72ヘッダーの1,053件が分類されることを確認しています。失敗と成功のログは`build/test-results/fcitx4/public-contract-red.log`と`public-contract-green.log`です。
+
+Debian 13／Ubuntu 24.04／Ubuntu 26.04のfcitx 4.2.9.9について、段階5までの入力、候補、倍率、自動検出、再接続と、付属ターミナルの実表示の全ターゲットが成功しました。各環境のパッケージ一覧、ログ、画像・動画は`build/test-results/ime-distributions/`へ保存しています。fcitx 5の3環境と全体テストは、この時点では実行中です。
+
+### 全体試験でGTK 3の撮影待機を修正
+
+`make -k test`で、既存のGTK 3候補試験が失敗しました。描画方式を切り替えた後のサイズ再割当が未完了のまま`gtk_widget_draw()`を呼んでおり、GTKの`alloc_needed`検査に拒否されています。候補の消去失敗ではなく、撮影された画像全体が空になる問題でした。
+
+入力キューが空になったことだけでは、GTKのサイズ割当と描画の完了は確認できません。サイズ再割当を明示的に要求する再現条件を加えて失敗を確認した後、撮影前にウィジェットの実際の`draw`通知を待つよう試験を修正しました。固定時間の待機や画素比較の緩和は加えていません。GTK 3候補試験の倍率1と2が成功しています。[GTKの描画通知](https://docs.gtk.org/gtk3/signal.Widget.draw.html)
+
+失敗時の画像は`build/test-results/plan2-regression/step6-gtk3-candidates-red/`、再現と修正後のログは`step6-gtk3-capture-red.log`と`step6-gtk3-capture-green.log`です。製品の描画・候補処理は変更していません。
