@@ -120,6 +120,30 @@ if (process.argv[2] === '--child') {
         command('gdbus', ['call', '--session', '--dest', 'org.fcitx.Fcitx5', '--object-path', '/controller',
             '--method', 'org.fcitx.Fcitx.Controller1.SetCurrentIM', 'mozc']);
         const before = await capture('before');
+        const cropX = Math.max(0, bounds[0] + 10), cropY = Math.max(0, bounds[1] + 35);
+        const cropWidth = Math.min(1280, bounds[2] - 20) - cropX;
+        const cropHeight = Math.min(800, bounds[3] - 20) - cropY;
+        const terminalPixels = pixels => {
+            const cropped = Buffer.alloc(cropWidth * cropHeight * 3);
+            for (let y = 0; y < cropHeight; y++) {
+                const start = ((cropY + y) * 1280 + cropX) * 3;
+                pixels.copy(cropped, y * cropWidth * 3, start, start + cropWidth * 3);
+            }
+            return cropped;
+        };
+        const baseline = terminalPixels(before);
+        const difference = (pixels, reference) => {
+            assert.equal(pixels.length, reference.length);
+            let changed = 0, first = cropHeight, last = -1;
+            for (let at = 0; at < pixels.length; at += 3) {
+                if (Math.abs(pixels[at] - reference[at]) + Math.abs(pixels[at + 1] - reference[at + 1]) +
+                    Math.abs(pixels[at + 2] - reference[at + 2]) > 90) {
+                    const y = Math.floor(at / (cropWidth * 3));
+                    changed++; first = Math.min(first, y); last = Math.max(last, y);
+                }
+            }
+            return {changed, height: last - first};
+        };
         xdo('type', '--clearmodifiers', '--delay', '0', 'kisha');
         xdo('key', '--clearmodifiers', 'space', 'space');
         let popup;
@@ -132,28 +156,25 @@ if (process.argv[2] === '--child') {
             assert.equal(state['candidate-owner'], 'system');
         }
         const page = await capture('page');
-        let changed = 0, first = 800, last = -1;
-        for (let y = Math.max(0, bounds[1] + 35); y < Math.min(800, bounds[3] - 20); y++)
-        for (let x = Math.max(0, bounds[0] + 10); x < Math.min(1280, bounds[2] - 20); x++) {
-            const at = (y * 1280 + x) * 3;
-            if (Math.abs(page[at] - before[at]) + Math.abs(page[at + 1] - before[at + 1]) +
-                Math.abs(page[at + 2] - before[at + 2]) > 90) {
-                changed++; first = Math.min(first, y); last = Math.max(last, y);
-            }
-        }
-        assert(changed > 300 && last - first > 40, 'Candidate rows must be painted inside the terminal area');
+        const candidatePixels = difference(terminalPixels(page), baseline);
+        assert(candidatePixels.changed > 300 && candidatePixels.height > 40,
+            'Candidate rows must be painted inside the terminal area');
         assert.equal(received, '', 'Composition must not leak romanization into the PTY');
         const revision = Number(state['candidate-revision']);
         xdo('key', '--clearmodifiers', 'Page_Down');
         if (backend === 'wayland') await awaitState(() => Number(state['candidate-revision']) > revision);
         const next = await capture('next-page');
-        assert(!page.equals(next), 'Paging must update the displayed candidate content');
+        assert(difference(terminalPixels(next), terminalPixels(page)).changed > 300,
+            'Paging must update the displayed candidate content');
         xdo('key', '--clearmodifiers', 'Return');
         await awaitState(() => received.length > 0);
         assert(/\p{Script=Han}/u.test(received) && !/[a-z\r\n]/.test(received), received);
         const committed = received;
         if (backend === 'wayland') await awaitState(() => state['candidate-visible'] === '0');
-        await capture('committed');
+        const committedPixels = difference(terminalPixels(await capture('committed')), baseline).changed;
+        /* The raw child does not echo committed text. Only the blinking cursor
+         * may differ from the empty terminal after the overlay is removed. */
+        assert(committedPixels <= 300, 'Committing must remove the painted preedit and candidates');
         xdo('type', '--clearmodifiers', '--delay', '0', 'kisha');
         xdo('key', '--clearmodifiers', 'space', 'space');
         if (backend === 'wayland') await awaitState(() => state['candidate-visible'] === '1');
@@ -161,21 +182,26 @@ if (process.argv[2] === '--child') {
          * that reading. Suggestions may still be visible after one Escape. */
         xdo('key', '--clearmodifiers', 'Escape', 'Escape');
         if (backend === 'wayland') await awaitState(() => state['candidate-visible'] === '0');
-        await capture('cancelled');
+        const cancelledPixels = difference(terminalPixels(await capture('cancelled')), baseline).changed;
+        assert(cancelledPixels <= 300, 'Cancelling must remove the painted preedit and candidates');
         assert.equal(received, committed, 'Cancellation must not emit text');
         recorder.kill('SIGINT');
         const [videoCode] = await recorderClosed;
         assert(videoCode === 0 || videoCode === 255, 'Recording must finish cleanly');
-        const cropX = Math.max(0, bounds[0] + 10), cropY = Math.max(0, bounds[1] + 35);
-        const cropWidth = Math.min(1280, bounds[2] - 20) - cropX;
-        const cropHeight = Math.min(800, bounds[3] - 20) - cropY;
-        const frames = command('ffmpeg', ['-nostdin', '-v', 'error', '-i', join(output, 'candidates.mkv'),
-            '-vf', `crop=${cropWidth}:${cropHeight}:${cropX}:${cropY}`, '-f', 'framemd5', 'pipe:1'])
-            .split('\n').filter(line => !line.startsWith('#') && line.trim()).map(line => line.split(',').at(-1).trim());
-        assert(frames.length >= 5 && new Set(frames).size >= 3,
-            'The lossless recording must contain changing terminal frames across the observed input phases');
+        const video = execFileSync('ffmpeg', ['-nostdin', '-v', 'error', '-i', join(output, 'candidates.mkv'),
+            '-vf', `crop=${cropWidth}:${cropHeight}:${cropX}:${cropY}`, '-f', 'rawvideo',
+            '-pix_fmt', 'rgb24', 'pipe:1'], {maxBuffer: 128 * 1024 * 1024, timeout: 60000});
+        assert.equal(video.length % baseline.length, 0);
+        const frames = [];
+        for (let offset = 0; offset < video.length; offset += baseline.length)
+            frames.push(difference(video.subarray(offset, offset + baseline.length), baseline));
+        assert(frames.length >= 5 && frames.some(frame => frame.changed > 300 && frame.height > 40),
+            'The lossless recording must show the candidate rows');
+        assert(frames.at(-1).changed <= 300,
+            'The lossless recording must finish with the preedit and candidates removed');
         await writeFile(join(output, 'observations.json'), JSON.stringify({backend, renderer,
-            bounds, candidatePixels: changed, videoFrames: frames.length, committed,
+            bounds, candidatePixels: candidatePixels.changed, committedPixels, cancelledPixels,
+            videoFrames: frames.length, finalFramePixels: frames.at(-1).changed, committed,
             phases: ['before', 'page', 'next-page', 'committed', 'cancelled']}, null, 2));
         socket.end('quit\n');
         const [code, signal] = await once(sample, 'close');
