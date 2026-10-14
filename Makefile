@@ -5683,3 +5683,12 @@ test-fcitx5-auto-real: $(WAYLAND_CONTEXT_TEST_BINARY) $(BUILD_DIR)/tests/test_gt
 	done
 
 test: test-fcitx5-auto-real
+
+.PHONY: test-fcitx5-display
+test-fcitx5-display: $(GTK3_EXAMPLE_BINARY) $(WAYLAND_EXAMPLE_BINARY)
+	@for renderer in wayland opengl; do \
+		$(XVFB_RUN) -a -s '-screen 0 1280x800x24' env BOXRIG_TEST_WESTON_BACKEND=x11 BOXRIG_TEST_WESTON_DEBUG=1 GTK_IM_MODULE=gtk-im-context-simple GTK_A11Y=none GIO_USE_VFS=local LIBGL_ALWAYS_SOFTWARE=1 IBUS_ADDRESS= XMODIFIERS=@im=fcitx dbus-run-session --config-file=tests/ime/session.conf -- bash tests/gtk/run_gl_wayland.sh bash tests/ime/run_fcitx5_real.sh --display node tests/ime/test_display.mjs $(WAYLAND_EXAMPLE_BINARY) wayland $$renderer $(BUILD_DIR)/test-results/fcitx5-display/wayland-$$renderer || exit $$?; \
+	done
+	$(XVFB_RUN) -a -s '-screen 0 1280x800x24' env GDK_BACKEND=x11 GTK_IM_MODULE=gtk-im-context-simple GTK_A11Y=none NO_AT_BRIDGE=1 GIO_USE_VFS=local LIBGL_ALWAYS_SOFTWARE=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx5_real.sh --display node tests/ime/test_display.mjs $(GTK3_EXAMPLE_BINARY) gtk3 cairo $(BUILD_DIR)/test-results/fcitx5-display/gtk3-system
+
+test: test-fcitx5-display
