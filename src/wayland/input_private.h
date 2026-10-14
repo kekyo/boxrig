@@ -64,7 +64,7 @@ typedef struct boxrig_wayland_input_item {
     bool preedit_prepared;
     /* Keep original key identity while an asynchronous IME reply is pending. */
     xkb_keysym_t keysym;
-    uint32_t ime_modifiers;
+    uint32_t ime_modifiers, ime_time;
     uint64_t ime_generation;
     bool compose_pending;
     bool ime_forwarded;
@@ -82,7 +82,7 @@ typedef struct boxrig_wayland_pressed_key {
     bool repeatable;
     bool ime_consumed;
     xkb_keysym_t keysym;
-    uint32_t ime_modifiers;
+    uint32_t ime_modifiers, ime_time;
 } boxrig_wayland_pressed_key;
 
 struct boxrig_wayland_seat {

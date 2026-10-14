@@ -12,16 +12,17 @@ typedef struct boxrig_ime_backend {
     boxrig_ime_backend_kind kind;
     void (*initialize)(boxrig_ime_client *client);
     void (*connect)(boxrig_ime_client *client);
+    void (*stop)(boxrig_ime_client *client);
     void (*start)(boxrig_ime_session *session);
     void (*drop)(boxrig_ime_session *session);
     void (*reset)(boxrig_ime_session *session);
     void (*surrounding)(boxrig_ime_session *session, const char *text,
         uint32_t cursor, uint32_t anchor, bool available);
-    void (*key)(boxrig_ime_session *session, uint32_t symbol, uint32_t code,
-        uint32_t modifiers, boxrig_ime_request *request);
+    void (*key)(boxrig_ime_session *session, const boxrig_ime_key *key, boxrig_ime_request *request);
     void (*cursor)(boxrig_ime_session *session, const int32_t rectangle[4], bool relative);
 } boxrig_ime_backend;
 extern const boxrig_ime_backend boxrig_ime_ibus_backend;
+extern const boxrig_ime_backend boxrig_ime_fcitx5_backend;
 
 /* Only this private main context dispatches client callbacks. The host polls
  * its sources alongside Wayland and the PTY; no library worker runs input. */
@@ -33,11 +34,16 @@ struct boxrig_ime_client {
     void *data;
     GMainContext *loop;
     GDBusConnection *connection;
+    /* Name subscriptions and owner identity belong to this bus instance. */
+    guint watcher;
+    char *connection_owner;
+    uint64_t connection_generation;
+    bool wayland, shared_connection;
     GCancellable *cancel;
     GFileMonitor *monitor;
     GPollFD *glib_fds;
     struct pollfd *fds;
-    size_t capacity, count, pending, errors, session_count;
+    size_t capacity, count, pending, errors, session_count, subscriptions;
     gint priority;
     bool prepared, connecting, closing;
     boxrig_ime_state state;
@@ -55,13 +61,16 @@ struct boxrig_ime_session {
     void *proxy;
     GDBusConnection *setup_connection;
     GCancellable *cancel;
-    char *path;
+    char *path, *setup_owner;
+    uint64_t setup_connection_generation;
     uint64_t generation, setup_generation, document_generation;
     size_t references;
     bool pending, cursor_valid, cursor_relative, preedit_visible;
     int32_t rectangle[4];
     uint64_t capabilities;
     bool preedit_commit;
+    /* Optional commit text excludes protocol fragments marked DontCommit. */
+    char *preedit_commit_text;
     boxrig_ime_effect preedit;
     boxrig_ime_candidates candidates;
     boxrig_ime_request *request, *signals_head, *signals_tail;

@@ -10,8 +10,16 @@ typedef struct boxrig_ime_session boxrig_ime_session;
 typedef struct boxrig_ime_request boxrig_ime_request;
 
 typedef enum boxrig_ime_backend_kind {
-    BOXRIG_IME_BACKEND_IBUS = 0
+    BOXRIG_IME_BACKEND_IBUS = 0,
+    BOXRIG_IME_BACKEND_FCITX5
 } boxrig_ime_backend_kind;
+
+/* Native timestamps are milliseconds; code is evdev (XKB hardware minus 8).
+ * Modifiers use the X11/XKB masks, with release and repeat kept separately. */
+typedef struct boxrig_ime_key {
+    uint32_t symbol, code, modifiers, time;
+    bool release, repeat;
+} boxrig_ime_key;
 
 typedef enum boxrig_ime_state {
     BOXRIG_IME_DISABLED = 0,
@@ -79,7 +87,7 @@ typedef struct boxrig_ime_diagnostic {
 
 /* The client owns its private GMainContext, connection, sessions and callbacks.
  * No callback dispatches the GTK/default main context. Host owns this client. */
-boxrig_ime_client *boxrig_ime_create(boxrig_ime_backend_kind backend, size_t maximum_sessions,
+boxrig_ime_client *boxrig_ime_create(boxrig_ime_backend_kind backend, bool wayland, size_t maximum_sessions,
     const char *name, void (*selection_changed)(void *, bool), void *data);
 void boxrig_ime_destroy(boxrig_ime_client *client);
 bool boxrig_ime_selected(const boxrig_ime_client *client);
@@ -97,8 +105,8 @@ void boxrig_ime_cursor(boxrig_ime_client *client, boxrig_ime_target *target,
 void boxrig_ime_get_diagnostic(const boxrig_ime_client *client,
     boxrig_ime_diagnostic *diagnostic);
 boxrig_ui_status boxrig_ime_filter_key(boxrig_ime_session *session,
-    boxrig_ime_target *target, uint64_t generation, uint32_t symbol,
-    uint32_t code, uint32_t modifiers, boxrig_ime_request **request,
+    boxrig_ime_target *target, uint64_t generation, const boxrig_ime_key *key,
+    boxrig_ime_request **request,
     bool *blocked, bool *handled);
 boxrig_ui_status boxrig_ime_apply_reply(boxrig_ime_target *target,
     boxrig_ime_request *request, bool *blocked, bool *accepted);

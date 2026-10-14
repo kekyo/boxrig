@@ -97,6 +97,8 @@ void boxrig_ime_clear_preedit(boxrig_ime_session *session)
     free_effect(&session->preedit);
     session->preedit_visible = false;
     session->preedit_commit = false;
+    free(session->preedit_commit_text);
+    session->preedit_commit_text = NULL;
 }
 
 /* The component FIFO owns these requests. This non-owning list preserves the
@@ -487,7 +489,8 @@ bool boxrig_ime_current_setup(boxrig_ime_session *session)
 {
     return !session->owner->closing && session->component != NULL && session->seat != NULL &&
         session->setup_generation == session->generation &&
-        session->setup_connection == session->owner->connection;
+        session->setup_connection == session->owner->connection &&
+        session->setup_connection_generation == session->owner->connection_generation;
 }
 
 void boxrig_ime_finish_setup(boxrig_ime_session *session)
@@ -496,6 +499,7 @@ void boxrig_ime_finish_setup(boxrig_ime_session *session)
     session->owner->pending--;
     g_clear_object(&session->setup_connection);
     g_clear_pointer(&session->path, g_free);
+    g_clear_pointer(&session->setup_owner, g_free);
     wake_component(session->component);
     boxrig_ime_start_session(session);
 }
@@ -507,6 +511,8 @@ void boxrig_ime_start_session(boxrig_ime_session *session)
         session->seat == NULL || session->component == NULL || session->pending || session->proxy != NULL) return;
     session->pending = true;
     session->setup_generation = session->generation;
+    session->setup_connection_generation = bus->connection_generation;
+    session->setup_owner = g_strdup(bus->connection_owner);
     session->setup_connection = g_object_ref(bus->connection);
     bus->pending++;
     g_main_context_push_thread_default(bus->loop);
@@ -514,13 +520,14 @@ void boxrig_ime_start_session(boxrig_ime_session *session)
     g_main_context_pop_thread_default(bus->loop);
 }
 
-boxrig_ime_client *boxrig_ime_create(boxrig_ime_backend_kind backend, size_t maximum_sessions, const char *name,
+boxrig_ime_client *boxrig_ime_create(boxrig_ime_backend_kind backend, bool wayland, size_t maximum_sessions, const char *name,
     void (*selection_changed)(void *, bool), void *data)
 {
-    if (backend != BOXRIG_IME_BACKEND_IBUS) return NULL;
+    if (backend != BOXRIG_IME_BACKEND_IBUS && backend != BOXRIG_IME_BACKEND_FCITX5) return NULL;
     boxrig_ime_client *bus = calloc(1, sizeof(*bus));
     if (bus == NULL) return NULL;
-    bus->backend = &boxrig_ime_ibus_backend;
+    bus->backend = backend == BOXRIG_IME_BACKEND_IBUS ? &boxrig_ime_ibus_backend : &boxrig_ime_fcitx5_backend;
+    bus->wayland = wayland;
     bus->maximum_sessions = maximum_sessions;
     bus->name = name;
     bus->selection_changed = selection_changed;
@@ -561,13 +568,14 @@ void boxrig_ime_focus(boxrig_ime_session *session,
     retire_signals(session);
     if (session->component != NULL && commit &&
         session->preedit_visible && session->preedit_commit &&
-        session->preedit.value.composition.text_length != 0) {
+        session->preedit.value.composition.text_length != 0 &&
+        (session->preedit_commit_text == NULL || session->preedit_commit_text[0] != 0)) {
         /* Commit the published preedit to its old destination even while a
          * different key is pending. The late key reply is discarded below.
          * An empty preedit must never delete an editable selection. */
         boxrig_ime_request *request = new_request(session);
         if (request != NULL) {
-            record_commit(request, session->preedit.text);
+            record_commit(request, session->preedit_commit_text == NULL ? session->preedit.text : session->preedit_commit_text);
             finish_signal(request, true);
         } else session->component->error(session->component->data, true);
     }
@@ -697,8 +705,8 @@ boxrig_ui_status boxrig_ime_apply_reply(boxrig_ime_target *component,
 }
 
 boxrig_ui_status boxrig_ime_filter_key(boxrig_ime_session *session,
-    boxrig_ime_target *component, uint64_t generation, uint32_t symbol,
-    uint32_t code, uint32_t modifiers, boxrig_ime_request **request_inout,
+    boxrig_ime_target *component, uint64_t generation, const boxrig_ime_key *key,
+    boxrig_ime_request **request_inout,
     bool *blocked, bool *handled)
 {
     *handled = false;
@@ -740,7 +748,7 @@ boxrig_ui_status boxrig_ime_filter_key(boxrig_ime_session *session,
     component->wake(component->data, true);
     *blocked = true;
     g_main_context_push_thread_default(session->owner->loop);
-    session->owner->backend->key(session, symbol, code, modifiers, request);
+    session->owner->backend->key(session, key, request);
     g_main_context_pop_thread_default(session->owner->loop);
     return BOXRIG_UI_OK;
 }
@@ -884,6 +892,7 @@ void boxrig_ime_destroy(boxrig_ime_client *bus)
         g_file_monitor_cancel(bus->monitor);
         g_clear_object(&bus->monitor);
     }
+    if (bus->backend->stop != NULL) bus->backend->stop(bus);
     g_cancellable_cancel(bus->cancel);
     for (boxrig_ime_session *session = bus->sessions; session != NULL; session = session->next) {
         drop_proxy(session);
@@ -891,11 +900,11 @@ void boxrig_ime_destroy(boxrig_ime_client *bus)
     }
     if (bus->connection != NULL) {
         g_signal_handlers_disconnect_by_data(bus->connection, bus);
-        g_dbus_connection_close(bus->connection, NULL, NULL, NULL);
+        if (!bus->shared_connection) g_dbus_connection_close(bus->connection, NULL, NULL, NULL);
     }
     /* Cancellation callbacks are local GIO completions. They never require
      * an engine reply, including when that process is stopped or gone. */
-    while (bus->pending != 0) g_main_context_iteration(bus->loop, TRUE);
+    while (bus->pending != 0 || bus->subscriptions != 0) g_main_context_iteration(bus->loop, TRUE);
     /* GDBus unsubscribes defer their destroy notifications to this context.
      * Its documented lower-priority idle barrier releases those closures
      * before the context stops being dispatched. */
@@ -915,6 +924,7 @@ void boxrig_ime_destroy(boxrig_ime_client *bus)
     g_object_unref(bus->cancel);
     g_main_context_pop_thread_default(bus->loop);
     g_main_context_unref(bus->loop);
+    g_free(bus->connection_owner);
     free(bus->glib_fds);
     free(bus->fds);
     free(bus);

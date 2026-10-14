@@ -48,7 +48,7 @@ typedef struct key_item {
     boxrig_key_event event;
     guint physical_keycode;
     guint symbol;
-    uint32_t ime_modifiers;
+    uint32_t ime_modifiers, ime_time;
     uint64_t ime_generation;
     uint64_t focus_epoch;
     bool deferred;
@@ -736,6 +736,7 @@ static uint32_t ibus_modifiers(guint symbol, GdkModifierType state, bool release
 static void retain_ime_key(boxrig_gtk3_input *input, key_item *item, GdkEventKey *event)
 {
     item->symbol = event->keyval;
+    item->ime_time = event->time;
     item->ime_modifiers = ibus_modifiers(event->keyval, event->state, event->type == GDK_KEY_RELEASE);
     item->ime_generation = input->ibus_generation;
     item->focus_epoch = input->focus_epoch;
@@ -1814,7 +1815,7 @@ static bool initialize_ibus(boxrig_gtk3_input *input, bool client_candidates)
         .wake = ibus_wake, .error = ibus_error, .enqueue = enqueue_ibus_reply,
         .forward = ibus_forward_key, .apply = apply_ibus_effect, .cursor = ibus_cursor,
         .clear_candidates = client_candidates ? clear_ibus_candidates : NULL};
-    input->ibus = boxrig_ime_create(BOXRIG_IME_BACKEND_IBUS, 1, "boxrig-gtk3", ibus_selection_changed, input);
+    input->ibus = boxrig_ime_create(BOXRIG_IME_BACKEND_IBUS, strcmp(input->ime_state.display_type, "GdkWaylandDisplay") == 0, 1, "boxrig-gtk3", ibus_selection_changed, input);
     if (input->ibus == NULL) return false;
     input->ibus_session = boxrig_ime_add_session(input->ibus, input);
     if (input->ibus_session == NULL) return false;
@@ -1957,8 +1958,11 @@ static boxrig_ui_status process_key_item(
         bool blocked = false, handled = false;
         boxrig_ui_status filtered = BOXRIG_UI_OK;
         if (input->ibus_selected || item->ime_request != NULL) filtered = boxrig_ime_filter_key(input->ibus_session, &input->ibus_target,
-            item->ime_generation, item->symbol, item->physical_keycode >= 8 ? item->physical_keycode - 8 : 0,
-            item->ime_modifiers, &item->ime_request, &blocked, &handled);
+            item->ime_generation, &(boxrig_ime_key){.symbol = item->symbol,
+                .code = item->physical_keycode >= 8 ? item->physical_keycode - 8 : 0,
+                .modifiers = item->ime_modifiers & ~IBUS_RELEASE_MASK, .time = item->ime_time,
+                .release = (item->ime_modifiers & IBUS_RELEASE_MASK) != 0,
+                .repeat = item->event.action == BOXRIG_KEY_REPEAT}, &item->ime_request, &blocked, &handled);
         if (blocked) {
             if (!input->ime_waiting) input->terminal_blocked = true;
             return filtered;

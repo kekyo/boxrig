@@ -273,3 +273,15 @@ fcitx 5はセッションバスの`org.fcitx.Fcitx5`、fcitx 4は表示番号を
 検証コマンドは`make -j4 test-ibus-candidates test-wayland-input test-gtk-ibus-direct test-gtk-ibus-auto test-gtk-ime-x11 test-gtk3-candidates test-gtk4-candidates`です。全ターゲットが成功し、IBusの変換・確定・キャンセル、候補、周辺文字列編集、フォーカス移動、遅延応答、停止・再接続と、GTK 4／X11への委譲を確認しました。専用イベントループと入力世代の検証を含め、段階1の完了条件を満たしています。
 
 fcitx 5の実装は段階2から進めます。段階3の全体テストと3バージョンの実デーモン試験が完了するまでは、fcitx 4を実装しません。
+
+### 段階2の通信バックエンドを実装
+
+`src/fcitx5/client.c`に、fcitx 5のD-Bus接続、入力コンテキストの生成、キー送信、装飾付き未確定文字、確定、転送キー、周辺文字列と削除要求を追加しました。テストドライバーから共通APIへfcitx 5を明示指定できます。GTK／native Waylandの公開設定から選ぶ処理は、まだ追加していません。
+
+キーの共通形式では、evdevコード、修飾状態、押下・解放、リピート、時刻を分けています。GTKとWaylandが受信した時刻を保持し、fcitx側でXKBコードと専用フラグへ変換します。フォーカス喪失時にローカルで確定する文字列には、fcitxが`DontCommit`を付けた部分を含めません。
+
+接続先の監視とコールバックは専用GLibコンテキストで処理します。サービスを自動起動せず、入力コンテキストはサービス所有者のunique nameに接続します。共有セッションバスはクライアント破棄時にも閉じません。監視解除には完了通知を設け、初回接続の完了前に破棄する場合も確認しました。[GLibの名前監視](https://docs.gtk.org/gio/func.bus_watch_name.html)、[監視解除後の完了通知](https://docs.gtk.org/gio/func.bus_unwatch_name.html)
+
+`make test-fcitx5`では模擬D-Busサービスを使い、装飾とUTF-8バイト位置、確定禁止部分、キー転送、未処理キー、押下・解放とリピート、削除と確定をまとめた文書編集、フォーカス移動後の遅延応答、結果不明のキーを再送しない処理を検証しています。共通APIがない状態の失敗に加え、リピート能力フラグを送信しない状態での実行失敗も確認し、実装後に成功しました。
+
+キー形式の変更後も、`test-ibus-candidates`、`test-wayland-input`、`test-gtk-ibus-direct`、`test-gtk-ibus-auto`は成功しています。段階2は継続中です。次は公開設定とGTK／native Waylandへの接続、実際のfcitx 5.1.7とMozcによる動作確認を進めます。段階3の候補、倍率、自動選択、所有者交代を含む再接続試験、全体テストも未完了です。

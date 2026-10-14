@@ -136,7 +136,7 @@ bool boxrig_wayland_ibus_initialize(boxrig_wayland_context *context)
         if (module != NULL ? strcmp(module, "ibus") != 0 :
             modifiers == NULL || strcmp(modifiers, "@im=ibus") != 0) return true;
     }
-    context->ibus = boxrig_ime_create(BOXRIG_IME_BACKEND_IBUS, context->config.maximum_seats,
+    context->ibus = boxrig_ime_create(BOXRIG_IME_BACKEND_IBUS, true, context->config.maximum_seats,
         "boxrig-wayland", selection_changed, context);
     return context->ibus != NULL;
 }
@@ -185,8 +185,10 @@ boxrig_ui_status boxrig_wayland_ibus_filter_key(boxrig_wayland_terminal_componen
         return BOXRIG_UI_OK;
     }
     return boxrig_ime_filter_key(item->seat->ibus, &component->ibus_target,
-        item->ime_generation, item->keysym, item->native_code, item->ime_modifiers,
-        &item->ime_request, blocked, handled);
+        item->ime_generation, &(boxrig_ime_key){.symbol = item->keysym, .code = item->native_code,
+            .modifiers = item->ime_modifiers & ~IBUS_RELEASE_MASK, .time = item->ime_time,
+            .release = (item->ime_modifiers & IBUS_RELEASE_MASK) != 0,
+            .repeat = item->value.key.action == BOXRIG_KEY_REPEAT}, &item->ime_request, blocked, handled);
 }
 
 boxrig_ui_status boxrig_wayland_ibus_apply_reply(boxrig_wayland_terminal_component *component,

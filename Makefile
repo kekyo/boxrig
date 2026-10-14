@@ -236,9 +236,9 @@ GTK3_HEADERS := include/boxrig/gtk3.h $(wildcard include/boxrig/gtk3/*.h) $(wild
 PANGO_CANDIDATE_OBJECT := $(BUILD_DIR)/pangocairo/candidates.o
 GTK3_OBJECTS += $(PANGO_CANDIDATE_OBJECT)
 GTK4_OBJECTS += $(PANGO_CANDIDATE_OBJECT)
-IME_SOURCES := src/ime/client.c src/ibus/client.c src/ime/source.c src/ime/preedit.c
+IME_SOURCES := src/ime/client.c src/ibus/client.c src/fcitx5/client.c src/ime/source.c src/ime/preedit.c
 IME_HEADERS := src/ime/client.h src/ime/client_private.h src/ime/source.h src/ime/preedit.h
-IME_OBJECTS := $(BUILD_DIR)/ime/client.o $(BUILD_DIR)/ime/ibus.o $(BUILD_DIR)/ime/source.o $(BUILD_DIR)/ime/preedit.o
+IME_OBJECTS := $(BUILD_DIR)/ime/client.o $(BUILD_DIR)/ime/ibus.o $(BUILD_DIR)/ime/fcitx5.o $(BUILD_DIR)/ime/source.o $(BUILD_DIR)/ime/preedit.o
 GTK3_OBJECTS += $(IME_OBJECTS) $(BUILD_DIR)/gtk3/ime_probe.o
 GTK4_OBJECTS += $(IME_OBJECTS) $(BUILD_DIR)/gtk4/ime_probe.o
 WAYLAND_HEADERS := include/boxrig/wayland.h
@@ -5051,6 +5051,9 @@ $(BUILD_DIR)/ime:
 $(BUILD_DIR)/ime/client.o: src/ime/client.c $(IME_HEADERS) | $(BUILD_DIR)/ime
 	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(IBUS_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) -c $< -o $@
 
+$(BUILD_DIR)/ime/fcitx5.o: src/fcitx5/client.c $(IME_HEADERS) | $(BUILD_DIR)/ime
+	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(IBUS_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) -c $< -o $@
+
 $(BUILD_DIR)/ime/ibus.o: src/ibus/client.c $(IME_HEADERS) | $(BUILD_DIR)/ime
 	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(IBUS_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) -c $< -o $@
 
@@ -5099,7 +5102,7 @@ test-gtk-ime-routing: $(BUILD_DIR)/tests/test_gtk3_ime_protocol $(BUILD_DIR)/tes
 # X11 uses GTK IBus, including AUTO without GTK_IM_MODULE.
 
 $(BUILD_DIR)/tests/test_ibus_candidates: tests/wayland/test_ibus_candidates.c $(IME_SOURCES) $(IME_HEADERS) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
-	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(POSIX_CPPFLAGS) $(IBUS_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< src/ime/client.c src/ibus/client.c src/ime/preedit.c $(UI_LIBRARY) $(LIBRARY) $(IBUS_LIBS) $(SANITIZERS) -Wl,--wrap=ibus_input_context_new_async_finish -o $@
+	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(POSIX_CPPFLAGS) $(IBUS_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(IME_SOURCES) $(UI_LIBRARY) $(LIBRARY) $(IBUS_LIBS) $(SANITIZERS) -Wl,--wrap=ibus_input_context_new_async_finish -o $@
 
 .PHONY: test-ibus-candidates
 test-ibus-candidates: $(BUILD_DIR)/tests/test_ibus_candidates $(BUILD_DIR)/tests/wayland_ibus_engine
@@ -5569,3 +5572,15 @@ $(BUILD_DIR)/tests/gtk4_accessibility_driver: tests/gtk/accessibility_driver.c $
 
 test-gtk4-orca: $(BUILD_DIR)/tests/test_atspi_text $(BUILD_DIR)/tests/gtk4_accessibility_driver
 	sh tests/gtk/run_accessibility.sh bash tests/gtk/run_orca.sh $(abspath $(BUILD_DIR)/tests/test_atspi_text) $(abspath $(BUILD_DIR)/tests/gtk4_accessibility_driver) $(abspath $(BUILD_DIR)/test-results/accessibility/gtk4)
+
+$(BUILD_DIR)/tests/fcitx5_server: tests/ime/fcitx5_server.c | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(IBUS_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(IBUS_LIBS) -o $@
+
+$(BUILD_DIR)/tests/test_fcitx5: tests/ime/test_fcitx5.c $(IME_SOURCES) $(IME_HEADERS) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(IBUS_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(IME_SOURCES) $(UI_LIBRARY) $(LIBRARY) $(IBUS_LIBS) $(SANITIZERS) -o $@
+
+.PHONY: test-fcitx5
+test-fcitx5: $(BUILD_DIR)/tests/fcitx5_server $(BUILD_DIR)/tests/test_fcitx5
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session -- bash tests/ime/run_fcitx5.sh $(BUILD_DIR)/tests/fcitx5_server $(BUILD_DIR)/tests/test_fcitx5
+
+test: test-fcitx5

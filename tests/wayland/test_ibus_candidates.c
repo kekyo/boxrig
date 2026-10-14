@@ -161,7 +161,7 @@ static void key(guint symbol)
     boxrig_ime_request *request = NULL;
     for (;;) {
         bool blocked, handled;
-        CHECK(boxrig_ime_filter_key(session, &target, generation, symbol, 0, 0,
+        CHECK(boxrig_ime_filter_key(session, &target, generation, &(boxrig_ime_key){.symbol = symbol},
             &request, &blocked, &handled) == BOXRIG_UI_OK);
         if (!blocked) { CHECK(handled); break; }
         /* A host capacity retry needs no unrelated socket event. */
@@ -192,7 +192,7 @@ int main(void)
     target = (boxrig_ime_target){.view = view, .maximum_events = 128,
         .maximum_bytes = 65536, .wake = wake, .error = error, .enqueue = enqueue,
         .forward = forward, .apply = apply, .cursor = cursor, .clear_candidates = clear};
-    client = boxrig_ime_create(BOXRIG_IME_BACKEND_IBUS, 1, "boxrig-candidate-probe", selection, NULL);
+    client = boxrig_ime_create(BOXRIG_IME_BACKEND_IBUS, true, 1, "boxrig-candidate-probe", selection, NULL);
     CHECK(client != NULL);
     session = boxrig_ime_add_session(client, &target);
     CHECK(session != NULL);
@@ -286,7 +286,7 @@ int main(void)
     /* The key reply can be ready while the host has not applied its effects.
      * Refocusing the same target must not revive that old generation. */
     boxrig_ime_request *late = NULL;
-    CHECK(boxrig_ime_filter_key(session, &target, generation, IBUS_KEY_F13, 0, 0,
+    CHECK(boxrig_ime_filter_key(session, &target, generation, &(boxrig_ime_key){.symbol = IBUS_KEY_F13},
         &late, &blocked, &accepted) == BOXRIG_UI_OK && blocked && late != NULL);
     for (;;) {
         boxrig_ime_diagnostic state;

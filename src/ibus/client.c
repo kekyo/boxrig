@@ -383,11 +383,10 @@ static void key_processed(GObject *source, GAsyncResult *result, gpointer data)
     g_clear_error(&error);
 }
 
-static void key(boxrig_ime_session *session, uint32_t symbol, uint32_t code,
-    uint32_t modifiers, boxrig_ime_request *request)
+static void key(boxrig_ime_session *session, const boxrig_ime_key *key, boxrig_ime_request *request)
 {
-    ibus_input_context_process_key_event_async(session->proxy, symbol, code,
-        modifiers, -1, session->cancel, key_processed, request);
+    ibus_input_context_process_key_event_async(session->proxy, key->symbol, key->code,
+        key->modifiers | (key->release ? IBUS_RELEASE_MASK : 0), -1, session->cancel, key_processed, request);
 }
 
 static void cursor(boxrig_ime_session *session, const int32_t rectangle[4], bool relative)
