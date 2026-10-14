@@ -33,10 +33,16 @@ int main(void)
     boxrig_gtk3_terminal_widget_config widget =
         boxrig_gtk3_terminal_widget_config_default();
     assert(widget.paste_capacity > 0);
+    boxrig_ui_input_state state;
+    assert(boxrig_gtk3_terminal_widget_set_input_enabled(NULL, false) == BOXRIG_UI_INVALID_ARGUMENT);
+    assert(boxrig_gtk3_terminal_widget_get_input_state(NULL, &state) == BOXRIG_UI_INVALID_ARGUMENT);
 #elif defined(BOXRIG_HEADER_GTK4)
     boxrig_gtk4_terminal_widget_config widget =
         boxrig_gtk4_terminal_widget_config_default();
     assert(widget.paste_capacity > 0);
+    boxrig_ui_input_state state;
+    assert(boxrig_gtk4_terminal_widget_set_input_enabled(NULL, false) == BOXRIG_UI_INVALID_ARGUMENT);
+    assert(boxrig_gtk4_terminal_widget_get_input_state(NULL, &state) == BOXRIG_UI_INVALID_ARGUMENT);
 #elif defined(_WIN32)
     boxrig_win32_pty_config pty = boxrig_win32_pty_config_default();
     boxrig_win32_host_policy policy = boxrig_win32_host_policy_default();

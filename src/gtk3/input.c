@@ -5,6 +5,7 @@
  */
 
 #include "input.h"
+#include "../ui/input_control.h"
 
 #include "boxrig/ui/input_text.h"
 #include "boxrig/ui/editable.h"
@@ -57,6 +58,7 @@ typedef struct key_item {
     char *text;
     bool routed;
     bool send_to_terminal;
+    bool inhibited;
 } key_item;
 
 typedef struct focus_item {
@@ -89,6 +91,7 @@ typedef struct paste_item {
 
 typedef struct input_item {
     input_item_kind kind;
+    uint64_t generation;
     union {
         key_item key;
         focus_item focus;
@@ -103,6 +106,7 @@ typedef struct physical_key_state {
     guint keycode;
     bool occupied;
     bool native_pressed;
+    bool inhibited;
     bool application_captured;
 } physical_key_state;
 
@@ -148,6 +152,8 @@ struct boxrig_gtk3_input {
     bool im_blocked;
     bool im_focused;
     bool processing;
+    bool reset_native_input;
+    boxrig_ui_input_control control;
     input_item *items;
     clipboard_transfer *clipboard_transfers;
     clipboard_offer clipboard_offers[2];
@@ -196,6 +202,11 @@ static void cancel_clipboard_transfers(
     boxrig_gtk3_input *input,
     GtkClipboard *clipboard);
 
+static bool input_enabled(const boxrig_gtk3_input *input)
+{
+    return input->control.state.phase == BOXRIG_UI_INPUT_ENABLED;
+}
+
 static void notify_activity(boxrig_gtk3_input *input)
 {
     if (input->activity_callback != NULL) {
@@ -211,7 +222,7 @@ static void reject_surrounding(boxrig_gtk3_input *input)
 
 static bool current_im_context(boxrig_gtk3_input *input, GtkIMContext *context)
 {
-    if (!input->accepting || context != input->im_context ||
+    if (!input->accepting || !input_enabled(input) || context != input->im_context ||
         input->im_blocked || !input->im_focused) return false;
     if (input->surrounding_generation !=
         boxrig_ui_editable_document_input_generation(input->document)) {
@@ -224,6 +235,7 @@ static bool current_im_context(boxrig_gtk3_input *input, GtkIMContext *context)
 static boxrig_status commit_text(const char *text, size_t length, void *data)
 {
     boxrig_gtk3_input *input = data;
+    if (!input_enabled(input)) return BOXRIG_STATUS_OK;
     if (!input->commit_editable)
         return boxrig_terminal_send_text(input->terminal, text, length);
     boxrig_ui_editable_document_snapshot snapshot;
@@ -348,6 +360,7 @@ static input_item *queue_tail(boxrig_gtk3_input *input)
         input->queue_high_water = input->queue_count;
     }
     memset(&input->items[index], 0, sizeof(input->items[index]));
+    input->items[index].generation = input->control.state.generation;
     return &input->items[index];
 }
 
@@ -730,6 +743,17 @@ static void retain_ime_key(boxrig_gtk3_input *input, key_item *item, GdkEventKey
     if (input->ibus_selected || input->ime_pending) item->native_event = gdk_event_copy((GdkEvent *)event);
 }
 
+static gboolean filter_native_key(boxrig_gtk3_input *input, GdkEventKey *event)
+{
+    /* Native filtering may synchronously call an application activity hook.
+     * A stop must not replace the context while that filter is still active. */
+    bool processing = input->processing;
+    input->processing = true;
+    gboolean handled = gtk_im_context_filter_keypress(input->im_context, event);
+    input->processing = processing;
+    return handled;
+}
+
 static gboolean key_pressed(
     GtkWidget *widget,
     GdkEventKey *event,
@@ -753,7 +777,9 @@ static gboolean key_pressed(
         fail_input(input, BOXRIG_UI_COMPONENT_FAILURE_INPUT);
         return TRUE;
     }
-    if (!input->ibus_selected && !input->ime_pending && gtk_im_context_filter_keypress(input->im_context, event)) {
+    if (!input_enabled(input)) physical->inhibited = true;
+    if (input_enabled(input) && !physical->inhibited && !input->reset_native_input &&
+        !input->ibus_selected && !input->ime_pending && filter_native_key(input, event)) {
         /* IME-owned presses still prevent changing settings before release. */
         physical->native_pressed = true;
         return TRUE;
@@ -763,6 +789,7 @@ static gboolean key_pressed(
         return TRUE;
     }
     item->kind = INPUT_ITEM_KEY;
+    item->value.key.inhibited = physical->inhibited;
     item->value.key.physical_keycode = event->hardware_keycode;
     retain_ime_key(input, &item->value.key, event);
     item->value.key.event.key = translate_functional_key(event->keyval);
@@ -805,17 +832,19 @@ static gboolean key_released(
     if (!input->accepting || event == NULL) {
         return TRUE;
     }
-    if (!input->ibus_selected && !input->ime_pending) (void)gtk_im_context_filter_keypress(input->im_context, event);
     physical = find_physical_key(input, event->hardware_keycode, true);
     if (physical == NULL) {
         fail_input(input, BOXRIG_UI_COMPONENT_FAILURE_INPUT);
         return TRUE;
     }
+    if (input_enabled(input) && !physical->inhibited && !input->reset_native_input &&
+        !input->ibus_selected && !input->ime_pending) (void)filter_native_key(input, event);
     item = queue_tail(input);
     if (item == NULL) {
         return TRUE;
     }
     item->kind = INPUT_ITEM_KEY;
+    item->value.key.inhibited = physical->inhibited;
     item->value.key.physical_keycode = event->hardware_keycode;
     retain_ime_key(input, &item->value.key, event);
     item->value.key.event.key = translate_functional_key(event->keyval);
@@ -833,6 +862,7 @@ static gboolean key_released(
             &item->value.key.event);
     }
     physical->native_pressed = false;
+    physical->inhibited = false;
     notify_activity(input);
     return TRUE;
 }
@@ -871,7 +901,7 @@ static gboolean focus_entered(
     (void)event;
     input->im_focused = true;
     focus_ibus(input, true, false);
-    if (enqueue_focus(input, true) && refresh_im_context(input) && !input->ime_pending) {
+    if (enqueue_focus(input, true) && refresh_im_context(input) && !input->ime_pending && input_enabled(input)) {
         gtk_im_context_focus_in(input->im_context);
     }
     return FALSE;
@@ -1351,7 +1381,7 @@ static bool enqueue_composition_event(
     input_item *item;
     char *copy = NULL;
 
-    if (!input->accepting) {
+    if (!input->accepting || !input_enabled(input)) {
         free(segments);
         return false;
     }
@@ -1591,9 +1621,10 @@ static bool refresh_im_context(boxrig_gtk3_input *input)
     if (input->ibus_switch_pending && boxrig_ibus_selected(input->ibus))
         ibus_selection_changed(input, true);
     uint64_t generation = boxrig_ui_editable_document_input_generation(input->document);
-    if (!input->accepting || (!input->im_blocked && generation == input->surrounding_generation))
+    if (!input->accepting || (!input->reset_native_input && !input->im_blocked &&
+        generation == input->surrounding_generation))
         return input->accepting;
-    if (input->ibus_selected) {
+    if (input->ibus_selected && !input->reset_native_input) {
         input->surrounding_generation = generation;
         input->im_blocked = false;
         boxrig_ibus_refresh(input->ibus);
@@ -1619,6 +1650,7 @@ static bool refresh_im_context(boxrig_gtk3_input *input)
     gtk_im_context_set_client_window(input->im_context, NULL);
     g_object_unref(input->im_context);
     input->im_context = next;
+    input->reset_native_input = false;
     input->im_epoch++;
     input->surrounding_generation = generation;
     input->im_blocked = false;
@@ -1628,7 +1660,7 @@ static bool refresh_im_context(boxrig_gtk3_input *input)
     (void)boxrig_composition_apply_event(input->composition, &cancel);
     connect_im_context(input);
     if (input->realized) gtk_im_context_set_client_window(next, gtk_widget_get_window(input->widget));
-    if (input->im_focused) gtk_im_context_focus_in(next);
+    if (input->im_focused && input_enabled(input)) gtk_im_context_focus_in(next);
     return true;
 }
 
@@ -1665,7 +1697,9 @@ static void enqueue_ibus_reply(void *data, void *seat, boxrig_ibus_request *requ
 static bool ibus_forward_key(void *data, void *seat, uint32_t symbol,
     uint32_t code, uint32_t modifiers, boxrig_ibus_effect *effect)
 {
-    (void)data; (void)seat; (void)code;
+    (void)seat; (void)code;
+    boxrig_gtk3_input *input = data;
+    if (!input_enabled(input)) return false;
     key_item key = {0};
     key.event.key = translate_functional_key(symbol);
     key.event.action = (modifiers & IBUS_RELEASE_MASK) != 0 ? BOXRIG_KEY_RELEASE : BOXRIG_KEY_PRESS;
@@ -1682,6 +1716,7 @@ static boxrig_ui_status apply_ibus_effect(void *data, boxrig_ibus_effect *effect
     boxrig_gtk3_input *input = data;
     *blocked = false;
     *accepted = true;
+    if (!input_enabled(input)) return BOXRIG_UI_OK;
     if (effect->type == BOXRIG_IBUS_CANDIDATES) {
         const boxrig_ibus_candidates *source = &effect->value.candidates;
         boxrig_ui_candidate_snapshot snapshot = {
@@ -1719,10 +1754,11 @@ static void ibus_cursor(void *data)
 static void focus_ibus(boxrig_gtk3_input *input, bool focused, bool commit)
 {
     if (input->ibus_session == NULL) return;
-    boxrig_ibus_target *target = focused && input->ibus_selected ? &input->ibus_target : NULL;
+    boxrig_ibus_target *target = focused && input->ibus_selected && input_enabled(input)
+        ? &input->ibus_target : NULL;
     if (!boxrig_ibus_is_focused(input->ibus_session, target)) {
         input->ime_state.candidate_valid = false;
-        boxrig_ibus_focus(input->ibus_session, target, commit, ++input->ibus_generation);
+        boxrig_ibus_focus(input->ibus_session, target, commit && input_enabled(input), ++input->ibus_generation);
     }
 }
 
@@ -1862,6 +1898,7 @@ static void prioritize_fallback(boxrig_gtk3_input *input, size_t previous_count)
 static boxrig_ui_status process_key_item(
     boxrig_gtk3_input *input,
     key_item *item,
+    bool allow_terminal,
     bool *finished_out)
 {
     physical_key_state *physical = find_physical_key(
@@ -1911,7 +1948,7 @@ static boxrig_ui_status process_key_item(
         }
         item->routed = true;
     }
-    if (!item->send_to_terminal) {
+    if (!item->send_to_terminal || !allow_terminal || item->inhibited) {
         release_physical_key_if_idle(physical);
         *finished_out = true;
         return BOXRIG_UI_OK;
@@ -1961,6 +1998,7 @@ static boxrig_ui_status process_key_item(
 static boxrig_ui_status process_focus_item(
     boxrig_gtk3_input *input,
     focus_item *item,
+    bool allow_terminal,
     bool *finished_out)
 {
     boxrig_status status;
@@ -1977,6 +2015,10 @@ static boxrig_ui_status process_focus_item(
         }
         item->composition_updated = true;
     }
+    if (!allow_terminal) {
+        *finished_out = true;
+        return BOXRIG_UI_OK;
+    }
     status = boxrig_terminal_send_focus(input->terminal, &item->event);
     if (status == BOXRIG_STATUS_WOULD_BLOCK) {
         input->terminal_blocked = true;
@@ -1992,6 +2034,7 @@ static boxrig_ui_status process_focus_item(
 static boxrig_ui_status process_mouse_item(
     boxrig_gtk3_input *input,
     mouse_item *item,
+    bool allow_terminal,
     bool *finished_out)
 {
     boxrig_input_mouse_route route = BOXRIG_INPUT_MOUSE_ROUTE_TERMINAL;
@@ -2029,7 +2072,7 @@ static boxrig_ui_status process_mouse_item(
         }
         item->routed = true;
     }
-    if (!item->send_to_terminal) {
+    if (!item->send_to_terminal || !allow_terminal) {
         *finished_out = true;
         return BOXRIG_UI_OK;
     }
@@ -2358,6 +2401,7 @@ static boxrig_ui_status enqueue_owned_paste(
     char *text,
     size_t length)
 {
+    if (!input_enabled(input)) return BOXRIG_UI_UNAVAILABLE;
     boxrig_ui_status status = boxrig_ui_view_notify_local_input(input->view);
     if (status != BOXRIG_UI_OK) return status;
     input_item *item = queue_tail(input);
@@ -2596,6 +2640,7 @@ boxrig_ui_status boxrig_gtk3_input_create(
     input->activity_callback = config->activity_callback;
     input->activity_context = config->activity_context;
     input->accepting = true;
+    boxrig_ui_input_control_initialize(&input->control);
     /* Realizing a background widget must not acquire the active IME context.
      * Native focus events establish input ownership after creation. */
     input->im_focused = false;
@@ -2819,6 +2864,65 @@ void boxrig_gtk3_input_destroy(boxrig_gtk3_input *input)
     release_input(input);
 }
 
+boxrig_ui_status boxrig_gtk3_input_set_enabled(boxrig_gtk3_input *input, bool enabled)
+{
+    if (input == NULL || !input->accepting) return BOXRIG_UI_INVALID_ARGUMENT;
+    if (input->processing) return BOXRIG_UI_BUSY;
+    if (enabled && input->control.state.phase == BOXRIG_UI_INPUT_STOPPING) return BOXRIG_UI_BUSY;
+    bool was_enabled = input_enabled(input);
+    bool started = false;
+    for (size_t i = 0; i < input->queue_count; i++) {
+        input_item *item = &input->items[(input->queue_head + i) % input->queue_capacity];
+        if (item->kind == INPUT_ITEM_PASTE && item->value.paste.state != PASTE_ITEM_BEGIN)
+            started = true;
+    }
+    boxrig_ui_status status = boxrig_ui_input_control_request(&input->control, enabled, started);
+    if (status != BOXRIG_UI_OK && status != BOXRIG_UI_BUSY) return status;
+    if (was_enabled != input_enabled(input)) {
+        input->focus_epoch++;
+        input->im_epoch++;
+        input->im_blocked = true;
+        input->reset_native_input = true;
+        (void)boxrig_ui_editable_document_invalidate_input(input->document);
+        if (!enabled) {
+            focus_ibus(input, false, false);
+            input->ime_waiting = false;
+            cancel_clipboard_transfers(input, NULL);
+            (void)boxrig_composition_cancel_pending_commit(input->composition);
+            boxrig_composition_event cancel = {.type = BOXRIG_COMPOSITION_CANCEL};
+            (void)boxrig_composition_apply_event(input->composition, &cancel);
+            (void)boxrig_ui_view_set_composition_active(input->view, false);
+            for (size_t i = 0; i < BOXRIG_GTK3_PHYSICAL_KEY_STATES; i++)
+                if (input->physical_keys[i].native_pressed) input->physical_keys[i].inhibited = true;
+            /* Keep local pointer/focus routing usable, including a selection drag.
+             * Their old generation suppresses any terminal-directed report. */
+            size_t count = input->queue_count;
+            for (size_t i = 0; i < count; i++) {
+                input_item item = input->items[input->queue_head];
+                bool keep = item.kind == INPUT_ITEM_MOUSE || item.kind == INPUT_ITEM_FOCUS;
+                queue_finished(input);
+                if (keep) *queue_tail(input) = item;
+            }
+        }
+        if (!refresh_im_context(input)) return BOXRIG_UI_UNAVAILABLE;
+        if (enabled && input->im_focused) {
+            focus_ibus(input, true, false);
+            if (!input->ime_pending) gtk_im_context_focus_in(input->im_context);
+        }
+    }
+    status = boxrig_ui_input_control_service(&input->control, input->terminal);
+    notify_activity(input);
+    return status;
+}
+
+boxrig_ui_status boxrig_gtk3_input_get_state(
+    const boxrig_gtk3_input *input, boxrig_ui_input_state *state_out)
+{
+    if (input == NULL || state_out == NULL) return BOXRIG_UI_INVALID_ARGUMENT;
+    *state_out = input->control.state;
+    return BOXRIG_UI_OK;
+}
+
 boxrig_ui_status boxrig_gtk3_input_set_config(
     boxrig_gtk3_input *input, const boxrig_input_config *config)
 {
@@ -2829,7 +2933,7 @@ boxrig_ui_status boxrig_gtk3_input_set_config(
     if (boxrig_composition_get_view(input->composition, &composition) != BOXRIG_COMPOSITION_OK) {
         return BOXRIG_UI_INVALID_ARGUMENT;
     }
-    if (input->processing || input->queue_count != 0u || input->ime_pending ||
+    if (input->control.state.phase == BOXRIG_UI_INPUT_STOPPING || input->processing || input->queue_count != 0u || input->ime_pending ||
         input->ime_waiting || input->ibus_switch_pending ||
         input->active_clipboard_transfers != 0u || composition.active || composition.commit_pending) {
         return BOXRIG_UI_BUSY;
@@ -2917,6 +3021,10 @@ boxrig_gtk3_input_view_action_capabilities(const boxrig_gtk3_input *input)
                 BOXRIG_UI_CLIPBOARD_TARGET_CLIPBOARD;
         }
     }
+    if (input != NULL && !input_enabled(input)) {
+        capabilities.paste_targets = 0;
+        capabilities.reconversion = false;
+    }
     return capabilities;
 }
 
@@ -2955,6 +3063,7 @@ boxrig_ui_status boxrig_gtk3_input_queue_paste(
     const uint8_t *bytes,
     size_t length)
 {
+    if (input != NULL && !input_enabled(input)) return BOXRIG_UI_UNAVAILABLE;
     char *normalized = NULL;
     size_t normalized_length = 0;
     boxrig_ui_status status;
@@ -2992,6 +3101,8 @@ static boxrig_ui_status process_input_frame(
         input->failure_reason != BOXRIG_UI_COMPONENT_FAILURE_NONE) {
         return BOXRIG_UI_INVALID_ARGUMENT;
     }
+    boxrig_ui_status stop_status = boxrig_ui_input_control_service(&input->control, input->terminal);
+    if (stop_status != BOXRIG_UI_OK && stop_status != BOXRIG_UI_BUSY) return stop_status;
     input->terminal_blocked = false;
     composition_status = boxrig_composition_retry_commit(input->composition);
     if (composition_status == BOXRIG_COMPOSITION_WOULD_BLOCK) {
@@ -3005,8 +3116,15 @@ static boxrig_ui_status process_input_frame(
         input_item *item = &input->items[input->queue_head];
         boxrig_ui_status status;
         bool finished = false;
+        bool allow_terminal = boxrig_ui_input_control_accepts(&input->control, item->generation);
+        if (!allow_terminal && item->kind != INPUT_ITEM_KEY &&
+            item->kind != INPUT_ITEM_MOUSE && item->kind != INPUT_ITEM_FOCUS) {
+            queue_finished(input);
+            work++;
+            continue;
+        }
 
-        if (input->ime_pending && item->kind == INPUT_ITEM_KEY) {
+        if (allow_terminal && input->ime_pending && item->kind == INPUT_ITEM_KEY) {
             discovery_blocked = true;
             break;
         }
@@ -3018,15 +3136,15 @@ static boxrig_ui_status process_input_frame(
             break;
         }
         if (item->kind == INPUT_ITEM_KEY) {
-            status = process_key_item(input, &item->value.key, &finished);
+            status = process_key_item(input, &item->value.key, allow_terminal, &finished);
         } else if (item->kind == INPUT_ITEM_IME_REPLY) {
             bool blocked;
             status = boxrig_ibus_apply_reply(&input->ibus_target, item->value.ime_reply, &blocked, &finished);
             if (blocked && !input->ime_waiting) input->terminal_blocked = true;
         } else if (item->kind == INPUT_ITEM_FOCUS) {
-            status = process_focus_item(input, &item->value.focus, &finished);
+            status = process_focus_item(input, &item->value.focus, allow_terminal, &finished);
         } else if (item->kind == INPUT_ITEM_MOUSE) {
-            status = process_mouse_item(input, &item->value.mouse, &finished);
+            status = process_mouse_item(input, &item->value.mouse, allow_terminal, &finished);
         } else if (item->kind == INPUT_ITEM_COMPOSITION) {
             status = process_composition_item(
                 input,
@@ -3060,7 +3178,7 @@ static boxrig_ui_status process_input_frame(
         fail_input(input, BOXRIG_UI_COMPONENT_FAILURE_INPUT_METHOD);
         return BOXRIG_UI_UNAVAILABLE;
     }
-    *input_blocked_out = input->terminal_blocked;
+    *input_blocked_out = input->terminal_blocked || stop_status == BOXRIG_UI_BUSY;
     *additional_dispatch_out =
         (!discovery_blocked && !geometry_blocked && !input->ime_waiting && input->queue_count != 0) ||
         composition_commit_pending(input);

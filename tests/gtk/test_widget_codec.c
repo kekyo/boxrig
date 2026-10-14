@@ -10,6 +10,8 @@
 #define widget_frame boxrig_gtk3_terminal_widget_frame
 #define widget_diagnostic boxrig_gtk3_terminal_widget_get_diagnostic
 #define widget_set_input_config boxrig_gtk3_terminal_widget_set_input_config
+#define widget_set_input_enabled boxrig_gtk3_terminal_widget_set_input_enabled
+#define widget_get_input_state boxrig_gtk3_terminal_widget_get_input_state
 #define widget_composition boxrig_gtk3_terminal_widget_composition
 #else
 #include "boxrig/gtk4/terminal_widget.h"
@@ -22,6 +24,8 @@
 #define widget_frame boxrig_gtk4_terminal_widget_frame
 #define widget_diagnostic boxrig_gtk4_terminal_widget_get_diagnostic
 #define widget_set_input_config boxrig_gtk4_terminal_widget_set_input_config
+#define widget_set_input_enabled boxrig_gtk4_terminal_widget_set_input_enabled
+#define widget_get_input_state boxrig_gtk4_terminal_widget_get_input_state
 #define widget_composition boxrig_gtk4_terminal_widget_composition
 #endif
 #include <assert.h>
@@ -30,6 +34,21 @@
 
 /* Capture the native input objects while keeping their normal ownership. */
 static GtkIMContext *native_im;
+#ifdef BOXRIG_TEST_GTK3
+static Widget *filter_owner;
+static bool commit_on_release;
+gboolean __real_gtk_im_context_filter_keypress(GtkIMContext *context, GdkEventKey *event);
+gboolean __wrap_gtk_im_context_filter_keypress(GtkIMContext *context, GdkEventKey *event)
+{
+    if (filter_owner != NULL)
+        assert(widget_set_input_enabled(filter_owner, false) == BOXRIG_UI_BUSY);
+    if (commit_on_release && event->type == GDK_KEY_RELEASE) {
+        g_signal_emit_by_name(context, "commit", "leak");
+        return TRUE;
+    }
+    return __real_gtk_im_context_filter_keypress(context, event);
+}
+#endif
 GtkIMContext *__real_gtk_im_multicontext_new(void);
 GtkIMContext *__wrap_gtk_im_multicontext_new(void)
 {
@@ -198,6 +217,96 @@ int main(void)
         preedit.text_length = 0;
         assert(boxrig_composition_apply_event(widget_composition(widget), &preedit) == BOXRIG_COMPOSITION_OK);
         assert(widget_set_input_config(widget, &tc.input) == BOXRIG_UI_OK);
+        boxrig_ui_input_state input_state;
+        assert(widget_get_input_state(widget, &input_state) == BOXRIG_UI_OK);
+        assert(input_state.phase == BOXRIG_UI_INPUT_ENABLED);
+        uint64_t old_generation = input_state.generation;
+        GtkIMContext *old_im = g_object_ref(native_im);
+        assert(boxrig_terminal_send_text(terminal, "filled", 6) == BOXRIG_STATUS_OK);
+        assert(widget_queue_paste(widget, (const uint8_t *)"discard", 7) == BOXRIG_UI_OK);
+        g_signal_emit_by_name(old_im, "commit", "old");
+        assert(widget_set_input_enabled(widget, false) == BOXRIG_UI_OK);
+        assert(widget_get_input_state(widget, &input_state) == BOXRIG_UI_OK);
+        assert(input_state.phase == BOXRIG_UI_INPUT_DISABLED && input_state.generation > old_generation);
+        assert(boxrig_terminal_output_peek(terminal, &output) == 6);
+        assert(memcmp(output, "filled", 6) == 0);
+        assert(boxrig_terminal_output_consume(terminal, 6) == BOXRIG_STATUS_OK);
+        assert(widget_queue_paste(widget, (const uint8_t *)"blocked", 7) == BOXRIG_UI_UNAVAILABLE);
+        g_signal_emit_by_name(old_im, "commit", "late");
+        assert(widget_frame(widget, &frame) == BOXRIG_UI_OK);
+        assert(boxrig_terminal_output_peek(terminal, &output) == 0);
+        assert(widget_set_input_enabled(widget, true) == BOXRIG_UI_OK);
+        assert(native_im != old_im);
+        g_signal_emit_by_name(old_im, "commit", "late after enable");
+        assert(widget_frame(widget, &frame) == BOXRIG_UI_OK);
+        assert(boxrig_terminal_output_peek(terminal, &output) == 0);
+        g_object_unref(old_im);
+        g_signal_emit_by_name(native_im, "commit", "B");
+        assert(widget_frame(widget, &frame) == BOXRIG_UI_OK);
+        assert(boxrig_terminal_output_peek(terminal, &output) == 1 && output[0] == 'B');
+        assert(boxrig_terminal_output_consume(terminal, 1) == BOXRIG_STATUS_OK);
+
+        /* A started bracketed paste closes after output capacity becomes available. */
+        assert(widget_queue_paste(widget, (const uint8_t *)"discard", 7) == BOXRIG_UI_OK);
+        assert(widget_frame(widget, &frame) == BOXRIG_UI_OK);
+        assert(boxrig_terminal_output_peek(terminal, &output) == 6);
+        assert(memcmp(output, "\x1b[200~", 6) == 0);
+        assert(widget_set_input_enabled(widget, false) == BOXRIG_UI_BUSY);
+        assert(widget_get_input_state(widget, &input_state) == BOXRIG_UI_OK);
+        assert(input_state.phase == BOXRIG_UI_INPUT_STOPPING);
+        assert(widget_set_input_enabled(widget, true) == BOXRIG_UI_BUSY);
+        assert(widget_set_input_config(widget, &tc.input) == BOXRIG_UI_BUSY);
+        assert(boxrig_terminal_output_consume(terminal, 6) == BOXRIG_STATUS_OK);
+        assert(boxrig_terminal_feed(terminal, (const uint8_t *)"\x1b[5n", 4, &consumed) == BOXRIG_STATUS_OK);
+        assert(widget_frame(widget, &frame) == BOXRIG_UI_OK);
+        assert(widget_get_input_state(widget, &input_state) == BOXRIG_UI_OK);
+        assert(input_state.phase == BOXRIG_UI_INPUT_STOPPING);
+        assert(boxrig_terminal_output_peek(terminal, &output) == 4);
+        assert(memcmp(output, "\x1b[0n", 4) == 0);
+        assert(boxrig_terminal_output_consume(terminal, 4) == BOXRIG_STATUS_OK);
+        assert(widget_frame(widget, &frame) == BOXRIG_UI_OK);
+        assert(widget_get_input_state(widget, &input_state) == BOXRIG_UI_OK);
+        assert(input_state.phase == BOXRIG_UI_INPUT_DISABLED);
+        assert(boxrig_terminal_output_peek(terminal, &output) == 6);
+        assert(memcmp(output, "\x1b[201~", 6) == 0);
+        assert(boxrig_terminal_output_consume(terminal, 6) == BOXRIG_STATUS_OK);
+        assert(widget_set_input_enabled(widget, true) == BOXRIG_UI_OK);
+
+        /* A held key is suppressed through its release, including after resuming. */
+#ifdef BOXRIG_TEST_GTK3
+        filter_owner = widget;
+        changed_key.type = GDK_KEY_PRESS;
+        g_signal_emit_by_name(widget, "key-press-event", &changed_key, &handled);
+#else
+        g_signal_emit_by_name(native_key, "key-pressed", GDK_KEY_Return, 36, 0, &handled);
+#endif
+        assert(widget_set_input_enabled(widget, false) == BOXRIG_UI_OK);
+        assert(widget_set_input_enabled(widget, true) == BOXRIG_UI_OK);
+#ifdef BOXRIG_TEST_GTK3
+        commit_on_release = true;
+        g_signal_emit_by_name(widget, "key-press-event", &changed_key, &handled);
+        changed_key.type = GDK_KEY_RELEASE;
+        g_signal_emit_by_name(widget, "key-release-event", &changed_key, &handled);
+        commit_on_release = false;
+        filter_owner = NULL;
+#else
+        g_signal_emit_by_name(native_key, "key-pressed", GDK_KEY_Return, 36, 0, &handled);
+        g_signal_emit_by_name(native_key, "key-released", GDK_KEY_Return, 36, 0);
+#endif
+        assert(widget_frame(widget, &frame) == BOXRIG_UI_OK);
+        assert(boxrig_terminal_output_peek(terminal, &output) == 0);
+#ifdef BOXRIG_TEST_GTK3
+        changed_key.type = GDK_KEY_PRESS;
+        g_signal_emit_by_name(widget, "key-press-event", &changed_key, &handled);
+        changed_key.type = GDK_KEY_RELEASE;
+        g_signal_emit_by_name(widget, "key-release-event", &changed_key, &handled);
+#else
+        g_signal_emit_by_name(native_key, "key-pressed", GDK_KEY_Return, 36, 0, &handled);
+        g_signal_emit_by_name(native_key, "key-released", GDK_KEY_Return, 36, 0);
+#endif
+        assert(widget_frame(widget, &frame) == BOXRIG_UI_OK);
+        assert(boxrig_terminal_output_peek(terminal, &output) == 1 && output[0] == '\n');
+        assert(boxrig_terminal_output_consume(terminal, 1) == BOXRIG_STATUS_OK);
         assert(widget_quiesce(widget) == BOXRIG_UI_OK);
 #ifdef BOXRIG_TEST_GTK3
         gtk_widget_destroy(window);

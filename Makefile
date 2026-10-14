@@ -2148,6 +2148,10 @@ $(MINGW_I686_SESSION_OBJECTS): include/boxrig/session.h \
 
 $(POSIX_OBJECTS): include/boxrig/posix.h Makefile
 
+$(BUILD_DIR)/ui/input.o $(MINGW_AMD64_BUILD_DIR)/ui/input.o \
+$(MINGW_I686_BUILD_DIR)/ui/input.o $(BUILD_DIR)/gtk3/input.o \
+$(BUILD_DIR)/gtk4/input.o: src/ui/input_control.h
+
 $(X11_OBJECTS): $(X11_HEADERS) $(UI_HEADERS) include/boxrig/terminal.h \
 	src/ui/view_private.h src/ui/color_private.h \
 	include/boxrig/posix.h src/ui/renderer_lifecycle.h src/ui/utf8.h \
@@ -2674,6 +2678,14 @@ $(BUILD_DIR)/tests/test_posix_tty_erase: tests/test_posix_tty_erase.c \
 		$(SANITIZERS) $< examples/boxrig_term/common/posix_application.c \
 		$(POSIX_LIBRARY) $(SESSION_LIBRARY) $(UI_LIBRARY) $(LIBRARY) \
 		-lutil $(SANITIZERS) -o $@
+
+.PHONY: test-input-control
+test: test-input-control
+test-input-control: $(BUILD_DIR)/tests/test_ui_input_control
+	$(BUILD_DIR)/tests/test_ui_input_control
+
+$(BUILD_DIR)/tests/test_ui_input_control: tests/test_ui_input_control.c $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(UI_LIBRARY) $(LIBRARY) $(SANITIZERS) -o $@
 
 $(EXAMPLE_RUNTIME_INFO_TEST_BINARY): tests/test_example_runtime_info.c \
 		examples/boxrig_term/common/runtime_info.c \
@@ -4587,7 +4599,7 @@ test-terminal-codec-frontends: $(BUILD_DIR)/tests/test_gtk3_codec $(BUILD_DIR)/t
 	xvfb-run -a env GDK_BACKEND=x11 GSK_RENDERER=cairo NO_AT_BRIDGE=1 ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(BUILD_DIR)/tests/test_gtk4_codec
 
 $(BUILD_DIR)/tests/test_gtk3_codec: tests/gtk/test_widget_codec.c $(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK3_HEADERS) $(CORE_HEADERS) | $(BUILD_DIR)/tests
-	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK3_CPPFLAGS) $(CFLAGS) $(GTK3_PROJECT_CFLAGS) $(SANITIZERS) -DBOXRIG_TEST_GTK3 -Wl,--wrap=gtk_im_multicontext_new $< $(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK3_LIBS) -lm -o $@
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK3_CPPFLAGS) $(CFLAGS) $(GTK3_PROJECT_CFLAGS) $(SANITIZERS) -DBOXRIG_TEST_GTK3 -Wl,--wrap=gtk_im_multicontext_new,--wrap=gtk_im_context_filter_keypress $< $(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK3_LIBS) -lm -o $@
 
 $(BUILD_DIR)/tests/test_gtk4_codec: tests/gtk/test_widget_codec.c $(GTK4_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK4_HEADERS) $(CORE_HEADERS) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK4_CPPFLAGS) $(CFLAGS) $(GTK4_PROJECT_CFLAGS) $(SANITIZERS) -Wl,--wrap=gtk_im_multicontext_new,--wrap=gtk_event_controller_key_new,--wrap=gtk_event_controller_focus_new $< $(GTK4_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK4_LIBS) -lm -o $@

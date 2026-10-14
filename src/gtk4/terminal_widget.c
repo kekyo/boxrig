@@ -2765,6 +2765,20 @@ boxrig_ui_status boxrig_gtk4_terminal_widget_set_frame_request_callback(
     return status;
 }
 
+boxrig_ui_status boxrig_gtk4_terminal_widget_set_input_enabled(
+    BoxrigGtk4TerminalWidget *widget, bool enabled)
+{
+    if (!accepts_calls(widget)) return BOXRIG_UI_INVALID_ARGUMENT;
+    return boxrig_gtk4_input_set_enabled(widget->input, enabled);
+}
+
+boxrig_ui_status boxrig_gtk4_terminal_widget_get_input_state(
+    BoxrigGtk4TerminalWidget *widget, boxrig_ui_input_state *state_out)
+{
+    if (!accepts_calls(widget)) return BOXRIG_UI_INVALID_ARGUMENT;
+    return boxrig_gtk4_input_get_state(widget->input, state_out);
+}
+
 boxrig_ui_status boxrig_gtk4_terminal_widget_set_input_config(
     BoxrigGtk4TerminalWidget *widget, const boxrig_input_config *config)
 {

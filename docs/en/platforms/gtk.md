@@ -84,6 +84,16 @@ IME selection is independent of the rendering backend.
 Set preferences with `ime_policy` and `candidate_policy`, then use `get_ime_state()` to check the actual input route and candidate display.
 Ordinary terminal input and input to an application-owned editable document use separate connections.
 
+Use `set_input_enabled(widget, false)` to inhibit user input temporarily.
+It stops this widget's keys, IME commits, paste, and terminal mouse reports while selection, copy, history navigation, rendering, and terminal replies remain available.
+Request resumption with `true`. Old IME and clipboard replies are discarded, and keys held across a stop remain suppressed until release.
+
+If a started paste cannot enqueue its closing sequence because output is full, the stop is accepted and returns `BUSY`.
+Keep dispatching regular frames while `get_input_state()` reports `STOPPING`, and wait for `DISABLED` before resuming.
+Requests made from a callback during input processing also return `BUSY`, but leave the state unchanged.
+`DISABLED` means the closing sequence has been queued in core, not delivered to the communication peer.
+Already queued core output and input from other widgets sharing the terminal are outside this API's scope.
+
 During destruction, remove scheduled frames and communication-side references, call `quiesce()` to stop new work, then destroy the widget.
 Do not release the model and terminal first.
 `quiesce()` cannot be undone.

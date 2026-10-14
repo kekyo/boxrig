@@ -14,7 +14,7 @@
 | 3 | 完了 | 番号・名前付きキャプチャ、認識器とのプログラム共有、同長時の優先、反復、未参加と空文字、結合文字、revisionと不変コピーの寿命、保持量 |
 | 4 | 完了 | Enter・矢印・両消去キーの設定交換。画面保持、Ctrl/Alt、keypad、Kitty、失敗時の旧設定保持、UIの押下系列との境界 |
 | 5 | 完了 | キー処理時のTTY消去文字取得。変更、無効値、NUL、未取得、接続切替、他の通信路のAutoへの復帰 |
-| 6 | 未着手 | 入力禁止と停止完了。遅延IME・clipboard・pasteの無効化、paste終端、選択コピーと端末応答の継続 |
+| 6 | 実装中 | 入力禁止と停止完了。遅延IME・clipboard・pasteの無効化、paste終端、選択コピーと端末応答の継続 |
 | 7 | 未着手 | 行列数変更のhost通知。分割受信、0と省略、キュー満杯、拒否、layoutへの接続 |
 | 8 | 未着手 | POSIX起動診断FDと終了結果、Win32の既存診断と終了HANDLE。異常起動と127/259、fallback、回収と資源の寿命、実Windows検証 |
 | 9 | 未着手 | GUIを止めない起動・中止・後始末。完了との競合、世代、二重生成・二重回収、ConPTY終了処理をドライバーで実測 |
@@ -125,6 +125,27 @@ core・UI・POSIXを計装したAddressSanitizer/UndefinedBehaviorSanitizer試�
 4種類のPOSIX GUIドライバーは警告なしでビルドできています。
 `test-public-headers`も成功し、新しいAPIを通常includeするC99/C++20利用側でリンク・実行を確認しました。
 
+## 段階6：共通UIとGTK
+
+入力の状態を`ENABLED`、`STOPPING`、`DISABLED`で表す共通型と、停止処理を追加しました。
+禁止・再開のたびに入力世代を進め、開始済みpasteの終端がcoreへ投入されるまで再開を拒否します。
+送信バッファに残るデータは保持し、端末からの問い合わせにも応答できます。
+まずGTK3・GTK4へ接続し、X11・Win32・Waylandの実装は続く作業です。
+
+公開API不足のREDから実装を進め、未開始paste、遅いIME確定、押下中キー、出力容量不足を検証しました。
+GTK3では、IME処理中の再入要求と、禁止をまたぐキーreleaseでIMEが確定するケースもREDで再現しています。
+前者は状態を変えず`BUSY`を返し、後者はキーを離すまでIMEへ渡さないことで解消しました。
+入力禁止中の選択・コピーと、再開後に到着するclipboard応答の破棄は、両版のウィジェット試験で確認済みです。
+IBusの受信済み通知と未処理通知についても、禁止・再開後に端末出力へ混ざらないことを確認しました。
+GTK3のX11経路と、GTK3・GTK4のWayland経路で成功しています。
+
+`test-input-control`、`test-terminal-codec-frontends`とGTK3・GTK4のウィジェット試験が成功しました。
+core・共通UI・GTKを計装したAddressSanitizer/UndefinedBehaviorSanitizerの試験も成功しています。
+`test-public-headers`では、追加したGTK APIのC99/C++20利用側もリンク・実行できました。
+GTK4のX11実行では、ヘッドレス環境のDRI3非対応と、既存AT-SPIソケットへの接続失敗が報告されました。
+入力試験は成功しており、後続の入力専用試験では`GTK_A11Y=none`を指定しています。
+アクセシビリティの受け入れ試験は、専用D-Bus環境で別途行う予定です。
+
 ## 後続段階の事前確認
 
 GTK 3.24.41、GTK 4.14.5、GTK3/GTK4向けVTE 0.76.0、AT-SPI 2.52、Orca、MinGWのamd64/i686とWineが利用できます。
@@ -132,6 +153,37 @@ VTE 0.76.0はGTK3でAtkTextを実装していますが、GTK4でGtkAccessibleTex
 比較用にVTE 0.78.2を`/tmp/boxrig-vte-sdk`へ導入し、GTK 4.14.5でGtkAccessibleTextが有効なことも確認済みです。
 [VTE 0.78のGTK4公開API](https://gnome.pages.gitlab.gnome.org/vte/gtk4/class.Terminal.html)に対応する比較対象です。
 外部ソースは変更していません。比較用のビルドでは無効にしたGNUTLS分岐と未使用の変数・ラベルに警告が出ました。
-本文・通知・AT-SPI・Orcaの比較実測、Win32実機での観測、非同期起動・中止方式の検証はまだ行っていません。
-これらを早期調査の残項目として扱い、段階8だけで段階9を完了としません。
+追加で、GTK3のVTE 0.76.0とGTK4のVTE 0.78.2を、独立したD-Bus・Xvfb環境で観測しました。
+GTK4は公開APIの[`set_enable_a11y()`](https://gnome.pages.gitlab.gnome.org/vte/gtk4/method.Terminal.set_enable_a11y.html)でアクセシビリティを有効にしています。
+型の検査に加え、AT-SPIのText、caret、選択、挿入・削除イベントを取得しました。
+比較用のC/Node.jsドライバーとログは`/tmp/boxrig-vte-baseline*`に保存しています。
+
+両版とも表示中の本文を返し、soft wrapでは改行を追加せず、実改行と末尾の空行は本文に含めていました。
+日本語・結合文字・絵文字を含む`A日本é🙂\nline two\n\n\n`は、18文字でcaret位置は15です。
+履歴へ移動すると本文も表示範囲に追従し、表示外のcaretは本文末尾へ制限されました。
+行の置換、幅変更、代替画面との切り替えでも、native APIとAT-SPIで同じ本文を取得できています。
+配置変更直後には古い本文が見えるため、観測はGTKのフレーム処理後に行いました。
+
+VTE側にも比較上の注意点があります。
+GTK3のAT-SPI文字数は、この18文字の本文に対してUTF-8バイト数の26を返しました。
+GTK4の全選択は、本文を選択していても範囲17–17を返しました。
+boxrigではこれらの不整合を再現せず、本文のUnicodeスカラー数と実際の選択内容を基準に検証します。
+比較した実装は[VTE 0.76.0のAtkText](https://gitlab.gnome.org/GNOME/vte/-/blob/0.76.0/src/vteaccess.cc)と[VTE 0.78.2のGtkAccessibleText](https://gitlab.gnome.org/GNOME/vte/-/blob/0.78.2/src/vteaccess-gtk4.cc)です。
+
+Orca 46.1では、両版とも追加出力`Hello boxrig.`に対する読み上げ文字列をログで確認しました。
+GTK3はSpeech Dispatcherへの送信まで確認できています。
+GTK4ではヘッドレス環境の音声サーバー待機を避けるため、比較専用設定で音声出力先を無効にしました。
+そのため、GTK4で確認できたのはOrcaが生成した読み上げ文字列までで、実際の音声再生は未確認です。
+ログは`/tmp/boxrig-vte-orca-gtk3.log`と`/tmp/boxrig-vte-orca-gtk4.log`です。
+ユーザーのOrca設定は変更していません。
+
+非同期起動には、[Cardioの公開`promises::start_new()`](../../../deps/cardio/README_ja.md)を使う方式を検証しました。
+[APIコメント](../../../deps/cardio/include/cardio.h)でも、呼び出しごとの実行スレッドと、元のdispatcherへ完了を返す契約を確認しています。
+MinGW amd64の小さなGUIドライバーでは、待機中の操作とは独立してウィンドウメッセージを処理できました。
+GUIから取消を要求し、操作側の資源回収が完了してから完了通知を受けることもWineで確認しました。
+ドライバーは`/tmp/boxrig-cardio-spawn-probe.cpp`、ログは`/tmp/boxrig-cardio-spawn-probe.log`です。
+これは実行基盤の確認であり、実際のConPTY起動・終了処理や実Windowsでの確認ではありません。
+段階9では、同時実行数を制限した操作の所有権、接続世代、取消と完了の競合を実装して検証します。
+POSIXのfork後処理を別スレッドから安全に実行できるかも、段階8の起動経路と合わせて確認します。
+段階8だけで段階9を完了としません。
 全体テストも未実施です。
