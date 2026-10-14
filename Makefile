@@ -2353,7 +2353,7 @@ $(FRONTEND_SAMPLE_X11_PROBE_BINARY): $(EXAMPLE_BINARY) \
 		-Wl,--wrap=boxrig_x11_host_adapter_create \
 		-Wl,--wrap=boxrig_x11_host_adapter_destroy \
 		-Wl,--wrap=boxrig_x11_input_adapter_quiesce \
-		-Wl,--wrap=XConvertSelection -Wl,--wrap=XDeleteProperty \
+		-Wl,--wrap=XConvertSelection \
 		-Wl,--wrap=XCloseDisplay $(OPENGL_RENDERER_LIBS) -lutil $(POSIX_URI_LIBS) -o $@
 
 $(FRONTEND_SAMPLE_GTK3_PROBE_BINARY): $(GTK3_EXAMPLE_BINARY) \
