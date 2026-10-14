@@ -282,9 +282,45 @@ static void context_created(GObject *source, GAsyncResult *result, gpointer data
 static void start(boxrig_ime_session *session)
 {
     boxrig_ime_client *bus = session->owner;
-    g_dbus_connection_call(bus->connection, IBUS_SERVICE_IBUS, IBUS_PATH_IBUS, IBUS_INTERFACE_IBUS,
+    g_dbus_connection_call(bus->connection, session->setup_owner, IBUS_PATH_IBUS, IBUS_INTERFACE_IBUS,
         "CreateInputContext", g_variant_new("(s)", bus->name), G_VARIANT_TYPE("(o)"),
-        G_DBUS_CALL_FLAGS_NONE, -1, session->cancel, context_created, session);
+        G_DBUS_CALL_FLAGS_NO_AUTO_START, -1, session->cancel, context_created, session);
+}
+
+static void owner_appeared(GDBusConnection *connection, const char *name, const char *owner, gpointer data)
+{
+    (void)name;
+    boxrig_ime_client *bus = data;
+    if (bus->closing || bus->connection != connection) return;
+    g_free(bus->connection_owner);
+    bus->connection_owner = g_strdup(owner);
+    bus->connection_generation++;
+    bus->state = BOXRIG_IME_READY;
+    bus->selection_changed(bus->data, true);
+    for (boxrig_ime_session *session = bus->sessions; session != NULL; session = session->next)
+        boxrig_ime_start_session(session);
+}
+
+static void owner_vanished(GDBusConnection *connection, const char *name, gpointer data)
+{
+    (void)name;
+    boxrig_ime_client *bus = data;
+    if (bus->closing || bus->connection != connection) return;
+    bus->connection_generation++;
+    g_clear_pointer(&bus->connection_owner, g_free);
+    boxrig_ime_failed_connection(bus);
+}
+
+static void watch_released(gpointer data)
+{
+    boxrig_ime_client *bus = data;
+    bus->subscriptions--;
+}
+
+static void stop(boxrig_ime_client *bus)
+{
+    if (bus->watcher != 0) g_bus_unwatch_name(bus->watcher);
+    bus->watcher = 0;
 }
 
 static void connection_created(GObject *source, GAsyncResult *result, gpointer data)
@@ -300,9 +336,11 @@ static void connection_created(GObject *source, GAsyncResult *result, gpointer d
         bus->connection_generation++;
         g_dbus_connection_set_exit_on_close(connection, FALSE);
         g_signal_connect(connection, "closed", G_CALLBACK(boxrig_ime_connection_closed), bus);
-        bus->state = BOXRIG_IME_READY;
-        for (boxrig_ime_session *session = bus->sessions; session != NULL; session = session->next)
-            boxrig_ime_start_session(session);
+        /* A stale address can point at a live bus without an IBus daemon.
+         * Watch actual ownership without starting any activatable service. */
+        bus->subscriptions++;
+        bus->watcher = g_bus_watch_name_on_connection(connection, IBUS_SERVICE_IBUS,
+            G_BUS_NAME_WATCHER_FLAGS_NONE, owner_appeared, owner_vanished, bus, watch_released);
     } else {
         g_clear_object(&connection);
         if (!bus->closing) boxrig_ime_failed_connection(bus);
@@ -400,7 +438,7 @@ static void cursor(boxrig_ime_session *session, const int32_t rectangle[4], bool
 }
 
 const boxrig_ime_backend boxrig_ime_ibus_backend = {
-    .kind = BOXRIG_IME_BACKEND_IBUS, .initialize = initialize, .connect = begin_connection,
+    .kind = BOXRIG_IME_BACKEND_IBUS, .initialize = initialize, .connect = begin_connection, .stop = stop,
     .start = start, .drop = drop, .reset = reset, .surrounding = surrounding,
     .key = key, .cursor = cursor
 };

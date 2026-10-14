@@ -5637,3 +5637,12 @@ test-fcitx5-scale: $(BUILD_DIR)/tests/fcitx5_server $(BUILD_DIR)/tests/test_gtk3
 	done
 
 test: test-fcitx5-scale
+
+$(BUILD_DIR)/tests/test_ime_discovery: tests/ime/test_discovery.c $(IME_SOURCES) $(IME_HEADERS) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(IBUS_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(IME_SOURCES) $(UI_LIBRARY) $(LIBRARY) $(IBUS_LIBS) $(SANITIZERS) -o $@
+
+.PHONY: test-ime-discovery
+test-ime-discovery: $(BUILD_DIR)/tests/test_ime_discovery
+	GIO_USE_VFS=local ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- $<
+
+test: test-ime-discovery

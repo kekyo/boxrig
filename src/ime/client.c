@@ -470,6 +470,7 @@ void boxrig_ime_connection_closed(GDBusConnection *connection, gboolean remote, 
     (void)remote; (void)error;
     boxrig_ime_client *bus = data;
     if (bus->closing || bus->connection != connection) return;
+    if (bus->backend->stop != NULL) bus->backend->stop(bus);
     boxrig_ime_failed_connection(bus);
     g_signal_handlers_disconnect_by_data(connection, bus);
     g_clear_object(&bus->connection);

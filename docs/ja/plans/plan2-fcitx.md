@@ -337,3 +337,9 @@ GTK 3／X11では`FCITX_X11_USE_CLIENT_SIDE_UI=True`を指定した場合と、�
 分数倍率では矩形の端を外側へ丸め、負の位置でもカーソルを囲む範囲を保ちます。矩形が同じでも倍率が変わった場合は再送し、範囲外の値は送信しません。通信ドライバーは1倍、2倍、1.25倍、重複更新、X11絶対座標を検証します。新しい呼び出し契約でのREDを確認してから実装し、`test-fcitx5`と`test-ibus-candidates`が成功しました。
 
 `test-fcitx5-scale`ではGTK 3／X11、GTK 3／Wayland、GTK 4／Waylandの2倍表示を検証しています。`test-wayland-fcitx5`には1.25倍→2倍→1倍の変更とウィンドウ位置の変更を追加し、通知された座標と文字セルの範囲を確認しました。native Waylandの試験はホストのグリッド変更を完了させてから倍率を観測します。既存IBus経路の`test-gtk-ibus-direct`と`test-wayland-input`も成功しています。
+
+### 段階3の検出前提としてIBus所有者を確認
+
+有効なD-Busアドレスへ接続できても、そのバスにIBusがいるとは限りません。この条件を`test-ime-discovery`で再現し、接続だけでREADYとしていた判定を修正しました。IBusサービスの所有者を監視し、所有者が現れた場合にREADYへ進みます。入力コンテキストの生成先にはその所有者を指定し、デーモンを自動起動しません。監視の終了通知も専用イベントループで回収します。
+
+再現テストのRED／GREENに加え、`test-ibus-candidates`、`test-wayland-input`、`test-gtk-ibus-direct`が成功しました。既存GTK 3のheadless Wayland試験には、キーボードseatがないためGTK内で出る診断が残っています。修正前の倍率検証ログでも同じ診断を確認しており、コンパイル時の警告や新しい入力失敗ではありません。実表示サーバーを使うfcitx試験では発生していません。
