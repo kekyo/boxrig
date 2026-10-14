@@ -1451,10 +1451,18 @@ static bool query_grid_title(
     const wchar_t *expected)
 {
     wchar_t actual[64];
+    wchar_t reply[64];
 
+    if (GetWindowTextW(window, actual, (int)(sizeof(actual) / sizeof(actual[0]))) == 0 ||
+        swprintf(reply, sizeof(reply) / sizeof(reply[0]), L"%ls", expected) < 0) {
+        return false;
+    }
+    /* ConPTY can suppress an unchanged title. Alternate the reply prefix so
+     * each query acknowledges fresh child input even when the grid is unchanged. */
+    reply[0] = actual[0] == L'g' ? L'G' : L'g';
     if (SetWindowTextW(window, L"awaiting-sizing-grid") != 0 &&
-        commit_character(window, L'g') &&
-        wait_for_window_title(process, window, expected)) {
+        commit_character(window, reply[0]) &&
+        wait_for_window_title(process, window, reply)) {
         return true;
     }
     actual[0] = L'\0';
@@ -1465,7 +1473,7 @@ static bool query_grid_title(
     fwprintf(
         stderr,
         L"expected sizing grid %ls but observed %ls\n",
-        expected,
+        reply,
         actual);
     return false;
 }
@@ -1944,6 +1952,7 @@ static bool run_modal_resize_presentation(
     RECT target_surface = {0, 0, 0, 0};
     RECT right_band;
     RECT bottom_band;
+    RECT content_band;
     client_observation current_surface;
     RECT current_outer;
     INPUT input[3];
@@ -1967,9 +1976,11 @@ static bool run_modal_resize_presentation(
     uint64_t held_bottom_hash = 0;
     uint64_t released_right_hash = 0;
     uint64_t released_bottom_hash = 0;
+    uint64_t held_content_hash = 0;
+    uint64_t released_content_hash = 0;
     /* Resize padding is empty space in the default rendition. Require that
-     * exact background throughout the new columns. The bottom band retains
-     * reflowed text, which must match while Button1 is held and after release. */
+     * exact background throughout the new rows and columns. The original
+     * content must remain visible and match before and after Button1 release. */
     const uint32_t resized_column_background = UINT32_C(0x101010);
     const char *stage = "read modal resize baseline";
     bool have_current_outer;
@@ -2029,6 +2040,10 @@ static bool run_modal_resize_presentation(
     bottom_band.top = initial_surface.rectangle.bottom + 2;
     bottom_band.right = target_surface.right - scrollbar_width - cell_width;
     bottom_band.bottom = target_surface.bottom - 2;
+    content_band.left = cell_width;
+    content_band.top = cell_height;
+    content_band.right = initial_surface.rectangle.right - cell_width;
+    content_band.bottom = initial_surface.rectangle.bottom - cell_height;
     if (right_band.right <= right_band.left ||
         right_band.bottom <= right_band.top ||
         bottom_band.right <= bottom_band.left ||
@@ -2151,10 +2166,21 @@ static bool run_modal_resize_presentation(
             &target_surface,
             &bottom_band,
             "held-bottom",
+            &resized_column_background,
+            true,
+            true,
+            &held_bottom_hash) ||
+        !wait_for_stable_resize_band(
+            process,
+            window,
+            &target_outer,
+            &target_surface,
+            &content_band,
+            "held-content",
             NULL,
             true,
             false,
-            &held_bottom_hash)) {
+            &held_content_hash)) {
         goto cleanup;
     }
     stage = "release modal resize at unchanged geometry";
@@ -2183,15 +2209,27 @@ static bool run_modal_resize_presentation(
             &target_surface,
             &bottom_band,
             "released-bottom",
+            &resized_column_background,
+            false,
+            true,
+            &released_bottom_hash) ||
+        !wait_for_stable_resize_band(
+            process,
+            window,
+            &target_outer,
+            &target_surface,
+            &content_band,
+            "released-content",
             NULL,
             false,
             false,
-            &released_bottom_hash)) {
+            &released_content_hash)) {
         goto cleanup;
     }
     stage = "compare held and released resize bands";
     if (held_right_hash != released_right_hash ||
-        held_bottom_hash != released_bottom_hash) {
+        held_bottom_hash != released_bottom_hash ||
+        held_content_hash != released_content_hash) {
         goto cleanup;
     }
 
@@ -2230,6 +2268,7 @@ cleanup:
             "Win32 modal resize presentation failed at %s "
             "(held-right=%llu released-right=%llu "
             "held-bottom=%llu released-bottom=%llu "
+            "held-content=%llu released-content=%llu "
             "button-down=%d outer=%ld,%ld,%ld,%ld "
             "expected-outer=%ld,%ld,%ld,%ld "
             "surface=%ldx%ld expected-surface=%ldx%ld "
@@ -2240,6 +2279,8 @@ cleanup:
             (unsigned long long)released_right_hash,
             (unsigned long long)held_bottom_hash,
             (unsigned long long)released_bottom_hash,
+            (unsigned long long)held_content_hash,
+            (unsigned long long)released_content_hash,
             current_button_down,
             have_current_outer ? current_outer.left : -1,
             have_current_outer ? current_outer.top : -1,
@@ -6050,7 +6091,16 @@ static bool run_pointer_visibility(const wchar_t *sample_path, const wchar_t *he
         !wait_for_shared_scenario_ready(process, window, &cell_height, &cell_width) ||
         !ClientToScreen(window, &point)) goto cleanup;
     (void)SetForegroundWindow(window);
-    if (!SetCursorPos(point.x, point.y)) goto cleanup;
+    int virtual_width = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+    int virtual_height = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+    if (virtual_width <= 1 || virtual_height <= 1) goto cleanup;
+    INPUT movement;
+    /* SetCursorPos alone does not activate the mouse after touch/pen input.
+     * Exercise the mouse input stream before checking pointer visibility. */
+    initialize_absolute_mouse_input(&movement, point.x, point.y, MOUSEEVENTF_MOVE,
+        GetSystemMetrics(SM_XVIRTUALSCREEN), GetSystemMetrics(SM_YVIRTUALSCREEN),
+        virtual_width, virtual_height);
+    if (SendInput(1, &movement, sizeof(movement)) != 1) goto cleanup;
     cursor.cbSize = sizeof(cursor);
     for (unsigned int attempt = 0; attempt < 250; attempt++) {
         if (GetCursorInfo(&cursor) && cursor.flags == CURSOR_SHOWING &&
