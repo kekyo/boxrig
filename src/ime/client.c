@@ -604,9 +604,11 @@ boxrig_ime_client *boxrig_ime_allocate(const boxrig_ime_backend *backend, bool w
 boxrig_ime_client *boxrig_ime_create(boxrig_ime_backend_kind backend, bool wayland, size_t maximum_sessions, const char *name,
     void (*selection_changed)(void *, bool), void *data)
 {
-    if (backend != BOXRIG_IME_BACKEND_IBUS && backend != BOXRIG_IME_BACKEND_FCITX5) return NULL;
-    boxrig_ime_client *bus = boxrig_ime_allocate(backend == BOXRIG_IME_BACKEND_IBUS ?
-        &boxrig_ime_ibus_backend : &boxrig_ime_fcitx5_backend, wayland, maximum_sessions, name, NULL, selection_changed, data);
+    const boxrig_ime_backend *provider = backend == BOXRIG_IME_BACKEND_IBUS ? &boxrig_ime_ibus_backend :
+        backend == BOXRIG_IME_BACKEND_FCITX5 ? &boxrig_ime_fcitx5_backend :
+        backend == BOXRIG_IME_BACKEND_FCITX4 ? &boxrig_ime_fcitx4_backend : NULL;
+    if (provider == NULL) return NULL;
+    boxrig_ime_client *bus = boxrig_ime_allocate(provider, wayland, maximum_sessions, name, NULL, selection_changed, data);
     if (bus == NULL) return NULL;
     g_main_context_push_thread_default(bus->loop);
     bus->backend->initialize(bus);

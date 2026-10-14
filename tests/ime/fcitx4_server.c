@@ -1,0 +1,124 @@
+/* boxrig - Under MIT. */
+#include <gio/gio.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define CHECK(value) do { if (!(value)) { fprintf(stderr, "FAIL fcitx4 server %d: %s\n", __LINE__, #value); abort(); } } while (0)
+#define SERVICE "org.fcitx.Fcitx-72"
+#define INTERFACE "org.fcitx.Fcitx.InputContext"
+static GDBusConnection *connection;
+static GDBusNodeInfo *node;
+static guint contexts, keys, capabilities, focused, resets;
+static char *surrounding;
+static gint rectangle[4];
+static const GDBusInterfaceVTable methods;
+static const char xml[] =
+    "<node><interface name='org.fcitx.Fcitx.InputMethod'>"
+    "<method name='CreateICv3'><arg type='s' direction='in'/><arg type='i' direction='in'/>"
+    "<arg type='i' direction='out'/><arg type='b' direction='out'/>"
+    "<arg type='u' direction='out'/><arg type='u' direction='out'/>"
+    "<arg type='u' direction='out'/><arg type='u' direction='out'/></method></interface>"
+    "<interface name='" INTERFACE "'>"
+    "<method name='FocusIn'/><method name='FocusOut'/><method name='Reset'/><method name='DestroyIC'/>"
+    "<method name='SetCapacity'><arg type='u' direction='in'/></method>"
+    "<method name='SetCursorRect'><arg type='i' direction='in'/><arg type='i' direction='in'/>"
+    "<arg type='i' direction='in'/><arg type='i' direction='in'/></method>"
+    "<method name='SetSurroundingText'><arg type='s' direction='in'/><arg type='u' direction='in'/><arg type='u' direction='in'/></method>"
+    "<method name='ProcessKeyEvent'><arg type='u' direction='in'/><arg type='u' direction='in'/>"
+    "<arg type='u' direction='in'/><arg type='i' direction='in'/><arg type='u' direction='in'/><arg type='i' direction='out'/></method>"
+    "<signal name='UpdateFormattedPreedit'><arg type='a(si)'/><arg type='i'/></signal>"
+    "<signal name='CommitString'><arg type='s'/></signal>"
+    "<signal name='DeleteSurroundingText'><arg type='i'/><arg type='u'/></signal>"
+    "<signal name='ForwardKey'><arg type='u'/><arg type='u'/><arg type='i'/></signal></interface>"
+    "<interface name='org.boxrig.Fcitx4Probe'><method name='Inspect'>"
+    "<arg type='u' direction='out'/><arg type='u' direction='out'/><arg type='u' direction='out'/>"
+    "<arg type='u' direction='out'/><arg type='s' direction='out'/>"
+    "<arg type='i' direction='out'/><arg type='i' direction='out'/>"
+    "<arg type='i' direction='out'/><arg type='i' direction='out'/></method></interface></node>";
+
+static void emit(const char *sender, const char *path, const char *name, GVariant *value)
+{
+    CHECK(g_dbus_connection_emit_signal(connection, sender, path, INTERFACE, name, value, NULL));
+}
+
+static void method(GDBusConnection *bus, const char *sender, const char *path,
+    const char *interface, const char *name, GVariant *parameters,
+    GDBusMethodInvocation *invocation, gpointer data)
+{
+    (void)bus; (void)interface; (void)data;
+    if (strcmp(name, "CreateICv3") == 0) {
+        const char *program;
+        gint pid;
+        g_variant_get(parameters, "(&si)", &program, &pid);
+        CHECK(program[0] != 0 && pid > 0);
+        char context[64];
+        snprintf(context, sizeof(context), "/inputcontext_%u", ++contexts);
+        CHECK(g_dbus_connection_register_object(connection, context, node->interfaces[1], &methods, NULL, NULL, NULL));
+        g_dbus_method_invocation_return_value(invocation, g_variant_new("(ibuuuu)", (gint)contexts, TRUE, 0u, 0u, 0u, 0u));
+        return;
+    }
+    if (strcmp(name, "Inspect") == 0) {
+        g_dbus_method_invocation_return_value(invocation, g_variant_new("(uuuusiiii)", keys, capabilities,
+            focused, resets, surrounding == NULL ? "" : surrounding,
+            rectangle[0], rectangle[1], rectangle[2], rectangle[3]));
+        return;
+    }
+    if (strcmp(name, "SetCapacity") == 0) {
+        g_variant_get(parameters, "(u)", &capabilities);
+        CHECK((capabilities & ((1u << 0) | (1u << 5))) == 0);
+    } else if (strcmp(name, "SetSurroundingText") == 0) {
+        guint cursor, anchor;
+        g_free(surrounding);
+        g_variant_get(parameters, "(suu)", &surrounding, &cursor, &anchor);
+        CHECK(cursor <= (guint)g_utf8_strlen(surrounding, -1) && anchor <= (guint)g_utf8_strlen(surrounding, -1));
+    } else if (strcmp(name, "SetCursorRect") == 0)
+        g_variant_get(parameters, "(iiii)", &rectangle[0], &rectangle[1], &rectangle[2], &rectangle[3]);
+    else if (strcmp(name, "FocusIn") == 0) focused++;
+    else if (strcmp(name, "Reset") == 0) resets++;
+    else if (strcmp(name, "ProcessKeyEvent") == 0) {
+        guint symbol, code, state, time;
+        gint type;
+        g_variant_get(parameters, "(uuuiu)", &symbol, &code, &state, &type, &time);
+        CHECK(code == 38 && state == 4 && time == 1234);
+        CHECK(type == (symbol == 'z' ? 1 : 0));
+        keys++;
+        if (symbol == 'a' || symbol == 'f') {
+            GVariantBuilder text;
+            g_variant_builder_init(&text, G_VARIANT_TYPE("a(si)"));
+            g_variant_builder_add(&text, "(si)", "き", 0);
+            g_variant_builder_add(&text, "(si)", "しゃ", (1 << 3) | (1 << 4));
+            emit(sender, path, "UpdateFormattedPreedit", g_variant_new("(a(si)i)", &text, symbol == 'f' ? 1 : 3));
+        } else if (symbol == 'b') emit(sender, path, "CommitString", g_variant_new("(s)", "汽車🙂"));
+        else if (symbol == 'c') emit(sender, path, "ForwardKey", g_variant_new("(uui)", 0xff0du, 4u, 1));
+        else if (symbol == 'd') {
+            CHECK((capabilities & (1u << 6)) != 0);
+            CHECK(g_strcmp0(surrounding, "前かな後") == 0);
+            emit(sender, path, "DeleteSurroundingText", g_variant_new("(iu)", -2, 2u));
+            emit(sender, path, "CommitString", g_variant_new("(s)", "記者"));
+        } else if (symbol == 'e') {
+            emit(sender, path, "CommitString", g_variant_new("(s)", "uncertain"));
+            g_dbus_method_invocation_return_dbus_error(invocation, "org.boxrig.Uncertain", "Key outcome is unknown");
+            return;
+        }
+        g_dbus_method_invocation_return_value(invocation, g_variant_new("(i)", symbol == 'u' ? 0 : symbol == 'w' ? 2 : 1));
+        return;
+    }
+    g_dbus_method_invocation_return_value(invocation, NULL);
+}
+static const GDBusInterfaceVTable methods = {.method_call = method};
+static void acquired(GDBusConnection *bus, const char *name, gpointer data)
+{ (void)bus; (void)name; (void)data; puts("READY"); fflush(stdout); }
+int main(void)
+{
+    connection = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, NULL);
+    CHECK(connection != NULL);
+    node = g_dbus_node_info_new_for_xml(xml, NULL);
+    CHECK(node != NULL);
+    CHECK(g_dbus_connection_register_object(connection, "/inputmethod", node->interfaces[0], &methods, NULL, NULL, NULL));
+    CHECK(g_dbus_connection_register_object(connection, "/org/boxrig/Fcitx4Probe", node->interfaces[2], &methods, NULL, NULL, NULL));
+    CHECK(g_bus_own_name_on_connection(connection, SERVICE, G_BUS_NAME_OWNER_FLAGS_NONE, acquired, NULL, NULL, NULL));
+    GMainLoop *loop = g_main_loop_new(NULL, FALSE);
+    g_main_loop_run(loop);
+    return 0;
+}

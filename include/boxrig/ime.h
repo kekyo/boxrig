@@ -8,7 +8,8 @@
 typedef enum boxrig_ime_backend_kind {
     BOXRIG_IME_BACKEND_NONE = 0, /**< No direct protocol has been selected. */
     BOXRIG_IME_BACKEND_IBUS, /**< IBus input-context protocol. */
-    BOXRIG_IME_BACKEND_FCITX5 /**< Native fcitx 5 input-context protocol. */
+    BOXRIG_IME_BACKEND_FCITX5, /**< Native fcitx 5 input-context protocol. */
+    BOXRIG_IME_BACKEND_FCITX4 /**< Display-specific fcitx 4 input-context protocol. */
 } boxrig_ime_backend_kind;
 
 /** Lifecycle of an optional direct IME connection. */

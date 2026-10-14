@@ -23,6 +23,7 @@ typedef struct boxrig_ime_backend {
 } boxrig_ime_backend;
 extern const boxrig_ime_backend boxrig_ime_ibus_backend;
 extern const boxrig_ime_backend boxrig_ime_fcitx5_backend;
+extern const boxrig_ime_backend boxrig_ime_fcitx4_backend;
 
 /* Discovery clients share one private loop, but keep their connection and
  * pending requests separate. Only active receives a focused input target. */

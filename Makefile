@@ -236,9 +236,9 @@ GTK3_HEADERS := include/boxrig/gtk3.h include/boxrig/ime.h $(wildcard include/bo
 PANGO_CANDIDATE_OBJECT := $(BUILD_DIR)/pangocairo/candidates.o
 GTK3_OBJECTS += $(PANGO_CANDIDATE_OBJECT)
 GTK4_OBJECTS += $(PANGO_CANDIDATE_OBJECT)
-IME_SOURCES := src/ime/client.c src/ime/detect.c src/ibus/client.c src/fcitx5/client.c src/ime/source.c src/ime/preedit.c
+IME_SOURCES := src/ime/client.c src/ime/detect.c src/ibus/client.c src/fcitx5/client.c src/fcitx4/client.c src/ime/source.c src/ime/preedit.c
 IME_HEADERS := include/boxrig/ime.h src/ime/client.h src/ime/client_private.h src/ime/source.h src/ime/preedit.h
-IME_OBJECTS := $(BUILD_DIR)/ime/client.o $(BUILD_DIR)/ime/detect.o $(BUILD_DIR)/ime/ibus.o $(BUILD_DIR)/ime/fcitx5.o $(BUILD_DIR)/ime/source.o $(BUILD_DIR)/ime/preedit.o
+IME_OBJECTS := $(BUILD_DIR)/ime/client.o $(BUILD_DIR)/ime/detect.o $(BUILD_DIR)/ime/ibus.o $(BUILD_DIR)/ime/fcitx5.o $(BUILD_DIR)/ime/fcitx4.o $(BUILD_DIR)/ime/source.o $(BUILD_DIR)/ime/preedit.o
 GTK3_OBJECTS += $(IME_OBJECTS) $(BUILD_DIR)/gtk3/ime_probe.o
 GTK4_OBJECTS += $(IME_OBJECTS) $(BUILD_DIR)/gtk4/ime_probe.o
 WAYLAND_HEADERS := include/boxrig/wayland.h include/boxrig/ime.h
@@ -5059,6 +5059,9 @@ $(BUILD_DIR)/ime/detect.o: src/ime/detect.c $(IME_HEADERS) | $(BUILD_DIR)/ime
 $(BUILD_DIR)/ime/fcitx5.o: src/fcitx5/client.c $(IME_HEADERS) | $(BUILD_DIR)/ime
 	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(IBUS_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) -c $< -o $@
 
+$(BUILD_DIR)/ime/fcitx4.o: src/fcitx4/client.c $(IME_HEADERS) | $(BUILD_DIR)/ime
+	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(IBUS_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) -c $< -o $@
+
 $(BUILD_DIR)/ime/ibus.o: src/ibus/client.c $(IME_HEADERS) | $(BUILD_DIR)/ime
 	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(IBUS_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) -c $< -o $@
 
@@ -5589,6 +5592,18 @@ test-fcitx5: $(BUILD_DIR)/tests/fcitx5_server $(BUILD_DIR)/tests/test_fcitx5
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx5.sh $(BUILD_DIR)/tests/fcitx5_server $(BUILD_DIR)/tests/test_fcitx5
 
 test: test-fcitx5
+
+$(BUILD_DIR)/tests/fcitx4_server: tests/ime/fcitx4_server.c | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(IBUS_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(IBUS_LIBS) -o $@
+
+$(BUILD_DIR)/tests/test_fcitx4: tests/ime/test_fcitx4.c $(IME_SOURCES) $(IME_HEADERS) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(IBUS_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(IME_SOURCES) $(UI_LIBRARY) $(LIBRARY) $(IBUS_LIBS) $(SANITIZERS) -o $@
+
+.PHONY: test-fcitx4
+test-fcitx4: $(BUILD_DIR)/tests/fcitx4_server $(BUILD_DIR)/tests/test_fcitx4
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4.sh $(BUILD_DIR)/tests/fcitx4_server $(BUILD_DIR)/tests/test_fcitx4
+
+test: test-fcitx4
 
 $(BUILD_DIR)/tests/test_gtk3_fcitx: tests/gtk/test_fcitx_widget.c $(IME_HEADERS) $(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK3_CPPFLAGS) $(CFLAGS) $(GTK3_PROJECT_CFLAGS) $(SANITIZERS) -DBOXRIG_TEST_GTK3=1 $< $(IME_SOURCES) $(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK3_LIBS) $(SANITIZERS) -o $@
