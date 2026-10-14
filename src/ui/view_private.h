@@ -77,4 +77,19 @@ unsigned int boxrig_ui_view_selection_stroke_pixels(const boxrig_ui_view *view,
 /* Retained row metadata; this query never scans terminal cells. */
 bool boxrig_ui_view_row_has_text_blink(const boxrig_ui_view *view, size_t row);
 
+/* Borrowed row inputs for an immutable accessible snapshot. Resolve linear
+ * selection once per row so copying text does not scan history per scalar. */
+typedef struct boxrig_ui_accessible_row_state {
+    const boxrig_text_layout *layout;
+    boxrig_ui_fixed cell_width, cell_height;
+    size_t selection_start, selection_count;
+    bool newline_selected;
+    const boxrig_ui_selection_row_range *ranges;
+    size_t range_count;
+    size_t logical_column_offset;
+} boxrig_ui_accessible_row_state;
+
+void boxrig_ui_view_accessible_row(const boxrig_ui_view *view, size_t row,
+    boxrig_ui_accessible_row_state *state);
+
 #endif

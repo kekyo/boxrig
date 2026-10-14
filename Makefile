@@ -231,7 +231,7 @@ GTK4_OBJECTS := $(patsubst src/gtk4/%.c,$(BUILD_DIR)/gtk4/%.o,$(GTK4_SOURCES)) \
 GTK4_HEADERS := include/boxrig/gtk4.h $(wildcard include/boxrig/gtk4/*.h) $(wildcard include/boxrig/gtk/*.h)
 GTK3_SOURCES := $(wildcard src/gtk3/*.c)
 GTK3_OBJECTS := $(patsubst src/gtk3/%.c,$(BUILD_DIR)/gtk3/%.o,$(GTK3_SOURCES)) \
-	$(BUILD_DIR)/gtk3/pangocairo_renderer.o
+	$(BUILD_DIR)/gtk3/pangocairo_renderer.o $(BUILD_DIR)/gtk3/accessible_text.o
 GTK3_HEADERS := include/boxrig/gtk3.h $(wildcard include/boxrig/gtk3/*.h) $(wildcard include/boxrig/gtk/*.h)
 PANGO_CANDIDATE_OBJECT := $(BUILD_DIR)/pangocairo/candidates.o
 GTK3_OBJECTS += $(PANGO_CANDIDATE_OBJECT)
@@ -1919,6 +1919,11 @@ $(BUILD_DIR)/gtk3/%.o: src/gtk3/%.c | $(BUILD_DIR)/gtk3
 	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(POSIX_CPPFLAGS) \
 		$(GTK3_CPPFLAGS) $(CFLAGS) $(GTK3_PROJECT_CFLAGS) -c $< -o $@
 
+$(BUILD_DIR)/gtk3/accessible_text.o: src/gtk/accessible_text.c src/gtk/accessible_text.h src/ui/accessible.h | $(BUILD_DIR)/gtk3
+	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(GTK3_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/gtk3/accessible.o $(BUILD_DIR)/gtk3/terminal_widget.o: src/gtk3/accessible.h src/gtk/accessible_text.h src/ui/accessible.h
+
 $(BUILD_DIR)/gtk3/gl_%.o: src/gtk/gl_%.c src/gtk/gl_area.h src/gtk/gl_surface.h | $(BUILD_DIR)/gtk3
 	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(POSIX_CPPFLAGS) \
 		$(GTK3_CPPFLAGS) $(CFLAGS) $(GTK3_PROJECT_CFLAGS) -c $< -o $@
@@ -2141,6 +2146,8 @@ $(UI_OBJECTS) $(MINGW_AMD64_UI_OBJECTS) $(MINGW_I686_UI_OBJECTS): \
 	include/boxrig/ui/scrollbar.h include/boxrig/ui/text_layout.h \
 	src/ui/color_private.h src/ui/renderer_lifecycle.h src/ui/utf8.h \
 	src/ui/view_private.h src/ui/blink_private.h $(UI_HEADERS) Makefile
+
+$(UI_OBJECTS) $(MINGW_AMD64_UI_OBJECTS) $(MINGW_I686_UI_OBJECTS): src/ui/accessible.h
 
 $(SESSION_OBJECTS) $(MINGW_AMD64_SESSION_OBJECTS) \
 $(MINGW_I686_SESSION_OBJECTS): include/boxrig/session.h \
@@ -5496,3 +5503,35 @@ $(MINGW_AMD64_BUILD_DIR)/tests/test_regex_captures.exe: tests/test_regex_capture
 
 $(MINGW_I686_BUILD_DIR)/tests/test_regex_captures.exe: tests/test_regex_captures.c $(MINGW_I686_LIBRARY) | $(MINGW_I686_BUILD_DIR)/tests
 	$(MINGW_I686_CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(MINGW_I686_LIBRARY) -o $@
+
+.PHONY: test-accessible-snapshot
+test: test-accessible-snapshot
+test-accessible-snapshot: $(BUILD_DIR)/tests/test_accessible_snapshot
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
+
+$(BUILD_DIR)/tests/test_accessible_snapshot: tests/test_accessible_snapshot.c $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(UI_LIBRARY) $(LIBRARY) -lm -o $@
+
+.PHONY: test-gtk3-accessible
+test: test-gtk3-accessible
+test-gtk3-accessible: $(BUILD_DIR)/tests/test_gtk3_accessible
+	$(XVFB_RUN) -a env GDK_BACKEND=x11 NO_AT_BRIDGE=1 GSETTINGS_BACKEND=memory GIO_USE_VFS=local ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
+
+$(BUILD_DIR)/tests/test_gtk3_accessible: tests/gtk3/test_accessible_text.c $(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK3_CPPFLAGS) $(CFLAGS) $(GTK3_PROJECT_CFLAGS) $(SANITIZERS) $< $(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK3_LIBS) -lm -o $@
+
+.PHONY: test-gtk3-atspi
+test: test-gtk3-atspi
+test-gtk3-atspi: $(BUILD_DIR)/tests/test_atspi_text $(BUILD_DIR)/tests/gtk3_accessibility_driver
+	sh tests/gtk/run_accessibility.sh $(BUILD_DIR)/tests/test_atspi_text $(abspath $(BUILD_DIR)/tests/gtk3_accessibility_driver)
+
+$(BUILD_DIR)/tests/gtk3_accessibility_driver: tests/gtk/accessibility_driver.c $(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK3_CPPFLAGS) $(CFLAGS) $(GTK3_PROJECT_CFLAGS) $(SANITIZERS) $< $(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK3_LIBS) -lm -o $@
+
+$(BUILD_DIR)/tests/test_atspi_text: tests/gtk/test_atspi_text.c | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $$(pkg-config --cflags --libs atspi-2 gobject-2.0) -o $@
+
+.PHONY: test-gtk3-orca
+test: test-gtk3-orca
+test-gtk3-orca: $(BUILD_DIR)/tests/test_atspi_text $(BUILD_DIR)/tests/gtk3_accessibility_driver
+	sh tests/gtk/run_accessibility.sh bash tests/gtk/run_orca.sh $(abspath $(BUILD_DIR)/tests/test_atspi_text) $(abspath $(BUILD_DIR)/tests/gtk3_accessibility_driver) $(abspath $(BUILD_DIR)/test-results/accessibility/gtk3)

@@ -239,6 +239,9 @@ BOXRIG_0 {
 # Intra-SDK implementation interfaces; not an application API.
 BOXRIG_PRIVATE_0 {
     global:
+        boxrig_ui_accessible_snapshot_create;
+        boxrig_ui_accessible_snapshot_destroy;
+        boxrig_ui_accessible_snapshot_diff;
         boxrig_ui_candidates_place;
         boxrig_ui_cursor_contrast_color;
         boxrig_ui_input_control_accepts;

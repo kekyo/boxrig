@@ -2265,7 +2265,7 @@ static bool test_layout_frame_and_geometry_hints(void)
     CHECK(accessible_has_state(accessible, ATK_STATE_ENABLED));
     CHECK(accessible_has_state(accessible, ATK_STATE_SENSITIVE));
     CHECK(!accessible_has_state(accessible, ATK_STATE_BUSY));
-    CHECK(!ATK_IS_TEXT(accessible));
+    CHECK(ATK_IS_TEXT(accessible));
     CHECK(layout.rows == terminal_config.rows);
     CHECK(layout.columns == terminal_config.columns);
     CHECK(layout.excess_right >= 0 && layout.excess_bottom >= 0);

@@ -78,6 +78,29 @@ After the widget is realized and its first frame completes, check the actual bac
 Continue processing frames and GTK events until a switch's `pending` state clears.
 A failed switch may preserve the previous usable rendering backend.
 
+## Read terminal text through assistive technology
+
+The GTK 3 widget implements `AtkText`.
+AT-SPI exposes the visible text, a caret corresponding to the terminal cursor, per-view selections, and character attributes.
+Offsets count Unicode scalars. Wide-character continuation cells do not add characters, while combining characters count their individual scalars.
+Character extents cover the cells occupied by the grapheme.
+
+Contents include visible rows, rather than the entire scrollback history.
+They follow history navigation, alternate-screen switches, and reflow after width changes.
+Soft wraps do not add newlines; hard breaks and empty rows contribute LF.
+Unwritten trailing cells are omitted, while explicitly printed spaces and indentation are retained.
+IME preedit text is excluded.
+
+Processing `frame()` publishes text, caret, and selection changes.
+Synchronized output retains the previous contents, and blinking alone does not repeat text notifications.
+Removal callbacks can read the old contents; insertion callbacks can read the new contents.
+A cursor outside the viewport maps to the end of the text.
+Assistive-technology requests to move the caret or change selections are unsupported and do not generate child-process input.
+
+Each published snapshot of text and position information is limited to 16 MiB.
+Exceeding that limit makes `frame()` return `BOXRIG_UI_LIMIT_EXCEEDED` and preserves the previous contents.
+See [AtkText](https://docs.gtk.org/atk/iface.Text.html) for the retrieval API contracts.
+
 ## Input and destruction considerations
 
 IME selection is independent of the rendering backend.
