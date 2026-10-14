@@ -14,13 +14,13 @@ case "$generation" in
     fcitx5)
         packages='fcitx5 fcitx5-mozc fcitx5-frontend-gtk3 fcitx5-frontend-gtk4'
         daemon_package=fcitx5
-        targets='test-fcitx5-real test-fcitx5-panels test-fcitx5-auto-real'
+        targets='test-fcitx5-real test-fcitx5-panels test-fcitx5-auto-real test-fcitx4-compat-real test-fcitx5-display'
         ;;
     fcitx4)
         version=4.2.9.9
         packages='fcitx fcitx-mozc fcitx-ui-classic fcitx-frontend-gtk3'
         daemon_package=fcitx-bin
-        targets='test-fcitx4 test-fcitx4-focus test-fcitx4-address test-fcitx4-discovery test-fcitx4-auto test-fcitx4-native test-gtk-fcitx4 test-fcitx4-real test-fcitx4-auto-real test-fcitx4-panels-core test-fcitx4-panels-gtk test-fcitx4-panels-native test-fcitx4-panels-real'
+        targets='test-fcitx4 test-fcitx4-focus test-fcitx4-address test-fcitx4-discovery test-fcitx4-auto test-fcitx4-native test-gtk-fcitx4 test-fcitx4-real test-fcitx4-auto-real test-fcitx4-panels-core test-fcitx4-panels-gtk test-fcitx4-scale test-fcitx4-panels-native test-fcitx4-panels-real test-fcitx4-display'
         ;;
     *) echo 'IME generation must be fcitx5 or fcitx4' >&2; exit 2 ;;
 esac
@@ -41,8 +41,13 @@ podman run --rm --userns=keep-id:uid=2000,gid=2000 -v "$results/source.tar:/sour
     dpkg-query -W $BOXRIG_TEST_FCITX_PACKAGES "$BOXRIG_TEST_FCITX_PACKAGE" libgtk-3-0t64 libgtk-4-1 > /results/packages.txt
     version=$(dpkg-query -W -f="\${Version}" "$BOXRIG_TEST_FCITX_PACKAGE")
     [[ "${version#*:}" == "$BOXRIG_TEST_FCITX_VERSION"-* ]]
+    status=0
     make -j"$JOBS" $BOXRIG_TEST_FCITX_TARGETS \
-        > /results/tests.log 2>&1
+        > /results/tests.log 2>&1 || status=$?
+    for display in build/test-results/fcitx*-display; do
+        if [[ -d "$display" ]]; then cp -a "$display" /results/; fi
+    done
+    exit "$status"
     ' || { tail -80 "$results/tests.log" >&2; exit 1; }
 cat "$results/packages.txt"
 echo "PASS $distribution $generation $version: $targets"

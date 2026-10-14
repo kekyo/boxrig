@@ -2,6 +2,7 @@
 # boxrig - Under MIT. Run under dbus-run-session, with an isolated display.
 set -euo pipefail
 addons=dbus,dbusfrontend,keyboard,mozc
+if [ -n "${BOXRIG_TEST_FCITX4_COMPAT:-}" ]; then addons+=,fcitx4frontend; fi
 # GUI callers provide a private Xvfb/Weston display. Protocol-only native
 # tests must not attach the daemon to a desktop inherited from the shell.
 if [ "${1:-}" = --display ]; then
@@ -82,6 +83,10 @@ if ! wait -n -p completed "$daemon_pid" "$ready_pid" || [ "$completed" != "$read
     exit 1
 fi
 ready_pid=
+if [ -n "${BOXRIG_TEST_FCITX4_COMPAT:-}" ]; then
+    display_number=${DISPLAY##*:}
+    gdbus wait --session --timeout 60 "org.fcitx.Fcitx-${display_number%%.*}"
+fi
 if ! "$@"; then
     cat "$probe_root/daemon.log" >&2
     exit 1

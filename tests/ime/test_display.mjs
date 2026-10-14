@@ -7,6 +7,7 @@ import {createInterface} from 'node:readline';
 import {mkdtemp, mkdir, readFile, writeFile, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {resolve, join} from 'node:path';
+import {fileURLToPath} from 'node:url';
 
 if (process.argv[2] === '--child') {
     process.stdin.setRawMode(true);
@@ -25,6 +26,9 @@ if (process.argv[2] === '--child') {
 } else {
     const [samplePath, backend, renderer, destination] = process.argv.slice(2);
     assert(samplePath && ['wayland', 'gtk3'].includes(backend) && renderer && destination);
+    const generation = process.env.BOXRIG_TEST_FCITX4_DISPLAY ? 'fcitx4' : 'fcitx5';
+    const client = backend === 'wayland' || Boolean(process.env.BOXRIG_TEST_FCITX4_CLIENT);
+    const minimumHeight = generation === 'fcitx4' ? 20 : 40;
     const output = resolve(destination);
     await mkdir(output, {recursive: true});
     const temporary = await mkdtemp(join(tmpdir(), 'boxrig-fcitx-display-'));
@@ -70,9 +74,9 @@ if (process.argv[2] === '--child') {
         server.listen(socketPath);
         await once(server, 'listening');
         sample = spawn(resolve(samplePath), ['--renderer=' + renderer, '--', process.execPath,
-            import.meta.filename, '--child', socketPath], {env: {...process.env,
-            BOXRIG_WAYLAND_IME: 'auto', BOXRIG_GTK_IME: 'fcitx5',
-            BOXRIG_IME_CANDIDATES: backend === 'wayland' ? 'client' : 'system'},
+            fileURLToPath(import.meta.url), '--child', socketPath], {env: {...process.env,
+            BOXRIG_WAYLAND_IME: 'auto', BOXRIG_GTK_IME: generation,
+            BOXRIG_IME_CANDIDATES: client ? 'client' : 'system'},
             stdio: ['ignore', 'pipe', 'pipe']});
         sample.on('close', () => { closed = true; events.emit('changed'); });
         sample.stderr.on('data', bytes => { errors += bytes; });
@@ -83,7 +87,7 @@ if (process.argv[2] === '--child') {
                 events.emit('changed');
             }
         });
-        await awaitState(() => ready && state['ime-route'] === 'fcitx5' && state['direct-state'] === '2');
+        await awaitState(() => ready && state['ime-route'] === generation && state['direct-state'] === '2');
         let window, bounds;
         if (backend === 'wayland') {
             const log = await readFile(process.env.BOXRIG_TEST_WESTON_LOG, 'utf8');
@@ -100,6 +104,7 @@ if (process.argv[2] === '--child') {
         } else {
             window = xdo('search', '--sync', '--onlyvisible', '--pid', String(sample.pid),
                 '--name', '^boxrig-fcitx-display$').split('\n')[0];
+            if (generation === 'fcitx4') xdo('windowmove', '--sync', window, '120', '80');
             const geometry = Object.fromEntries(xdo('getwindowgeometry', '--shell', window)
                 .split('\n').map(line => line.split('=')));
             bounds = [Number(geometry.X), Number(geometry.Y), Number(geometry.X) + Number(geometry.WIDTH),
@@ -117,8 +122,17 @@ if (process.argv[2] === '--child') {
             if (/^frame=\s*[1-9]/.test(line)) { recording = true; events.emit('changed'); }
         });
         await awaitState(() => recording);
-        command('gdbus', ['call', '--session', '--dest', 'org.fcitx.Fcitx5', '--object-path', '/controller',
-            '--method', 'org.fcitx.Fcitx.Controller1.SetCurrentIM', 'mozc']);
+        if (generation === 'fcitx4') {
+            const display = /:(\d+)/.exec(process.env.DISPLAY)?.[1];
+            assert(display);
+            const args = ['call', '--address', process.env.BOXRIG_TEST_FCITX4_REAL_ADDRESS,
+                '--dest', 'org.fcitx.Fcitx-' + display, '--object-path', '/inputmethod', '--method'];
+            command('gdbus', [...args, 'org.fcitx.Fcitx.InputMethod.SetCurrentIM', 'mozc']);
+            command('gdbus', [...args, 'org.fcitx.Fcitx.InputMethod.ActivateIM']);
+        } else {
+            command('gdbus', ['call', '--session', '--dest', 'org.fcitx.Fcitx5', '--object-path', '/controller',
+                '--method', 'org.fcitx.Fcitx.Controller1.SetCurrentIM', 'mozc']);
+        }
         const before = await capture('before');
         const cropX = Math.max(0, bounds[0] + 10), cropY = Math.max(0, bounds[1] + 35);
         const cropWidth = Math.min(1280, bounds[2] - 20) - cropX;
@@ -147,22 +161,24 @@ if (process.argv[2] === '--child') {
         xdo('type', '--clearmodifiers', '--delay', '0', 'kisha');
         xdo('key', '--clearmodifiers', 'space', 'space');
         let popup;
-        if (backend === 'wayland') {
-            await awaitState(() => state['candidate-owner'] === 'client' && Number(state['candidate-count']) > 0 &&
-                state['candidate-visible'] === '1');
+        if (client) {
+            await awaitState(() => state['candidate-owner'] === 'client' && state['candidate-visible'] === '1' &&
+                (generation === 'fcitx4' || Number(state['candidate-count']) > 0));
+            if (generation === 'fcitx4') assert.equal(state['candidate-count'], '0');
         } else {
-            popup = xdo('search', '--sync', '--onlyvisible', '--name', '^Fcitx5 Input Window$').split('\n')[0];
+            popup = xdo('search', '--sync', '--onlyvisible', '--name',
+                generation === 'fcitx4' ? '^Fcitx Input Window$' : '^Fcitx5 Input Window$').split('\n')[0];
             assert(popup);
             assert.equal(state['candidate-owner'], 'system');
         }
         const page = await capture('page');
         const candidatePixels = difference(terminalPixels(page), baseline);
-        assert(candidatePixels.changed > 300 && candidatePixels.height > 40,
+        assert(candidatePixels.changed > 300 && candidatePixels.height > minimumHeight,
             'Candidate rows must be painted inside the terminal area');
         assert.equal(received, '', 'Composition must not leak romanization into the PTY');
         const revision = Number(state['candidate-revision']);
         xdo('key', '--clearmodifiers', 'Page_Down');
-        if (backend === 'wayland') await awaitState(() => Number(state['candidate-revision']) > revision);
+        if (client) await awaitState(() => Number(state['candidate-revision']) > revision);
         const next = await capture('next-page');
         assert(difference(terminalPixels(next), terminalPixels(page)).changed > 300,
             'Paging must update the displayed candidate content');
@@ -170,18 +186,18 @@ if (process.argv[2] === '--child') {
         await awaitState(() => received.length > 0);
         assert(/\p{Script=Han}/u.test(received) && !/[a-z\r\n]/.test(received), received);
         const committed = received;
-        if (backend === 'wayland') await awaitState(() => state['candidate-visible'] === '0');
+        if (client) await awaitState(() => state['candidate-visible'] === '0');
         const committedPixels = difference(terminalPixels(await capture('committed')), baseline).changed;
         /* The raw child does not echo committed text. Only the blinking cursor
          * may differ from the empty terminal after the overlay is removed. */
         assert(committedPixels <= 300, 'Committing must remove the painted preedit and candidates');
         xdo('type', '--clearmodifiers', '--delay', '0', 'kisha');
         xdo('key', '--clearmodifiers', 'space', 'space');
-        if (backend === 'wayland') await awaitState(() => state['candidate-visible'] === '1');
+        if (client) await awaitState(() => state['candidate-visible'] === '1');
         /* Mozc first returns from conversion to its reading, then cancels
          * that reading. Suggestions may still be visible after one Escape. */
         xdo('key', '--clearmodifiers', 'Escape', 'Escape');
-        if (backend === 'wayland') await awaitState(() => state['candidate-visible'] === '0');
+        if (client) await awaitState(() => state['candidate-visible'] === '0');
         const cancelledPixels = difference(terminalPixels(await capture('cancelled')), baseline).changed;
         assert(cancelledPixels <= 300, 'Cancelling must remove the painted preedit and candidates');
         assert.equal(received, committed, 'Cancellation must not emit text');
@@ -195,18 +211,18 @@ if (process.argv[2] === '--child') {
         const frames = [];
         for (let offset = 0; offset < video.length; offset += baseline.length)
             frames.push(difference(video.subarray(offset, offset + baseline.length), baseline));
-        assert(frames.length >= 5 && frames.some(frame => frame.changed > 300 && frame.height > 40),
+        assert(frames.length >= 5 && frames.some(frame => frame.changed > 300 && frame.height > minimumHeight),
             'The lossless recording must show the candidate rows');
         assert(frames.at(-1).changed <= 300,
             'The lossless recording must finish with the preedit and candidates removed');
-        await writeFile(join(output, 'observations.json'), JSON.stringify({backend, renderer,
+        await writeFile(join(output, 'observations.json'), JSON.stringify({generation, backend, renderer, client,
             bounds, candidatePixels: candidatePixels.changed, committedPixels, cancelledPixels,
             videoFrames: frames.length, finalFramePixels: frames.at(-1).changed, committed,
             phases: ['before', 'page', 'next-page', 'committed', 'cancelled']}, null, 2));
         socket.end('quit\n');
         const [code, signal] = await once(sample, 'close');
         assert.equal(signal, null, errors); assert.equal(code, 0, errors);
-        console.log(`PASS real fcitx5 ${backend}/${renderer}: visible candidates, paging, one commit, cancellation`);
+        console.log(`PASS real ${generation} ${backend}/${renderer}: visible candidates, paging, one commit, cancellation`);
     } finally {
         if (recorder && recorder.exitCode === null) recorder.kill('SIGINT');
         if (recorderClosed) await recorderClosed;

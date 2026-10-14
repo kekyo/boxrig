@@ -569,3 +569,17 @@ Debian 13のfcitx 4.2.9.9とMozc 2.29.5160.102で、GTK 3／X11、GTK 3／4／Wa
 検証コマンドは`bash tests/ime/run_distribution.sh debian13 fcitx4`です。接続、フォーカス、アドレス探索、自動選択、SYSTEM表示、文字列パネルの全ターゲットが成功しました。パッケージ版とログは`build/test-results/ime-distributions/debian13-fcitx4/`にあります。Wayland試験では、実デーモンの起動スクリプトも、試験用Westonのランタイムディレクトリーを維持します。
 
 fcitx 5のパネルと自動選択、IBusの候補、GTKの直接IBus経路、Wayland入力の回帰試験も成功しました。記録は`build/test-results/fcitx4/panel-regression.log`です。段階5では続いて、付属ターミナルでの実表示と、パネルを提供しない4系互換サービスの診断を確認します。
+
+### 段階5の実表示と互換サービスを確認
+
+`test-fcitx4-display`で付属ターミナルを起動し、実fcitx 4／Mozcの入力と表示を検証しました。native Waylandは実際のWeston上でCairoとOpenGLを使用します。GTK 3／X11では、ウィンドウを移動した後のSYSTEMとCLIENTの両方を確認しました。候補と未確定文字、ページ移動、確定の一度だけの配送、取消、確定・取消後の消去が成功しています。
+
+各試験で54〜69フレームの動画を記録し、候補が描画されたフレームと、最後に候補が消えたフレームを検証しました。確定・取消後の静止画は、空の端末と同じ画素になっています。候補の画像も目視しました。結果は`build/test-results/fcitx4/display-probe/fcitx4-display/`の各経路の画像、動画、`observations.json`に保存しています。
+
+最初の画像比較では、入力前の基準画像に一時的な「Mozc」の案内が含まれ、正しく消去された画像との差分が失敗になりました。試験用設定の`ShowInputWindowAfterTriggering=False`でこの案内だけを無効にし、固定時間待機を加えずに比較条件をそろえています。失敗時の画像とログは`build/test-results/fcitx4/display-hint-red/`と`display-hint-red.log`です。[fcitx 4の案内表示設定](https://github.com/fcitx/fcitx/blob/4.2.9.9/data/config.desc#L210)
+
+`test-fcitx4-scale`では、GTK 3／X11とGTK 3／4／Waylandの倍率2でパネルの配置と操作が成功しました。ビュー端と狭い領域は、既存の文字列パネルの配置試験とCairo／OpenGLの画素試験で確認済みです。共通の表示ドライバーを変更したため、fcitx 5の実表示3経路も再実行し、成功しました。
+
+`test-fcitx4-compat-real`は、実fcitx 5の4系互換フロントエンドを有効にして実行します。4系を明示すると文字の変換・確定は成功しますが、パネル通知がないため候補所有者はNONE、理由はUNCONFIRMEDです。AUTOでは互換サービスを同じ提供元と判定し、5系の直接接続とページ形式の候補を使用します。この両方を確認しました。[互換フロントエンドの未提供機能](https://github.com/fcitx/fcitx5/blob/5.1.12/src/frontend/fcitx4frontend/fcitx4frontend.cpp#L235)
+
+文字列パネル、キー操作、候補の所有者、4／5の区別、互換サービス、切断・再接続、入力禁止とフォーカス変更について、第7節の段階5の完了条件を満たしました。次は段階6として、Debian 13／Ubuntu 24.04／26.04の両世代、全体の回帰試験、公開設定・診断・文書の一致を確認します。

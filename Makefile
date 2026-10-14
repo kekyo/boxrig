@@ -5648,6 +5648,19 @@ test-fcitx4-panels-gtk: $(BUILD_DIR)/tests/test_gtk3_fcitx4 $(BUILD_DIR)/tests/t
 
 test: test-fcitx4-panels-gtk
 
+.PHONY: test-fcitx4-scale
+test-fcitx4-scale:
+	GDK_SCALE=2 $(MAKE) test-fcitx4-panels-gtk
+
+test: test-fcitx4-scale
+
+.PHONY: test-fcitx4-compat-real
+test-fcitx4-compat-real: $(BUILD_DIR)/tests/test_gtk3_fcitx4
+	$(XVFB_RUN) -a env -u FCITX_DBUS_ADDRESS GDK_BACKEND=x11 GTK_IM_MODULE=gtk-im-context-simple GTK_A11Y=none NO_AT_BRIDGE=1 GIO_USE_VFS=local BOXRIG_TEST_FCITX4_COMPAT=1 BOXRIG_TEST_FCITX4_PANELS=1 ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx5_real.sh --display $<
+	$(XVFB_RUN) -a env -u FCITX_DBUS_ADDRESS -u GTK_IM_MODULE GDK_BACKEND=x11 GTK_A11Y=none NO_AT_BRIDGE=1 GIO_USE_VFS=local IBUS_ADDRESS= XMODIFIERS= FCITX_X11_USE_CLIENT_SIDE_UI=True BOXRIG_TEST_IME_AUTO=1 BOXRIG_TEST_FCITX4_COMPAT=1 BOXRIG_TEST_FCITX4_PANELS=1 ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx5_real.sh --display $<
+
+test: test-fcitx4-compat-real
+
 .PHONY: test-fcitx4-panels-real
 test-fcitx4-panels-real: $(BUILD_DIR)/tests/test_gtk3_fcitx4 $(BUILD_DIR)/tests/test_gtk4_fcitx4 $(WAYLAND_CONTEXT_TEST_BINARY)
 	$(XVFB_RUN) -a env IBUS_ADDRESS= XMODIFIERS= BOXRIG_TEST_FCITX4=1 BOXRIG_TEST_FCITX4_PANELS=1 GDK_BACKEND=x11 GIO_USE_VFS=local ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4_real.sh $(WAYLAND_CONTEXT_TEST_BINARY) "$(TEST_FONT_FILE)"
@@ -5806,3 +5819,11 @@ test-fcitx5-display: $(GTK3_EXAMPLE_BINARY) $(WAYLAND_EXAMPLE_BINARY)
 	$(XVFB_RUN) -a -s '-screen 0 1280x800x24' env GDK_BACKEND=x11 GTK_IM_MODULE=gtk-im-context-simple GTK_A11Y=none NO_AT_BRIDGE=1 GIO_USE_VFS=local LIBGL_ALWAYS_SOFTWARE=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx5_real.sh --display node tests/ime/test_display.mjs $(GTK3_EXAMPLE_BINARY) gtk3 cairo $(BUILD_DIR)/test-results/fcitx5-display/gtk3-system
 
 test: test-fcitx5-display
+
+.PHONY: test-fcitx4-display
+test-fcitx4-display: $(GTK3_EXAMPLE_BINARY) $(WAYLAND_EXAMPLE_BINARY)
+	@for renderer in wayland opengl; do \
+		$(XVFB_RUN) -a -s '-screen 0 1280x800x24' env BOXRIG_TEST_FCITX4_DISPLAY=1 BOXRIG_TEST_WESTON_BACKEND=x11 BOXRIG_TEST_WESTON_DEBUG=1 GTK_IM_MODULE=gtk-im-context-simple GTK_A11Y=none GIO_USE_VFS=local LIBGL_ALWAYS_SOFTWARE=1 IBUS_ADDRESS= XMODIFIERS=@im=fcitx dbus-run-session --config-file=tests/ime/session.conf -- bash tests/gtk/run_gl_wayland.sh bash tests/ime/run_fcitx4_real.sh node tests/ime/test_display.mjs $(WAYLAND_EXAMPLE_BINARY) wayland $$renderer $(BUILD_DIR)/test-results/fcitx4-display/wayland-$$renderer || exit $$?; \
+	done
+	$(XVFB_RUN) -a -s '-screen 0 1280x800x24' env BOXRIG_TEST_FCITX4_DISPLAY=1 GDK_BACKEND=x11 GTK_IM_MODULE=gtk-im-context-simple GTK_A11Y=none NO_AT_BRIDGE=1 GIO_USE_VFS=local LIBGL_ALWAYS_SOFTWARE=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4_real.sh node tests/ime/test_display.mjs $(GTK3_EXAMPLE_BINARY) gtk3 cairo $(BUILD_DIR)/test-results/fcitx4-display/gtk3-system
+	$(XVFB_RUN) -a -s '-screen 0 1280x800x24' env BOXRIG_TEST_FCITX4_DISPLAY=1 BOXRIG_TEST_FCITX4_CLIENT=1 GDK_BACKEND=x11 GTK_IM_MODULE=gtk-im-context-simple GTK_A11Y=none NO_AT_BRIDGE=1 GIO_USE_VFS=local LIBGL_ALWAYS_SOFTWARE=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4_real.sh node tests/ime/test_display.mjs $(GTK3_EXAMPLE_BINARY) gtk3 cairo $(BUILD_DIR)/test-results/fcitx4-display/gtk3-client

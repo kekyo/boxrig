@@ -224,6 +224,41 @@ static boxrig_ui_status real_edit(const boxrig_ui_editable_replacement_request *
     edits++;
     return BOXRIG_UI_OK;
 }
+static void real_compatibility(bool automatic)
+{
+    GDBusConnection *bus = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, NULL);
+    CHECK(bus != NULL);
+    GVariant *reply = g_dbus_connection_call_sync(bus, "org.fcitx.Fcitx5", "/controller",
+        "org.fcitx.Fcitx.Controller1", "SetCurrentIM", g_variant_new("(s)", "mozc"),
+        G_VARIANT_TYPE_UNIT, G_DBUS_CALL_FLAGS_NO_AUTO_START, 60000, NULL, NULL);
+    CHECK(reply != NULL);
+    g_variant_unref(reply);
+    for (const char *letter = "kisha"; *letter != 0; letter++) key((guint)*letter);
+    key(GDK_KEY_space);
+    key(GDK_KEY_space);
+    output("");
+    boxrig_gtk_ime_state state;
+    CHECK(widget_ime_state(widget, &state) == BOXRIG_UI_OK);
+    if (automatic) {
+        CHECK(state.direct.compatibility_alias && !state.direct.ambiguous);
+        CHECK(state.candidate_owner == BOXRIG_UI_CANDIDATE_OWNER_CLIENT);
+        CHECK(state.candidate_visible && state.candidate_count > 0);
+    } else {
+        CHECK(state.candidate_owner == BOXRIG_UI_CANDIDATE_OWNER_NONE);
+        CHECK(state.candidate_reason == BOXRIG_UI_CANDIDATE_UNCONFIRMED);
+        CHECK(!state.candidate_visible && state.candidate_count == 0);
+    }
+    key(GDK_KEY_F7);
+    key(GDK_KEY_Return);
+    output("キシャ");
+    for (const char *letter = "kisha"; *letter != 0; letter++) key((guint)*letter);
+    key(GDK_KEY_Escape);
+    output("");
+    CHECK(widget_ime_state(widget, &state) == BOXRIG_UI_OK && !state.candidate_visible);
+    g_object_unref(bus);
+    puts(automatic ? "PASS real fcitx5 native selection over its fcitx4 compatibility frontend" :
+        "PASS real fcitx4 compatibility input without claiming unprovided client panels");
+}
 static void real_mozc(void)
 {
     const char *display = g_getenv("DISPLAY");
@@ -336,6 +371,7 @@ int main(void)
 #endif
     panels = g_getenv("BOXRIG_TEST_FCITX4_PANELS") != NULL;
     bool automatic = g_getenv("BOXRIG_TEST_IME_AUTO") != NULL;
+    bool compatibility = g_getenv("BOXRIG_TEST_FCITX4_COMPAT") != NULL;
     if (automatic) g_object_set(gtk_settings_get_default(), "gtk-im-module", "gtk-im-context-simple", NULL);
     boxrig_terminal_config config = boxrig_terminal_config_default();
     boxrig_ui_model *model;
@@ -367,12 +403,13 @@ int main(void)
     focus(true);
     boxrig_gtk_ime_state state;
     CHECK(widget_ime_state(widget, &state) == BOXRIG_UI_OK);
-    CHECK(state.active_route == BOXRIG_GTK_IME_ROUTE_FCITX4);
-    CHECK(state.direct.backend == BOXRIG_IME_BACKEND_FCITX4);
+    CHECK(state.active_route == (automatic && compatibility ? BOXRIG_GTK_IME_ROUTE_FCITX5 : BOXRIG_GTK_IME_ROUTE_FCITX4));
+    CHECK(state.direct.backend == (automatic && compatibility ? BOXRIG_IME_BACKEND_FCITX5 : BOXRIG_IME_BACKEND_FCITX4));
     CHECK(automatic ? state.direct.selection_reason == BOXRIG_IME_SELECTION_SINGLE :
         state.reason == BOXRIG_GTK_IME_REASON_EXPLICIT_FCITX4);
     CHECK(state.candidate_owner == (panels ? BOXRIG_UI_CANDIDATE_OWNER_NONE : BOXRIG_UI_CANDIDATE_OWNER_SYSTEM));
     CHECK(state.candidate_valid);
+    if (compatibility) { real_compatibility(automatic); goto cleanup; }
     if (g_getenv("BOXRIG_TEST_FCITX_REAL") != NULL) { real_mozc(); goto cleanup; }
     if (panels) { mock_panel(); goto cleanup; }
     key('a');

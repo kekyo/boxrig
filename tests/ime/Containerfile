@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpango1.0-dev libcairo2-dev libfontconfig-dev libgtk-3-dev libgtk-4-dev \
     libibus-1.0-dev libwayland-dev libwayland-bin libxkbcommon-dev libdecor-0-dev \
     libepoxy-dev libgl-dev libegl-dev \
-    dbus-daemon dbus-x11 ibus xvfb xauth weston \
+    dbus-daemon dbus-x11 ibus xvfb xauth weston xdotool ffmpeg \
     ${IME_PACKAGES} \
     fonts-dejavu-core fonts-noto-cjk && \
     rm -rf /var/lib/apt/lists/*

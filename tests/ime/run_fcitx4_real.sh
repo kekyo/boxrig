@@ -63,6 +63,9 @@ DelayStart=0
 DefaultInputMethodState=Active
 [Output]
 DontCommitPreeditWhenUnfocus=$no_commit
+[Appearance]
+# Keep the empty display free of the transient IM-name hint.
+ShowInputWindowAfterTriggering=False
 EOF
 fcitx -D -s 0 > "$probe_root/daemon.log" 2>&1 &
 daemon_pid=$!
