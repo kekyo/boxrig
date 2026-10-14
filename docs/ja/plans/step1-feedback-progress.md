@@ -371,6 +371,15 @@ APIの導入版は[GtkAccessibleTextの公式説明](https://docs.gtk.org/gtk4/i
 入力ショートカット試験も、段階6で共通入力処理がcoreへ依存したため、リンクにcoreを追加しました。
 既存の動作試験をそのまま使い、リンク失敗から実行成功までを確認しています。
 
+WindowsのPE監査では、名前付きキャプチャが使う`strcmp`と、入力停止が使う`ImmAssociateContext`の一覧追加が漏れていました。
+前者は既存MSVCRTの文字列比較、後者はWindows XP以降のAPIであり、対応OSの条件は変わりません。
+根拠はMicrosoftの[`strcmp`説明](https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/strcmp-wcscmp-mbscmp)と[`ImmAssociateContext`の要件](https://learn.microsoft.com/en-us/windows/win32/api/imm/nf-imm-immassociatecontext)です。
+一覧に出典付きで追加した後、amd64・i686のcore・基本UI利用側12件で監査が成功しました。
+
+Wineでは2倍表示の塗りつぶしカーソル内の文字色判定が失敗しました。
+同じ実行ファイルを実Windowsで動かすと、amd64・i686のカーソル描画・点滅・アニメーション・モジュール間通知の6件すべてが成功しました。
+ログは`build/test-results/step23-blink/`へ保存しています。Wine固有の差として記録し、描画実装や期待値は変更していません。
+
 ## 後続段階の事前確認
 
 GTK 3.24.41、GTK 4.14.5、GTK3/GTK4向けVTE 0.76.0、AT-SPI 2.52、Orca、MinGWのamd64/i686とWineが利用できます。

@@ -22,6 +22,9 @@ gdi32.dll SelectObject
 gdi32.dll SetDCBrushColor
 gdi32.dll SetDCPenColor
 gdi32.dll SetPixelV
+# ImmAssociateContext: Windows XP; detach and restore IME during input suspension.
+# https://learn.microsoft.com/en-us/windows/win32/api/imm/nf-imm-immassociatecontext
+imm32.dll ImmAssociateContext
 imm32.dll ImmGetCompositionStringW
 imm32.dll ImmGetContext
 imm32.dll ImmGetProperty
