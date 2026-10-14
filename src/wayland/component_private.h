@@ -12,6 +12,7 @@
 #include "../pangocairo/renderer_private.h"
 #include "shm_private.h"
 #include "../ui/scrollbar_visibility.h"
+#include "../ui/input_control.h"
 
 typedef struct boxrig_wayland_font_specification_storage {
     boxrig_font_specification specification;
@@ -127,6 +128,9 @@ struct boxrig_wayland_terminal_component {
     size_t pressed_button_count;
     size_t input_error_count;
     uint64_t input_generation;
+    /* Input inhibition is independent of clipboard ownership/focus serials. */
+    boxrig_ui_input_control input_control;
+    bool processing_input;
     boxrig_input_key_router key_router;
     void *key_router_context;
     boxrig_input_mouse_router mouse_router;

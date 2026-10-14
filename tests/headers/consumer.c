@@ -69,6 +69,8 @@ int main(void)
     assert(boxrig_x11_terminal_component_get_input_state(NULL, &input_state) == BOXRIG_UI_INVALID_ARGUMENT);
     boxrig_x11_host_policy policy = boxrig_x11_host_policy_default();
     boxrig_wayland_context_config wayland = boxrig_wayland_context_config_default();
+    assert(boxrig_wayland_terminal_component_set_input_enabled(NULL, false) == BOXRIG_UI_INVALID_ARGUMENT);
+    assert(boxrig_wayland_terminal_component_get_input_state(NULL, &input_state) == BOXRIG_UI_INVALID_ARGUMENT);
     boxrig_ogl_renderer_config renderer = boxrig_ogl_renderer_config_default();
     (void)policy;
     (void)wayland;

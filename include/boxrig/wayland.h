@@ -909,6 +909,31 @@ boxrig_composition *boxrig_wayland_terminal_component_composition(
     boxrig_wayland_terminal_component *component);
 
 /**
+ * Requests input inhibition or resumption on the owning event thread.
+ * @param component Component whose terminal input is controlled.
+ * @param enabled True to resume, false to cancel unsubmitted input.
+ * @return OK when complete, BUSY while a paste terminator awaits capacity or
+ * during input dispatch, INVALID_ARGUMENT, LIMIT_EXCEEDED, or UNAVAILABLE.
+ * @remarks An accepted disable request advances the generation immediately.
+ * Continue context dispatch to enqueue any required paste terminator, and use
+ * get_input_state() to distinguish STOPPING from DISABLED before resuming.
+ * Reentrant BUSY preserves the old state. DISABLED denotes core submission,
+ * not transport drain. Selection, copy, local routes, rendering, and terminal
+ * protocol replies remain available. Held keys stay inhibited until release.
+ */
+boxrig_ui_status boxrig_wayland_terminal_component_set_input_enabled(
+    boxrig_wayland_terminal_component *component, bool enabled);
+
+/**
+ * Reads the input phase and generation without advancing pending work.
+ * @param component Component on its owning event thread.
+ * @param state_out Required state output.
+ * @return OK or INVALID_ARGUMENT.
+ */
+boxrig_ui_status boxrig_wayland_terminal_component_get_input_state(
+    const boxrig_wayland_terminal_component *component, boxrig_ui_input_state *state_out);
+
+/**
  * Exchanges input settings when no native key or IME transaction is pending.
  * @param component Frontend to configure on its owning event thread.
  * @param config Complete replacement, copied using the core validation rules.

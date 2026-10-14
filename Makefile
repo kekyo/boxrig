@@ -2150,7 +2150,7 @@ $(POSIX_OBJECTS): include/boxrig/posix.h Makefile
 
 $(BUILD_DIR)/ui/input.o $(MINGW_AMD64_BUILD_DIR)/ui/input.o \
 $(MINGW_I686_BUILD_DIR)/ui/input.o $(BUILD_DIR)/gtk3/input.o \
-$(BUILD_DIR)/gtk4/input.o $(BUILD_DIR)/x11/input.o \
+$(BUILD_DIR)/gtk4/input.o $(BUILD_DIR)/x11/input.o $(WAYLAND_OBJECTS) \
 $(MINGW_AMD64_BUILD_DIR)/win32/input.o $(MINGW_I686_BUILD_DIR)/win32/input.o \
 $(MINGW_AMD64_INPUT_TEST) $(MINGW_I686_INPUT_TEST): src/ui/input_control.h
 

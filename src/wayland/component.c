@@ -1348,7 +1348,8 @@ boxrig_ui_status boxrig_wayland_terminal_component_set_input_config(
         BOXRIG_COMPOSITION_OK) {
         return BOXRIG_UI_INVALID_ARGUMENT;
     }
-    if (component->pressed_key_count != 0u || component->input_queue_depth != 0u ||
+    if (component->processing_input || component->input_control.state.phase == BOXRIG_UI_INPUT_STOPPING ||
+        component->pressed_key_count != 0u || component->input_queue_depth != 0u ||
         component->input_blocked || component->ime_waiting ||
         composition.active || composition.commit_pending ||
         boxrig_wayland_clipboard_input_pending(component)) {

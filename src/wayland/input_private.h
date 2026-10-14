@@ -36,6 +36,8 @@ typedef enum boxrig_wayland_input_item_type {
 
 typedef struct boxrig_wayland_input_item {
     boxrig_wayland_input_item_type type;
+    uint64_t input_generation;
+    bool inhibited_key;
     boxrig_wayland_seat *seat;
     uint32_t native_code;
     bool route_resolved;
@@ -111,6 +113,8 @@ struct boxrig_wayland_seat {
     boxrig_wayland_terminal_component *text_component;
     boxrig_wayland_terminal_component *repeat_component;
     boxrig_wayland_pressed_key keys[256];
+    bool native_pressed[256];
+    bool inhibited_key[256];
     boxrig_wayland_serial serials[4];
     boxrig_wayland_terminal_component *serial_components[4];
     bool serial_valid[4];
