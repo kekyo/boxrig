@@ -48,6 +48,11 @@ int main(void)
     boxrig_win32_host_policy policy = boxrig_win32_host_policy_default();
     uint64_t now;
     assert(boxrig_win32_sample_monotonic_time(&now) == 0);
+    boxrig_ui_input_state state;
+    assert(boxrig_win32_input_adapter_set_input_enabled(NULL, false) == BOXRIG_UI_INVALID_ARGUMENT);
+    assert(boxrig_win32_input_adapter_get_input_state(NULL, &state) == BOXRIG_UI_INVALID_ARGUMENT);
+    assert(boxrig_win32_terminal_component_set_input_enabled(NULL, false) == BOXRIG_UI_INVALID_ARGUMENT);
+    assert(boxrig_win32_terminal_component_get_input_state(NULL, &state) == BOXRIG_UI_INVALID_ARGUMENT);
     (void)pty;
     (void)policy;
 #else

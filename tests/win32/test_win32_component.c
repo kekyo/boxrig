@@ -2300,12 +2300,77 @@ static bool scrollbar_visibility_changes_layout(void)
     return true;
 }
 
+static bool input_inhibition_completes_during_frames(void)
+{
+    HWND parent = CreateWindowExW(0, L"STATIC", L"input inhibition", WS_OVERLAPPEDWINDOW,
+        0, 0, 640, 480, NULL, NULL, GetModuleHandleW(NULL), NULL);
+    CHECK(parent != NULL);
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    config.output_capacity = 6;
+    boxrig_terminal *terminal = NULL;
+    boxrig_ui_model *model = NULL;
+    boxrig_win32_terminal_component *component = NULL;
+    boxrig_win32_terminal_component_config component_config = boxrig_win32_terminal_component_config_default();
+    component_config.paste_chunk_size = 1;
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
+    CHECK(boxrig_win32_terminal_component_create_child(GetModuleHandleW(NULL), parent,
+        model, &component_config, &component) == BOXRIG_UI_OK);
+    HWND input = boxrig_win32_terminal_component_input_window(component);
+    HIMC input_context = ImmCreateContext();
+    CHECK(input_context != NULL);
+    HIMC previous_context = ImmAssociateContext(input, input_context);
+    CHECK(feed_text(terminal, "\033[?2004h"));
+    CHECK(boxrig_win32_terminal_component_queue_paste(component, (const uint8_t *)"discard", 7) == BOXRIG_UI_OK);
+    CHECK(boxrig_win32_terminal_component_set_input_enabled(component, false) == BOXRIG_UI_BUSY);
+    boxrig_ui_input_state state;
+    CHECK(boxrig_win32_terminal_component_get_input_state(component, &state) == BOXRIG_UI_OK);
+    CHECK(state.phase == BOXRIG_UI_INPUT_STOPPING);
+    CHECK(ImmGetContext(input) == NULL);
+    LRESULT result;
+    CHECK(boxrig_win32_terminal_component_dispatch_message(component, input, WM_SETFOCUS, 0, 0, &result) == BOXRIG_UI_COMPONENT_EVENT_HANDLED);
+    CHECK(boxrig_win32_terminal_component_focused(component));
+    CHECK(boxrig_win32_terminal_component_dispatch_message(component, input, WM_KILLFOCUS, 0, 0, &result) == BOXRIG_UI_COMPONENT_EVENT_HANDLED);
+    CHECK(!boxrig_win32_terminal_component_focused(component));
+    boxrig_ui_component_frame_result frame;
+    CHECK(boxrig_win32_terminal_component_frame(component, &frame) == BOXRIG_UI_OK);
+    CHECK(frame.input_blocked);
+    CHECK(boxrig_terminal_output_consume(terminal, 6) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_win32_terminal_component_frame(component, &frame) == BOXRIG_UI_OK);
+    CHECK(!frame.input_blocked);
+    const uint8_t *output;
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 6 && memcmp(output, "\033[201~", 6) == 0);
+    CHECK(boxrig_win32_terminal_component_get_input_state(component, &state) == BOXRIG_UI_OK);
+    CHECK(state.phase == BOXRIG_UI_INPUT_DISABLED);
+    CHECK(boxrig_win32_terminal_component_queue_paste(component, (const uint8_t *)"x", 1) == BOXRIG_UI_UNAVAILABLE);
+    CHECK(boxrig_win32_terminal_component_set_input_enabled(component, true) == BOXRIG_UI_OK);
+    CHECK(ImmGetContext(input) == input_context);
+    CHECK(ImmReleaseContext(input, input_context));
+    CHECK(ImmAssociateContext(input, previous_context) == input_context);
+    previous_context = ImmAssociateContext(parent, input_context);
+    boxrig_win32_input_adapter *adapter = NULL;
+    CHECK(boxrig_win32_input_adapter_create(parent, terminal, 10, 20, 1024, 1, &adapter) == 0);
+    CHECK(boxrig_win32_input_adapter_set_input_enabled(adapter, false) == BOXRIG_UI_OK);
+    CHECK(ImmGetContext(parent) == NULL);
+    boxrig_win32_input_adapter_destroy(adapter);
+    CHECK(ImmGetContext(parent) == input_context);
+    CHECK(ImmReleaseContext(parent, input_context));
+    CHECK(ImmAssociateContext(parent, previous_context) == input_context);
+    CHECK(ImmDestroyContext(input_context));
+    boxrig_win32_terminal_component_destroy(component);
+    boxrig_ui_model_destroy(model);
+    boxrig_terminal_destroy(terminal);
+    CHECK(DestroyWindow(parent));
+    return true;
+}
+
 int main(int argc, char **argv)
 {
     if (argc != 2) return 1;
     for (omitted_interface = 0; omitted_interface < OPTIONAL_INTERFACE_SCENARIOS; omitted_interface++) {
         omitted_interface_queries = 0;
-        if (!scrollbar_visibility_changes_layout() ||
+        if (!input_inhibition_completes_during_frames() ||
+            !scrollbar_visibility_changes_layout() ||
             !component_is_embedded_and_independent(argv[1]) ||
             !constrained_zoom_uses_one_layout_action() ||
             !borrowed_target_preserves_caller_windows() ||

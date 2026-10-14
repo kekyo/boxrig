@@ -9,6 +9,7 @@
 #include "boxrig/ui/input_text.h"
 #include "input_private.h"
 #include "../ui/editable_private.h"
+#include "../ui/input_control.h"
 
 #include <imm.h>
 #include <windowsx.h>
@@ -82,6 +83,7 @@ struct boxrig_win32_input_adapter {
     HWND window;
     boxrig_terminal *terminal;
     bool dispatching;
+    boxrig_ui_input_control control;
     boxrig_ui_view *animation_view;
     boxrig_ui_status animation_failure;
     unsigned int cell_width;
@@ -92,6 +94,8 @@ struct boxrig_win32_input_adapter {
     size_t paste_chunk_size;
     uint32_t modifiers;
     bool pressed[KEY_SLOT_COUNT];
+    bool inhibited_key[KEY_SLOT_COUNT];
+    bool stale_character[KEY_SLOT_COUNT];
     bool application_key[KEY_SLOT_COUNT];
     key_identity identities[KEY_SLOT_COUNT];
     boxrig_input_key_router key_router;
@@ -131,10 +135,18 @@ struct boxrig_win32_input_adapter {
     bool synchronized_composition_form_valid;
     bool synchronized_candidate_form_valid;
     bool discard_focus_loss_ime_result;
+    bool ime_requires_start;
+    bool input_context_suspended;
+    HIMC suspended_input_context;
     int vertical_wheel_delta;
     int horizontal_wheel_delta;
     boxrig_mouse_event wheel_event;
 };
+
+static bool input_enabled(const boxrig_win32_input_adapter *adapter)
+{
+    return adapter->control.state.phase == BOXRIG_UI_INPUT_ENABLED;
+}
 
 static void invalidate_ime_placement(
     boxrig_win32_input_adapter *adapter)
@@ -193,6 +205,7 @@ static boxrig_status route_ime_commit(
 {
     boxrig_win32_input_adapter *adapter = context;
 
+    if (!input_enabled(adapter)) return BOXRIG_STATUS_OK;
     return boxrig_terminal_send_text(adapter->terminal, text, text_length);
 }
 
@@ -662,6 +675,7 @@ static int begin_reconversion_session(
         return -1;
     }
     adapter->reconversion_sink_active = true;
+    adapter->ime_requires_start = false;
     adapter->discard_focus_loss_ime_result = false;
     reset_reconversion_characters(adapter);
     return 0;
@@ -1195,6 +1209,7 @@ static int queue_key(
     boxrig_win32_input_adapter *adapter,
     const boxrig_key_event *event)
 {
+    if (!input_enabled(adapter)) return 0;
     boxrig_status status = boxrig_terminal_send_key(adapter->terminal, event);
 
     if (status == BOXRIG_STATUS_OK) {
@@ -1226,6 +1241,7 @@ static int queue_focus(
     boxrig_win32_input_adapter *adapter,
     const boxrig_focus_event *event)
 {
+    if (!input_enabled(adapter)) return 0;
     boxrig_status status = boxrig_terminal_send_focus(
         adapter->terminal,
         event);
@@ -1246,6 +1262,7 @@ static int queue_mouse(
     boxrig_win32_input_adapter *adapter,
     const boxrig_mouse_event *event)
 {
+    if (!input_enabled(adapter)) return 0;
     boxrig_status status = boxrig_terminal_send_mouse(
         adapter->terminal,
         event);
@@ -1887,6 +1904,9 @@ static int process_key_down(
                                         : BOXRIG_KEY_PRESS;
     boxrig_input_key_route route;
 
+    if (!input_enabled(adapter)) adapter->inhibited_key[slot] = true;
+    if (!repeated && input_enabled(adapter) && !adapter->inhibited_key[slot])
+        adapter->stale_character[slot] = false;
     if (!repeated) {
         adapter->application_key[slot] = false;
     }
@@ -1928,6 +1948,11 @@ static int process_key_down(
             return 0;
         }
     }
+    if (adapter->inhibited_key[slot] || !input_enabled(adapter)) {
+        adapter->character.active = false;
+        adapter->high_surrogate = 0;
+        return 0;
+    }
     if (identity.key != BOXRIG_KEY_NONE) {
         boxrig_key_event event;
 
@@ -1955,8 +1980,10 @@ static int process_key_up(
     boxrig_key_event event;
     boxrig_input_key_route route;
     bool application = adapter->application_key[slot];
+    bool inhibited = adapter->inhibited_key[slot] || !input_enabled(adapter);
 
     adapter->pressed[slot] = false;
+    adapter->inhibited_key[slot] = false;
     if (changed_modifier != 0 &&
         !modifier_still_pressed(adapter, changed_modifier)) {
         adapter->modifiers &= ~changed_modifier;
@@ -1972,6 +1999,7 @@ static int process_key_up(
         adapter->application_key[slot] = false;
         return route == BOXRIG_INPUT_KEY_ROUTE_ERROR ? -1 : 0;
     }
+    if (inhibited) return 0;
     memset(&event, 0, sizeof(event));
     event.key = identity.key;
     event.codepoint = identity.codepoint;
@@ -2376,6 +2404,8 @@ int boxrig_win32_input_adapter_composition_start(
         synchronize_reconversion_session(adapter) == -1) {
         return -1;
     }
+    if (!input_enabled(adapter)) return 0;
+    adapter->ime_requires_start = false;
     if (adapter->editable_document != NULL) {
         state = boxrig_ui_editable_document_reconversion_state(
             adapter->editable_document);
@@ -2421,6 +2451,7 @@ int boxrig_win32_input_adapter_composition_update_utf16(
     bool caret_visible = caret != UINT32_MAX;
     int result = -1;
 
+    if (adapter != NULL && (!input_enabled(adapter) || adapter->ime_requires_start)) return 0;
     memset(&decoded, 0, sizeof(decoded));
     if (adapter == NULL || adapter->composition == NULL ||
         (attributes == NULL && attribute_count != 0) ||
@@ -2584,6 +2615,7 @@ int boxrig_win32_input_adapter_composition_commit_utf16(
         synchronize_reconversion_session(adapter) == -1) {
         return -1;
     }
+    if (!input_enabled(adapter) || adapter->ime_requires_start) return 0;
     adapter->ime_high_surrogate = 0;
     if (decode_utf16_text(text, text_length, &decoded) == -1) {
         return -1;
@@ -2986,6 +3018,7 @@ int boxrig_win32_input_adapter_create(
     }
     adapter->window = window;
     adapter->terminal = terminal;
+    boxrig_ui_input_control_initialize(&adapter->control);
     adapter->cell_width = cell_width;
     adapter->cell_height = cell_height;
     adapter->paste_capacity = paste_capacity;
@@ -3049,6 +3082,72 @@ int boxrig_win32_input_adapter_set_editable_document(
     return 0;
 }
 
+boxrig_ui_status boxrig_win32_input_adapter_set_input_enabled(
+    boxrig_win32_input_adapter *adapter, bool enabled)
+{
+    if (adapter == NULL) return BOXRIG_UI_INVALID_ARGUMENT;
+    if (adapter->dispatching) return BOXRIG_UI_BUSY;
+    if (enabled && adapter->control.state.phase == BOXRIG_UI_INPUT_STOPPING) return BOXRIG_UI_BUSY;
+    bool was_enabled = input_enabled(adapter);
+    bool started = adapter->paste_active && adapter->paste_state != PASTE_STATE_BEGIN;
+    boxrig_ui_status status = boxrig_ui_input_control_request(&adapter->control, enabled, started);
+    if (status != BOXRIG_UI_OK && status != BOXRIG_UI_BUSY) return status;
+    if (was_enabled != input_enabled(adapter)) {
+        /* IMM calls may synchronously reenter the window procedure. Install the
+         * new generation and cancellation guards before notifying native IME. */
+        adapter->dispatching = true;
+        if (!enabled) {
+            adapter->ime_requires_start = true;
+            adapter->discard_focus_loss_ime_result = true;
+            for (size_t slot = 0; slot < KEY_SLOT_COUNT; slot++) {
+                if (adapter->pressed[slot]) adapter->inhibited_key[slot] = true;
+                adapter->stale_character[slot] = true;
+            }
+            memset(&adapter->character, 0, sizeof(adapter->character));
+            adapter->high_surrogate = 0;
+            free(adapter->pending.key_text);
+            memset(&adapter->pending, 0, sizeof(adapter->pending));
+            free(adapter->paste_text);
+            adapter->paste_text = NULL;
+            adapter->paste_length = adapter->paste_offset = 0;
+            adapter->paste_active = false;
+            adapter->vertical_wheel_delta = adapter->horizontal_wheel_delta = 0;
+            (void)boxrig_composition_cancel_pending_commit(adapter->composition);
+            if (adapter->reconversion_sink_active) {
+                if (cancel_reconversion_session(adapter, true, true) == -1)
+                    status = BOXRIG_UI_UNAVAILABLE;
+            } else {
+                /* A result waiting for core may hide the next native preedit
+                 * in deferred_preedit. Cancel the associated context as well. */
+                notify_native_reconversion_cancel(adapter);
+                if (boxrig_win32_input_adapter_composition_cancel(adapter) == -1)
+                    status = BOXRIG_UI_UNAVAILABLE;
+            }
+            adapter->suspended_input_context = ImmAssociateContext(adapter->window, NULL);
+            adapter->input_context_suspended = true;
+        } else if (adapter->input_context_suspended) {
+            adapter->discard_focus_loss_ime_result = false;
+            (void)ImmAssociateContext(adapter->window, adapter->suspended_input_context);
+            adapter->suspended_input_context = NULL;
+            adapter->input_context_suspended = false;
+        }
+        if (adapter->editable_document != NULL &&
+            boxrig_ui_editable_document_invalidate_input(adapter->editable_document) != BOXRIG_UI_OK)
+            status = BOXRIG_UI_UNAVAILABLE;
+        adapter->dispatching = false;
+    }
+    if (status != BOXRIG_UI_OK && status != BOXRIG_UI_BUSY) return status;
+    return boxrig_ui_input_control_service(&adapter->control, adapter->terminal);
+}
+
+boxrig_ui_status boxrig_win32_input_adapter_get_input_state(
+    const boxrig_win32_input_adapter *adapter, boxrig_ui_input_state *state_out)
+{
+    if (adapter == NULL || state_out == NULL) return BOXRIG_UI_INVALID_ARGUMENT;
+    *state_out = adapter->control.state;
+    return BOXRIG_UI_OK;
+}
+
 boxrig_ui_status boxrig_win32_input_adapter_set_input_config(
     boxrig_win32_input_adapter *adapter, const boxrig_input_config *config)
 {
@@ -3057,7 +3156,8 @@ boxrig_ui_status boxrig_win32_input_adapter_set_input_config(
     if (boxrig_composition_get_view(adapter->composition, &composition) != BOXRIG_COMPOSITION_OK) {
         return BOXRIG_UI_INVALID_ARGUMENT;
     }
-    if (adapter->dispatching || adapter->pending.kind != PENDING_INPUT_NONE ||
+    if (adapter->control.state.phase == BOXRIG_UI_INPUT_STOPPING ||
+        adapter->dispatching || adapter->pending.kind != PENDING_INPUT_NONE ||
         adapter->paste_active || composition.active || composition.commit_pending ||
         adapter->character.active || adapter->high_surrogate != 0 ||
         adapter->ime_high_surrogate != 0 || adapter->native_composing ||
@@ -3119,7 +3219,7 @@ int boxrig_win32_input_adapter_set_mouse_router(
 static bool ime_reconversion_available(
     const boxrig_win32_input_adapter *adapter)
 {
-    return adapter != NULL && adapter->editable_document != NULL &&
+    return adapter != NULL && input_enabled(adapter) && adapter->editable_document != NULL &&
            boxrig_ui_editable_document_capabilities(
                adapter->editable_document).reconversion_available &&
            (ImmGetProperty(GetKeyboardLayout(0), IGP_SETCOMPSTR) &
@@ -3199,15 +3299,14 @@ boxrig_win32_input_adapter_view_action_capabilities(
     if (adapter != NULL) {
         capabilities.copy_targets =
             BOXRIG_UI_CLIPBOARD_TARGET_CLIPBOARD;
-        capabilities.paste_targets =
-            BOXRIG_UI_CLIPBOARD_TARGET_CLIPBOARD;
+        if (input_enabled(adapter)) capabilities.paste_targets = BOXRIG_UI_CLIPBOARD_TARGET_CLIPBOARD;
         capabilities.reconversion =
             ime_reconversion_available(adapter);
     }
     return capabilities;
 }
 
-boxrig_ui_status boxrig_win32_input_adapter_apply_view_action(
+static boxrig_ui_status apply_view_action(
     boxrig_win32_input_adapter *adapter,
     boxrig_ui_view *view,
     const boxrig_ui_view_action *action)
@@ -3247,6 +3346,18 @@ boxrig_ui_status boxrig_win32_input_adapter_apply_view_action(
                                                : BOXRIG_UI_UNAVAILABLE;
 }
 
+boxrig_ui_status boxrig_win32_input_adapter_apply_view_action(
+    boxrig_win32_input_adapter *adapter, boxrig_ui_view *view,
+    const boxrig_ui_view_action *action)
+{
+    if (adapter == NULL) return BOXRIG_UI_INVALID_ARGUMENT;
+    bool dispatching = adapter->dispatching;
+    adapter->dispatching = true;
+    boxrig_ui_status result = apply_view_action(adapter, view, action);
+    adapter->dispatching = dispatching;
+    return result;
+}
+
 int boxrig_win32_input_adapter_set_cell_size(
     boxrig_win32_input_adapter *adapter,
     unsigned int cell_width,
@@ -3276,7 +3387,7 @@ int boxrig_win32_input_adapter_set_viewport_origin(
     return 0;
 }
 
-int boxrig_win32_input_adapter_pretranslate_message(
+static int pretranslate_message(
     boxrig_win32_input_adapter *adapter,
     const MSG *message)
 {
@@ -3291,6 +3402,7 @@ int boxrig_win32_input_adapter_pretranslate_message(
         message->wParam != VK_PROCESSKEY) {
         return 0;
     }
+    if (!input_enabled(adapter)) return 1;
     if (synchronize_reconversion_session(adapter) == -1) {
         return -1;
     }
@@ -3305,6 +3417,17 @@ int boxrig_win32_input_adapter_pretranslate_message(
         return 0;
     }
     return cancel_reconversion_session(adapter, true, true) == 0 ? 1 : -1;
+}
+
+int boxrig_win32_input_adapter_pretranslate_message(
+    boxrig_win32_input_adapter *adapter, const MSG *message)
+{
+    if (adapter == NULL) return -1;
+    bool dispatching = adapter->dispatching;
+    adapter->dispatching = true;
+    int result = pretranslate_message(adapter, message);
+    adapter->dispatching = dispatching;
+    return result;
 }
 
 static int process_message(boxrig_win32_input_adapter *adapter, UINT message, WPARAM word_parameter,
@@ -3350,7 +3473,13 @@ static int process_message(
             boxrig_ui_editable_document_reconversion_state(
                 adapter->editable_document);
     }
-    if (boxrig_win32_input_adapter_blocked(adapter)) {
+    if ((!input_enabled(adapter) || adapter->ime_requires_start) &&
+        (message == WM_IME_COMPOSITION || message == WM_IME_CHAR ||
+         message == WM_IME_ENDCOMPOSITION)) return 1;
+    if (!input_enabled(adapter) &&
+        (message == WM_IME_REQUEST || message == WM_IME_STARTCOMPOSITION || message == WM_PASTE ||
+         message == WM_IME_KEYDOWN || message == WM_IME_KEYUP)) return 1;
+    if (input_enabled(adapter) && boxrig_win32_input_adapter_blocked(adapter)) {
         switch (message) {
         case WM_IME_ENDCOMPOSITION:
         case WM_IME_SETCONTEXT:
@@ -3505,7 +3634,12 @@ static int process_message(
         }
         return 1;
     case WM_CHAR:
-    case WM_SYSCHAR:
+    case WM_SYSCHAR: {
+        /* Translated text carries the original physical scan code even after
+         * key release. A fresh press opens that slot in the new generation. */
+        size_t slot = message_scan_code(long_parameter) == 0 && adapter->character.active
+            ? adapter->character.slot : key_slot((UINT)word_parameter, long_parameter);
+        if (!input_enabled(adapter) || adapter->stale_character[slot]) return 1;
         if (suppress_application_character(
                 adapter,
                 (wchar_t)word_parameter)) {
@@ -3525,6 +3659,7 @@ static int process_message(
             adapter,
             (wchar_t)word_parameter);
         return status == 0 ? 1 : -1;
+    }
     case WM_DEADCHAR:
     case WM_SYSDEADCHAR:
         if (adapter->character.active && adapter->character.application) {
@@ -3662,7 +3797,7 @@ int boxrig_win32_input_adapter_queue_paste(
     char *normalized;
     size_t normalized_length;
 
-    if (adapter == NULL || adapter->paste_active ||
+    if (adapter == NULL || !input_enabled(adapter) || adapter->paste_active ||
         boxrig_input_text_normalize_utf8(
             bytes,
             length,
@@ -3683,14 +3818,16 @@ int boxrig_win32_input_adapter_queue_paste(
     return boxrig_win32_input_adapter_retry(adapter);
 }
 
-int boxrig_win32_input_adapter_retry(boxrig_win32_input_adapter *adapter)
+static int retry_input(boxrig_win32_input_adapter *adapter)
 {
     boxrig_composition_status composition_status;
     boxrig_ui_editable_reconversion_state reconversion_state =
         BOXRIG_UI_EDITABLE_RECONVERSION_NONE;
 
-    if (adapter == NULL ||
-        synchronize_reconversion_session(adapter) == -1 ||
+    if (adapter == NULL) return -1;
+    boxrig_ui_status stop = boxrig_ui_input_control_service(&adapter->control, adapter->terminal);
+    if (stop != BOXRIG_UI_OK && stop != BOXRIG_UI_BUSY) return -1;
+    if (synchronize_reconversion_session(adapter) == -1 ||
         retry_pending_input(adapter) == -1) {
         return -1;
     }
@@ -3728,6 +3865,16 @@ int boxrig_win32_input_adapter_retry(boxrig_win32_input_adapter *adapter)
     return retry_paste(adapter);
 }
 
+int boxrig_win32_input_adapter_retry(boxrig_win32_input_adapter *adapter)
+{
+    if (adapter == NULL) return -1;
+    bool dispatching = adapter->dispatching;
+    adapter->dispatching = true;
+    int result = retry_input(adapter);
+    adapter->dispatching = dispatching;
+    return result;
+}
+
 bool boxrig_win32_input_adapter_blocked(
     const boxrig_win32_input_adapter *adapter)
 {
@@ -3736,7 +3883,8 @@ bool boxrig_win32_input_adapter_blocked(
     if (adapter == NULL) {
         return false;
     }
-    if (adapter->pending.kind != PENDING_INPUT_NONE ||
+    if (adapter->control.state.phase == BOXRIG_UI_INPUT_STOPPING ||
+        adapter->pending.kind != PENDING_INPUT_NONE ||
         adapter->paste_active ||
         adapter->vertical_wheel_delta >= WHEEL_DELTA ||
         adapter->vertical_wheel_delta <= -WHEEL_DELTA ||
@@ -3760,6 +3908,8 @@ void boxrig_win32_input_adapter_destroy(boxrig_win32_input_adapter *adapter)
     if (adapter == NULL) {
         return;
     }
+    if (adapter->input_context_suspended && IsWindow(adapter->window))
+        (void)ImmAssociateContext(adapter->window, adapter->suspended_input_context);
     if (adapter->reconversion_sink_active) {
         (void)cancel_reconversion_session(adapter, true, true);
     } else if (adapter->native_composing) {

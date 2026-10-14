@@ -2636,7 +2636,7 @@ boxrig_ui_status boxrig_x11_terminal_component_set_input_enabled(
     (void)boxrig_x11_input_adapter_get_input_state(component->input, &before);
     boxrig_ui_status status = boxrig_x11_input_adapter_set_input_enabled(component->input, enabled);
     (void)boxrig_x11_input_adapter_get_input_state(component->input, &after);
-    if (before.generation != after.generation) {
+    if (before.generation != after.generation || before.phase != after.phase) {
         size_t rows, columns;
         boxrig_terminal_size(boxrig_ui_model_terminal(component->model), &rows, &columns);
         boxrig_ui_dirty dirty = {0, rows, 0, columns};

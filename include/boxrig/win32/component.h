@@ -662,6 +662,31 @@ bool boxrig_win32_terminal_component_focused(
     const boxrig_win32_terminal_component *component);
 
 /**
+ * Requests input inhibition or resumption for this component.
+ * @param component Component on its owning event thread.
+ * @param enabled True to resume, false to cancel unsubmitted input.
+ * @return OK when complete, BUSY while a paste terminator awaits capacity or
+ * during input dispatch, INVALID_ARGUMENT, LIMIT_EXCEEDED, or UNAVAILABLE.
+ * @remarks An accepted disable request immediately advances the generation.
+ * frame() retries a required paste terminator; get_input_state() distinguishes
+ * STOPPING from DISABLED. Reentrant BUSY leaves the old state unchanged.
+ * Selection, copy, local routes, rendering, and terminal replies continue.
+ * Already submitted core/transport output remains queued. See the adapter's
+ * set_input_enabled() contract for retained messages and borrowed IMM contexts.
+ */
+boxrig_ui_status boxrig_win32_terminal_component_set_input_enabled(
+    boxrig_win32_terminal_component *component, bool enabled);
+
+/**
+ * Reads the input phase and generation without advancing pending work.
+ * @param component Component on its owning event thread.
+ * @param state_out Required state output.
+ * @return OK or INVALID_ARGUMENT.
+ */
+boxrig_ui_status boxrig_win32_terminal_component_get_input_state(
+    const boxrig_win32_terminal_component *component, boxrig_ui_input_state *state_out);
+
+/**
  * Exchanges input settings when no native key or IME transaction is pending.
  * @param component Frontend to configure on its owning event thread.
  * @param config Complete replacement, copied using the core validation rules.

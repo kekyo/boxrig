@@ -2218,6 +2218,34 @@ bool boxrig_win32_terminal_component_focused(
     return component != NULL && component->focused;
 }
 
+boxrig_ui_status boxrig_win32_terminal_component_set_input_enabled(
+    boxrig_win32_terminal_component *component, bool enabled)
+{
+    if (component == NULL || !boxrig_ui_lifecycle_accepts_events(&component->lifecycle))
+        return BOXRIG_UI_INVALID_ARGUMENT;
+    boxrig_ui_input_state before, after;
+    (void)boxrig_win32_input_adapter_get_input_state(component->input, &before);
+    boxrig_ui_status status = boxrig_win32_input_adapter_set_input_enabled(component->input, enabled);
+    (void)boxrig_win32_input_adapter_get_input_state(component->input, &after);
+    if (before.generation != after.generation || before.phase != after.phase) {
+        size_t rows, columns;
+        boxrig_terminal_size(boxrig_ui_model_terminal(component->model), &rows, &columns);
+        boxrig_ui_dirty dirty = {0, rows, 0, columns};
+        if (boxrig_ui_view_set_composition_active(component->view, false) != BOXRIG_UI_OK ||
+            boxrig_ui_view_invalidate(component->view, BOXRIG_UI_DIRTY_OVERLAY, dirty) != BOXRIG_UI_OK)
+            return BOXRIG_UI_UNAVAILABLE;
+    }
+    return status;
+}
+
+boxrig_ui_status boxrig_win32_terminal_component_get_input_state(
+    const boxrig_win32_terminal_component *component, boxrig_ui_input_state *state_out)
+{
+    if (component == NULL || !boxrig_ui_lifecycle_accepts_events(&component->lifecycle))
+        return BOXRIG_UI_INVALID_ARGUMENT;
+    return boxrig_win32_input_adapter_get_input_state(component->input, state_out);
+}
+
 boxrig_ui_status boxrig_win32_terminal_component_set_input_config(
     boxrig_win32_terminal_component *component, const boxrig_input_config *config)
 {
@@ -2283,6 +2311,10 @@ boxrig_ui_status boxrig_win32_terminal_component_queue_paste(
     const uint8_t *bytes,
     size_t length)
 {
+    if (component == NULL) return BOXRIG_UI_INVALID_ARGUMENT;
+    boxrig_ui_input_state state;
+    (void)boxrig_win32_input_adapter_get_input_state(component->input, &state);
+    if (state.phase != BOXRIG_UI_INPUT_ENABLED) return BOXRIG_UI_UNAVAILABLE;
     return component != NULL &&
                    boxrig_win32_input_adapter_queue_paste(
                        component->input,
@@ -2843,7 +2875,10 @@ boxrig_win32_terminal_component_dispatch_message(
         }
         component->focused = focused;
     }
-    input_blocked = boxrig_win32_input_adapter_blocked(component->input);
+    boxrig_ui_input_state input_state;
+    (void)boxrig_win32_input_adapter_get_input_state(component->input, &input_state);
+    input_blocked = input_state.phase == BOXRIG_UI_INPUT_ENABLED &&
+        boxrig_win32_input_adapter_blocked(component->input);
     handled = boxrig_win32_input_adapter_process_message(
         component->input,
         message,

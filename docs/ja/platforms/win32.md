@@ -46,6 +46,7 @@ boxrig_ui_status create_terminal_child(HINSTANCE instance, HWND parent,
 
 メッセージループから`pretranslate_message()`を呼び、処理済みかどうかを確認します。
 アプリが直接転送した入力の結果が`BLOCKED`なら、その入力を保持して容量回復後に再試行します。
+保持時の入力世代も記録し、`get_input_state()`の世代が変わったら古い入力を破棄してください。
 親や兄弟ウィンドウのメッセージは通常どおりアプリで処理してください。
 
 セッションの処理、モデルの同期、コンポーネントの`frame()`を順に進めます。
@@ -55,6 +56,26 @@ boxrig_ui_status create_terminal_child(HINSTANCE instance, HWND parent,
 待機でそのハンドルの通知を受け取ったときだけ`dispatch_activity()`を呼びます。
 通知を待たずに呼んで描画を進める用途ではありません。
 全体の接続は[コンポーネント例](../../../examples/win32/component.c)を参照してください。
+
+## 入力を一時的に禁止する
+
+`boxrig_win32_terminal_component_set_input_enabled(component, false)`で入力を禁止できます。
+端末へ未送信のキー、IME確定、clipboardの貼り付けを停止します。
+選択、コピー、履歴移動、描画、アプリの入力routerは引き続き利用可能です。
+
+`get_input_state()`で`ENABLED`、`STOPPING`、`DISABLED`と入力世代を取得します。
+開始済みpasteの終端を送信バッファへ入れられない間は、禁止要求が`BUSY`を返して`STOPPING`になります。
+`frame()`で再試行し、`DISABLED`になってから`true`で再開してください。
+入力callbackの途中から要求した場合も`BUSY`を返しますが、この場合は状態を変えません。
+禁止前にcoreへ投入したバイトは保持され、端末の問い合わせにも応答します。
+送信先への排出完了は、アプリ側で確認してください。
+
+禁止・再開をまたいだキーは、離すまで端末へ送りません。
+古い`WM_CHAR`は再開後の新しい押下まで破棄し、IME確定は新しい変換・再変換の開始まで受け付けません。
+アプリが保留したnativeメッセージや直接呼ぶcomposition callbackにも、保持時の入力世代を適用してください。
+禁止中はウィンドウからIMMコンテキストを一時的に外し、再開・解放時に戻します。
+この間、アプリは借用元のコンテキストを生存させ、関連付けを変更しないでください。
+この借用条件は[ImmAssociateContextの寿命契約](https://learn.microsoft.com/en-us/windows/win32/api/imm/nf-imm-immassociatecontext)に従います。
 
 ## DPIとリサイズ
 
