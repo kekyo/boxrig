@@ -2150,7 +2150,7 @@ $(POSIX_OBJECTS): include/boxrig/posix.h Makefile
 
 $(BUILD_DIR)/ui/input.o $(MINGW_AMD64_BUILD_DIR)/ui/input.o \
 $(MINGW_I686_BUILD_DIR)/ui/input.o $(BUILD_DIR)/gtk3/input.o \
-$(BUILD_DIR)/gtk4/input.o: src/ui/input_control.h
+$(BUILD_DIR)/gtk4/input.o $(BUILD_DIR)/x11/input.o: src/ui/input_control.h
 
 $(X11_OBJECTS): $(X11_HEADERS) $(UI_HEADERS) include/boxrig/terminal.h \
 	src/ui/view_private.h src/ui/color_private.h \

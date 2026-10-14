@@ -79,6 +79,32 @@ bool boxrig_x11_input_adapter_string_conversion_supported(
     const boxrig_x11_input_adapter *adapter);
 
 /**
+ * Inhibits or resumes this adapter's terminal-directed user input.
+ * @param adapter Adapter on its owning event thread.
+ * @param enabled True to resume, false to discard pending user input.
+ * @return OK when complete; BUSY during dispatch (unchanged) or while a started
+ * paste needs output capacity (accepted); INVALID_ARGUMENT, UNAVAILABLE or LIMIT_EXCEEDED.
+ * @remarks STOPPING is completed by retry(), including after output is consumed.
+ * DISABLED means any paste terminator is queued in core, not drained to the peer.
+ * Enabling during STOPPING returns BUSY. Keys held across a stop remain
+ * suppressed until release. Copy, selection, scrolling and application routers
+ * remain available. Other adapters and already queued core output are unaffected.
+ * Caller-retained native events must be discarded when their saved input
+ * generation differs from get_input_state().
+ */
+boxrig_ui_status boxrig_x11_input_adapter_set_input_enabled(
+    boxrig_x11_input_adapter *adapter, bool enabled);
+
+/**
+ * Reads the input phase and generation without advancing pending work.
+ * @param adapter Adapter on its owning event thread.
+ * @param state_out Required state output.
+ * @return OK or INVALID_ARGUMENT.
+ */
+boxrig_ui_status boxrig_x11_input_adapter_get_input_state(
+    const boxrig_x11_input_adapter *adapter, boxrig_ui_input_state *state_out);
+
+/**
  * Exchanges input settings when no native key or IME transaction is pending.
  * @param adapter Frontend to configure on its owning event thread.
  * @param config Complete replacement, copied using the core validation rules.
@@ -298,6 +324,7 @@ int boxrig_x11_input_adapter_synchronize_candidate(
  *
  * @remarks Offer every event removed by the caller-owned loop so Xlib can
  * filter XIM protocol events whose native target differs from focus_window.
+ * Incoming clipboard transfers also use private requestor windows.
  * Ordinary parent and sibling events remain unrelated.
  */
 int boxrig_x11_input_adapter_process_event(

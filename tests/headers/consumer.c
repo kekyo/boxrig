@@ -57,6 +57,11 @@ int main(void)
     boxrig_tty_erase unavailable;
     assert(boxrig_posix_get_tty_erase(-1, &unavailable) == -1);
     assert(!unavailable.available);
+    boxrig_ui_input_state input_state;
+    assert(boxrig_x11_input_adapter_set_input_enabled(NULL, false) == BOXRIG_UI_INVALID_ARGUMENT);
+    assert(boxrig_x11_input_adapter_get_input_state(NULL, &input_state) == BOXRIG_UI_INVALID_ARGUMENT);
+    assert(boxrig_x11_terminal_component_set_input_enabled(NULL, false) == BOXRIG_UI_INVALID_ARGUMENT);
+    assert(boxrig_x11_terminal_component_get_input_state(NULL, &input_state) == BOXRIG_UI_INVALID_ARGUMENT);
     boxrig_x11_host_policy policy = boxrig_x11_host_policy_default();
     boxrig_wayland_context_config wayland = boxrig_wayland_context_config_default();
     boxrig_ogl_renderer_config renderer = boxrig_ogl_renderer_config_default();

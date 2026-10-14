@@ -125,12 +125,12 @@ core・UI・POSIXを計装したAddressSanitizer/UndefinedBehaviorSanitizer試�
 4種類のPOSIX GUIドライバーは警告なしでビルドできています。
 `test-public-headers`も成功し、新しいAPIを通常includeするC99/C++20利用側でリンク・実行を確認しました。
 
-## 段階6：共通UIとGTK
+## 段階6：共通UI・GTK・X11
 
 入力の状態を`ENABLED`、`STOPPING`、`DISABLED`で表す共通型と、停止処理を追加しました。
 禁止・再開のたびに入力世代を進め、開始済みpasteの終端がcoreへ投入されるまで再開を拒否します。
 送信バッファに残るデータは保持し、端末からの問い合わせにも応答できます。
-まずGTK3・GTK4へ接続し、X11・Win32・Waylandの実装は続く作業です。
+GTK3・GTK4・X11へ接続しました。Win32・Waylandの実装は続く作業です。
 
 公開API不足のREDから実装を進め、未開始paste、遅いIME確定、押下中キー、出力容量不足を検証しました。
 GTK3では、IME処理中の再入要求と、禁止をまたぐキーreleaseでIMEが確定するケースもREDで再現しています。
@@ -145,6 +145,14 @@ core・共通UI・GTKを計装したAddressSanitizer/UndefinedBehaviorSanitizer�
 GTK4のX11実行では、ヘッドレス環境のDRI3非対応と、既存AT-SPIソケットへの接続失敗が報告されました。
 入力試験は成功しており、後続の入力専用試験では`GTK_A11Y=none`を指定しています。
 アクセシビリティの受け入れ試験は、専用D-Bus環境で別途行う予定です。
+
+X11にもアダプターとコンポーネントの公開APIを追加しました。
+未開始paste、IME確定、押下中キーを破棄し、開始済みpasteの終端を再試行で投入します。
+停止中も選択・コピー・focus表示を操作でき、端末の問い合わせには応答します。
+古いclipboard応答が再開後の新しい要求を取り消す問題をREDで再現しました。
+受信要求ごとに専用ウィンドウを用意し、古い応答と区別する修正で解消しています。
+既存の大容量clipboard転送を含む入力試験とコンポーネント試験が成功しました。
+X11・core・共通UIを計装したAddressSanitizer/UndefinedBehaviorSanitizerの試験と、公開ヘッダーのnative試験も成功しています。
 
 ## 後続段階の事前確認
 

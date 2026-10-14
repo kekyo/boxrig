@@ -8,6 +8,7 @@
 
 #include "boxrig/ui/input_text.h"
 #include "utf8.h"
+#include "../ui/input_control.h"
 
 #include <X11/XF86keysym.h>
 #include <X11/XKBlib.h>
@@ -125,6 +126,7 @@ struct boxrig_x11_input_adapter {
     Window window;
     boxrig_terminal *terminal;
     bool dispatching;
+    boxrig_ui_input_control control;
     unsigned int cell_width;
     unsigned int cell_height;
     int viewport_x;
@@ -173,6 +175,8 @@ struct boxrig_x11_input_adapter {
     unsigned int caps_lock_mask;
     unsigned int num_lock_mask;
     bool pressed[KEYCODE_COUNT];
+    bool native_pressed[KEYCODE_COUNT];
+    bool inhibited_key[KEYCODE_COUNT];
     bool composition_key[KEYCODE_COUNT];
     bool application_key[KEYCODE_COUNT];
     key_identity identities[KEYCODE_COUNT];
@@ -216,12 +220,18 @@ struct boxrig_x11_input_adapter {
     Atom selection;
     Atom selection_target;
     Window selection_owner;
+    Window selection_window;
     uint8_t *selection_bytes;
     size_t selection_length;
     size_t selection_capacity;
     bool server_timestamp_pending;
     bool input_window_alive;
 };
+
+static bool input_enabled(const boxrig_x11_input_adapter *adapter)
+{
+    return adapter->control.state.phase == BOXRIG_UI_INPUT_ENABLED;
+}
 
 static bool repeated_release(
     boxrig_x11_input_adapter *adapter,
@@ -569,7 +579,7 @@ static void reset_xim_input_context(boxrig_x11_input_adapter *adapter)
 static bool current_xim_context(
     boxrig_x11_input_adapter *adapter, XIM input_context)
 {
-    if ((XIC)input_context != adapter->input_context ||
+    if (!input_enabled(adapter) || (XIC)input_context != adapter->input_context ||
         adapter->resetting_preedit || !adapter->input_focused ||
         adapter->document_reset_pending) return false;
     if (adapter->document_generation !=
@@ -592,6 +602,7 @@ static void invalidate_editable_input(boxrig_x11_input_adapter *adapter)
 static boxrig_status commit_ime_text(const char *text, size_t length, void *data)
 {
     boxrig_x11_input_adapter *adapter = data;
+    if (!input_enabled(adapter)) return BOXRIG_STATUS_OK;
     if (!adapter->commit_editable)
         return boxrig_terminal_send_text(adapter->terminal, text, length);
     boxrig_ui_editable_document_snapshot snapshot;
@@ -1435,6 +1446,7 @@ static int queue_key(
     boxrig_x11_input_adapter *adapter,
     const boxrig_key_event *event)
 {
+    if (!input_enabled(adapter)) return 0;
     boxrig_status status = boxrig_terminal_send_key(adapter->terminal, event);
 
     if (status == BOXRIG_STATUS_OK) {
@@ -1466,6 +1478,7 @@ static int queue_focus(
     boxrig_x11_input_adapter *adapter,
     const boxrig_focus_event *event)
 {
+    if (!input_enabled(adapter)) return 0;
     boxrig_status status = boxrig_terminal_send_focus(
         adapter->terminal,
         event);
@@ -1486,6 +1499,7 @@ static int queue_mouse(
     boxrig_x11_input_adapter *adapter,
     const boxrig_mouse_event *event)
 {
+    if (!input_enabled(adapter)) return 0;
     boxrig_status status = boxrig_terminal_send_mouse(
         adapter->terminal,
         event);
@@ -1700,14 +1714,13 @@ static void unwatch_foreign_window(
 
 static void reset_incoming_selection(
     boxrig_x11_input_adapter *adapter,
-    bool owner_alive,
-    bool delete_property)
+    bool owner_alive)
 {
-    if (delete_property && adapter->input_window_alive) {
-        XDeleteProperty(
-            adapter->display,
-            adapter->window,
-            adapter->paste_property);
+    /* A distinct requestor prevents a late SelectionNotify/INCR chunk from
+     * an old paste from being mistaken for the next paste after resuming. */
+    if (adapter->selection_window != None) {
+        XDestroyWindow(adapter->display, adapter->selection_window);
+        adapter->selection_window = None;
     }
     unwatch_foreign_window(
         adapter,
@@ -1764,10 +1777,13 @@ static int begin_selection(
             StructureNotifyMask) == -1) {
         return -1;
     }
-    XDeleteProperty(
-        adapter->display,
-        adapter->window,
-        adapter->paste_property);
+    adapter->selection_window = XCreateSimpleWindow(adapter->display,
+        DefaultRootWindow(adapter->display), 0, 0, 1, 1, 0, 0, 0);
+    if (adapter->selection_window == None) {
+        unwatch_foreign_window(adapter, owner, true);
+        return -1;
+    }
+    XSelectInput(adapter->display, adapter->selection_window, PropertyChangeMask | StructureNotifyMask);
     adapter->selection_receive_state = SELECTION_RECEIVE_TARGETS;
     adapter->selection = selection;
     adapter->selection_target = adapter->targets;
@@ -1777,7 +1793,7 @@ static int begin_selection(
         selection,
         adapter->selection_target,
         adapter->paste_property,
-        adapter->window,
+        adapter->selection_window,
         time);
     XFlush(adapter->display);
     return 0;
@@ -2704,7 +2720,7 @@ static int process_server_timestamp(
         event->time);
     if (adapter->selection_receive_state == SELECTION_RECEIVE_TIMESTAMP) {
         selection = adapter->selection;
-        reset_incoming_selection(adapter, true, false);
+        reset_incoming_selection(adapter, true);
         (void)begin_selection(adapter, selection, event->time);
     }
     XFlush(adapter->display);
@@ -2728,13 +2744,13 @@ static int queue_incoming_selection(
             adapter->paste_capacity,
             &converted,
             &utf8_length) == -1) {
-        reset_incoming_selection(adapter, true, false);
+        reset_incoming_selection(adapter, true);
         return 1;
     }
     if (converted != NULL) {
         utf8 = converted;
     }
-    reset_incoming_selection(adapter, true, false);
+    reset_incoming_selection(adapter, true);
     (void)boxrig_x11_input_adapter_queue_paste(
         adapter,
         utf8,
@@ -2763,7 +2779,7 @@ static int request_selection_data(
         }
     }
     if (target == None) {
-        reset_incoming_selection(adapter, true, false);
+        reset_incoming_selection(adapter, true);
         return 1;
     }
     adapter->selection_receive_state = SELECTION_RECEIVE_DATA;
@@ -2773,7 +2789,7 @@ static int request_selection_data(
         adapter->selection,
         target,
         adapter->paste_property,
-        adapter->window,
+        adapter->selection_window,
         event->time);
     XFlush(adapter->display);
     return 1;
@@ -2790,14 +2806,14 @@ static int process_selection_notify(
 
     if (adapter->selection_receive_state == SELECTION_RECEIVE_IDLE ||
         adapter->selection_receive_state == SELECTION_RECEIVE_INCR ||
-        event->requestor != adapter->window ||
+        event->requestor != adapter->selection_window ||
         event->selection != adapter->selection ||
         event->target != adapter->selection_target) {
         return 0;
     }
     if (event->property == None ||
         event->property != adapter->paste_property) {
-        reset_incoming_selection(adapter, true, true);
+        reset_incoming_selection(adapter, true);
         return 1;
     }
     if (adapter->selection_receive_state == SELECTION_RECEIVE_TARGETS) {
@@ -2805,7 +2821,7 @@ static int process_selection_notify(
 
         if (get_bounded_property(
                 adapter,
-                adapter->window,
+                adapter->selection_window,
                 event->property,
                 MAXIMUM_SELECTION_TARGET_COUNT * 4u,
                 true,
@@ -2817,7 +2833,7 @@ static int process_selection_notify(
             if (value != NULL) {
                 XFree(value);
             }
-            reset_incoming_selection(adapter, true, true);
+            reset_incoming_selection(adapter, true);
             return 1;
         }
         result = request_selection_data(
@@ -2830,7 +2846,7 @@ static int process_selection_notify(
     }
     if (get_bounded_property(
             adapter,
-            adapter->window,
+            adapter->selection_window,
             event->property,
             adapter->paste_capacity,
             true,
@@ -2838,7 +2854,7 @@ static int process_selection_notify(
             &actual_format,
             &item_count,
             &value) == -1) {
-        reset_incoming_selection(adapter, true, true);
+        reset_incoming_selection(adapter, true);
         return 1;
     }
     if (actual_type == adapter->incr) {
@@ -2846,19 +2862,19 @@ static int process_selection_notify(
 
         if (actual_format != 32 || item_count != 1) {
             XFree(value);
-            reset_incoming_selection(adapter, true, true);
+            reset_incoming_selection(adapter, true);
             return 1;
         }
         announced_length = ((const unsigned long *)value)[0];
         XFree(value);
         if (announced_length > adapter->paste_capacity) {
-            reset_incoming_selection(adapter, true, true);
+            reset_incoming_selection(adapter, true);
             return 1;
         }
         if (announced_length != 0) {
             adapter->selection_bytes = malloc((size_t)announced_length);
             if (adapter->selection_bytes == NULL) {
-                reset_incoming_selection(adapter, true, true);
+                reset_incoming_selection(adapter, true);
                 return 1;
             }
         }
@@ -2869,7 +2885,7 @@ static int process_selection_notify(
     }
     if (actual_type != adapter->selection_target || actual_format != 8) {
         XFree(value);
-        reset_incoming_selection(adapter, true, true);
+        reset_incoming_selection(adapter, true);
         return 1;
     }
     {
@@ -2940,7 +2956,7 @@ static int process_incoming_property_notify(
     size_t remaining;
 
     if (adapter->selection_receive_state != SELECTION_RECEIVE_INCR ||
-        event->window != adapter->window ||
+        event->window != adapter->selection_window ||
         event->atom != adapter->paste_property ||
         event->state != PropertyNewValue) {
         return 0;
@@ -2948,7 +2964,7 @@ static int process_incoming_property_notify(
     remaining = adapter->paste_capacity - adapter->selection_length;
     if (get_bounded_property(
             adapter,
-            adapter->window,
+            adapter->selection_window,
             event->atom,
             remaining,
             true,
@@ -2960,7 +2976,7 @@ static int process_incoming_property_notify(
         if (value != NULL) {
             XFree(value);
         }
-        reset_incoming_selection(adapter, true, true);
+        reset_incoming_selection(adapter, true);
         return 1;
     }
     if (item_count == 0) {
@@ -2981,7 +2997,7 @@ static int process_incoming_property_notify(
             value,
             (size_t)item_count) == -1) {
         XFree(value);
-        reset_incoming_selection(adapter, true, true);
+        reset_incoming_selection(adapter, true);
         return 1;
     }
     XFree(value);
@@ -3014,13 +3030,18 @@ static int process_destroy_notify(
 {
     bool handled = false;
 
+    if (event->window == adapter->selection_window) {
+        adapter->selection_window = None;
+        reset_incoming_selection(adapter, true);
+        return 1;
+    }
     if (event->window == adapter->window) {
         adapter->input_window_alive = false;
         adapter->server_timestamp_pending = false;
         clear_clipboard_offer(adapter, &adapter->primary_offer);
         clear_clipboard_offer(adapter, &adapter->clipboard_offer);
         if (adapter->selection_receive_state != SELECTION_RECEIVE_IDLE) {
-            reset_incoming_selection(adapter, true, false);
+            reset_incoming_selection(adapter, true);
         }
         return 1;
     }
@@ -3032,7 +3053,7 @@ static int process_destroy_notify(
     }
     if (adapter->selection_receive_state != SELECTION_RECEIVE_IDLE &&
         adapter->selection_owner == event->window) {
-        reset_incoming_selection(adapter, false, true);
+        reset_incoming_selection(adapter, false);
         handled = true;
     }
     return handled ? 1 : 0;
@@ -3054,6 +3075,7 @@ int boxrig_x11_input_adapter_preedit_start(
     if (adapter == NULL || adapter->composition == NULL) {
         return -1;
     }
+    if (!input_enabled(adapter)) return 0;
     note_xim_preedit_update(adapter);
     empty_text = malloc(1);
     empty_offsets = calloc(1, sizeof(*empty_offsets));
@@ -3116,6 +3138,7 @@ int boxrig_x11_input_adapter_preedit_draw(
         draw->chg_length < 0 || draw->caret < 0) {
         return -1;
     }
+    if (!input_enabled(adapter)) return 0;
     note_xim_preedit_update(adapter);
     if (adapter->reset_preedit_tail_pending &&
         !adapter->preedit_started) {
@@ -3297,6 +3320,7 @@ int boxrig_x11_input_adapter_preedit_caret(
     if (adapter == NULL || caret == NULL) {
         return -1;
     }
+    if (!input_enabled(adapter)) return 0;
     note_xim_preedit_update(adapter);
     if (adapter->reset_preedit_tail_pending &&
         !adapter->preedit_started) {
@@ -3381,6 +3405,7 @@ int boxrig_x11_input_adapter_preedit_caret(
 int boxrig_x11_input_adapter_preedit_done(
     boxrig_x11_input_adapter *adapter)
 {
+    if (adapter != NULL && !input_enabled(adapter)) return 0;
     if (adapter != NULL) {
         note_xim_preedit_update(adapter);
     }
@@ -3438,7 +3463,7 @@ int boxrig_x11_input_adapter_commit_utf8(
         (text == NULL && text_length != 0)) {
         return -1;
     }
-    if (adapter->document_reset_pending) return 0;
+    if (!input_enabled(adapter) || adapter->document_reset_pending) return 0;
     boxrig_composition_view current;
     if (boxrig_composition_get_view(adapter->composition, &current) != BOXRIG_COMPOSITION_OK ||
         current.commit_pending) return -1;
@@ -3765,7 +3790,7 @@ static void refresh_editable_context(boxrig_x11_input_adapter *adapter)
     adapter->document_generation = generation;
     if (adapter->input_method != NULL) (void)create_input_context(adapter);
     adapter->document_reset_pending = false;
-    if (adapter->input_focused && adapter->input_context != NULL)
+    if (input_enabled(adapter) && adapter->input_focused && adapter->input_context != NULL)
         XSetICFocus(adapter->input_context);
 }
 
@@ -3804,6 +3829,7 @@ int boxrig_x11_input_adapter_create(
     adapter->client_window = client_window;
     adapter->window = focus_window;
     adapter->terminal = terminal;
+    boxrig_ui_input_control_initialize(&adapter->control);
     adapter->cell_width = cell_width;
     adapter->cell_height = cell_height;
     adapter->paste_capacity = paste_capacity;
@@ -3932,6 +3958,45 @@ bool boxrig_x11_input_adapter_string_conversion_supported(
     return adapter != NULL && adapter->string_conversion_supported;
 }
 
+boxrig_ui_status boxrig_x11_input_adapter_set_input_enabled(
+    boxrig_x11_input_adapter *adapter, bool enabled)
+{
+    if (adapter == NULL || !adapter->input_window_alive) return BOXRIG_UI_INVALID_ARGUMENT;
+    if (adapter->dispatching) return BOXRIG_UI_BUSY;
+    if (enabled && adapter->control.state.phase == BOXRIG_UI_INPUT_STOPPING) return BOXRIG_UI_BUSY;
+    bool was_enabled = input_enabled(adapter);
+    bool started = adapter->paste_active && adapter->paste_state != PASTE_STATE_BEGIN;
+    boxrig_ui_status status = boxrig_ui_input_control_request(&adapter->control, enabled, started);
+    if (status != BOXRIG_UI_OK && status != BOXRIG_UI_BUSY) return status;
+    if (was_enabled != input_enabled(adapter)) {
+        if (!enabled) {
+            for (size_t index = 0; index < KEYCODE_COUNT; index++)
+                if (adapter->native_pressed[index] || adapter->pressed[index])
+                    adapter->inhibited_key[index] = true;
+            free(adapter->pending.key_text);
+            memset(&adapter->pending, 0, sizeof(adapter->pending));
+            free(adapter->paste_text);
+            adapter->paste_text = NULL;
+            adapter->paste_length = adapter->paste_offset = 0;
+            adapter->paste_active = false;
+            reset_incoming_selection(adapter, true);
+            (void)boxrig_composition_cancel_pending_commit(adapter->composition);
+        }
+        invalidate_editable_input(adapter);
+        adapter->document_reset_pending = true;
+        refresh_editable_context(adapter);
+    }
+    return boxrig_ui_input_control_service(&adapter->control, adapter->terminal);
+}
+
+boxrig_ui_status boxrig_x11_input_adapter_get_input_state(
+    const boxrig_x11_input_adapter *adapter, boxrig_ui_input_state *state_out)
+{
+    if (adapter == NULL || state_out == NULL) return BOXRIG_UI_INVALID_ARGUMENT;
+    *state_out = adapter->control.state;
+    return BOXRIG_UI_OK;
+}
+
 boxrig_ui_status boxrig_x11_input_adapter_set_input_config(
     boxrig_x11_input_adapter *adapter, const boxrig_input_config *config)
 {
@@ -3940,7 +4005,8 @@ boxrig_ui_status boxrig_x11_input_adapter_set_input_config(
     if (boxrig_composition_get_view(adapter->composition, &composition) != BOXRIG_COMPOSITION_OK) {
         return BOXRIG_UI_INVALID_ARGUMENT;
     }
-    if (adapter->dispatching || adapter->pending.kind != PENDING_INPUT_NONE ||
+    if (adapter->control.state.phase == BOXRIG_UI_INPUT_STOPPING ||
+        adapter->dispatching || adapter->pending.kind != PENDING_INPUT_NONE ||
         adapter->paste_active || composition.active || composition.commit_pending ||
         adapter->preedit_started || adapter->document_reset_pending ||
         adapter->reset_preedit_tail_pending || adapter->escape_preedit_pending ||
@@ -3948,7 +4014,7 @@ boxrig_ui_status boxrig_x11_input_adapter_set_input_config(
         return BOXRIG_UI_BUSY;
     }
     for (size_t i = 0u; i < KEYCODE_COUNT; i++) {
-        if (adapter->pressed[i]) return BOXRIG_UI_BUSY;
+        if (adapter->native_pressed[i] || adapter->pressed[i]) return BOXRIG_UI_BUSY;
     }
     boxrig_status status = boxrig_terminal_set_input_config(adapter->terminal, config);
     if (status == BOXRIG_STATUS_OK) return BOXRIG_UI_OK;
@@ -4011,9 +4077,7 @@ boxrig_x11_input_adapter_view_action_capabilities(
         capabilities.copy_targets =
             BOXRIG_UI_CLIPBOARD_TARGET_PRIMARY_SELECTION |
             BOXRIG_UI_CLIPBOARD_TARGET_CLIPBOARD;
-        capabilities.paste_targets =
-            BOXRIG_UI_CLIPBOARD_TARGET_PRIMARY_SELECTION |
-            BOXRIG_UI_CLIPBOARD_TARGET_CLIPBOARD;
+        if (input_enabled(adapter)) capabilities.paste_targets = capabilities.copy_targets;
     }
     return capabilities;
 }
@@ -4078,7 +4142,7 @@ boxrig_ui_status boxrig_x11_input_adapter_apply_view_action(
     adapter->selection_receive_state = SELECTION_RECEIVE_TIMESTAMP;
     adapter->selection = selection;
     if (request_server_timestamp(adapter) == -1) {
-        reset_incoming_selection(adapter, true, false);
+        reset_incoming_selection(adapter, true);
         return BOXRIG_UI_UNAVAILABLE;
     }
     return BOXRIG_UI_OK;
@@ -4169,7 +4233,7 @@ int boxrig_x11_input_adapter_quiesce(boxrig_x11_input_adapter *adapter)
     clear_clipboard_offer(adapter, &adapter->primary_offer);
     clear_clipboard_offer(adapter, &adapter->clipboard_offer);
     if (adapter->selection_receive_state != SELECTION_RECEIVE_IDLE) {
-        reset_incoming_selection(adapter, true, adapter->input_window_alive);
+        reset_incoming_selection(adapter, true);
     }
     for (index = 0;
          index < adapter->maximum_active_selection_transfers;
@@ -4363,8 +4427,17 @@ static int process_event(
         }
         return filtered ? 1 : 0;
     }
-    blocked = boxrig_x11_input_adapter_blocked(adapter);
-    if (!blocked && event->type == KeyPress) {
+    bool key_event = event->type == KeyPress || event->type == KeyRelease;
+    bool inhibited = key_event && (!input_enabled(adapter) || adapter->inhibited_key[event->xkey.keycode]);
+    if (key_event) {
+        bool release = event->type == KeyRelease && !repeated_release(adapter, &copy.xkey);
+        if (event->type == KeyPress) adapter->native_pressed[event->xkey.keycode] = true;
+        else if (release) adapter->native_pressed[event->xkey.keycode] = false;
+        if (!input_enabled(adapter) && event->type == KeyPress) adapter->inhibited_key[event->xkey.keycode] = true;
+        if (release) adapter->inhibited_key[event->xkey.keycode] = false;
+    }
+    blocked = input_enabled(adapter) && boxrig_x11_input_adapter_blocked(adapter);
+    if (!blocked && !inhibited && event->type == KeyPress) {
         key_identity identity = identify_key(adapter, &copy.xkey);
 
         adapter->filtered_final_backspace_keycode = 0;
@@ -4407,6 +4480,16 @@ static int process_event(
         if (route_result != 0) {
             return route_result;
         }
+    }
+    if (inhibited) {
+        if (event->type == KeyPress) {
+            adapter->pressed[event->xkey.keycode] = true;
+            adapter->identities[event->xkey.keycode] = identify_key(adapter, &copy.xkey);
+        } else if (!repeated_release(adapter, &copy.xkey)) {
+            adapter->pressed[event->xkey.keycode] = false;
+            adapter->composition_key[event->xkey.keycode] = false;
+        }
+        return 1;
     }
     if (backspace_started_with_final_preedit) {
         adapter->filtered_final_backspace_keycode = event->xkey.keycode;
@@ -4486,7 +4569,7 @@ static int process_event(
         boxrig_focus_event focus = {true};
 
         adapter->input_focused = true;
-        if (adapter->input_context != NULL) {
+        if (input_enabled(adapter) && adapter->input_context != NULL) {
             XSetICFocus(adapter->input_context);
         }
         if (boxrig_composition_focus_changed(
@@ -4516,6 +4599,7 @@ static int process_event(
         adapter->filtered_final_backspace_keycode = 0;
         adapter->filtered_final_backspace_preedit_updated = false;
         memset(adapter->pressed, 0, sizeof(adapter->pressed));
+        memset(adapter->native_pressed, 0, sizeof(adapter->native_pressed));
         memset(adapter->composition_key, 0, sizeof(adapter->composition_key));
         adapter->pressed_buttons = 0;
         adapter->application_buttons = 0;
@@ -4540,7 +4624,7 @@ int boxrig_x11_input_adapter_queue_paste(
     char *normalized;
     size_t normalized_length;
 
-    if (adapter == NULL || adapter->paste_active ||
+    if (adapter == NULL || !input_enabled(adapter) || adapter->paste_active ||
         adapter->selection_receive_state != SELECTION_RECEIVE_IDLE ||
         boxrig_input_text_normalize_utf8(
             bytes,
@@ -4558,11 +4642,13 @@ int boxrig_x11_input_adapter_queue_paste(
     return boxrig_x11_input_adapter_retry(adapter);
 }
 
-int boxrig_x11_input_adapter_retry(boxrig_x11_input_adapter *adapter)
+static int retry_input(boxrig_x11_input_adapter *adapter)
 {
     boxrig_composition_status composition_status;
 
     if (adapter == NULL) return -1;
+    boxrig_ui_status stop = boxrig_ui_input_control_service(&adapter->control, adapter->terminal);
+    if (stop != BOXRIG_UI_OK && stop != BOXRIG_UI_BUSY) return -1;
     refresh_editable_context(adapter);
     if (retry_pending_input(adapter) == -1) {
         return -1;
@@ -4581,6 +4667,16 @@ int boxrig_x11_input_adapter_retry(boxrig_x11_input_adapter *adapter)
     return retry_paste(adapter);
 }
 
+int boxrig_x11_input_adapter_retry(boxrig_x11_input_adapter *adapter)
+{
+    if (adapter == NULL) return -1;
+    bool dispatching = adapter->dispatching;
+    adapter->dispatching = true;
+    int result = retry_input(adapter);
+    adapter->dispatching = dispatching;
+    return result;
+}
+
 bool boxrig_x11_input_adapter_blocked(
     const boxrig_x11_input_adapter *adapter)
 {
@@ -4589,8 +4685,8 @@ bool boxrig_x11_input_adapter_blocked(
     if (adapter == NULL) {
         return false;
     }
-    if (adapter->pending.kind != PENDING_INPUT_NONE ||
-        adapter->paste_active) {
+    if (adapter->control.state.phase == BOXRIG_UI_INPUT_STOPPING ||
+        adapter->pending.kind != PENDING_INPUT_NONE || adapter->paste_active) {
         return true;
     }
     return boxrig_composition_get_view(adapter->composition, &view) ==
