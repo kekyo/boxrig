@@ -53,7 +53,9 @@ static void report_ime_state(boxrig_term_wayland_application *application)
         application->reported_direct.selection_reason == context.direct.selection_reason &&
         application->reported_direct.ambiguous == context.direct.ambiguous &&
         application->reported_direct.conflicting_hints == context.direct.conflicting_hints &&
-        application->reported_direct.compatibility_alias == context.direct.compatibility_alias) return;
+        application->reported_direct.compatibility_alias == context.direct.compatibility_alias &&
+        application->reported_direct.contexts == context.direct.contexts &&
+        application->reported_direct.errors == context.direct.errors) return;
     static const char *const backends[] = {"none", "ibus", "fcitx5"};
     static const char *const selections[] = {"explicit", "discovery", "module", "xmodifiers", "address", "single", "priority", "retained"};
     static const char *const policies[] = {"auto", "system", "client"};

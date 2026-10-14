@@ -5042,7 +5042,7 @@ $(BUILD_DIR)/tests/test_gtk3_ibus: tests/gtk/test_ibus_widget.c include/boxrig/g
 
 test-gtk-ibus-direct: $(BUILD_DIR)/tests/test_gtk3_ibus $(BUILD_DIR)/tests/test_gtk4_ibus $(BUILD_DIR)/tests/wayland_ibus_engine
 	@for gtk in 3 4; do for scale in 1 2; do for renderer in cairo opengl; do \
-		env GDK_SCALE=$$scale BOXRIG_TEST_DELAY_ESCAPE_RELEASE=1 BOXRIG_TEST_IBUS_WAYLAND=1 dbus-run-session -- bash tests/gtk/run_gl_wayland.sh node tests/wayland/run_ibus_context.mjs "$(BUILD_DIR)/tests/test_gtk$${gtk}_ibus" "$(TEST_FONT_FILE)" "$(BUILD_DIR)/tests/wayland_ibus_engine" "$(BUILD_DIR)/test-results/gtk$${gtk}-ibus/$$scale-$$renderer" $$renderer || exit $$?; \
+		$(XVFB_RUN) -a env BOXRIG_TEST_WESTON_BACKEND=x11 GDK_SCALE=$$scale BOXRIG_TEST_DELAY_ESCAPE_RELEASE=1 BOXRIG_TEST_IBUS_WAYLAND=1 GIO_USE_VFS=local GTK_A11Y=none dbus-run-session --config-file=tests/ime/session.conf -- bash tests/gtk/run_gl_wayland.sh node tests/wayland/run_ibus_context.mjs "$(BUILD_DIR)/tests/test_gtk$${gtk}_ibus" "$(TEST_FONT_FILE)" "$(BUILD_DIR)/tests/wayland_ibus_engine" "$(BUILD_DIR)/test-results/gtk$${gtk}-ibus/$$scale-$$renderer" $$renderer || exit $$?; \
 	done; done; done
 
 $(BUILD_DIR)/ime:
@@ -5071,7 +5071,7 @@ $(GTK3_OBJECTS) $(GTK4_OBJECTS) $(WAYLAND_OBJECTS): $(IME_HEADERS)
 .PHONY: test-gtk-ibus-auto
 test-gtk-ibus-auto: $(BUILD_DIR)/tests/test_gtk3_ibus $(BUILD_DIR)/tests/test_gtk4_ibus $(BUILD_DIR)/tests/wayland_ibus_engine
 	@for gtk in 3 4; do \
-		env GDK_SCALE=1 BOXRIG_TEST_IBUS_WAYLAND=1 dbus-run-session -- bash tests/gtk/run_gl_wayland.sh node tests/wayland/run_ibus_context.mjs "$(BUILD_DIR)/tests/test_gtk$${gtk}_ibus" "$(TEST_FONT_FILE)" "$(BUILD_DIR)/tests/wayland_ibus_engine" "$(BUILD_DIR)/test-results/gtk$${gtk}-ibus/auto" cairo auto || exit $$?; \
+		$(XVFB_RUN) -a env BOXRIG_TEST_WESTON_BACKEND=x11 GDK_SCALE=1 BOXRIG_TEST_IBUS_WAYLAND=1 GIO_USE_VFS=local GTK_A11Y=none dbus-run-session --config-file=tests/ime/session.conf -- bash tests/gtk/run_gl_wayland.sh node tests/wayland/run_ibus_context.mjs "$(BUILD_DIR)/tests/test_gtk$${gtk}_ibus" "$(TEST_FONT_FILE)" "$(BUILD_DIR)/tests/wayland_ibus_engine" "$(BUILD_DIR)/test-results/gtk$${gtk}-ibus/auto" cairo auto || exit $$?; \
 	done
 
 .PHONY: test-gtk-ime-startup
@@ -5174,7 +5174,7 @@ test-gtk4-candidates: $(BUILD_DIR)/tests/test_gtk4_candidates $(BUILD_DIR)/tests
 
 .PHONY: test-wayland-candidates-startup
 test-wayland-candidates-startup: $(WAYLAND_EXAMPLE_BINARY) $(BUILD_DIR)/tests/wayland_ibus_engine
-	env BOXRIG_TEST_IBUS_WAYLAND=1 dbus-run-session -- bash tests/gtk/run_gl_wayland.sh node tests/wayland/run_ibus_context.mjs "$(shell command -v node)" tests/wayland/test_sample_candidates.mjs "$(BUILD_DIR)/tests/wayland_ibus_engine" "$(BUILD_DIR)/test-results/wayland-candidates-startup" "$(WAYLAND_EXAMPLE_BINARY)"
+	$(XVFB_RUN) -a env BOXRIG_TEST_WESTON_BACKEND=x11 BOXRIG_TEST_IBUS_WAYLAND=1 GIO_USE_VFS=local GTK_A11Y=none dbus-run-session --config-file=tests/ime/session.conf -- bash tests/gtk/run_gl_wayland.sh node tests/wayland/run_ibus_context.mjs "$(shell command -v node)" tests/wayland/test_sample_candidates.mjs "$(BUILD_DIR)/tests/wayland_ibus_engine" "$(BUILD_DIR)/test-results/wayland-candidates-startup" "$(WAYLAND_EXAMPLE_BINARY)"
 
 .PHONY: test-notification-dispatch
 test: test-notification-dispatch

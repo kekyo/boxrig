@@ -110,6 +110,8 @@ static void report_ime_state(boxrig_term_gtk3_application *application)
         previous->direct.ambiguous == state.direct.ambiguous &&
         previous->direct.conflicting_hints == state.direct.conflicting_hints &&
         previous->direct.compatibility_alias == state.direct.compatibility_alias &&
+        previous->direct.contexts == state.direct.contexts &&
+        previous->direct.errors == state.direct.errors &&
         previous->registry_complete == state.registry_complete &&
         previous->candidate_valid == state.candidate_valid &&
         previous->candidate_owner == state.candidate_owner &&
