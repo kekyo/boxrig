@@ -160,7 +160,7 @@ static void panel_scenario(void)
     GVariant *reply = query("Inspect", NULL, G_VARIANT_TYPE("(uuuusiiii)"));
     guint caps;
     g_variant_get_child(reply, 1, "u", &caps);
-    CHECK((caps & 1u) != 0 && (caps & (1u << 5)) == 0);
+    CHECK((caps & 1u) != 0 && (caps & ((1u << 1) | (1u << 4) | (1u << 5))) == 0);
     g_variant_unref(reply);
     CHECK(key('a'));
     boxrig_ui_candidate_snapshot state = panel_state();

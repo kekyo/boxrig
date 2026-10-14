@@ -9650,6 +9650,92 @@ static void test_fcitx4_native_input(void)
     CHECK((component_state.input_capabilities & BOXRIG_WAYLAND_INPUT_CAPABILITY_FCITX4) != 0);
     CHECK((component_state.input_capabilities & BOXRIG_WAYLAND_INPUT_CAPABILITY_IBUS) == 0);
     CHECK(!server.text_current_enabled[0]);
+    if (getenv("BOXRIG_TEST_FCITX_REAL") != NULL) {
+        CHECK(panels);
+        const char *display = getenv("DISPLAY"), *address = getenv("BOXRIG_TEST_FCITX4_REAL_ADDRESS");
+        CHECK(display != NULL && strrchr(display, ':') != NULL && address != NULL);
+        char *service = g_strdup_printf("org.fcitx.Fcitx-%d", atoi(strrchr(display, ':') + 1));
+        GDBusConnection *bus = g_dbus_connection_new_for_address_sync(address,
+            G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_CLIENT | G_DBUS_CONNECTION_FLAGS_MESSAGE_BUS_CONNECTION,
+            NULL, NULL, NULL);
+        CHECK(bus != NULL);
+        GVariant *reply = g_dbus_connection_call_sync(bus, service, "/inputmethod", "org.fcitx.Fcitx.InputMethod",
+            "SetCurrentIM", g_variant_new("(s)", "mozc"), G_VARIANT_TYPE_UNIT, G_DBUS_CALL_FLAGS_NO_AUTO_START, 60000, NULL, NULL);
+        CHECK(reply != NULL);
+        g_variant_unref(reply);
+        reply = g_dbus_connection_call_sync(bus, service, "/inputmethod", "org.fcitx.Fcitx.InputMethod",
+            "ActivateIM", NULL, G_VARIANT_TYPE_UNIT, G_DBUS_CALL_FLAGS_NO_AUTO_START, 60000, NULL, NULL);
+        CHECK(reply != NULL);
+        g_variant_unref(reply);
+        const uint32_t word[] = {KEY_K, KEY_I, KEY_S, KEY_H, KEY_A};
+        for (size_t index = 0; index < G_N_ELEMENTS(word); index++) ibus_test_key(&server, word[index]);
+        ibus_test_drain(&server, context, component);
+        boxrig_ui_candidate_view panel;
+        CHECK(boxrig_ui_view_get_candidates(boxrig_wayland_terminal_component_view(component), &panel) == BOXRIG_UI_OK);
+        CHECK(panel.snapshot.format == BOXRIG_UI_CANDIDATE_STRING_PANEL && panel.snapshot.visible);
+        CHECK(panel.snapshot.panel_preedit != NULL && g_str_has_prefix(panel.snapshot.panel_preedit, "きしゃ"));
+        CHECK(panel.snapshot.panel_cursor == strlen("きしゃ"));
+        check_ibus_inactive(component);
+        check_ibus_output(terminal, "");
+        ibus_test_key(&server, KEY_SPACE);
+        ibus_test_key(&server, KEY_SPACE);
+        ibus_test_drain(&server, context, component);
+        CHECK(boxrig_ui_view_get_candidates(boxrig_wayland_terminal_component_view(component), &panel) == BOXRIG_UI_OK);
+        CHECK(panel.snapshot.panel_text != NULL && panel.snapshot.panel_text[0] != 0);
+        char *first = g_strdup(panel.snapshot.panel_text);
+        ibus_test_key(&server, KEY_PAGEDOWN);
+        ibus_test_drain(&server, context, component);
+        CHECK(boxrig_ui_view_get_candidates(boxrig_wayland_terminal_component_view(component), &panel) == BOXRIG_UI_OK);
+        CHECK(panel.snapshot.panel_text != NULL && panel.snapshot.panel_text[0] != 0);
+        CHECK(strcmp(panel.snapshot.panel_text, first) != 0);
+        g_free(first);
+        boxrig_font_effective_metrics metrics;
+        CHECK(boxrig_wayland_terminal_component_get_effective_metrics(component, &metrics) == BOXRIG_FONT_CATALOG_OK);
+        boxrig_ui_component_allocation allocation = {.width = tc.columns * metrics.cell_width,
+            .height = tc.rows * metrics.cell_height, .window_state = BOXRIG_UI_WINDOW_EMBEDDED};
+        boxrig_ui_layout_result layout;
+        CHECK(boxrig_wayland_terminal_component_allocate(component, &allocation, &layout) == BOXRIG_UI_OK);
+        CHECK(boxrig_wayland_terminal_component_set_visible(component, true) == BOXRIG_UI_OK);
+        boxrig_ui_component_frame_result frame;
+        CHECK(boxrig_wayland_terminal_component_frame(component, &frame) == BOXRIG_UI_OK);
+        CHECK(boxrig_ui_view_get_candidates(boxrig_wayland_terminal_component_view(component), &panel) == BOXRIG_UI_OK);
+        CHECK(panel.layout.panel_text.height > 0 && panel.layout.panel_preedit.height > 0 && panel.layout.panel_caret.height > 0);
+        CHECK(boxrig_wayland_terminal_component_get_diagnostic(component, &component_state) == BOXRIG_UI_OK);
+        CHECK(component_state.candidate_owner == BOXRIG_UI_CANDIDATE_OWNER_CLIENT);
+        ibus_test_key(&server, KEY_F7);
+        ibus_test_drain(&server, context, component);
+        CHECK(boxrig_ui_view_get_candidates(boxrig_wayland_terminal_component_view(component), &panel) == BOXRIG_UI_OK);
+        CHECK(panel.snapshot.panel_preedit != NULL && g_str_has_prefix(panel.snapshot.panel_preedit, "キシャ"));
+        ibus_test_key(&server, KEY_ENTER);
+        ibus_test_drain(&server, context, component);
+        check_ibus_output(terminal, "キシャ");
+        CHECK(boxrig_ui_view_get_candidates(boxrig_wayland_terminal_component_view(component), &panel) == BOXRIG_UI_OK);
+        CHECK(!panel.snapshot.visible);
+        for (size_t index = 0; index < G_N_ELEMENTS(word); index++) ibus_test_key(&server, word[index]);
+        ibus_test_key(&server, KEY_ESC);
+        ibus_test_drain(&server, context, component);
+        CHECK(boxrig_ui_view_get_candidates(boxrig_wayland_terminal_component_view(component), &panel) == BOXRIG_UI_OK);
+        CHECK(!panel.snapshot.visible);
+        check_ibus_output(terminal, "");
+        ibus_test_key(&server, KEY_A);
+        ibus_test_drain(&server, context, component);
+        wl_keyboard_send_leave(server.keyboard_resources[0], 73, server.child_resource);
+        for (;;) {
+            pump(&server); dispatch_context(context);
+            CHECK(boxrig_wayland_context_get_diagnostic(context, &diagnostic) == BOXRIG_UI_OK);
+            CHECK(boxrig_wayland_terminal_component_get_diagnostic(component, &component_state) == BOXRIG_UI_OK);
+            if (diagnostic.direct.pending == 0 && component_state.input_queue_depth == 0 && !component_state.ime_waiting) break;
+            ibus_test_poll(context);
+        }
+        check_ibus_output(terminal, "あ");
+        CHECK(boxrig_ui_view_get_candidates(boxrig_wayland_terminal_component_view(component), &panel) == BOXRIG_UI_OK);
+        CHECK(panel.snapshot.panel_text == NULL);
+        CHECK(g_dbus_connection_close_sync(bus, NULL, NULL));
+        g_object_unref(bus);
+        g_free(service);
+        puts("PASS native Wayland real fcitx4/Mozc string panel, keyboard paging, cancellation and focus commit");
+        goto fcitx4_cleanup;
+    }
     ibus_test_key(&server, KEY_A);
     ibus_test_drain(&server, context, component);
     boxrig_composition_view text;
@@ -9736,6 +9822,7 @@ static void test_fcitx4_native_input(void)
         CHECK(boxrig_ui_view_get_candidates(boxrig_wayland_terminal_component_view(component), &panel) == BOXRIG_UI_OK);
         CHECK(panel.snapshot.panel_text == NULL && !panel.snapshot.visible);
     }
+fcitx4_cleanup:
     wl_array_release(&keys);
     boxrig_wayland_terminal_component_destroy(component);
     wl_surface_destroy(parent);
@@ -9746,7 +9833,7 @@ static void test_fcitx4_native_input(void)
     boxrig_ui_model_destroy(model);
     boxrig_terminal_destroy(terminal);
     destroy_server(&server);
-    puts("PASS native Wayland fcitx4 selection, decorated preedit, cancellation, input and server focus commit");
+    puts("PASS native Wayland fcitx4 selection, preedit, cancellation, input and server focus commit");
 }
 
 int main(int argc, char **argv)

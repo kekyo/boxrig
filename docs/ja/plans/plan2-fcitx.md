@@ -143,7 +143,11 @@ fcitx 4.2.9.9の公式タグを対象に、公開クライアントAPIのコメ�
 
 さらに、`CAPACITY_CLIENT_SIDE_UI`を指定すると、4系の通常のUI更新処理は`UpdateClientSideUI`を通知して戻ります。この経路では、その後にある通常の`UpdatePreedit`を呼びません。候補通知と装飾付き未確定文字の両方が常に届く設計にはできません。[UI更新の分岐](https://github.com/fcitx/fcitx/blob/4.2.9.9/src/lib/fcitx/ui.c#L977)
 
+能力指定も表示方法に合わせて分けます。パネル表示では`CAPACITY_CLIENT_SIDE_UI`を指定し、`CAPACITY_PREEDIT`と`CAPACITY_FORMATTED_PREEDIT`を指定しません。Mozcは通常の未確定文字表示に対応するクライアントに対して、読みをその専用通知へ振り分けます。三つを同時に指定すると、パネルから読みが抜け、専用通知も上記の分岐で届かなくなるためです。実fcitx 4／Mozcでこの欠落を再現し、能力指定の修正で読みとカーソルが届くことを確認しました。[フロントエンドの能力と通知](https://fcitx.github.io/developer-handbook/article-implement-frontend.html)、[Debian 13のMozcによる読みの振り分け](https://sources.debian.org/src/mozc/2.29.5160.102%2Bdfsg-1.4/src/unix/fcitx/fcitx_mozc.cc/#L332)
+
 したがって、4系のクライアント表示には、未確定文字と候補をまとめて扱う文字列パネルを追加します。保持する情報は、上下の補助文字列、パネル用未確定文字とカーソル、候補文字列です。候補が空でも未確定文字や補助情報があれば表示できるようにします。本文内の未確定文字表示との二重描画を防ぎ、パネルの文字列をそのまま確定本文として扱いません。
+
+パネル用未確定文字には、読み以外の操作案内も含まれます。今回のMozcでは、`きしゃ [Tabキーで選択]`という文字列を受信しました。カーソルは読みの末尾を示す9バイト目ですが、操作案内を除いた部分だけが常に確定対象だと推測する処理も加えません。確定内容はサーバーの`CommitString`通知を使用します。[Mozcによる操作案内の追加](https://sources.debian.org/src/mozc/2.29.5160.102%2Bdfsg-1.4/src/unix/fcitx/fcitx_mozc.cc/#L360)
 
 4系のクライアント表示では、個別候補の選択強調や文節装飾を5系と同じ精度で再現できない場合があります。これは対応範囲として明記します。完了条件は、受信した候補と未確定文字を欠落なく表示し、キーボードで候補選択・ページ移動・確定・キャンセルができることです。装飾が必要なX11環境では、SYSTEM指定によるシステム候補表示と装飾付き未確定文字も検証します。
 
@@ -553,3 +557,15 @@ fcitx 4の`UpdateClientSideUI(sssssi)`を文字列パネルへ接続しました
 GTK 4の試験ドライバーは、ウィンドウの表示だけでなく、実際のサイズ割当も待ってから描画します。native Waylandの配置検証でも、割当とフレーム処理を実行するようにしました。AUTO試験へ混入したホストの`XMODIFIERS=@im=ibus`は、既存の自動検出試験と同様に試験環境で除去します。選択規則は変更していません。
 
 実装前の失敗は`build/test-results/fcitx4/panel-core-red.log`、`panel-gtk-red.log`、`panel-native-red.log`に記録しました。成功結果は`panel-core-green.log`と`panel-host-green.log`です。ここまでのパネル通信は模擬サービスによる検証であり、実fcitx 4／Mozcでの表示とページ操作は引き続き段階5で実施します。
+
+### 段階5の実Mozcによるパネル検証
+
+実fcitx 4／Mozcでは、最初の試験で読みが欠落し、操作案内だけがパネルに表示されました。第5.5節に追記した能力指定の競合が原因です。能力フラグを検証するテストでも失敗を確認した後、クライアント表示時に通常の未確定文字表示を要求しないよう修正しました。失敗の記録は`build/test-results/fcitx4/real-panel-capacity-red.log`と`panel-capacity-red.log`、修正後の模擬サービスの結果は`panel-capacity-green.log`です。
+
+Debian 13のfcitx 4.2.9.9とMozc 2.29.5160.102で、GTK 3／X11、GTK 3／4／Wayland、native Waylandの明示指定とAUTOが成功しました。読みとバイト単位のカーソル、候補表示、Page Downによる候補の変更、確定と取消、フォーカス喪失時のサーバー確定を検証しています。GTKでは、編集可能な文書の選択範囲への確定も確認しました。
+
+確定内容の検証では、パネル文字列を確定文字と同一視しません。ページ移動後にF7でカタカナへ変換し、サーバーから受信する`キシャ`が一度だけ入力されることを確認します。native Waylandの描画検証は候補が表示されている段階で実施し、F7で候補が消えた後に候補の矩形を要求しないよう、試験の順序も修正しました。
+
+検証コマンドは`bash tests/ime/run_distribution.sh debian13 fcitx4`です。接続、フォーカス、アドレス探索、自動選択、SYSTEM表示、文字列パネルの全ターゲットが成功しました。パッケージ版とログは`build/test-results/ime-distributions/debian13-fcitx4/`にあります。Wayland試験では、実デーモンの起動スクリプトも、試験用Westonのランタイムディレクトリーを維持します。
+
+fcitx 5のパネルと自動選択、IBusの候補、GTKの直接IBus経路、Wayland入力の回帰試験も成功しました。記録は`build/test-results/fcitx4/panel-regression.log`です。段階5では続いて、付属ターミナルでの実表示と、パネルを提供しない4系互換サービスの診断を確認します。

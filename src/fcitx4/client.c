@@ -29,8 +29,12 @@ static void call(boxrig_ime_session *session, const char *method, GVariant *para
 static void surrounding(boxrig_ime_session *session, const char *text,
     uint32_t cursor, uint32_t anchor, bool available)
 {
-    uint32_t capabilities = FCITX4_PREEDIT | FCITX4_FORMATTED;
-    if (boxrig_ime_owns_candidates(session)) capabilities |= FCITX4_CLIENT_UI;
+    /* Engines such as Mozc put the reading in client preedit when PREEDIT is
+     * set, but fcitx 4's client UI path suppresses that notification. Request
+     * the panel alone so its preedit includes the reading and byte cursor.
+     * https://github.com/fcitx/mozc/blob/fcitx/src/unix/fcitx/fcitx_mozc.cc */
+    uint32_t capabilities = boxrig_ime_owns_candidates(session) ? FCITX4_CLIENT_UI :
+        FCITX4_PREEDIT | FCITX4_FORMATTED;
     if (session->owner->wayland) capabilities |= FCITX4_RELATIVE;
     if (available) capabilities |= FCITX4_SURROUNDING;
     if (session->capabilities != capabilities) {

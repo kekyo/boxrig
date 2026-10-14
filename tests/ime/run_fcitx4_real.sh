@@ -39,10 +39,13 @@ if [[ -d "$HOME/.mozc" ]]; then
     exit 1
 fi
 export XDG_CONFIG_HOME="$probe_root/config" XDG_CACHE_HOME="$probe_root/cache"
-export XDG_DATA_HOME="$probe_root/data" XDG_RUNTIME_DIR="$probe_root/runtime"
+export XDG_DATA_HOME="$probe_root/data"
+if [[ ${GDK_BACKEND:-} != wayland ]]; then
+    export XDG_RUNTIME_DIR="$probe_root/runtime"
+    mkdir -m 700 "$XDG_RUNTIME_DIR"
+fi
 export BOXRIG_TEST_FCITX_REAL=1
 mkdir -p "$XDG_CONFIG_HOME/fcitx" "$XDG_CONFIG_HOME/mozc"
-mkdir -m 700 "$XDG_RUNTIME_DIR"
 # The 4.2.9.9 configuration descriptions define these keys and enum values:
 # https://github.com/fcitx/fcitx/blob/4.2.9.9/data/profile.desc
 # https://github.com/fcitx/fcitx/blob/4.2.9.9/data/config.desc

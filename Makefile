@@ -5648,6 +5648,15 @@ test-fcitx4-panels-gtk: $(BUILD_DIR)/tests/test_gtk3_fcitx4 $(BUILD_DIR)/tests/t
 
 test: test-fcitx4-panels-gtk
 
+.PHONY: test-fcitx4-panels-real
+test-fcitx4-panels-real: $(BUILD_DIR)/tests/test_gtk3_fcitx4 $(BUILD_DIR)/tests/test_gtk4_fcitx4 $(WAYLAND_CONTEXT_TEST_BINARY)
+	$(XVFB_RUN) -a env IBUS_ADDRESS= XMODIFIERS= BOXRIG_TEST_FCITX4=1 BOXRIG_TEST_FCITX4_PANELS=1 GDK_BACKEND=x11 GIO_USE_VFS=local ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4_real.sh $(WAYLAND_CONTEXT_TEST_BINARY) "$(TEST_FONT_FILE)"
+	$(XVFB_RUN) -a env IBUS_ADDRESS= XMODIFIERS= BOXRIG_TEST_IME_AUTO=1 BOXRIG_TEST_FCITX4=1 BOXRIG_TEST_FCITX4_PANELS=1 GDK_BACKEND=x11 GIO_USE_VFS=local ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4_real.sh $(WAYLAND_CONTEXT_TEST_BINARY) "$(TEST_FONT_FILE)"
+	$(XVFB_RUN) -a env BOXRIG_TEST_FCITX4_PANELS=1 GDK_BACKEND=x11 GTK_IM_MODULE=gtk-im-context-simple GTK_A11Y=none NO_AT_BRIDGE=1 GIO_USE_VFS=local ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4_real.sh $(BUILD_DIR)/tests/test_gtk3_fcitx4
+	@for gtk in 3 4; do \
+		$(XVFB_RUN) -a env BOXRIG_TEST_FCITX4_PANELS=1 BOXRIG_TEST_WESTON_BACKEND=x11 GTK_IM_MODULE=gtk-im-context-simple GTK_A11Y=none GIO_USE_VFS=local LIBGL_ALWAYS_SOFTWARE=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/gtk/run_gl_wayland.sh bash tests/ime/run_fcitx4_real.sh $(BUILD_DIR)/tests/test_gtk$${gtk}_fcitx4 || exit $$?; \
+	done
+
 .PHONY: test-gtk-fcitx4
 test-gtk-fcitx4: $(BUILD_DIR)/tests/fcitx4_server $(BUILD_DIR)/tests/test_gtk3_fcitx4
 	$(XVFB_RUN) -a env GDK_BACKEND=x11 GTK_IM_MODULE=gtk-im-context-simple GTK_A11Y=none NO_AT_BRIDGE=1 GIO_USE_VFS=local ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4.sh --display $(BUILD_DIR)/tests/fcitx4_server $(BUILD_DIR)/tests/test_gtk3_fcitx4

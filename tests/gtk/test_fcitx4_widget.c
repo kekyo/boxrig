@@ -245,21 +245,54 @@ static void real_mozc(void)
     g_variant_unref(reply);
     for (const char *letter = "kisha"; *letter != 0; letter++) key((guint)*letter);
     boxrig_composition_view text = composition();
-    CHECK(text.active && text.text_length == strlen("きしゃ") && memcmp(text.text, "きしゃ", text.text_length) == 0);
-    CHECK(text.segment_count != 0 && (text.segments[0].feedback & BOXRIG_COMPOSITION_FEEDBACK_UNDERLINE) != 0);
+    if (panels) {
+        boxrig_ui_candidate_view view = panel_state();
+        CHECK(view.snapshot.format == BOXRIG_UI_CANDIDATE_STRING_PANEL && view.snapshot.visible);
+        CHECK(view.snapshot.panel_preedit != NULL && g_str_has_prefix(view.snapshot.panel_preedit, "きしゃ"));
+        CHECK(view.snapshot.panel_cursor == strlen("きしゃ"));
+        CHECK(view.layout.panel_preedit.height > 0 && view.layout.panel_caret.height > 0);
+        boxrig_gtk_ime_state state;
+        CHECK(widget_ime_state(widget, &state) == BOXRIG_UI_OK);
+        CHECK(state.candidate_owner == BOXRIG_UI_CANDIDATE_OWNER_CLIENT);
+    } else {
+        CHECK(text.active && text.text_length == strlen("きしゃ") && memcmp(text.text, "きしゃ", text.text_length) == 0);
+        CHECK(text.segment_count != 0 && (text.segments[0].feedback & BOXRIG_COMPOSITION_FEEDBACK_UNDERLINE) != 0);
+    }
     output("");
     key(GDK_KEY_space);
-    text = composition();
-    CHECK(text.active && text.text_length != 0);
-    CHECK(text.text_length != strlen("きしゃ") || memcmp(text.text, "きしゃ", text.text_length) != 0);
-    char *converted = g_strndup(text.text, text.text_length);
+    char *converted;
+    if (panels) {
+        key(GDK_KEY_space);
+        boxrig_ui_candidate_view view = panel_state();
+        CHECK(view.snapshot.panel_text != NULL && view.snapshot.panel_text[0] != 0);
+        CHECK(view.layout.panel_text.height > 0);
+        char *first = g_strdup(view.snapshot.panel_text);
+        key(GDK_KEY_Page_Down);
+        view = panel_state();
+        CHECK(view.snapshot.panel_text != NULL && view.snapshot.panel_text[0] != 0);
+        CHECK(strcmp(view.snapshot.panel_text, first) != 0);
+        g_free(first);
+        /* The panel preedit can include Mozc's usage/footer text. F7 gives a
+         * deterministic conversion without treating the panel as a commit. */
+        key(GDK_KEY_F7);
+        view = panel_state();
+        CHECK(view.snapshot.panel_preedit != NULL && g_str_has_prefix(view.snapshot.panel_preedit, "キシャ"));
+        converted = g_strdup("キシャ");
+    } else {
+        text = composition();
+        CHECK(text.active && text.text_length != 0);
+        CHECK(text.text_length != strlen("きしゃ") || memcmp(text.text, "きしゃ", text.text_length) != 0);
+        converted = g_strndup(text.text, text.text_length);
+    }
     key(GDK_KEY_Return);
     CHECK(!composition().active);
+    if (panels) CHECK(!panel_state().snapshot.visible);
     output(converted);
     g_free(converted);
     for (const char *letter = "kisha"; *letter != 0; letter++) key((guint)*letter);
     key(GDK_KEY_Escape);
     CHECK(!composition().active);
+    if (panels) CHECK(!panel_state().snapshot.visible);
     output("");
     boxrig_ui_editable_document *document = boxrig_ui_view_editable_document(widget_view(widget));
     boxrig_ui_editable_context_input context = {.document_identity = 1, .document_revision = 1,
@@ -269,9 +302,16 @@ static void real_mozc(void)
     CHECK(boxrig_ui_editable_document_publish_context(document, &context) == BOXRIG_UI_OK);
     for (const char *letter = "kisha"; *letter != 0; letter++) key((guint)*letter);
     key(GDK_KEY_space);
-    text = composition();
-    CHECK(text.active && text.text_length != 0);
-    converted = g_strndup(text.text, text.text_length);
+    if (panels) {
+        key(GDK_KEY_F7);
+        boxrig_ui_candidate_view view = panel_state();
+        CHECK(view.snapshot.panel_preedit != NULL && g_str_has_prefix(view.snapshot.panel_preedit, "キシャ"));
+        converted = g_strdup("キシャ");
+    } else {
+        text = composition();
+        CHECK(text.active && text.text_length != 0);
+        converted = g_strndup(text.text, text.text_length);
+    }
     key(GDK_KEY_Return);
     CHECK(edits == 1 && !composition().active);
     output("");
@@ -284,7 +324,8 @@ static void real_mozc(void)
     g_free(service);
     CHECK(g_dbus_connection_close_sync(bus, NULL, NULL));
     g_object_unref(bus);
-    puts("PASS GTK 3 real fcitx4/Mozc decorated preedit, conversion, document edit, cancellation and configured focus commit");
+    puts(panels ? "PASS GTK real fcitx4/Mozc string panel, keyboard paging, document edit, cancellation and focus commit" :
+        "PASS GTK real fcitx4/Mozc decorated preedit, conversion, document edit, cancellation and configured focus commit");
 }
 int main(void)
 {
