@@ -90,6 +90,9 @@ int main(void)
         tc.input.key_mapping_count = 1;
         tc.output_capacity = 6;
         widget_config config = config_default();
+        /* This fixture injects GTK commit signals; discovery may instead
+         * select a direct daemon and replace that GTK input context. */
+        config.ime_policy = BOXRIG_GTK_IME_GTK;
         config.paste_chunk_size = 1;
         boxrig_terminal *terminal = NULL;
         boxrig_ui_model *model = NULL;
