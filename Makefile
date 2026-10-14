@@ -5373,6 +5373,42 @@ include tests/headers/rules.mk
 
 .PHONY: test-grid-resize test-grid-resize-win32
 .PHONY: test-posix-spawn
+.PHONY: test-async-spawn
+.PHONY: example-pty-spawn example-pty-spawn-win32
+example-pty-spawn: $(BUILD_DIR)/examples/pty_spawn
+example-pty-spawn-win32: $(MINGW_AMD64_BUILD_DIR)/pty_spawn.exe $(MINGW_I686_BUILD_DIR)/pty_spawn.exe
+
+$(BUILD_DIR)/examples/pty_spawn: examples/pty_spawn/main.cpp examples/pty_spawn/operation.cpp examples/pty_spawn/operation.h deps/cardio/include/cardio.h $(POSIX_LIBRARY) $(LIBRARY)
+	mkdir -p $(@D)
+	$(CXX) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK3_CPPFLAGS) -Iexamples/pty_spawn -Ideps/cardio/include -DCARDIO_WITH_GLIB=1 $(CFLAGS) -std=c++20 $(WARNINGS) examples/pty_spawn/main.cpp examples/pty_spawn/operation.cpp $(POSIX_LIBRARY) $(LIBRARY) -lutil $(GTK3_LIBS) -pthread -o $@
+
+$(MINGW_AMD64_BUILD_DIR)/pty_spawn.exe: examples/pty_spawn/main.cpp examples/pty_spawn/operation.cpp examples/pty_spawn/operation.h deps/cardio/include/cardio.h $(MINGW_AMD64_WIN32_LIBRARY)
+	$(MINGW_AMD64_CXX) $(PUBLIC_CPPFLAGS) $(MINGW_WIN32_CPPFLAGS) -Iexamples/pty_spawn -Ideps/cardio/include $(CFLAGS) -std=c++20 $(WARNINGS) -static -municode examples/pty_spawn/main.cpp examples/pty_spawn/operation.cpp $(MINGW_AMD64_WIN32_LIBRARY) -lversion -luser32 -o $@
+
+$(MINGW_I686_BUILD_DIR)/pty_spawn.exe: examples/pty_spawn/main.cpp examples/pty_spawn/operation.cpp examples/pty_spawn/operation.h deps/cardio/include/cardio.h $(MINGW_I686_WIN32_LIBRARY)
+	$(MINGW_I686_CXX) $(PUBLIC_CPPFLAGS) $(MINGW_WIN32_CPPFLAGS) -Iexamples/pty_spawn -Ideps/cardio/include $(CFLAGS) -std=c++20 $(WARNINGS) -static -municode examples/pty_spawn/main.cpp examples/pty_spawn/operation.cpp $(MINGW_I686_WIN32_LIBRARY) -lversion -luser32 -o $@
+
+test: test-async-spawn
+test-async-spawn: $(BUILD_DIR)/tests/test_async_spawn $(BUILD_DIR)/examples/pty_spawn
+	NO_AT_BRIDGE=1 GDK_BACKEND=x11 xvfb-run -a $<
+	sh tests/check_spawn_example.sh $(BUILD_DIR)/examples/pty_spawn
+
+ASYNC_SPAWN_SOURCE := examples/pty_spawn/operation.cpp
+ASYNC_SPAWN_HEADERS := examples/pty_spawn/operation.h deps/cardio/include/cardio.h
+ASYNC_SPAWN_POSIX_WRAP := -Wl,--wrap=boxrig_posix_pty_spawn_with_diagnostic,--wrap=boxrig_posix_pty_destroy
+ASYNC_SPAWN_WIN32_WRAP := -Wl,--wrap=boxrig_win32_pty_spawn_with_config,--wrap=boxrig_win32_pty_close,--wrap=boxrig_win32_pty_destroy
+
+$(BUILD_DIR)/tests/test_async_spawn: tests/test_async_spawn.cpp $(ASYNC_SPAWN_SOURCE) $(ASYNC_SPAWN_HEADERS) $(POSIX_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CXX) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK3_CPPFLAGS) -Iexamples/pty_spawn -Ideps/cardio/include -DCARDIO_WITH_GLIB=1 $(CFLAGS) -std=c++20 $(WARNINGS) tests/test_async_spawn.cpp $(ASYNC_SPAWN_SOURCE) $(POSIX_LIBRARY) $(LIBRARY) -lutil $(GTK3_LIBS) -pthread $(ASYNC_SPAWN_POSIX_WRAP) -o $@
+
+$(MINGW_AMD64_BUILD_DIR)/tests/test_async_spawn.exe: tests/test_async_spawn.cpp $(ASYNC_SPAWN_SOURCE) $(ASYNC_SPAWN_HEADERS) $(MINGW_AMD64_WIN32_LIBRARY) | $(MINGW_AMD64_BUILD_DIR)/tests
+	$(MINGW_AMD64_CXX) $(PUBLIC_CPPFLAGS) $(MINGW_WIN32_CPPFLAGS) -Iexamples/pty_spawn -Ideps/cardio/include $(CFLAGS) -std=c++20 $(WARNINGS) -static tests/test_async_spawn.cpp $(ASYNC_SPAWN_SOURCE) $(MINGW_AMD64_WIN32_LIBRARY) -lversion -luser32 $(ASYNC_SPAWN_WIN32_WRAP) -o $@
+
+$(MINGW_I686_BUILD_DIR)/tests/test_async_spawn.exe: tests/test_async_spawn.cpp $(ASYNC_SPAWN_SOURCE) $(ASYNC_SPAWN_HEADERS) $(MINGW_I686_WIN32_LIBRARY) | $(MINGW_I686_BUILD_DIR)/tests
+	$(MINGW_I686_CXX) $(PUBLIC_CPPFLAGS) $(MINGW_WIN32_CPPFLAGS) -Iexamples/pty_spawn -Ideps/cardio/include $(CFLAGS) -std=c++20 $(WARNINGS) -static tests/test_async_spawn.cpp $(ASYNC_SPAWN_SOURCE) $(MINGW_I686_WIN32_LIBRARY) -lversion -luser32 $(ASYNC_SPAWN_WIN32_WRAP) -o $@
+
+test-p2-win32: $(MINGW_AMD64_BUILD_DIR)/tests/test_async_spawn.exe $(MINGW_I686_BUILD_DIR)/tests/test_async_spawn.exe example-pty-spawn-win32
+
 test: test-posix-spawn
 test-posix-spawn: $(BUILD_DIR)/tests/test_posix_spawn
 	$(BUILD_DIR)/tests/test_posix_spawn

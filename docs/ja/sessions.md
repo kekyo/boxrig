@@ -113,7 +113,37 @@ Cardioの`from_win32_handle()`などでsignaledを確認してから、`GetExitC
 待機を完了または取り消してからPTYを破棄し、借用HANDLEを直接閉じないでください。
 
 起動と終了を分けて確認するドライバーは、[POSIX](../../tests/test_posix_spawn.c)と[Win32](../../tests/win32/test_pty_spawn.cpp)にあります。
-この段階では起動と失敗時の後始末は同期処理で、起動中のGUI応答や中止は別の検証対象です。
+これらのC APIでは、起動と失敗時の後始末は同期処理です。
+
+## GUIから起動と中止を行う
+
+[C++20の起動ドライバー](../../examples/pty_spawn/main.cpp)は、StartとCancelで子プロセスを操作する実行例です。
+起動失敗、子の終了、中止後の資源回収を個別に確認できます。
+子の出力は読み取ってバイト数を表示し、端末画面や対話入力は提供しません。
+
+```sh
+make example-pty-spawn
+build/examples/pty_spawn /bin/sh -c 'read value'
+# 1回実行し、終了結果を表示して閉じる
+build/examples/pty_spawn --once /bin/sh -c 'exit 127'
+```
+
+Linux版はGTK3を使い、子の終了を[pidfd](https://man7.org/linux/man-pages/man2/pidfd_open.2.html)で待ちます。Linux 5.3以降と、`sys/pidfd.h`を提供するlibcが必要です。
+MinGWのamd64/i686版は`make example-pty-spawn-win32`で生成します。
+Windowsではコマンドライン全体を1引数として渡します。
+例えば`pty_spawn.exe --once "cmd.exe /d /c exit 259"`です。このGUIはシステム版ConPTYを使います。
+
+[操作の所有者](../../examples/pty_spawn/operation.h)は同時に1件だけ起動を受け付け、資源回収中の次の要求を拒否します。
+Cancelは取消要求であり、停止完了ではありません。
+開始済みの同期OS関数が戻るのを待ち、必要なら生成された子を終了させ、I/OとPTYの資源を回収してから`finished`を通知します。
+取消前の遅い`ready`通知は世代の照合で除外されます。
+ウィンドウを閉じても、dispatcherを終了できるのは回収完了後です。
+
+同期処理には[Cardioの`promises::start_new()`](../../deps/cardio/README_ja.md)を使います。
+Win32で出力を回収する場合は、別の読み取り操作が同期pipeを読み続ける間にConPTYを閉じます。
+出力を破棄する場合は、PTYのdestroyが出力pipeを先に閉じる順序です。
+この区別は、古いWindowsで`ClosePseudoConsole()`が出力の排出を待つ場合にも必要です。
+[Microsoftの終了処理の説明](https://learn.microsoft.com/en-us/windows/console/closepseudoconsole)を参照してください。
 
 ## 独自の通信路につなぐ
 

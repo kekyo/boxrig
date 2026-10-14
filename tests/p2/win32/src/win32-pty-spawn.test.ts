@@ -4,7 +4,7 @@ import { expect, it } from 'vitest';
 
 import { connectRemoteAgent } from './agent-connection.js';
 
-it('separates real ConPTY spawn errors from exit 127/259 and releases owned handles', async () => {
+it('observes ConPTY startup, exit, asynchronous cancellation and complete cleanup', async () => {
   const source = process.env.BOXRIG_P2_WIN32_SOURCE_DIR;
   if (!source) throw new Error('BOXRIG_P2_WIN32_SOURCE_DIR is required.');
   const agent = await connectRemoteAgent({ timeoutMs: 30_000 });
@@ -33,6 +33,7 @@ it('separates real ConPTY spawn errors from exit 127/259 and releases owned hand
       await agent.files.mkdir(location);
       for (const name of [
         'test_pty_spawn.exe',
+        'test_async_spawn.exe',
         'test_pty_runtime.exe',
         'pty_runtime_fixture.dll',
         'pty_runtime_missing.dll',
@@ -44,6 +45,12 @@ it('separates real ConPTY spawn errors from exit 127/259 and releases owned hand
           )
         );
       }
+      await agent.files.writeFile(
+        `${location}\\pty_spawn.exe`,
+        await readFile(
+          join(source, `build/win32/${architecture}/pty_spawn.exe`)
+        )
+      );
       await agent.files.writeFile(
         `${location}\\conpty.dll`,
         await readFile(
@@ -57,15 +64,43 @@ it('separates real ConPTY spawn errors from exit 127/259 and releases owned hand
           join(source, 'build/generated/conpty/hosts/x64/OpenConsole.exe')
         )
       );
-      for (const policy of ['mock', 'system', 'packaged-required']) {
+      for (const test of [
+        {
+          name: 'pty_spawn.exe',
+          policy: 'system',
+          expected: 'Finished. Exit=259',
+        },
+        {
+          name: 'test_pty_runtime.exe',
+          policy: 'mock',
+          expected: 'PASS packaged policies',
+        },
+        ...['system', 'packaged-required'].flatMap((policy) => [
+          {
+            name: 'test_pty_spawn.exe',
+            policy,
+            expected:
+              'PASS real ConPTY startup errors, exit 127/259, Cardio waits and borrowed HANDLE lifetime',
+          },
+          {
+            name: 'test_async_spawn.exe',
+            policy,
+            expected:
+              'PASS asynchronous startup, GUI paint, cancellation generations and complete cleanup',
+          },
+        ]),
+      ]) {
+        const policy = test.policy;
         const child = await agent.processes.launchManaged({
-          path: `${location}\\${policy === 'mock' ? 'test_pty_runtime.exe' : 'test_pty_spawn.exe'}`,
+          path: `${location}\\${test.name}`,
           arguments:
-            policy === 'mock'
-              ? []
-              : policy === 'system'
-                ? [policy]
-                : [policy, location],
+            test.name === 'pty_spawn.exe'
+              ? ['--once', 'cmd.exe /d /c exit 259']
+              : policy === 'mock'
+                ? []
+                : policy === 'system' || test.name === 'test_async_spawn.exe'
+                  ? [policy]
+                  : [policy, location],
           workingDirectory: location,
           captureStdout: true,
           captureStderr: true,
@@ -78,14 +113,12 @@ it('separates real ConPTY spawn errors from exit 127/259 and releases owned hand
             (await child.stdoutText()) + (await child.stderrText());
           expect(
             result.root.exitCode,
-            `${architecture}/${policy}: ${output}`
+            `${architecture}/${policy}/${test.name}: ${output}`
           ).toBe(0);
-          expect(output).toContain(
-            policy === 'mock'
-              ? 'PASS packaged policies'
-              : 'PASS real ConPTY startup errors, exit 127/259, Cardio waits and borrowed HANDLE lifetime'
+          expect(output).toContain(test.expected);
+          console.log(
+            `${architecture}/${policy}/${test.name}: ${output.trim()}`
           );
-          console.log(`${architecture}/${policy}: ${output.trim()}`);
         } finally {
           await child.releaseAsync({ timeoutMs: 30_000 });
         }

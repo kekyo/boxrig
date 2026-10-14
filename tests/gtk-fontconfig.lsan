@@ -1,0 +1,3 @@
+# Fontconfig allocations retained after GTK label/button rendering.
+# https://clang.llvm.org/docs/AddressSanitizer.html#suppressing-memory-leaks
+leak:libfontconfig.so

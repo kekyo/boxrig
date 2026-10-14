@@ -112,7 +112,37 @@ Comparing 259 with `STILL_ACTIVE` alone can keep waiting after termination, as d
 Finish or cancel registered waits before destroying the PTY; do not close the borrowed HANDLE directly.
 
 Runnable diagnostic and exit drivers are available for [POSIX](../../tests/test_posix_spawn.c) and [Win32](../../tests/win32/test_pty_spawn.cpp).
-At this stage, startup and failure cleanup are synchronous; GUI responsiveness and cancellation during startup are separate verification tasks.
+These C APIs perform startup and failure cleanup synchronously.
+
+## Start and cancel from a GUI
+
+The [C++20 startup driver](../../examples/pty_spawn/main.cpp) provides Start and Cancel controls for a child process.
+It distinguishes startup failure, child exit, and resource recovery after cancellation.
+It consumes child output and displays its byte count; it does not provide a terminal display or interactive input.
+
+```sh
+make example-pty-spawn
+build/examples/pty_spawn /bin/sh -c 'read value'
+# Run once, display the exit result, and close.
+build/examples/pty_spawn --once /bin/sh -c 'exit 127'
+```
+
+The Linux driver uses GTK3 and observes child exit through a [pidfd](https://man7.org/linux/man-pages/man2/pidfd_open.2.html).
+It requires Linux 5.3 or later and a libc providing `sys/pidfd.h`.
+Build the MinGW amd64/i686 versions with `make example-pty-spawn-win32`.
+On Windows, pass the entire command line as one argument, for example `pty_spawn.exe --once "cmd.exe /d /c exit 259"`.
+This GUI uses system ConPTY.
+
+The [operation owner](../../examples/pty_spawn/operation.h) accepts at most one startup request and rejects the next request while resource recovery is pending.
+Cancel requests cancellation; it does not report completed shutdown.
+The owner waits for any ongoing synchronous OS call to return, terminates its child when necessary, and releases I/O and PTY resources before emitting `finished`.
+Generation checks discard late `ready` notifications from before cancellation.
+Closing the window also keeps the dispatcher running until recovery finishes.
+
+Synchronous operations use [Cardio's `promises::start_new()`](../../deps/cardio/README.md).
+When preserving Win32 output, a separate owned read operation drains the synchronous pipe while ConPTY is closed.
+When discarding output, PTY destruction closes the output pipe first.
+This distinction also matters on older Windows versions where `ClosePseudoConsole()` may wait for output to drain; see [Microsoft's shutdown documentation](https://learn.microsoft.com/en-us/windows/console/closepseudoconsole).
 
 ## Connect a custom transport
 
