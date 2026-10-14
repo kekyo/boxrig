@@ -154,7 +154,9 @@ typedef enum boxrig_wayland_input_capability {
     /** xkb compose fallback was created for the process locale. */
     BOXRIG_WAYLAND_INPUT_CAPABILITY_XKB_COMPOSE = 1u << 3,
     /** The selected direct IBus connection is usable. */
-    BOXRIG_WAYLAND_INPUT_CAPABILITY_IBUS = 1u << 4
+    BOXRIG_WAYLAND_INPUT_CAPABILITY_IBUS = 1u << 4,
+    /** Direct asynchronous fcitx 5 is the current input owner. */
+    BOXRIG_WAYLAND_INPUT_CAPABILITY_FCITX5 = 1u << 5
 } boxrig_wayland_input_capability;
 
 /** Optional native selection protocols currently available to a context. */
@@ -242,7 +244,9 @@ typedef enum boxrig_wayland_input_method {
     /** Prefer version-2 clause hints, otherwise a configured IBus daemon. */
     BOXRIG_WAYLAND_IME_AUTO,
     /** Connect directly to IBus, falling back when it is unavailable. */
-    BOXRIG_WAYLAND_IME_IBUS
+    BOXRIG_WAYLAND_IME_IBUS,
+    /** Connect directly to fcitx 5, falling back when it is unavailable. */
+    BOXRIG_WAYLAND_IME_FCITX5
 } boxrig_wayland_input_method;
 
 /** Lifecycle of the optional direct IBus connection. */

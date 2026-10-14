@@ -14,14 +14,17 @@ typedef enum boxrig_gtk_ime_policy {
     /** Use the ordinary GTK input context and its configured module. */
     BOXRIG_GTK_IME_GTK,
     /** Use direct IBus on Wayland or GTK 3/X11, and the GTK IBus module on GTK 4/X11. */
-    BOXRIG_GTK_IME_IBUS
+    BOXRIG_GTK_IME_IBUS,
+    /** Use direct fcitx 5 on Wayland or GTK 3/X11, and the GTK fcitx module on GTK 4/X11. */
+    BOXRIG_GTK_IME_FCITX5
 } boxrig_gtk_ime_policy;
 
 /** Active input owner; pending means that native keys are retained in order. */
 typedef enum boxrig_gtk_ime_route {
     BOXRIG_GTK_IME_ROUTE_PENDING = 0, /**< Waiting for capability discovery. */
     BOXRIG_GTK_IME_ROUTE_GTK, /**< The configured GtkIMContext. */
-    BOXRIG_GTK_IME_ROUTE_IBUS /**< Direct asynchronous IBus. */
+    BOXRIG_GTK_IME_ROUTE_IBUS, /**< Direct asynchronous IBus. */
+    BOXRIG_GTK_IME_ROUTE_FCITX5 /**< Direct asynchronous fcitx 5. */
 } boxrig_gtk_ime_route;
 
 /** Reason for selecting or retaining an input owner. */
@@ -37,7 +40,9 @@ typedef enum boxrig_gtk_ime_reason {
     BOXRIG_GTK_IME_REASON_IBUS_UNAVAILABLE, /**< Direct connection or context creation failed. */
     BOXRIG_GTK_IME_REASON_DISPLAY_CLOSED, /**< Capability query ended with display closure. */
     BOXRIG_GTK_IME_REASON_X11_IBUS, /**< Direct IBus selected for an X11 terminal. */
-    BOXRIG_GTK_IME_REASON_CLIENT_CANDIDATES /**< Explicit client UI uses configured IBus. */
+    BOXRIG_GTK_IME_REASON_CLIENT_CANDIDATES, /**< Explicit client UI uses configured IBus. */
+    BOXRIG_GTK_IME_REASON_EXPLICIT_FCITX5, /**< Application explicitly requested fcitx 5. */
+    BOXRIG_GTK_IME_REASON_FCITX5_UNAVAILABLE /**< Direct fcitx 5 connection or context creation failed. */
 } boxrig_gtk_ime_reason;
 
 /** Direct IBus connection state, independent of the selected input owner. */

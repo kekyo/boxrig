@@ -111,10 +111,10 @@ static void report_ime_state(boxrig_term_gtk3_application *application)
         previous->candidate_reason == state.candidate_reason &&
         previous->candidate_revision == state.candidate_revision &&
         strcmp(previous->gtk_module, state.gtk_module) == 0) return;
-    static const char *const routes[] = {"pending", "gtk", "ibus"};
+    static const char *const routes[] = {"pending", "gtk", "ibus", "fcitx5"};
     static const char *const reasons[] = {"pending", "non-wayland", "explicit-gtk",
         "explicit-module", "explicit-ibus", "wayland-clauses", "legacy-ibus",
-        "gtk-fallback", "ibus-unavailable", "display-closed", "x11-ibus", "client-candidates"};
+        "gtk-fallback", "ibus-unavailable", "display-closed", "x11-ibus", "client-candidates", "explicit-fcitx5", "fcitx5-unavailable"};
     static const char *const candidate_policies[] = {"auto", "system", "client"};
     static const char *const candidate_owners[] = {"none", "system", "client"};
     static const char *const candidate_reasons[] = {"pending", "ready", "system-request",
@@ -619,8 +619,9 @@ static void activate_application(
     if (ime != NULL && strcmp(ime, "auto") != 0) {
         if (strcmp(ime, "gtk") == 0) widget_config.ime_policy = BOXRIG_GTK_IME_GTK;
         else if (strcmp(ime, "ibus") == 0) widget_config.ime_policy = BOXRIG_GTK_IME_IBUS;
+        else if (strcmp(ime, "fcitx5") == 0) widget_config.ime_policy = BOXRIG_GTK_IME_FCITX5;
         else {
-            fprintf(stderr, "boxrig_term: BOXRIG_GTK_IME must be auto, gtk, or ibus\n");
+            fprintf(stderr, "boxrig_term: BOXRIG_GTK_IME must be auto, gtk, ibus, or fcitx5\n");
             boxrig_term_gtk3_fail(application);
             return;
         }

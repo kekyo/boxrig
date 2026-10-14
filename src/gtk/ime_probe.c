@@ -191,6 +191,9 @@ boxrig_gtk_ime_probe *boxrig_gtk_ime_probe_new(GdkDisplay *display,
 #ifdef GDK_WINDOWING_WAYLAND
     wayland = GDK_IS_WAYLAND_DISPLAY(display);
 #endif
+    bool explicit_direct = policy == BOXRIG_GTK_IME_IBUS || policy == BOXRIG_GTK_IME_FCITX5;
+    boxrig_gtk_ime_reason explicit_reason = policy == BOXRIG_GTK_IME_FCITX5
+        ? BOXRIG_GTK_IME_REASON_EXPLICIT_FCITX5 : BOXRIG_GTK_IME_REASON_EXPLICIT_IBUS;
     probe->resolved = true;
     probe->state.active_route = BOXRIG_GTK_IME_ROUTE_GTK;
     if (!wayland) {
@@ -203,9 +206,9 @@ boxrig_gtk_ime_probe *boxrig_gtk_ime_probe_new(GdkDisplay *display,
             strcmp(module, "gtk-im-context-simple") == 0;
         if (policy == BOXRIG_GTK_IME_GTK)
             probe->state.reason = BOXRIG_GTK_IME_REASON_EXPLICIT_GTK;
-        else if (x11 && probe->state.gtk_major == 3 && policy == BOXRIG_GTK_IME_IBUS) {
+        else if (x11 && probe->state.gtk_major == 3 && explicit_direct) {
             probe->direct = true;
-            probe->state.reason = BOXRIG_GTK_IME_REASON_EXPLICIT_IBUS;
+            probe->state.reason = explicit_reason;
         } else if (policy == BOXRIG_GTK_IME_AUTO && explicit_module)
             probe->state.reason = BOXRIG_GTK_IME_REASON_EXPLICIT_MODULE;
         else if (x11 && probe->state.gtk_major == 3 && policy == BOXRIG_GTK_IME_AUTO &&
@@ -213,14 +216,14 @@ boxrig_gtk_ime_probe *boxrig_gtk_ime_probe_new(GdkDisplay *display,
             probe->direct = true;
             probe->state.reason = BOXRIG_GTK_IME_REASON_X11_IBUS;
         }
-        /* GTK 4 delegates X11 root coordinates and scaling to the GTK IBus
-         * module. Surface-relative direct IBus coordinates cannot place an
+        /* GTK 4 delegates X11 root coordinates and scaling to its IM
+         * module. Surface-relative direct IME coordinates cannot place an
          * engine-owned X11 candidate window. AUTO preserves the sample's
          * IBus default without changing the process environment or
          * overriding a deliberately chosen module. */
-        if (x11 && probe->state.gtk_major == 4 && policy == BOXRIG_GTK_IME_IBUS &&
+        if (x11 && probe->state.gtk_major == 4 && explicit_direct &&
             GTK_IS_IM_MULTICONTEXT(context))
-            select_module(probe, "ibus");
+            select_module(probe, policy == BOXRIG_GTK_IME_FCITX5 ? "fcitx" : "ibus");
         else if (policy == BOXRIG_GTK_IME_AUTO && !explicit_module && x11 &&
             GTK_IS_IM_MULTICONTEXT(context) && ibus_configured(probe) &&
             (!nonempty(module) || strcmp(module, "xim") == 0 ||
@@ -228,9 +231,9 @@ boxrig_gtk_ime_probe *boxrig_gtk_ime_probe_new(GdkDisplay *display,
             select_module(probe, "ibus");
     }
     else if (policy == BOXRIG_GTK_IME_GTK) probe->state.reason = BOXRIG_GTK_IME_REASON_EXPLICIT_GTK;
-    else if (policy == BOXRIG_GTK_IME_IBUS) {
+    else if (explicit_direct) {
         probe->direct = true;
-        probe->state.reason = BOXRIG_GTK_IME_REASON_EXPLICIT_IBUS;
+        probe->state.reason = explicit_reason;
     } else if (nonempty(g_getenv("GTK_IM_MODULE"))) probe->state.reason = BOXRIG_GTK_IME_REASON_EXPLICIT_MODULE;
     else {
         probe->cache = get_cache(display);

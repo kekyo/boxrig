@@ -115,7 +115,8 @@ static void initialize_target(boxrig_wayland_terminal_component *component)
         .maximum_bytes = component->config.maximum_ime_bytes, .data = component,
         .wake = wake_target, .error = target_error, .enqueue = enqueue_reply,
         .forward = forward_key, .apply = apply_effect, .cursor = update_cursor,
-        .clear_candidates = component->context->config.candidate_policy != BOXRIG_UI_CANDIDATE_SYSTEM
+        .clear_candidates = component->context->config.input_method != BOXRIG_WAYLAND_IME_FCITX5 &&
+            component->context->config.candidate_policy != BOXRIG_UI_CANDIDATE_SYSTEM
             ? clear_candidates : NULL};
 }
 
@@ -136,7 +137,8 @@ bool boxrig_wayland_ibus_initialize(boxrig_wayland_context *context)
         if (module != NULL ? strcmp(module, "ibus") != 0 :
             modifiers == NULL || strcmp(modifiers, "@im=ibus") != 0) return true;
     }
-    context->ibus = boxrig_ime_create(BOXRIG_IME_BACKEND_IBUS, true, context->config.maximum_seats,
+    context->ibus = boxrig_ime_create(context->config.input_method == BOXRIG_WAYLAND_IME_FCITX5 ?
+        BOXRIG_IME_BACKEND_FCITX5 : BOXRIG_IME_BACKEND_IBUS, true, context->config.maximum_seats,
         "boxrig-wayland", selection_changed, context);
     return context->ibus != NULL;
 }
@@ -235,7 +237,8 @@ void boxrig_wayland_ibus_diagnostic(const boxrig_wayland_context *context,
 {
     boxrig_ime_diagnostic state;
     boxrig_ime_get_diagnostic(context->ibus, &state);
-    diagnostic->input_method = boxrig_wayland_ibus_selected(context) ? BOXRIG_WAYLAND_IME_IBUS : BOXRIG_WAYLAND_IME_WAYLAND;
+    diagnostic->input_method = boxrig_wayland_ibus_selected(context) ?
+        (state.backend == BOXRIG_IME_BACKEND_FCITX5 ? BOXRIG_WAYLAND_IME_FCITX5 : BOXRIG_WAYLAND_IME_IBUS) : BOXRIG_WAYLAND_IME_WAYLAND;
     switch (state.state) {
     case BOXRIG_IME_DISABLED: diagnostic->ibus_state = BOXRIG_WAYLAND_IBUS_DISABLED; break;
     case BOXRIG_IME_CONNECTING: diagnostic->ibus_state = BOXRIG_WAYLAND_IBUS_CONNECTING; break;
@@ -245,7 +248,9 @@ void boxrig_wayland_ibus_diagnostic(const boxrig_wayland_context *context,
     diagnostic->pending_ibus_request_count = state.pending;
     diagnostic->ibus_error_count = state.errors;
     diagnostic->active_ibus_context_count = state.contexts;
-    if (boxrig_wayland_ibus_selected(context)) diagnostic->input_capabilities |= BOXRIG_WAYLAND_INPUT_CAPABILITY_IBUS;
+    if (boxrig_wayland_ibus_selected(context)) diagnostic->input_capabilities |=
+        state.backend == BOXRIG_IME_BACKEND_FCITX5 ? BOXRIG_WAYLAND_INPUT_CAPABILITY_FCITX5 :
+            BOXRIG_WAYLAND_INPUT_CAPABILITY_IBUS;
 }
 
 boxrig_ui_status boxrig_wayland_context_prepare_ime_poll(boxrig_wayland_context *context,

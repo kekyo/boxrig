@@ -47,9 +47,18 @@ static void method(GDBusConnection *bus, const char *sender, const char *path,
 {
     (void)bus; (void)interface; (void)data;
     if (strcmp(name, "CreateInputContext") == 0) {
+        GVariant *arguments = g_variant_get_child_value(parameters, 0);
+        GVariantIter iter;
+        const char *key, *value;
+        gboolean strict = FALSE;
+        g_variant_iter_init(&iter, arguments);
+        while (g_variant_iter_next(&iter, "(&s&s)", &key, &value))
+            if (strcmp(key, "program") == 0) strict = strcmp(value, "boxrig-fcitx-probe") == 0;
+        g_variant_unref(arguments);
         char context[96];
         snprintf(context, sizeof(context), "/org/boxrig/fcitx/context_%u", ++next_context);
-        CHECK(g_dbus_connection_register_object(connection, context, node->interfaces[1], &methods, NULL, NULL, NULL));
+        CHECK(g_dbus_connection_register_object(connection, context, node->interfaces[1], &methods,
+            GINT_TO_POINTER(strict), NULL, NULL));
         const guint8 uuid[16] = {0};
         g_dbus_method_invocation_return_value(invocation, g_variant_new("(o@ay)", context,
             g_variant_new_fixed_array(G_VARIANT_TYPE_BYTE, uuid, sizeof(uuid), 1)));
@@ -81,15 +90,24 @@ static void method(GDBusConnection *bus, const char *sender, const char *path,
         gboolean release;
         g_variant_get(parameters, "(uuubu)", &symbol, &code, &state, &release, &time);
         keys++;
-        CHECK(code == 38 && time == 1234);
-        CHECK(state == (symbol == 'r' ? 1u << 31 : 0));
-        CHECK(release == (symbol == 'z'));
+        if (GPOINTER_TO_INT(data)) {
+            CHECK(code == 38 && time == 1234);
+            CHECK(state == (symbol == 'r' ? 1u << 31 : 0));
+            CHECK(release == (symbol == 'z'));
+        } else if (release) {
+            g_dbus_method_invocation_return_value(invocation, g_variant_new("(b)", TRUE));
+            return;
+        }
         if (symbol == 'a') {
             GVariantBuilder text;
             g_variant_builder_init(&text, G_VARIANT_TYPE("a(si)"));
             g_variant_builder_add(&text, "(si)", "き", 8);
             g_variant_builder_add(&text, "(si)", "しゃ", 16 | 32);
             emit(sender, path, "UpdateFormattedPreedit", g_variant_new("(a(si)i)", &text, 3));
+        } else if (symbol == 0xff1b) {
+            GVariantBuilder text;
+            g_variant_builder_init(&text, G_VARIANT_TYPE("a(si)"));
+            emit(sender, path, "UpdateFormattedPreedit", g_variant_new("(a(si)i)", &text, 0));
         } else if (symbol == 'b') emit(sender, path, "CommitString", g_variant_new("(s)", "汽車🙂"));
         else if (symbol == 'c') emit(sender, path, "ForwardKey", g_variant_new("(uub)", 0xff0d, 4, TRUE));
         else if (symbol == 'd') {

@@ -59,6 +59,7 @@ static void report_ime_state(boxrig_term_wayland_application *application)
     application->candidate_state_reported = true;
     fprintf(stdout, "boxrig_term: ime-route=%s text-input-version=%u ibus=%d contexts=%zu errors=%zu candidate-policy=%s candidate-owner=%s candidate-reason=%s candidate-revision=%" PRIu64 " candidate-count=%zu candidate-cursor=%zu candidate-visible=%d auxiliary-visible=%d\n",
         state.candidate_owner == BOXRIG_UI_CANDIDATE_OWNER_NONE ? "pending" :
+            context.input_method == BOXRIG_WAYLAND_IME_FCITX5 ? "fcitx5" :
             context.input_method == BOXRIG_WAYLAND_IME_IBUS ? "ibus" : "wayland",
         context.text_input_version, context.ibus_state, context.active_ibus_context_count,
         context.ibus_error_count, policies[state.candidate_policy], owners[state.candidate_owner],
@@ -1847,8 +1848,9 @@ int boxrig_term_wayland_native_host_create(
     if (ime != NULL) {
         if (strcmp(ime, "wayland") == 0) context_config.input_method = BOXRIG_WAYLAND_IME_WAYLAND;
         else if (strcmp(ime, "ibus") == 0) context_config.input_method = BOXRIG_WAYLAND_IME_IBUS;
+        else if (strcmp(ime, "fcitx5") == 0) context_config.input_method = BOXRIG_WAYLAND_IME_FCITX5;
         else if (strcmp(ime, "auto") != 0) {
-            fprintf(stderr, "boxrig_term: BOXRIG_WAYLAND_IME must be auto, wayland, or ibus.\n");
+            fprintf(stderr, "boxrig_term: BOXRIG_WAYLAND_IME must be auto, wayland, ibus, or fcitx5.\n");
             return -1;
         }
     }

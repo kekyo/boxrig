@@ -595,7 +595,7 @@ boxrig_ui_status boxrig_wayland_context_create(
     effective = config == NULL ? boxrig_wayland_context_config_default()
                                : *config;
     if (effective.input_method < BOXRIG_WAYLAND_IME_WAYLAND ||
-        effective.input_method > BOXRIG_WAYLAND_IME_IBUS ||
+        effective.input_method > BOXRIG_WAYLAND_IME_FCITX5 ||
         effective.candidate_policy < BOXRIG_UI_CANDIDATE_AUTO ||
         effective.candidate_policy > BOXRIG_UI_CANDIDATE_CLIENT ||
         effective.maximum_components == 0 ||

@@ -1815,7 +1815,8 @@ static bool initialize_ibus(boxrig_gtk3_input *input, bool client_candidates)
         .wake = ibus_wake, .error = ibus_error, .enqueue = enqueue_ibus_reply,
         .forward = ibus_forward_key, .apply = apply_ibus_effect, .cursor = ibus_cursor,
         .clear_candidates = client_candidates ? clear_ibus_candidates : NULL};
-    input->ibus = boxrig_ime_create(BOXRIG_IME_BACKEND_IBUS, strcmp(input->ime_state.display_type, "GdkWaylandDisplay") == 0, 1, "boxrig-gtk3", ibus_selection_changed, input);
+    input->ibus = boxrig_ime_create(input->ime_state.requested_policy == BOXRIG_GTK_IME_FCITX5 ?
+        BOXRIG_IME_BACKEND_FCITX5 : BOXRIG_IME_BACKEND_IBUS, strcmp(input->ime_state.display_type, "GdkWaylandDisplay") == 0, 1, "boxrig-gtk3", ibus_selection_changed, input);
     if (input->ibus == NULL) return false;
     input->ibus_session = boxrig_ime_add_session(input->ibus, input);
     if (input->ibus_session == NULL) return false;
@@ -1841,9 +1842,10 @@ static bool resolve_ime(boxrig_gtk3_input *input)
     input->ibus_requested = direct;
     /* X11 can position the normal IME window in root pixels. Reserve the
      * automatic in-terminal fallback for the direct Wayland route. */
-    bool client_candidates = input->candidate_policy == BOXRIG_UI_CANDIDATE_CLIENT ||
+    bool client_candidates = input->ime_state.requested_policy != BOXRIG_GTK_IME_FCITX5 &&
+        (input->candidate_policy == BOXRIG_UI_CANDIDATE_CLIENT ||
         (input->candidate_policy == BOXRIG_UI_CANDIDATE_AUTO &&
-         strcmp(input->ime_state.display_type, "GdkWaylandDisplay") == 0);
+         strcmp(input->ime_state.display_type, "GdkWaylandDisplay") == 0));
     if (direct && input->ibus == NULL) {
         if (!initialize_ibus(input, client_candidates)) {
             fail_input(input, BOXRIG_UI_COMPONENT_FAILURE_INPUT_METHOD);
@@ -2601,7 +2603,7 @@ boxrig_ui_status boxrig_gtk3_input_create(
         config->maximum_events == 0 ||
         config->maximum_clipboard_transfers == 0 ||
         config->maximum_clipboard_bytes == 0 || input_out == NULL ||
-        config->ime_policy < BOXRIG_GTK_IME_AUTO || config->ime_policy > BOXRIG_GTK_IME_IBUS ||
+        config->ime_policy < BOXRIG_GTK_IME_AUTO || config->ime_policy > BOXRIG_GTK_IME_FCITX5 ||
         config->candidate_policy < BOXRIG_UI_CANDIDATE_AUTO || config->candidate_policy > BOXRIG_UI_CANDIDATE_CLIENT ||
         ((config->activity_callback == NULL) !=
          (config->activity_context == NULL))) {
@@ -3305,7 +3307,8 @@ void boxrig_gtk3_input_get_ime_state(const boxrig_gtk3_input *input, boxrig_gtk_
     state->gtk_minor = gtk_get_minor_version();
     state->gtk_micro = gtk_get_micro_version();
     state->active_route = input->ime_probe == NULL || input->ime_pending ? BOXRIG_GTK_IME_ROUTE_PENDING :
-        input->ibus_selected ? BOXRIG_GTK_IME_ROUTE_IBUS : BOXRIG_GTK_IME_ROUTE_GTK;
+        input->ibus_selected ? (diagnostic.backend == BOXRIG_IME_BACKEND_FCITX5 ?
+            BOXRIG_GTK_IME_ROUTE_FCITX5 : BOXRIG_GTK_IME_ROUTE_IBUS) : BOXRIG_GTK_IME_ROUTE_GTK;
     state->ibus_state = (boxrig_gtk_ibus_state)diagnostic.state;
     state->ibus_pending = diagnostic.pending;
     state->ibus_contexts = diagnostic.contexts;
@@ -3328,7 +3331,8 @@ void boxrig_gtk3_input_get_ime_state(const boxrig_gtk3_input *input, boxrig_gtk_
     state->candidate_visible = candidates.snapshot.visible;
     state->auxiliary_visible = candidates.snapshot.auxiliary_visible;
     if (input->ibus_requested && diagnostic.state == BOXRIG_IME_UNAVAILABLE)
-        state->reason = BOXRIG_GTK_IME_REASON_IBUS_UNAVAILABLE;
+        state->reason = diagnostic.backend == BOXRIG_IME_BACKEND_FCITX5 ?
+            BOXRIG_GTK_IME_REASON_FCITX5_UNAVAILABLE : BOXRIG_GTK_IME_REASON_IBUS_UNAVAILABLE;
     if (input->ime_probe != NULL && !input->ime_pending && !input->ibus_selected &&
         GTK_IS_IM_MULTICONTEXT(input->im_context)) {
         const char *module = gtk_im_multicontext_get_context_id(GTK_IM_MULTICONTEXT(input->im_context));
