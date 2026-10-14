@@ -514,3 +514,58 @@ BOXRIG_FRONTEND_CONFORMANCE_CASE(
     NATIVE, "test_pangocairo_blink+test-native-cursor-style-videos",
     NATIVE, "test_pangocairo_blink+test-native-cursor-style-videos",
     NATIVE, "test_pangocairo_blink+test_opengl_blink+test-native-cursor-style-videos")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    VALUE_REGEX_CAPTURES,
+    "value.regex-captures",
+    CORE_UI_VALUE,
+    "Standalone matching, owned captures and shared screen recognizers",
+    COMMON, "test-regex",
+    COMMON, "test-regex-win32",
+    COMMON, "test-regex",
+    COMMON, "test-regex",
+    COMMON, "test-regex")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    VALUE_INPUT_CONFIGURATION,
+    "value.input-configuration",
+    CORE_UI_VALUE,
+    "Atomic key mapping replacement, erase bindings and TTY values",
+    COMMON, "test-input-config",
+    COMMON, "test-input-config-win32",
+    COMMON, "test-input-config",
+    COMMON, "test-input-config",
+    COMMON, "test-input-config")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    NATIVE_INPUT_POLICY,
+    "native.input-policy",
+    NATIVE_FRONTEND,
+    "Input suspension, late IME and paste cancellation, and key configuration boundaries",
+    NATIVE, "test_x11_input_adapter+test_x11_component+test-xim-editable",
+    NATIVE, "test_win32_input_adapter+test_win32_component",
+    NATIVE, "test_gtk3_widget+test-terminal-codec-frontends+test-gtk-ime-x11+test-gtk-ibus-direct",
+    NATIVE, "test_gtk4_widget+test-terminal-codec-frontends+test-gtk-ime-x11+test-gtk-ibus-direct",
+    NATIVE, "test_wayland_context+test-wayland-input")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    NATIVE_TTY_ERASE,
+    "native.tty-erase",
+    NATIVE_FRONTEND,
+    "Key-time POSIX erase-byte queries, unavailable values and connection changes",
+    NATIVE, "test-tty-erase",
+    UNSUPPORTED_BY_CONTRACT, "reason:POSIX terminal descriptors are not a Win32 transport contract",
+    NATIVE, "test-tty-erase",
+    NATIVE, "test-tty-erase",
+    NATIVE, "test-tty-erase")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    NATIVE_PTY_SPAWN_RESULT,
+    "native.pty-spawn-result",
+    NATIVE_FRONTEND,
+    "Spawn diagnostics independent of exit status, result waiting and resource lifetime",
+    NATIVE, "test-posix-spawn",
+    NATIVE, "test-win32-pty-runtime+win32-pty-spawn.test.ts",
+    NATIVE, "test-posix-spawn",
+    NATIVE, "test-posix-spawn",
+    NATIVE, "test-posix-spawn")
