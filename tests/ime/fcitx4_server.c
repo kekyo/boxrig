@@ -1,5 +1,6 @@
 /* boxrig - Under MIT. */
 #include <gio/gio.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -12,6 +13,15 @@ static GDBusNodeInfo *node;
 static guint contexts, keys, capabilities, focused, resets;
 static char *surrounding;
 static gint rectangle[4];
+typedef struct context {
+    char *path, *sender;
+    bool composing;
+} context;
+static context *active;
+static GDBusMethodInvocation *held;
+static guint focus_outs, server_commits;
+static guint focus_commit_count = 1;
+static bool allow_commit = true;
 static const GDBusInterfaceVTable methods;
 static const char xml[] =
     "<node><interface name='org.fcitx.Fcitx.InputMethod'>"
@@ -35,27 +45,79 @@ static const char xml[] =
     "<arg type='u' direction='out'/><arg type='u' direction='out'/><arg type='u' direction='out'/>"
     "<arg type='u' direction='out'/><arg type='s' direction='out'/>"
     "<arg type='i' direction='out'/><arg type='i' direction='out'/>"
-    "<arg type='i' direction='out'/><arg type='i' direction='out'/></method></interface></node>";
+    "<arg type='i' direction='out'/><arg type='i' direction='out'/></method>"
+    "<method name='Lifecycle'><arg type='u' direction='out'/><arg type='u' direction='out'/>"
+    "<arg type='u' direction='out'/><arg type='b' direction='out'/></method>"
+    "<method name='CompleteKey'/><method name='FailKey'/>"
+    "<method name='AllowCommit'><arg type='b' direction='in'/></method>"
+    "<method name='CommitCount'><arg type='u' direction='in'/></method></interface></node>";
 
 static void emit(const char *sender, const char *path, const char *name, GVariant *value)
 {
     CHECK(g_dbus_connection_emit_signal(connection, sender, path, INTERFACE, name, value, NULL));
+}
+static void commit_focus(context *input)
+{
+    if (input != NULL && input->composing && allow_commit) {
+        for (guint index = 0; index < focus_commit_count; index++) {
+            emit(input->sender, input->path, "CommitString", g_variant_new("(s)", "server-commit"));
+            server_commits++;
+        }
+    }
+    if (input != NULL) input->composing = false;
+}
+static void free_context(gpointer data)
+{
+    context *input = data;
+    g_free(input->path);
+    g_free(input->sender);
+    g_free(input);
 }
 
 static void method(GDBusConnection *bus, const char *sender, const char *path,
     const char *interface, const char *name, GVariant *parameters,
     GDBusMethodInvocation *invocation, gpointer data)
 {
-    (void)bus; (void)interface; (void)data;
+    (void)bus; (void)interface;
+    context *input = data;
     if (strcmp(name, "CreateICv3") == 0) {
         const char *program;
         gint pid;
         g_variant_get(parameters, "(&si)", &program, &pid);
         CHECK(program[0] != 0 && pid > 0);
-        char context[64];
-        snprintf(context, sizeof(context), "/inputcontext_%u", ++contexts);
-        CHECK(g_dbus_connection_register_object(connection, context, node->interfaces[1], &methods, NULL, NULL, NULL));
+        input = g_new0(context, 1);
+        input->path = g_strdup_printf("/inputcontext_%u", ++contexts);
+        input->sender = g_strdup(sender);
+        CHECK(g_dbus_connection_register_object(connection, input->path, node->interfaces[1], &methods, input, free_context, NULL));
         g_dbus_method_invocation_return_value(invocation, g_variant_new("(ibuuuu)", (gint)contexts, TRUE, 0u, 0u, 0u, 0u));
+        return;
+    }
+    if (strcmp(name, "Lifecycle") == 0) {
+        g_dbus_method_invocation_return_value(invocation, g_variant_new("(uuub)", contexts, focus_outs, server_commits, held != NULL));
+        return;
+    }
+    if (strcmp(name, "CompleteKey") == 0 || strcmp(name, "FailKey") == 0) {
+        CHECK(held != NULL);
+        emit(g_dbus_method_invocation_get_sender(held), g_dbus_method_invocation_get_object_path(held),
+            "CommitString", g_variant_new("(s)", "late-key"));
+        if (strcmp(name, "FailKey") == 0)
+            g_dbus_method_invocation_return_dbus_error(held, "org.boxrig.Uncertain", "Key outcome is unknown");
+        else g_dbus_method_invocation_return_value(held, g_variant_new("(i)", 1));
+        g_clear_object(&held);
+        g_dbus_method_invocation_return_value(invocation, NULL);
+        return;
+    }
+    if (strcmp(name, "AllowCommit") == 0) {
+        gboolean enabled;
+        g_variant_get(parameters, "(b)", &enabled);
+        allow_commit = enabled;
+        g_dbus_method_invocation_return_value(invocation, NULL);
+        return;
+    }
+    if (strcmp(name, "CommitCount") == 0) {
+        g_variant_get(parameters, "(u)", &focus_commit_count);
+        CHECK(focus_commit_count >= 1 && focus_commit_count <= 2);
+        g_dbus_method_invocation_return_value(invocation, NULL);
         return;
     }
     if (strcmp(name, "Inspect") == 0) {
@@ -74,8 +136,15 @@ static void method(GDBusConnection *bus, const char *sender, const char *path,
         CHECK(cursor <= (guint)g_utf8_strlen(surrounding, -1) && anchor <= (guint)g_utf8_strlen(surrounding, -1));
     } else if (strcmp(name, "SetCursorRect") == 0)
         g_variant_get(parameters, "(iiii)", &rectangle[0], &rectangle[1], &rectangle[2], &rectangle[3]);
-    else if (strcmp(name, "FocusIn") == 0) focused++;
-    else if (strcmp(name, "Reset") == 0) resets++;
+    else if (strcmp(name, "FocusIn") == 0) {
+        if (active != input) commit_focus(active);
+        active = input;
+        focused++;
+    } else if (strcmp(name, "FocusOut") == 0) {
+        focus_outs++;
+        if (active == input) { commit_focus(input); active = NULL; }
+    } else if (strcmp(name, "Reset") == 0) { resets++; input->composing = false; }
+    else if (strcmp(name, "DestroyIC") == 0 && active == input) active = NULL;
     else if (strcmp(name, "ProcessKeyEvent") == 0) {
         guint symbol, code, state, time;
         gint type;
@@ -84,19 +153,24 @@ static void method(GDBusConnection *bus, const char *sender, const char *path,
         CHECK(type == (symbol == 'z' ? 1 : 0));
         keys++;
         if (symbol == 'a' || symbol == 'f') {
+            input->composing = true;
             GVariantBuilder text;
             g_variant_builder_init(&text, G_VARIANT_TYPE("a(si)"));
             g_variant_builder_add(&text, "(si)", "き", 0);
             g_variant_builder_add(&text, "(si)", "しゃ", (1 << 3) | (1 << 4));
             emit(sender, path, "UpdateFormattedPreedit", g_variant_new("(a(si)i)", &text, symbol == 'f' ? 1 : 3));
-        } else if (symbol == 'b') emit(sender, path, "CommitString", g_variant_new("(s)", "汽車🙂"));
+        } else if (symbol == 'b') {
+            input->composing = false;
+            emit(sender, path, "CommitString", g_variant_new("(s)", "汽車🙂"));
+        }
         else if (symbol == 'c') emit(sender, path, "ForwardKey", g_variant_new("(uui)", 0xff0du, 4u, 1));
         else if (symbol == 'd') {
             CHECK((capabilities & (1u << 6)) != 0);
             CHECK(g_strcmp0(surrounding, "前かな後") == 0);
             emit(sender, path, "DeleteSurroundingText", g_variant_new("(iu)", -2, 2u));
             emit(sender, path, "CommitString", g_variant_new("(s)", "記者"));
-        } else if (symbol == 'e') {
+        } else if (symbol == 'h') { CHECK(held == NULL); held = g_object_ref(invocation); return; }
+        else if (symbol == 'e') {
             emit(sender, path, "CommitString", g_variant_new("(s)", "uncertain"));
             g_dbus_method_invocation_return_dbus_error(invocation, "org.boxrig.Uncertain", "Key outcome is unknown");
             return;

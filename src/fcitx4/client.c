@@ -240,6 +240,63 @@ static void drop(boxrig_ime_session *session)
     call(session, "DestroyIC", NULL);
     g_clear_object(&session->proxy);
 }
+
+typedef struct focus_finish {
+    GDBusProxy *proxy;
+    bool started;
+} focus_finish;
+
+static void finish_signal(GDBusProxy *proxy, const char *sender, const char *name,
+    GVariant *parameters, gpointer data)
+{
+    (void)proxy; (void)sender;
+    if (strcmp(name, "CommitString") != 0 || !g_variant_is_of_type(parameters, G_VARIANT_TYPE("(s)"))) return;
+    const char *text;
+    g_variant_get(parameters, "(&s)", &text);
+    boxrig_ime_finish_commit(data, text);
+}
+
+static void focus_finished(GObject *source, GAsyncResult *result, gpointer data)
+{
+    boxrig_ime_request *request = data;
+    focus_finish *finish = request->backend_data;
+    GVariant *reply = g_dbus_connection_call_finish(G_DBUS_CONNECTION(source), result, NULL);
+    bool failed = reply == NULL;
+    if (reply != NULL) g_variant_unref(reply);
+    g_signal_handlers_disconnect_by_data(finish->proxy, request);
+    g_dbus_proxy_call(finish->proxy, "DestroyIC", NULL, G_DBUS_CALL_FLAGS_NO_AUTO_START, -1, NULL, NULL, NULL);
+    g_object_unref(finish->proxy);
+    free(finish);
+    request->backend_data = NULL;
+    boxrig_ime_finish_complete(request, failed);
+}
+
+static void finish(boxrig_ime_session *session, boxrig_ime_request *request)
+{
+    focus_finish *closing = request->backend_data;
+    if (closing == NULL) {
+        closing = calloc(1, sizeof(*closing));
+        if (closing == NULL) {
+            drop(session);
+            boxrig_ime_finish_complete(request, true);
+            return;
+        }
+        closing->proxy = session->proxy;
+        session->proxy = NULL;
+        request->backend_data = closing;
+        g_signal_handlers_disconnect_by_data(closing->proxy, session);
+    }
+    /* A late key signal belongs to the discarded key, never to FocusOut.
+     * Subscribe for the finish commit only after that key's reply is known. */
+    if (session->pending || closing->started) return;
+    closing->started = true;
+    if (request->component == NULL || request->discarded || session->owner->closing)
+        g_dbus_proxy_call(closing->proxy, "Reset", NULL, G_DBUS_CALL_FLAGS_NO_AUTO_START, -1, NULL, NULL, NULL);
+    g_signal_connect(closing->proxy, "g-signal", G_CALLBACK(finish_signal), request);
+    g_dbus_connection_call(g_dbus_proxy_get_connection(closing->proxy), g_dbus_proxy_get_name(closing->proxy),
+        g_dbus_proxy_get_object_path(closing->proxy), FCITX4_CONTEXT, "FocusOut", NULL,
+        G_VARIANT_TYPE_UNIT, G_DBUS_CALL_FLAGS_NO_AUTO_START, -1, session->cancel, focus_finished, request);
+}
 static void reset(boxrig_ime_session *session) { call(session, "Reset", NULL); }
 static void cursor(boxrig_ime_session *session, const int32_t rectangle[4], bool relative, double scale)
 {
@@ -267,5 +324,6 @@ static void key(boxrig_ime_session *session, const boxrig_ime_key *key, boxrig_i
 }
 const boxrig_ime_backend boxrig_ime_fcitx4_backend = {
     .kind = BOXRIG_IME_BACKEND_FCITX4, .initialize = connect_bus, .connect = connect_bus, .stop = stop,
-    .start = start, .drop = drop, .reset = reset, .surrounding = surrounding, .cursor = cursor, .key = key
+    .start = start, .drop = drop, .finish = finish, .reset = reset,
+    .surrounding = surrounding, .cursor = cursor, .key = key
 };

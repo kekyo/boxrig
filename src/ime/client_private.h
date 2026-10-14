@@ -15,6 +15,10 @@ typedef struct boxrig_ime_backend {
     void (*stop)(boxrig_ime_client *client);
     void (*start)(boxrig_ime_session *session);
     void (*drop)(boxrig_ime_session *session);
+    /* Optional server-owned focus commit. Detach the old proxy immediately,
+     * then finish after the pending key completes. Complete the owned request
+     * exactly once, even when the destination or connection has disappeared. */
+    void (*finish)(boxrig_ime_session *session, boxrig_ime_request *request);
     void (*reset)(boxrig_ime_session *session);
     void (*surrounding)(boxrig_ime_session *session, const char *text,
         uint32_t cursor, uint32_t anchor, bool available);
@@ -55,7 +59,7 @@ struct boxrig_ime_client {
     GFileMonitor *monitor;
     GPollFD *glib_fds;
     struct pollfd *fds;
-    size_t capacity, count, pending, errors, session_count, subscriptions;
+    size_t capacity, count, pending, errors, session_count, subscriptions, finishing;
     gint priority;
     bool prepared, connecting, closing;
     boxrig_ime_state state;
@@ -89,6 +93,7 @@ struct boxrig_ime_session {
     boxrig_ime_effect preedit;
     boxrig_ime_candidates candidates;
     boxrig_ime_request *request, *signals_head, *signals_tail;
+    boxrig_ime_request *finishing;
 };
 
 /* A key owns one reply transaction, including all signals emitted before its
@@ -108,6 +113,8 @@ struct boxrig_ime_request {
     gint delete_offset;
     guint delete_characters;
     char *deferred_commit;
+    /* Owned by the provider only while an asynchronous focus finish runs. */
+    void *backend_data;
     boxrig_ui_editable_document_snapshot snapshot;
     char *original, *edited;
     size_t edited_length, cursor, anchor;
@@ -135,6 +142,8 @@ void boxrig_ime_commit(boxrig_ime_session *session, const char *text);
 void boxrig_ime_delete(boxrig_ime_session *session, int32_t offset, uint32_t characters);
 void boxrig_ime_forward(boxrig_ime_session *session, uint32_t symbol, uint32_t code, uint32_t modifiers);
 void boxrig_ime_key_complete(boxrig_ime_request *request, bool handled, bool failed);
+void boxrig_ime_finish_commit(boxrig_ime_request *request, const char *text);
+void boxrig_ime_finish_complete(boxrig_ime_request *request, bool failed);
 boxrig_ime_client *boxrig_ime_allocate(const boxrig_ime_backend *backend, bool wayland,
     size_t maximum_sessions, const char *name, GMainContext *loop,
     void (*selection_changed)(void *, bool), void *data);

@@ -128,7 +128,7 @@ static void retire_signals(boxrig_ime_session *session)
         /* A received commit already belongs to the original component FIFO.
          * Losing focus or the connection must not erase that accepted text.
          * Unfinished preedit notifications still belong to the old session. */
-        if (!request->committed) request->discarded = true;
+        if (!request->committed && request != session->finishing) request->discarded = true;
         unlink_signal(request);
     }
 }
@@ -235,10 +235,8 @@ static boxrig_ime_request *signal_request(boxrig_ime_session *session, bool *sep
     return request;
 }
 
-static void finish_signal(boxrig_ime_request *request, bool separate)
+static void enqueue_signal(boxrig_ime_request *request)
 {
-    if (!separate || request == NULL) return;
-    request->ready = request->handled = true;
     if (request->unsolicited) {
         boxrig_ime_session *session = request->session;
         request->signal_previous = session->signals_tail;
@@ -250,6 +248,13 @@ static void finish_signal(boxrig_ime_request *request, bool separate)
     boxrig_ime_target *component = request->component;
     component->enqueue(component->data, request->session->seat, request);
     wake_component(component);
+}
+
+static void finish_signal(boxrig_ime_request *request, bool separate)
+{
+    if (!separate || request == NULL) return;
+    request->ready = request->handled = true;
+    enqueue_signal(request);
 }
 
 bool boxrig_ime_owns_candidates(const boxrig_ime_session *session)
@@ -367,9 +372,12 @@ static void record_commit(boxrig_ime_request *request, const char *text)
     request->committed = true;
     if (request->document_attached) {
         if (request->unsolicited) {
-            request->deferred_commit = malloc(length + 1);
-            if (request->deferred_commit == NULL) { request->invalid = true; return; }
-            memcpy(request->deferred_commit, text, length + 1);
+            size_t previous = request->deferred_commit == NULL ? 0 : strlen(request->deferred_commit);
+            if (previous > request->component->maximum_bytes - length) { request->invalid = true; return; }
+            char *combined = realloc(request->deferred_commit, previous + length + 1);
+            if (combined == NULL) { request->invalid = true; return; }
+            request->deferred_commit = combined;
+            memcpy(combined + previous, text, length + 1);
         } else {
             size_t start = MIN(request->cursor, request->anchor), end = MAX(request->cursor, request->anchor);
             (void)replace_document(request, start, end, text, length);
@@ -398,6 +406,31 @@ void boxrig_ime_commit(boxrig_ime_session *session, const char *text)
     if (text != NULL) record_commit(request, text);
     boxrig_ime_clear_preedit(session);
     finish_signal(request, separate);
+}
+
+void boxrig_ime_finish_commit(boxrig_ime_request *request, const char *text)
+{
+    if (request->component == NULL || request->discarded || request->session->owner->closing ||
+        request->connection_generation != request->session->owner->connection_generation) return;
+    record_commit(request, text);
+}
+
+void boxrig_ime_finish_complete(boxrig_ime_request *request, bool failed)
+{
+    boxrig_ime_session *session = request->session;
+    boxrig_ime_client *client = session->owner;
+    session->finishing = NULL;
+    client->pending--;
+    client->finishing--;
+    request->ready = request->handled = true;
+    if (failed) { request->discarded = true; client->errors++; }
+    /* The old component FIFO keeps its reference. A subsequent key on a new
+     * target must not drain this request through that target's signal list. */
+    unlink_signal(request);
+    wake_component(request->component);
+    for (boxrig_ime_session *next = client->sessions; next != NULL; next = next->next)
+        boxrig_ime_start_session(next);
+    unref_request(request);
 }
 
 static void delete_document(boxrig_ime_request *request, gint offset, guint characters)
@@ -461,6 +494,7 @@ void boxrig_ime_failed_connection(boxrig_ime_client *bus)
     bus->state = BOXRIG_IME_UNAVAILABLE;
     for (boxrig_ime_session *session = bus->sessions; session != NULL; session = session->next) {
         if (session->request != NULL) session->request->discarded = true;
+        if (session->finishing != NULL) session->finishing->discarded = true;
         retire_signals(session);
         drop_proxy(session);
         wake_component(session->component);
@@ -551,7 +585,8 @@ void boxrig_ime_update_surrounding(boxrig_ime_session *session, bool reset)
 
 bool boxrig_ime_current_setup(boxrig_ime_session *session)
 {
-    return !session->owner->closing && session->component != NULL && session->seat != NULL &&
+    return !session->owner->closing && session->owner->finishing == 0 &&
+        session->component != NULL && session->seat != NULL &&
         session->setup_generation == session->generation &&
         session->setup_connection == session->owner->connection &&
         session->setup_connection_generation == session->owner->connection_generation;
@@ -571,7 +606,7 @@ void boxrig_ime_finish_setup(boxrig_ime_session *session)
 void boxrig_ime_start_session(boxrig_ime_session *session)
 {
     boxrig_ime_client *bus = session->owner;
-    if (bus->closing || bus->connection == NULL || bus->state != BOXRIG_IME_READY ||
+    if (bus->closing || bus->finishing != 0 || bus->connection == NULL || bus->state != BOXRIG_IME_READY ||
         session->seat == NULL || session->component == NULL || session->pending || session->proxy != NULL) return;
     session->pending = true;
     session->setup_generation = session->generation;
@@ -673,6 +708,20 @@ void boxrig_ime_focus(boxrig_ime_session *session,
         } else session->component->error(session->component->data, true);
     }
     if (session->request != NULL) session->request->discarded = true;
+    if (commit && session->component != NULL && session->proxy != NULL && bus->backend->finish != NULL) {
+        boxrig_ime_request *request = new_request(session);
+        if (request != NULL) {
+            request->references++;
+            request->unsolicited = true;
+            session->finishing = request;
+            bus->pending++;
+            bus->finishing++;
+            enqueue_signal(request);
+            g_main_context_push_thread_default(bus->loop);
+            bus->backend->finish(session, request);
+            g_main_context_pop_thread_default(bus->loop);
+        } else session->component->error(session->component->data, true);
+    }
     wake_component(session->component);
     drop_proxy(session);
     session->component = component;
@@ -711,6 +760,8 @@ void boxrig_ime_key_complete(boxrig_ime_request *request, bool handled, bool fai
             boxrig_ime_failed_connection(session->owner);
     }
     wake_component(request->component);
+    if (session->finishing != NULL)
+        session->owner->backend->finish(session, session->finishing);
     boxrig_ime_start_session(session);
     unref_request(request);
 }

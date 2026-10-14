@@ -5605,6 +5605,15 @@ test-fcitx4: $(BUILD_DIR)/tests/fcitx4_server $(BUILD_DIR)/tests/test_fcitx4
 
 test: test-fcitx4
 
+$(BUILD_DIR)/tests/test_fcitx4_focus: tests/ime/test_fcitx4_focus.c $(IME_SOURCES) $(IME_HEADERS) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(IBUS_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(IME_SOURCES) $(UI_LIBRARY) $(LIBRARY) $(IBUS_LIBS) $(SANITIZERS) -o $@
+
+.PHONY: test-fcitx4-focus
+test-fcitx4-focus: $(BUILD_DIR)/tests/fcitx4_server $(BUILD_DIR)/tests/test_fcitx4_focus
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4.sh $(BUILD_DIR)/tests/fcitx4_server $(BUILD_DIR)/tests/test_fcitx4_focus
+
+test: test-fcitx4-focus
+
 $(BUILD_DIR)/tests/test_gtk3_fcitx: tests/gtk/test_fcitx_widget.c $(IME_HEADERS) $(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK3_CPPFLAGS) $(CFLAGS) $(GTK3_PROJECT_CFLAGS) $(SANITIZERS) -DBOXRIG_TEST_GTK3=1 $< $(IME_SOURCES) $(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK3_LIBS) $(SANITIZERS) -o $@
 
