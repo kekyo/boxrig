@@ -8,6 +8,8 @@
 #define SERVICE "org.fcitx.Fcitx5"
 #define INTERFACE "org.fcitx.Fcitx.InputContext1"
 static GDBusConnection *connection;
+static GDBusConnection *previous_connection;
+static guint name_owner;
 static unsigned int next_context, keys, resets, focused, destroyed;
 static guint64 capabilities;
 static char *surrounding;
@@ -32,9 +34,10 @@ static const char xml[] =
     "<interface name='org.boxrig.FcitxProbe'><method name='Inspect'>"
     "<arg type='u' direction='out'/><arg type='u' direction='out'/><arg type='u' direction='out'/>"
     "<arg type='u' direction='out'/><arg type='t' direction='out'/><arg type='s' direction='out'/></method>"
-    "<method name='Complete'/></interface></node>";
+    "<method name='Complete'/><method name='Replace'/><method name='FailPrevious'/></interface></node>";
 static GDBusNodeInfo *node;
 static const GDBusInterfaceVTable methods;
+static void register_server(void);
 
 static void emit(const char *sender, const char *path, const char *name, GVariant *value)
 {
@@ -69,7 +72,26 @@ static void method(GDBusConnection *bus, const char *sender, const char *path,
             capabilities, surrounding == NULL ? "" : surrounding));
         return;
     }
-    if (strcmp(name, "Complete") == 0) {
+    if (strcmp(name, "Replace") == 0) {
+        CHECK(previous_connection == NULL && held != NULL);
+        previous_connection = connection;
+        g_bus_unown_name(name_owner);
+        connection = g_dbus_connection_new_for_address_sync(g_getenv("DBUS_SESSION_BUS_ADDRESS"),
+            G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_CLIENT | G_DBUS_CONNECTION_FLAGS_MESSAGE_BUS_CONNECTION,
+            NULL, NULL, NULL);
+        CHECK(connection != NULL);
+        CHECK(strcmp(g_dbus_connection_get_unique_name(connection), g_dbus_connection_get_unique_name(previous_connection)) != 0);
+        register_server();
+        name_owner = g_bus_own_name_on_connection(connection, SERVICE, G_BUS_NAME_OWNER_FLAGS_NONE, NULL, NULL, NULL, NULL);
+    } else if (strcmp(name, "FailPrevious") == 0) {
+        CHECK(held != NULL && previous_connection != NULL);
+        CHECK(g_dbus_connection_emit_signal(previous_connection,
+            g_dbus_method_invocation_get_sender(held), g_dbus_method_invocation_get_object_path(held),
+            INTERFACE, "CommitString", g_variant_new("(s)", "旧接続"), NULL));
+        g_dbus_method_invocation_return_dbus_error(held, "org.boxrig.OldOwner", "Old owner completed after replacement");
+        g_clear_object(&held);
+        g_clear_object(&previous_connection);
+    } else if (strcmp(name, "Complete") == 0) {
         CHECK(held != NULL);
         emit(g_dbus_method_invocation_get_sender(held), g_dbus_method_invocation_get_object_path(held),
             "CommitString", g_variant_new("(s)", "遅延"));
@@ -127,6 +149,11 @@ static void method(GDBusConnection *bus, const char *sender, const char *path,
 static const GDBusInterfaceVTable methods = {.method_call = method};
 static void acquired(GDBusConnection *bus, const char *name, gpointer data)
 { (void)bus; (void)name; (void)data; puts("READY"); fflush(stdout); }
+static void register_server(void)
+{
+    CHECK(g_dbus_connection_register_object(connection, "/org/freedesktop/portal/inputmethod", node->interfaces[0], &methods, NULL, NULL, NULL));
+    CHECK(g_dbus_connection_register_object(connection, "/org/boxrig/FcitxProbe", node->interfaces[2], &methods, NULL, NULL, NULL));
+}
 
 int main(void)
 {
@@ -134,9 +161,9 @@ int main(void)
     CHECK(connection != NULL);
     node = g_dbus_node_info_new_for_xml(xml, NULL);
     CHECK(node != NULL);
-    CHECK(g_dbus_connection_register_object(connection, "/org/freedesktop/portal/inputmethod", node->interfaces[0], &methods, NULL, NULL, NULL));
-    CHECK(g_dbus_connection_register_object(connection, "/org/boxrig/FcitxProbe", node->interfaces[2], &methods, NULL, NULL, NULL));
-    CHECK(g_bus_own_name_on_connection(connection, SERVICE, G_BUS_NAME_OWNER_FLAGS_NONE, acquired, NULL, NULL, NULL));
+    register_server();
+    name_owner = g_bus_own_name_on_connection(connection, SERVICE, G_BUS_NAME_OWNER_FLAGS_NONE, acquired, NULL, NULL, NULL);
+    CHECK(name_owner != 0);
     GMainLoop *loop = g_main_loop_new(NULL, FALSE);
     g_main_loop_run(loop);
     return 0;

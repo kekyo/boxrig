@@ -83,7 +83,7 @@ struct boxrig_ime_request {
     boxrig_ime_target *component;
     size_t references, count, capacity, head;
     boxrig_ime_effect *effects;
-    uint64_t generation;
+    uint64_t generation, connection_generation;
     bool ready, handled, discarded, invalid, unsolicited, signal_linked, committed;
     boxrig_ime_request *signal_previous, *signal_next;
     bool document_attached, document_available, document_changed, edit_applied;

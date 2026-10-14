@@ -297,6 +297,7 @@ static void connection_created(GObject *source, GAsyncResult *result, gpointer d
     bus->pending--;
     if (!bus->closing && connection != NULL) {
         bus->connection = connection;
+        bus->connection_generation++;
         g_dbus_connection_set_exit_on_close(connection, FALSE);
         g_signal_connect(connection, "closed", G_CALLBACK(boxrig_ime_connection_closed), bus);
         bus->state = BOXRIG_IME_READY;

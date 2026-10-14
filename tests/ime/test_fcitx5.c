@@ -95,7 +95,8 @@ static void drain(void)
 }
 static void focus(void)
 {
-    boxrig_ime_focus(session, &target, false, ++generation);
+    if (!boxrig_ime_is_focused(session, &target))
+        boxrig_ime_focus(session, &target, false, ++generation);
     for (;;) {
         boxrig_ime_diagnostic state;
         boxrig_ime_get_diagnostic(client, &state);
@@ -205,11 +206,34 @@ int main(void)
     CHECK(handled && commits == 2);
     boxrig_ime_release_request(pending);
     focus();
-    CHECK(key('e'));
+    pending = NULL;
+    CHECK(boxrig_ime_filter_key(session, &target, generation, &input, &pending, &blocked, &handled) == BOXRIG_UI_OK && blocked);
+    reply = query("Replace", G_VARIANT_TYPE_UNIT);
+    g_variant_unref(reply);
     boxrig_ime_diagnostic state;
+    for (;;) {
+        boxrig_ime_get_diagnostic(client, &state);
+        if (state.state == BOXRIG_IME_READY && state.contexts == 0 && state.pending == 1) break;
+        dispatch();
+    }
+    size_t disconnect_errors = state.errors;
+    reply = query("FailPrevious", G_VARIANT_TYPE_UNIT);
+    g_variant_unref(reply);
+    do {
+        dispatch();
+        CHECK(boxrig_ime_filter_key(session, &target, generation, &input, &pending, &blocked, &handled) == BOXRIG_UI_OK);
+    } while (blocked);
+    CHECK(handled && commits == 2);
+    boxrig_ime_release_request(pending);
+    /* The replaced owner must not invalidate the new owner's connection. */
+    focus();
+    CHECK(key('b') && commits == 3 && strcmp(committed, "汽車🙂") == 0);
     boxrig_ime_get_diagnostic(client, &state);
-    CHECK(state.state == BOXRIG_IME_UNAVAILABLE && state.errors == 1);
-    CHECK(commits == 2 && errors == 0);
+    CHECK(state.state == BOXRIG_IME_READY && state.errors == disconnect_errors);
+    CHECK(key('e'));
+    boxrig_ime_get_diagnostic(client, &state);
+    CHECK(state.state == BOXRIG_IME_UNAVAILABLE && state.errors == disconnect_errors + 1);
+    CHECK(commits == 3 && errors == 0);
     boxrig_ime_remove_session(session);
     drain();
     boxrig_ime_destroy(client);

@@ -184,6 +184,7 @@ static boxrig_ime_request *new_request(boxrig_ime_session *session)
     request->session = session;
     request->component = session->component;
     request->generation = session->generation;
+    request->connection_generation = session->owner->connection_generation;
     request->references = 1;
     session->references++;
     if (!capture_document(request)) { unref_request(request); return NULL; }
@@ -609,7 +610,11 @@ void boxrig_ime_key_complete(boxrig_ime_request *request, bool handled, bool fai
         /* The daemon might already have consumed this key. Never replay an
          * uncertain request as terminal text when falling back. */
         request->discarded = true;
-        if (!session->owner->closing) boxrig_ime_failed_connection(session->owner);
+        /* A previous daemon may finish after a new owner has appeared. Its
+         * unknown key outcome cannot invalidate the replacement connection. */
+        if (!session->owner->closing &&
+            request->connection_generation == session->owner->connection_generation)
+            boxrig_ime_failed_connection(session->owner);
     }
     wake_component(request->component);
     boxrig_ime_start_session(session);
