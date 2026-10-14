@@ -367,3 +367,11 @@ GTKで実際にfcitxモジュールが選択済みの場合は、Waylandの照�
 `test-fcitx5-auto`、`test-gtk-ibus-auto`、`test-gtk-ime-x11`、`test-gtk-ime-startup`、`test-wayland-input`が成功し、3種類の付属ターミナルもビルドできています。`test-gtk-ime-routing`は実際のGTK 3.24.41／4.14.5で120ケースが成功しました。設定がない場合の試験は、稼働中IBusを検出する新しい契約に合わせています。試験用エンジンへ制御を送るアドレスは、検出対象の環境変数と分けて保持します。
 
 Ubuntu 24.04の5.1.7とMozcを使う`test-fcitx5-auto-real`でも、対象の4経路で変換・候補ページ操作・確定・キャンセルを確認しました。公開診断の変更前とGTK委譲の修正前にはREDを確認しています。段階3の全体テストと、実表示での候補配置の確認は継続中です。
+
+### 段階3の実デーモンを配布対象で検証
+
+`bash tests/ime/run_distribution.sh debian13`と`ubuntu2604`が成功しました。ディストリビューションの公式パッケージを専用コンテナーに導入し、ソースのコピーをその環境でビルドして検証します。ホストのセッションバス・表示・IME設定・辞書は共有しません。結果は`build/test-results/ime-distributions/`に保存します。
+
+確認した組み合わせは、Debian 13のfcitx5 `5.1.12-2`／Mozc `2.29.5160.102+dfsg-1.4`と、Ubuntu 26.04のfcitx5 `5.1.19-1`／Mozc `2.29.5160.102+dfsg-1.4ubuntu5`です。実際の改訂番号は各環境の`packages.txt`にも記録しています。`test-fcitx5-real`、`test-fcitx5-panels`、`test-fcitx5-auto-real`により、対象の4経路で明示接続、候補ページ、能力抑制時の診断、自動選択を確認しました。ホストの5.1.7と合わせ、3つの検証対象版で成功しています。
+
+初回のコンテナー試験では、rootで起動したMozcが入力エンジンの開始に失敗しました。Mozcは権限の高いプロセスによるサーバー実行を拒否するため、専用の一般ユーザーで実行する構成へ修正しています。これは試験環境の修正であり、boxrigの通信処理は変更していません。[Mozcの権限検査](https://github.com/google/mozc/blob/2.29.5160.102/src/server/mozc_server.cc)
