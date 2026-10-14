@@ -513,3 +513,19 @@ GTKの公開設定、選択理由、診断と付属ターミナルに`fcitx4`の
 実デーモン試験では、アプリケーションのセッションバスをfcitxのバスから分離しました。Debian 13のfcitx 4.2.9.9／Mozcで、アドレスファイルからの接続と`FCITX_DBUS_ADDRESS`による接続が成功しています。装飾付き未確定文字、日本語変換、選択範囲を含む文書への確定、取消、フォーカス喪失時の確定設定を検証しました。SYSTEM表示用の試験イメージには、[fcitx-ui-classic](https://packages.debian.org/trixie/fcitx-ui-classic)も追加しています。
 
 ホスト側の`test-fcitx4`、`test-fcitx4-focus`、`test-fcitx4-address`、`test-gtk-fcitx4`と、関連する`test-fcitx5`、`test-fcitx5-auto`、`test-ime-discovery`、`test-gtk-ibus-direct`が成功しました。第7節の段階4の完了条件を満たしたため、次は段階5の文字列パネルと自動検出です。
+
+### 段階5の自動検出
+
+段階5は、自動検出とnative Waylandの入力接続から進めます。共通クライアントがfcitx 5、IBus、fcitx 4を探索し、初回は全方式の確認を待ってから選択する構成です。`fcitx`のモジュール指定は4系と5系の両方を候補にします。`FCITX_DBUS_ADDRESS`は4系へのアドレス指定として扱い、同じサービスが5系の互換経路だと確認できた場合は、5系の直接接続を初回に選びます。
+
+互換サービスの判定根拠は、同じD-Busの識別子と、その上の一意な所有者名または所有プロセスのPIDです。同じ提供元の中では、fcitx 5、fcitx 4、IBus互換経路の順に優先します。独立した提供元を選ぶ順序は、計画どおりfcitx 5、IBus、fcitx 4です。新しいサービスが現れても、現在の選択が有効なら維持します。互換サービスの存在と、独立した提供元が複数ある状態は別の診断値です。
+
+明示アドレスが両方設定される場合も定義しました。`IBUS_ADDRESS`と`FCITX_DBUS_ADDRESS`が独立した提供元を示すときは、設定の競合を診断に残します。より優先度の高いモジュール指定や`XMODIFIERS`がなければ、両方を候補にして初回の優先順位を適用します。同じ提供元の互換サービスだと確認できれば、重複や競合として数えません。強い指定と食い違う下位の設定は、選択を変えずに競合だけを記録します。
+
+`test-fcitx4-discovery`で4系単独、4系と5系、4系とIBus、3方式の同時稼働を確認しました。fcitx 5が別のD-Bus接続から4系互換名を提供する場合も検証し、接続名が異なってもPIDから同じ提供元と判定できています。4系のIBus互換名、古い明示アドレス、設定の競合、後から起動した5系への切替抑止も検証対象です。
+
+native Waylandに4系の公開設定と診断を追加し、付属ターミナルで`BOXRIG_WAYLAND_IME=fcitx4`を指定できるようにしました。`test-fcitx4-native`では明示指定とAUTOの両方で、装飾付き未確定文字、取消、確定、未処理キー、サーバーによるフォーカス喪失時の確定が成功しています。GTK 3のAUTOでも、文書編集を含む既存の4系入力試験が成功しました。
+
+Debian 13の実fcitx 4／Mozcでも、アドレスファイルを使ったGTK 3のAUTO選択と文書編集が成功しました。native Waylandでは、フォーカス喪失時のサーバー確定を端末出力と編集可能な文書の両方で確認しています。`test-fcitx5-auto`、`test-fcitx5-auto-real`、`test-wayland-input`の回帰試験と、Wayland版の付属ターミナルのビルドも成功しました。記録は`build/test-results/fcitx4/auto-native-green.log`、`native-document-green.log`、`auto-regression.log`と、Debian 13の配布環境試験ログにあります。
+
+この時点では文字列パネルは未実装です。4系のCLIENT表示を成功とは診断せず、段階5は継続中とします。

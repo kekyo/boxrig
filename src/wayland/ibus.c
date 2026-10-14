@@ -138,7 +138,8 @@ bool boxrig_wayland_ibus_initialize(boxrig_wayland_context *context)
     context->ibus = context->config.input_method == BOXRIG_WAYLAND_IME_AUTO ?
         boxrig_ime_create_auto(true, context->config.maximum_seats, "boxrig-wayland", NULL, selection_changed, context) :
         boxrig_ime_create(context->config.input_method == BOXRIG_WAYLAND_IME_FCITX5 ?
-            BOXRIG_IME_BACKEND_FCITX5 : BOXRIG_IME_BACKEND_IBUS, true, context->config.maximum_seats,
+            BOXRIG_IME_BACKEND_FCITX5 : context->config.input_method == BOXRIG_WAYLAND_IME_FCITX4 ?
+            BOXRIG_IME_BACKEND_FCITX4 : BOXRIG_IME_BACKEND_IBUS, true, context->config.maximum_seats,
             "boxrig-wayland", selection_changed, context);
     return context->ibus != NULL;
 }
@@ -240,10 +241,12 @@ void boxrig_wayland_ibus_diagnostic(const boxrig_wayland_context *context,
     boxrig_ime_get_diagnostic(context->ibus, &state);
     diagnostic->input_method = boxrig_wayland_ibus_selected(context) ?
         (state.backend == BOXRIG_IME_BACKEND_NONE ? BOXRIG_WAYLAND_IME_AUTO :
-         state.backend == BOXRIG_IME_BACKEND_FCITX5 ? BOXRIG_WAYLAND_IME_FCITX5 : BOXRIG_WAYLAND_IME_IBUS) : BOXRIG_WAYLAND_IME_WAYLAND;
+         state.backend == BOXRIG_IME_BACKEND_FCITX5 ? BOXRIG_WAYLAND_IME_FCITX5 :
+         state.backend == BOXRIG_IME_BACKEND_FCITX4 ? BOXRIG_WAYLAND_IME_FCITX4 : BOXRIG_WAYLAND_IME_IBUS) : BOXRIG_WAYLAND_IME_WAYLAND;
     diagnostic->direct = state;
     if (boxrig_wayland_ibus_selected(context) && state.backend != BOXRIG_IME_BACKEND_NONE) diagnostic->input_capabilities |=
         state.backend == BOXRIG_IME_BACKEND_FCITX5 ? BOXRIG_WAYLAND_INPUT_CAPABILITY_FCITX5 :
+            state.backend == BOXRIG_IME_BACKEND_FCITX4 ? BOXRIG_WAYLAND_INPUT_CAPABILITY_FCITX4 :
             BOXRIG_WAYLAND_INPUT_CAPABILITY_IBUS;
 }
 

@@ -5706,6 +5706,32 @@ test-ime-discovery: $(BUILD_DIR)/tests/test_ime_discovery $(BUILD_DIR)/tests/fci
 
 test: test-ime-discovery
 
+.PHONY: test-fcitx4-discovery
+test-fcitx4-discovery: $(BUILD_DIR)/tests/test_ime_discovery $(BUILD_DIR)/tests/fcitx4_server $(BUILD_DIR)/tests/fcitx5_server $(BUILD_DIR)/tests/wayland_ibus_engine
+	GIO_USE_VFS=local BOXRIG_TEST_FCITX4=1 ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4.sh $(BUILD_DIR)/tests/fcitx4_server $<
+	GIO_USE_VFS=local BOXRIG_TEST_FCITX4=1 BOXRIG_TEST_FCITX5=1 ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4.sh $(BUILD_DIR)/tests/fcitx4_server bash tests/ime/run_fcitx5.sh $(BUILD_DIR)/tests/fcitx5_server $<
+	GIO_USE_VFS=local BOXRIG_TEST_FCITX4=1 BOXRIG_TEST_IME_BOTH=1 ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- node tests/wayland/run_ibus_context.mjs tests/ime/run_discovery_with_fcitx4.sh "$(TEST_FONT_FILE)" "$(BUILD_DIR)/tests/wayland_ibus_engine" "$(BUILD_DIR)/test-results/fcitx4/discovery-ibus" "$(BUILD_DIR)/tests/fcitx4_server" "$(BUILD_DIR)/tests/test_ime_discovery"
+	GIO_USE_VFS=local BOXRIG_TEST_FCITX4=1 BOXRIG_TEST_FCITX5=1 BOXRIG_TEST_IME_BOTH=1 ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- node tests/wayland/run_ibus_context.mjs tests/ime/run_discovery_with_fcitx.sh "$(TEST_FONT_FILE)" "$(BUILD_DIR)/tests/wayland_ibus_engine" "$(BUILD_DIR)/test-results/fcitx4/discovery-all" "$(BUILD_DIR)/tests/fcitx5_server" /bin/bash tests/ime/run_fcitx4.sh "$(BUILD_DIR)/tests/fcitx4_server" "$(BUILD_DIR)/tests/test_ime_discovery"
+test: test-fcitx4-discovery
+
+.PHONY: test-fcitx4-auto
+test-fcitx4-auto: $(BUILD_DIR)/tests/test_fcitx4 $(BUILD_DIR)/tests/test_gtk3_fcitx4 $(BUILD_DIR)/tests/fcitx4_server
+	IBUS_ADDRESS= XMODIFIERS= BOXRIG_TEST_IME_AUTO=1 ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4.sh $(BUILD_DIR)/tests/fcitx4_server $(BUILD_DIR)/tests/test_fcitx4
+	$(XVFB_RUN) -a env -u GTK_IM_MODULE IBUS_ADDRESS= XMODIFIERS= BOXRIG_TEST_IME_AUTO=1 GDK_BACKEND=x11 GTK_A11Y=none NO_AT_BRIDGE=1 ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4.sh --display $(BUILD_DIR)/tests/fcitx4_server $(BUILD_DIR)/tests/test_gtk3_fcitx4
+
+test: test-fcitx4-auto
+
+.PHONY: test-fcitx4-auto-real
+test-fcitx4-auto-real: $(BUILD_DIR)/tests/test_gtk3_fcitx4
+	$(XVFB_RUN) -a env -u GTK_IM_MODULE IBUS_ADDRESS= XMODIFIERS= BOXRIG_TEST_IME_AUTO=1 GDK_BACKEND=x11 GTK_A11Y=none NO_AT_BRIDGE=1 GIO_USE_VFS=local ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4_real.sh $<
+
+.PHONY: test-fcitx4-native
+test-fcitx4-native: $(WAYLAND_CONTEXT_TEST_BINARY) $(BUILD_DIR)/tests/fcitx4_server
+	IBUS_ADDRESS= XMODIFIERS= BOXRIG_TEST_FCITX4=1 ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4.sh $(BUILD_DIR)/tests/fcitx4_server $< "$(TEST_FONT_FILE)"
+	IBUS_ADDRESS= XMODIFIERS= BOXRIG_TEST_FCITX4=1 BOXRIG_TEST_IME_AUTO=1 ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4.sh $(BUILD_DIR)/tests/fcitx4_server $< "$(TEST_FONT_FILE)"
+
+test: test-fcitx4-native
+
 .PHONY: test-fcitx5-auto-core
 test-fcitx5-auto-core: $(BUILD_DIR)/tests/test_fcitx5 $(BUILD_DIR)/tests/fcitx5_server
 	GIO_USE_VFS=local IBUS_ADDRESS= XMODIFIERS= BOXRIG_TEST_IME_AUTO=1 ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx5.sh $(BUILD_DIR)/tests/fcitx5_server $<

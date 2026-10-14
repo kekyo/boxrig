@@ -157,7 +157,9 @@ typedef enum boxrig_wayland_input_capability {
     /** The selected direct IBus connection is usable. */
     BOXRIG_WAYLAND_INPUT_CAPABILITY_IBUS = 1u << 4,
     /** Direct asynchronous fcitx 5 is the current input owner. */
-    BOXRIG_WAYLAND_INPUT_CAPABILITY_FCITX5 = 1u << 5
+    BOXRIG_WAYLAND_INPUT_CAPABILITY_FCITX5 = 1u << 5,
+    /** Direct asynchronous fcitx 4 is the current input owner. */
+    BOXRIG_WAYLAND_INPUT_CAPABILITY_FCITX4 = 1u << 6
 } boxrig_wayland_input_capability;
 
 /** Optional native selection protocols currently available to a context. */
@@ -247,7 +249,9 @@ typedef enum boxrig_wayland_input_method {
     /** Connect directly to IBus, falling back when it is unavailable. */
     BOXRIG_WAYLAND_IME_IBUS,
     /** Connect directly to fcitx 5, falling back when it is unavailable. */
-    BOXRIG_WAYLAND_IME_FCITX5
+    BOXRIG_WAYLAND_IME_FCITX5,
+    /** Connect directly to fcitx 4, falling back when it is unavailable. */
+    BOXRIG_WAYLAND_IME_FCITX4
 } boxrig_wayland_input_method;
 
 /** Bounded display-wide context configuration. */

@@ -11,12 +11,13 @@ static GDBusConnection *connection;
 static GDBusNodeInfo *node;
 static char *service;
 static guint owner;
+static guint ibus_owner;
 static guint contexts, keys, capabilities, focused, resets;
 static char *surrounding;
 static gint rectangle[4];
 typedef struct context {
     char *path, *sender;
-    bool composing, strict;
+    bool composing, strict, native;
 } context;
 static context *active;
 static GDBusMethodInvocation *held;
@@ -52,6 +53,7 @@ static const char xml[] =
     "<arg type='u' direction='out'/><arg type='b' direction='out'/></method>"
     "<method name='CompleteKey'/><method name='FailKey'/><method name='WaitHeld'/>"
     "<method name='Owned'><arg type='b' direction='in'/></method>"
+    "<method name='AliasIBus'/><method name='UnaliasIBus'/>"
     "<method name='AllowCommit'><arg type='b' direction='in'/></method>"
     "<method name='CommitCount'><arg type='u' direction='in'/></method></interface></node>";
 
@@ -83,6 +85,18 @@ static void method(GDBusConnection *bus, const char *sender, const char *path,
 {
     (void)bus; (void)interface;
     context *input = data;
+    if (strcmp(name, "AliasIBus") == 0 || strcmp(name, "UnaliasIBus") == 0) {
+        if (strcmp(name, "AliasIBus") == 0) {
+            CHECK(ibus_owner == 0);
+            ibus_owner = g_bus_own_name_on_connection(connection, "org.freedesktop.IBus",
+                G_BUS_NAME_OWNER_FLAGS_NONE, NULL, NULL, NULL, NULL);
+        } else {
+            g_bus_unown_name(ibus_owner);
+            ibus_owner = 0;
+        }
+        g_dbus_method_invocation_return_value(invocation, NULL);
+        return;
+    }
     if (strcmp(name, "Owned") == 0) {
         gboolean owned;
         g_variant_get(parameters, "(b)", &owned);
@@ -98,7 +112,8 @@ static void method(GDBusConnection *bus, const char *sender, const char *path,
         g_variant_get(parameters, "(&si)", &program, &pid);
         CHECK(program[0] != 0 && pid > 0);
         input = g_new0(context, 1);
-        input->strict = strcmp(program, "boxrig-gtk3") != 0;
+        input->native = strcmp(program, "boxrig-wayland") == 0;
+        input->strict = strcmp(program, "boxrig-gtk3") != 0 && !input->native;
         input->path = g_strdup_printf("/inputcontext_%u", ++contexts);
         input->sender = g_strdup(sender);
         CHECK(g_dbus_connection_register_object(connection, input->path, node->interfaces[1], &methods, input, free_context, NULL));
@@ -168,7 +183,9 @@ static void method(GDBusConnection *bus, const char *sender, const char *path,
         guint symbol, code, state, time;
         gint type;
         g_variant_get(parameters, "(uuuiu)", &symbol, &code, &state, &type, &time);
-        CHECK(code == 38 && state == (input->strict ? 4u : 0u) && time == 1234);
+        guint expected_code = input->native ?
+            (symbol == 'b' ? 56u : symbol == 'u' ? 30u : symbol == 0xff1b ? 9u : 38u) : 38u;
+        CHECK(code == expected_code && state == (input->strict ? 4u : 0u) && time == (input->native ? 0u : 1234u));
         if (input->strict) CHECK(type == (symbol == 'z' ? 1 : 0));
         else if (type == 1) { g_dbus_method_invocation_return_value(invocation, g_variant_new("(i)", 0)); return; }
         keys++;

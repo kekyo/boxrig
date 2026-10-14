@@ -105,7 +105,9 @@ static bool key(uint32_t symbol)
 }
 static void connect_client(void)
 {
-    client = boxrig_ime_create(BOXRIG_IME_BACKEND_FCITX4, false, 1, "boxrig-fcitx4-probe", selection, NULL);
+    client = g_getenv("BOXRIG_TEST_IME_AUTO") != NULL ?
+        boxrig_ime_create_auto(false, 1, "boxrig-fcitx4-probe", NULL, selection, NULL) :
+        boxrig_ime_create(BOXRIG_IME_BACKEND_FCITX4, false, 1, "boxrig-fcitx4-probe", selection, NULL);
     CHECK(client != NULL);
     session = boxrig_ime_add_session(client, &target);
     CHECK(session != NULL);
@@ -113,16 +115,17 @@ static void connect_client(void)
     for (;;) {
         boxrig_ime_diagnostic state;
         boxrig_ime_get_diagnostic(client, &state);
-        CHECK(state.backend == BOXRIG_IME_BACKEND_FCITX4 && state.state != BOXRIG_IME_UNAVAILABLE);
-        if (state.contexts == 1) break;
+        CHECK(state.state != BOXRIG_IME_UNAVAILABLE);
+        if (state.contexts == 1) { CHECK(state.backend == BOXRIG_IME_BACKEND_FCITX4); break; }
         dispatch();
     }
 }
 int main(void)
 {
     for (size_t index = 0; index < 16; index++) {
-        boxrig_ime_client *cancelled = boxrig_ime_create(BOXRIG_IME_BACKEND_FCITX4, false, 1,
-            "boxrig-cancelled-probe", selection, NULL);
+        boxrig_ime_client *cancelled = g_getenv("BOXRIG_TEST_IME_AUTO") != NULL ?
+            boxrig_ime_create_auto(false, 1, "boxrig-cancelled-probe", NULL, selection, NULL) :
+            boxrig_ime_create(BOXRIG_IME_BACKEND_FCITX4, false, 1, "boxrig-cancelled-probe", selection, NULL);
         CHECK(cancelled != NULL);
         boxrig_ime_destroy(cancelled);
     }

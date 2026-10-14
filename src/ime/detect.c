@@ -3,11 +3,14 @@
 #include <stdlib.h>
 #include <string.h>
 
-static boxrig_ime_backend_kind module_kind(const char *module)
+enum { FCITX5_INDEX, IBUS_INDEX, FCITX4_INDEX };
+
+static unsigned int module_mask(const char *module)
 {
-    if (g_strcmp0(module, "ibus") == 0) return BOXRIG_IME_BACKEND_IBUS;
-    if (g_strcmp0(module, "fcitx") == 0 || g_strcmp0(module, "fcitx5") == 0) return BOXRIG_IME_BACKEND_FCITX5;
-    return BOXRIG_IME_BACKEND_NONE;
+    if (g_strcmp0(module, "ibus") == 0) return 1u << IBUS_INDEX;
+    if (g_strcmp0(module, "fcitx") == 0 || g_strcmp0(module, "fcitx5") == 0)
+        return (1u << FCITX5_INDEX) | (1u << FCITX4_INDEX);
+    return 0;
 }
 
 static void changed(void *data, bool active)
@@ -35,15 +38,18 @@ boxrig_ime_client *boxrig_ime_create_auto(bool wayland, size_t maximum_sessions,
     client->selection = calloc(1, sizeof(*client->selection));
     if (client->selection == NULL) { boxrig_ime_destroy(client); return NULL; }
     boxrig_ime_selection *selection = client->selection;
-    selection->module = module_kind(module);
+    selection->module = module_mask(module);
     const char *modifiers = g_getenv("XMODIFIERS");
-    selection->modifiers = module_kind(modifiers != NULL && g_str_has_prefix(modifiers, "@im=") ? modifiers + 4 : NULL);
+    selection->modifiers = module_mask(modifiers != NULL && g_str_has_prefix(modifiers, "@im=") ? modifiers + 4 : NULL);
     const char *address = g_getenv("IBUS_ADDRESS");
-    selection->address = address != NULL && address[0] != 0;
+    if (address != NULL && address[0] != 0) selection->address |= 1u << IBUS_INDEX;
+    address = g_getenv("FCITX_DBUS_ADDRESS");
+    if (address != NULL && address[0] != 0) selection->address |= 1u << FCITX4_INDEX;
     selection->dirty = true;
     selection->reason = BOXRIG_IME_SELECTION_DISCOVERY;
     client->state = BOXRIG_IME_CONNECTING;
-    const boxrig_ime_backend *backends[] = {&boxrig_ime_fcitx5_backend, &boxrig_ime_ibus_backend};
+    const boxrig_ime_backend *backends[] = {&boxrig_ime_fcitx5_backend, &boxrig_ime_ibus_backend,
+        &boxrig_ime_fcitx4_backend};
     for (size_t index = 0; index < G_N_ELEMENTS(backends); index++) {
         boxrig_ime_client *candidate = boxrig_ime_allocate(backends[index], wayland,
             maximum_sessions, name, client->loop, changed, client);
@@ -78,6 +84,14 @@ void boxrig_ime_auto_focus(boxrig_ime_session *session, bool commit)
     }
 }
 
+static unsigned int canonical_mask(unsigned int mask, const size_t canonical[3])
+{
+    unsigned int result = 0;
+    for (size_t index = 0; index < 3; index++)
+        if ((mask & (1u << index)) != 0) result |= 1u << canonical[index];
+    return result;
+}
+
 void boxrig_ime_auto_refresh(boxrig_ime_client *client)
 {
     boxrig_ime_selection *selection = client->selection;
@@ -87,36 +101,51 @@ void boxrig_ime_auto_refresh(boxrig_ime_client *client)
     bool pending = false;
     for (size_t index = 0; index < G_N_ELEMENTS(selection->clients); index++)
         pending |= selection->clients[index]->state == BOXRIG_IME_CONNECTING;
-    /* Wait for both initial observations, so callback order cannot decide
-     * between two independently running providers. Later arrivals do not
+    /* Wait for all initial observations, so callback order cannot decide
+     * between independently running providers. Later arrivals do not
      * displace a still-valid selection, including during composition. */
     if (!selection->initialized && pending) return;
     selection->initialized = true;
     selection->dirty = false;
-    selection->alias = same_provider(selection->clients[0], selection->clients[1]);
-    boxrig_ime_backend_kind address = !selection->address ? BOXRIG_IME_BACKEND_NONE :
-        selection->alias ? BOXRIG_IME_BACKEND_FCITX5 : BOXRIG_IME_BACKEND_IBUS;
-    boxrig_ime_backend_kind hint = selection->module != BOXRIG_IME_BACKEND_NONE ? selection->module :
-        selection->modifiers != BOXRIG_IME_BACKEND_NONE ? selection->modifiers : address;
-    selection->conflict = (selection->modifiers != BOXRIG_IME_BACKEND_NONE && hint != selection->modifiers) ||
-        (address != BOXRIG_IME_BACKEND_NONE && hint != address);
-    boxrig_ime_selection_reason reason = selection->module != BOXRIG_IME_BACKEND_NONE ? BOXRIG_IME_SELECTION_MODULE :
-        selection->modifiers != BOXRIG_IME_BACKEND_NONE ? BOXRIG_IME_SELECTION_XMODIFIERS :
+    size_t canonical[3] = {FCITX5_INDEX, IBUS_INDEX, FCITX4_INDEX};
+    const size_t native_order[] = {FCITX5_INDEX, FCITX4_INDEX, IBUS_INDEX};
+    selection->alias = false;
+    /* Within one process prefer its native protocol over compatibility
+     * frontends. Independent services still use fcitx 5, IBus, fcitx 4 order. */
+    for (size_t index = 0; index < G_N_ELEMENTS(selection->clients); index++) {
+        for (size_t order = 0; order < G_N_ELEMENTS(native_order); order++) {
+            size_t preferred = native_order[order];
+            if (same_provider(selection->clients[index], selection->clients[preferred])) {
+                canonical[index] = preferred;
+                selection->alias |= preferred != index;
+                break;
+            }
+        }
+    }
+    unsigned int module = canonical_mask(selection->module, canonical);
+    unsigned int modifiers = canonical_mask(selection->modifiers, canonical);
+    unsigned int address = canonical_mask(selection->address, canonical);
+    unsigned int hint = module != 0 ? module : modifiers != 0 ? modifiers : address;
+    /* Multiple explicit address hints are considered together. Report their
+     * disagreement and apply the same initial priority/retention policy. */
+    selection->conflict = (modifiers != 0 && (hint & modifiers) == 0) ||
+        (address != 0 && (hint & address) == 0) || (address & (address - 1)) != 0;
+    boxrig_ime_selection_reason reason = module != 0 ? BOXRIG_IME_SELECTION_MODULE :
+        modifiers != 0 ? BOXRIG_IME_SELECTION_XMODIFIERS :
         selection->address ? BOXRIG_IME_SELECTION_ADDRESS : BOXRIG_IME_SELECTION_DISCOVERY;
-    if (hint == BOXRIG_IME_BACKEND_IBUS && selection->alias) hint = BOXRIG_IME_BACKEND_FCITX5;
     boxrig_ime_client *next = NULL;
     bool keep = false;
     size_t available = 0;
     for (size_t index = 0; index < G_N_ELEMENTS(selection->clients); index++) {
         boxrig_ime_client *candidate = selection->clients[index];
-        if (candidate->state != BOXRIG_IME_READY || (index == 1 && selection->alias)) continue;
-        available++;
-        if (hint != BOXRIG_IME_BACKEND_NONE && candidate->backend->kind != hint) continue;
-        if (next == NULL || candidate == selection->active) next = candidate;
+        if (candidate->state != BOXRIG_IME_READY) continue;
+        if (canonical[index] == index) available++;
+        if (hint != 0 && (hint & (1u << canonical[index])) == 0) continue;
+        if (next == NULL && canonical[index] == index) next = candidate;
         if (candidate == selection->active) { next = candidate; keep = true; }
     }
     selection->ambiguous = available > 1;
-    if (hint == BOXRIG_IME_BACKEND_NONE && next != NULL)
+    if (hint == 0 && next != NULL)
         reason = available == 1 ? BOXRIG_IME_SELECTION_SINGLE :
             keep ? BOXRIG_IME_SELECTION_RETAINED : BOXRIG_IME_SELECTION_PRIORITY;
     selection->reason = reason;

@@ -34,10 +34,12 @@ extern const boxrig_ime_backend boxrig_ime_fcitx4_backend;
 /* Discovery clients share one private loop, but keep their connection and
  * pending requests separate. Only active receives a focused input target. */
 typedef struct boxrig_ime_selection {
-    boxrig_ime_client *clients[2], *active;
-    boxrig_ime_backend_kind module, modifiers;
+    boxrig_ime_client *clients[3], *active;
+    /* Masks address provider positions. The fcitx module names accept both
+     * native generations; explicit addresses identify their protocol. */
+    unsigned int module, modifiers, address;
     boxrig_ime_selection_reason reason;
-    bool address, dirty, initialized, ambiguous, conflict, alias;
+    bool dirty, initialized, ambiguous, conflict, alias;
 } boxrig_ime_selection;
 
 /* Only this private main context dispatches client callbacks. The host polls
@@ -74,7 +76,7 @@ struct boxrig_ime_client {
 struct boxrig_ime_session {
     boxrig_ime_session *next;
     boxrig_ime_client *owner;
-    boxrig_ime_session *delegates[2];
+    boxrig_ime_session *delegates[3];
     void *seat;
     boxrig_ime_target *component;
     /* Owned protocol context, interpreted only by the selected backend. */

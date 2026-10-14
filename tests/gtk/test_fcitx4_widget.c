@@ -182,12 +182,14 @@ static void real_mozc(void)
 int main(void)
 {
     gtk_init(NULL, NULL);
+    bool automatic = g_getenv("BOXRIG_TEST_IME_AUTO") != NULL;
+    if (automatic) g_object_set(gtk_settings_get_default(), "gtk-im-module", "gtk-im-context-simple", NULL);
     boxrig_terminal_config config = boxrig_terminal_config_default();
     boxrig_ui_model *model;
     CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
     CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
     boxrig_gtk3_terminal_widget_config wc = boxrig_gtk3_terminal_widget_config_default();
-    wc.ime_policy = BOXRIG_GTK_IME_FCITX4;
+    wc.ime_policy = automatic ? BOXRIG_GTK_IME_AUTO : BOXRIG_GTK_IME_FCITX4;
     wc.candidate_policy = BOXRIG_UI_CANDIDATE_SYSTEM;
     wc.render_policy = BOXRIG_GTK_RENDER_CAIRO;
     wc.frame_request_callback = request_frame;
@@ -206,7 +208,10 @@ int main(void)
     focus(true);
     boxrig_gtk_ime_state state;
     CHECK(boxrig_gtk3_terminal_widget_get_ime_state(widget, &state) == BOXRIG_UI_OK);
-    CHECK(state.active_route == BOXRIG_GTK_IME_ROUTE_FCITX4 && state.reason == BOXRIG_GTK_IME_REASON_EXPLICIT_FCITX4);
+    CHECK(state.active_route == BOXRIG_GTK_IME_ROUTE_FCITX4);
+    CHECK(state.direct.backend == BOXRIG_IME_BACKEND_FCITX4);
+    CHECK(automatic ? state.direct.selection_reason == BOXRIG_IME_SELECTION_SINGLE :
+        state.reason == BOXRIG_GTK_IME_REASON_EXPLICIT_FCITX4);
     CHECK(state.candidate_owner == BOXRIG_UI_CANDIDATE_OWNER_SYSTEM && state.candidate_valid && !state.candidate_surface_relative);
     if (g_getenv("BOXRIG_TEST_FCITX_REAL") != NULL) { real_mozc(); goto cleanup; }
     key('a');

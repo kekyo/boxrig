@@ -12,6 +12,7 @@ static GDBusConnection *connection;
 static GDBusConnection *previous_connection;
 static guint name_owner;
 static guint ibus_owner;
+static GDBusConnection *fcitx4_alias;
 static unsigned int next_context, keys, resets, focused, destroyed;
 static guint64 capabilities;
 static gint cursor_rectangle[4];
@@ -43,6 +44,7 @@ static const char xml[] =
     "<arg type='i' direction='out'/><arg type='i' direction='out'/><arg type='d' direction='out'/>"
     "<arg type='u' direction='out'/></method>"
     "<method name='Hide'/><method name='Show'/><method name='AliasIBus'/><method name='UnaliasIBus'/>"
+    "<method name='AliasFcitx4'/><method name='UnaliasFcitx4'/>"
     "<method name='Complete'/><method name='Replace'/><method name='FailPrevious'/></interface></node>";
 static GDBusNodeInfo *node;
 static const GDBusInterfaceVTable methods;
@@ -114,7 +116,26 @@ static void method(GDBusConnection *bus, const char *sender, const char *path,
             cursor_scale, cursor_updates));
         return;
     }
-    if (strcmp(name, "Hide") == 0) {
+    if (strcmp(name, "AliasFcitx4") == 0) {
+        CHECK(fcitx4_alias == NULL);
+        /* A second connection tests the PID identity path, not just two
+         * names with the same unique owner on one connection. */
+        fcitx4_alias = g_dbus_connection_new_for_address_sync(g_getenv("DBUS_SESSION_BUS_ADDRESS"),
+            G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_CLIENT | G_DBUS_CONNECTION_FLAGS_MESSAGE_BUS_CONNECTION,
+            NULL, NULL, NULL);
+        CHECK(fcitx4_alias != NULL);
+        GVariant *reply = g_dbus_connection_call_sync(fcitx4_alias, "org.freedesktop.DBus", "/org/freedesktop/DBus",
+            "org.freedesktop.DBus", "RequestName", g_variant_new("(su)", "org.fcitx.Fcitx-72", 0u),
+            G_VARIANT_TYPE("(u)"), G_DBUS_CALL_FLAGS_NO_AUTO_START, 60000, NULL, NULL);
+        CHECK(reply != NULL);
+        guint result;
+        g_variant_get(reply, "(u)", &result);
+        CHECK(result == 1);
+        g_variant_unref(reply);
+    } else if (strcmp(name, "UnaliasFcitx4") == 0) {
+        CHECK(g_dbus_connection_close_sync(fcitx4_alias, NULL, NULL));
+        g_clear_object(&fcitx4_alias);
+    } else if (strcmp(name, "Hide") == 0) {
         g_bus_unown_name(name_owner);
         name_owner = 0;
     } else if (strcmp(name, "Show") == 0) {

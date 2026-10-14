@@ -3696,7 +3696,8 @@ boxrig_ui_status boxrig_wayland_terminal_component_get_diagnostic(
     diagnostic_out->auxiliary_visible = candidates.snapshot.auxiliary_visible || candidates.snapshot.auxiliary_above_visible;
     if (boxrig_wayland_ibus_selected(component->context) && ibus.backend != BOXRIG_IME_BACKEND_NONE)
         diagnostic_out->input_capabilities |= ibus.backend == BOXRIG_IME_BACKEND_FCITX5 ?
-            BOXRIG_WAYLAND_INPUT_CAPABILITY_FCITX5 : BOXRIG_WAYLAND_INPUT_CAPABILITY_IBUS;
+            BOXRIG_WAYLAND_INPUT_CAPABILITY_FCITX5 : ibus.backend == BOXRIG_IME_BACKEND_FCITX4 ?
+            BOXRIG_WAYLAND_INPUT_CAPABILITY_FCITX4 : BOXRIG_WAYLAND_INPUT_CAPABILITY_IBUS;
     diagnostic_out->pressed_key_count = component->pressed_key_count;
     diagnostic_out->pressed_button_count = component->pressed_button_count;
     diagnostic_out->input_error_count = component->input_error_count;

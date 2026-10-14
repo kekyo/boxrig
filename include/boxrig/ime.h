@@ -39,7 +39,7 @@ typedef struct boxrig_ime_diagnostic {
     boxrig_ime_selection_reason selection_reason; /**< Highest-priority selection evidence. */
     bool ambiguous; /**< Multiple independent running services were found. */
     bool conflicting_hints; /**< Applicable environment hints disagree. */
-    bool compatibility_alias; /**< An IBus service is provided by the same fcitx process. */
+    bool compatibility_alias; /**< Multiple protocol services belong to the same fcitx process. */
     size_t pending; /**< Outstanding asynchronous discovery, setup, and key operations. */
     size_t errors; /**< Recoverable discovery, transport, and adapter errors observed. */
     size_t contexts; /**< Live input contexts on the selected protocol. */

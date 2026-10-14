@@ -56,7 +56,7 @@ static void report_ime_state(boxrig_term_wayland_application *application)
         application->reported_direct.compatibility_alias == context.direct.compatibility_alias &&
         application->reported_direct.contexts == context.direct.contexts &&
         application->reported_direct.errors == context.direct.errors) return;
-    static const char *const backends[] = {"none", "ibus", "fcitx5"};
+    static const char *const backends[] = {"none", "ibus", "fcitx5", "fcitx4"};
     static const char *const selections[] = {"explicit", "discovery", "module", "xmodifiers", "address", "single", "priority", "retained"};
     static const char *const policies[] = {"auto", "system", "client"};
     static const char *const owners[] = {"none", "system", "client"};
@@ -69,6 +69,7 @@ static void report_ime_state(boxrig_term_wayland_application *application)
     fprintf(stdout, "boxrig_term: ime-route=%s text-input-version=%u direct-state=%d direct-backend=%s direct-selection=%s ambiguous=%d conflicting-hints=%d compatibility-alias=%d contexts=%zu errors=%zu candidate-policy=%s candidate-owner=%s candidate-reason=%s candidate-revision=%" PRIu64 " candidate-count=%zu candidate-cursor=%zu candidate-visible=%d auxiliary-visible=%d\n",
         context.input_method == BOXRIG_WAYLAND_IME_AUTO ? "pending" :
             context.input_method == BOXRIG_WAYLAND_IME_FCITX5 ? "fcitx5" :
+            context.input_method == BOXRIG_WAYLAND_IME_FCITX4 ? "fcitx4" :
             context.input_method == BOXRIG_WAYLAND_IME_IBUS ? "ibus" : "wayland",
         context.text_input_version, context.direct.state, backends[context.direct.backend], selections[context.direct.selection_reason],
         context.direct.ambiguous, context.direct.conflicting_hints, context.direct.compatibility_alias, context.direct.contexts,
@@ -1859,8 +1860,9 @@ int boxrig_term_wayland_native_host_create(
         if (strcmp(ime, "wayland") == 0) context_config.input_method = BOXRIG_WAYLAND_IME_WAYLAND;
         else if (strcmp(ime, "ibus") == 0) context_config.input_method = BOXRIG_WAYLAND_IME_IBUS;
         else if (strcmp(ime, "fcitx5") == 0) context_config.input_method = BOXRIG_WAYLAND_IME_FCITX5;
+        else if (strcmp(ime, "fcitx4") == 0) context_config.input_method = BOXRIG_WAYLAND_IME_FCITX4;
         else if (strcmp(ime, "auto") != 0) {
-            fprintf(stderr, "boxrig_term: BOXRIG_WAYLAND_IME must be auto, wayland, ibus, or fcitx5.\n");
+            fprintf(stderr, "boxrig_term: BOXRIG_WAYLAND_IME must be auto, wayland, ibus, fcitx5, or fcitx4.\n");
             return -1;
         }
     }

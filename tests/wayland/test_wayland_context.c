@@ -9611,6 +9611,96 @@ static void test_fcitx5_native_input(void)
     puts("PASS native Wayland fcitx5 preedit, conversion, commit, cancellation and focus commit");
 }
 
+static void test_fcitx4_native_input(void)
+{
+    fake_server server;
+    host_registry_state host;
+    create_server(&server, true, true, true);
+    struct wl_registry *registry = create_host_registry(&server, &host);
+    boxrig_wayland_context_config config = boxrig_wayland_context_config_default();
+    config.input_method = getenv("BOXRIG_TEST_IME_AUTO") != NULL ? BOXRIG_WAYLAND_IME_AUTO : BOXRIG_WAYLAND_IME_FCITX4;
+    config.candidate_policy = BOXRIG_UI_CANDIDATE_SYSTEM;
+    boxrig_wayland_context *context = NULL;
+    CHECK(boxrig_wayland_context_create(server.client_display, server.client_queue, &config, &context) == BOXRIG_UI_OK);
+    pump(&server); pump(&server); pump(&server);
+    boxrig_terminal_config tc = boxrig_terminal_config_default();
+    boxrig_terminal *terminal;
+    boxrig_ui_model *model;
+    CHECK(boxrig_terminal_create(&tc, &terminal) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
+    struct wl_surface *parent = wl_compositor_create_surface(host.compositor);
+    wl_proxy_set_queue((struct wl_proxy *)parent, server.client_queue);
+    boxrig_wayland_terminal_component *component;
+    CHECK(create_steady_component(context, parent, model, NULL, &component) == BOXRIG_UI_OK);
+    pump(&server);
+    send_ibus_keymap(&server);
+    struct wl_array keys;
+    wl_array_init(&keys);
+    wl_keyboard_send_enter(server.keyboard_resources[0], 10, server.child_resource, &keys);
+    zwp_text_input_v3_send_enter(server.text_input_resources[0], server.child_resource);
+    ibus_test_drain(&server, context, component);
+    boxrig_wayland_context_diagnostic diagnostic;
+    CHECK(boxrig_wayland_context_get_diagnostic(context, &diagnostic) == BOXRIG_UI_OK);
+    CHECK(diagnostic.input_method == BOXRIG_WAYLAND_IME_FCITX4 && diagnostic.direct.backend == BOXRIG_IME_BACKEND_FCITX4);
+    CHECK((diagnostic.input_capabilities & BOXRIG_WAYLAND_INPUT_CAPABILITY_FCITX4) != 0);
+    CHECK((diagnostic.input_capabilities & BOXRIG_WAYLAND_INPUT_CAPABILITY_IBUS) == 0);
+    boxrig_wayland_component_diagnostic component_state;
+    CHECK(boxrig_wayland_terminal_component_get_diagnostic(component, &component_state) == BOXRIG_UI_OK);
+    CHECK((component_state.input_capabilities & BOXRIG_WAYLAND_INPUT_CAPABILITY_FCITX4) != 0);
+    CHECK((component_state.input_capabilities & BOXRIG_WAYLAND_INPUT_CAPABILITY_IBUS) == 0);
+    CHECK(!server.text_current_enabled[0]);
+    ibus_test_key(&server, KEY_A);
+    ibus_test_drain(&server, context, component);
+    boxrig_composition_view text;
+    CHECK(boxrig_composition_get_view(boxrig_wayland_terminal_component_composition(component), &text) == BOXRIG_COMPOSITION_OK);
+    CHECK(text.active && text.text_length == strlen("きしゃ") && memcmp(text.text, "きしゃ", text.text_length) == 0);
+    CHECK(text.caret_offset == 3 && text.segment_count == 2);
+    check_ibus_output(terminal, "");
+    ibus_test_key(&server, KEY_ESC);
+    ibus_test_drain(&server, context, component);
+    check_ibus_inactive(component);
+    ibus_test_key(&server, KEY_A);
+    ibus_test_key(&server, KEY_B);
+    ibus_test_key(&server, KEY_U);
+    ibus_test_drain(&server, context, component);
+    check_ibus_output(terminal, "汽車🙂u");
+    editable_owner owner = {.disposition = BOXRIG_UI_OK};
+    boxrig_ui_editable_document *document = boxrig_ui_view_editable_document(
+        boxrig_wayland_terminal_component_view(component));
+    for (unsigned int destination = 0; destination < 2; destination++) {
+        if (destination != 0) {
+            CHECK(boxrig_ui_editable_document_set_apply_handler(document, apply_editable, &owner) == BOXRIG_UI_OK);
+            publish_editable(document, &owner, "前かな後", 9, 9);
+            wl_keyboard_send_enter(server.keyboard_resources[0], 51, server.child_resource, &keys);
+            ibus_test_drain(&server, context, component);
+        }
+        ibus_test_key(&server, KEY_A);
+        ibus_test_drain(&server, context, component);
+        wl_keyboard_send_leave(server.keyboard_resources[0], 52 + destination, server.child_resource);
+        for (;;) {
+            pump(&server); dispatch_context(context);
+            CHECK(boxrig_wayland_context_get_diagnostic(context, &diagnostic) == BOXRIG_UI_OK);
+            CHECK(boxrig_wayland_terminal_component_get_diagnostic(component, &component_state) == BOXRIG_UI_OK);
+            if (diagnostic.direct.pending == 0 && component_state.input_queue_depth == 0 && !component_state.ime_waiting) break;
+            ibus_test_poll(context);
+        }
+        if (destination != 0) CHECK(owner.accepted == 1 && strcmp(owner.text, "前かなserver-commit後") == 0);
+        check_ibus_output(terminal, destination == 0 ? "server-commit" : "");
+        check_ibus_inactive(component);
+    }
+    wl_array_release(&keys);
+    boxrig_wayland_terminal_component_destroy(component);
+    wl_surface_destroy(parent);
+    wl_compositor_destroy(host.compositor);
+    wl_registry_destroy(registry);
+    pump(&server);
+    boxrig_wayland_context_destroy(context);
+    boxrig_ui_model_destroy(model);
+    boxrig_terminal_destroy(terminal);
+    destroy_server(&server);
+    puts("PASS native Wayland fcitx4 selection, decorated preedit, cancellation, input and server focus commit");
+}
+
 int main(int argc, char **argv)
 {
     boxrig_wayland_context_config context_config =
@@ -9621,6 +9711,11 @@ int main(int argc, char **argv)
     if (argc != 2) {
         fprintf(stderr, "usage: test_wayland_context FONT_FILE\n");
         return 2;
+    }
+    if (getenv("BOXRIG_TEST_FCITX4") != NULL) {
+        test_fcitx4_native_input();
+        FcFini();
+        return 0;
     }
     if (getenv("BOXRIG_TEST_FCITX5") != NULL) {
         test_fcitx5_native_input();
