@@ -5601,3 +5601,16 @@ test-gtk-fcitx5: $(BUILD_DIR)/tests/fcitx5_server $(BUILD_DIR)/tests/test_gtk3_f
 	done
 
 test: test-gtk-fcitx5
+
+.PHONY: test-wayland-fcitx5 test-fcitx5-real
+test-wayland-fcitx5: $(WAYLAND_CONTEXT_TEST_BINARY) $(BUILD_DIR)/tests/fcitx5_server
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 BOXRIG_TEST_FCITX5=1 dbus-run-session -- bash tests/ime/run_fcitx5.sh $(BUILD_DIR)/tests/fcitx5_server $(WAYLAND_CONTEXT_TEST_BINARY) "$(TEST_FONT_FILE)"
+
+test-fcitx5-real: $(WAYLAND_CONTEXT_TEST_BINARY) $(BUILD_DIR)/tests/test_gtk3_fcitx $(BUILD_DIR)/tests/test_gtk4_fcitx
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 BOXRIG_TEST_FCITX5=1 dbus-run-session -- bash tests/ime/run_fcitx5_real.sh $(WAYLAND_CONTEXT_TEST_BINARY) "$(TEST_FONT_FILE)"
+	$(XVFB_RUN) -a env GDK_BACKEND=x11 GTK_IM_MODULE=gtk-im-context-simple GTK_A11Y=none NO_AT_BRIDGE=1 GIO_USE_VFS=local ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session -- bash tests/ime/run_fcitx5_real.sh $(BUILD_DIR)/tests/test_gtk3_fcitx
+	@for gtk in 3 4; do \
+		$(XVFB_RUN) -a env BOXRIG_TEST_WESTON_BACKEND=x11 GTK_IM_MODULE=gtk-im-context-simple GTK_A11Y=none GIO_USE_VFS=local LIBGL_ALWAYS_SOFTWARE=1 dbus-run-session -- bash tests/gtk/run_gl_wayland.sh bash tests/ime/run_fcitx5_real.sh $(BUILD_DIR)/tests/test_gtk$${gtk}_fcitx || exit $$?; \
+	done
+
+test: test-wayland-fcitx5 test-fcitx5-real

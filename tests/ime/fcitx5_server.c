@@ -110,6 +110,7 @@ static void method(GDBusConnection *bus, const char *sender, const char *path,
             emit(sender, path, "UpdateFormattedPreedit", g_variant_new("(a(si)i)", &text, 0));
         } else if (symbol == 'b') emit(sender, path, "CommitString", g_variant_new("(s)", "汽車🙂"));
         else if (symbol == 'c') emit(sender, path, "ForwardKey", g_variant_new("(uub)", 0xff0d, 4, TRUE));
+        else if (symbol == 'f') emit(sender, path, "ForwardKey", g_variant_new("(uub)", 'x', 0, FALSE));
         else if (symbol == 'd') {
             emit(sender, path, "DeleteSurroundingText", g_variant_new("(iu)", -2, 2));
             emit(sender, path, "CommitString", g_variant_new("(s)", "記者"));

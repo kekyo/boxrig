@@ -7,6 +7,7 @@
 #define widget_visible boxrig_gtk3_terminal_widget_set_visible
 #define widget_frame boxrig_gtk3_terminal_widget_frame
 #define widget_composition boxrig_gtk3_terminal_widget_composition
+#define widget_view boxrig_gtk3_terminal_widget_view
 #define widget_config boxrig_gtk3_terminal_widget_config
 #define widget_config_default boxrig_gtk3_terminal_widget_config_default
 #define widget_create boxrig_gtk3_terminal_widget_create
@@ -23,6 +24,7 @@
 #define widget_visible boxrig_gtk4_terminal_widget_set_visible
 #define widget_frame boxrig_gtk4_terminal_widget_frame
 #define widget_composition boxrig_gtk4_terminal_widget_composition
+#define widget_view boxrig_gtk4_terminal_widget_view
 #define widget_config boxrig_gtk4_terminal_widget_config
 #define widget_config_default boxrig_gtk4_terminal_widget_config_default
 #define widget_create boxrig_gtk4_terminal_widget_create
@@ -32,6 +34,7 @@
 #define widget_width gtk_widget_get_width
 #define widget_height gtk_widget_get_height
 #endif
+#include "boxrig/ui/editable.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -40,6 +43,17 @@
 static Widget *widget;
 static boxrig_terminal *terminal;
 static bool dispatch_requested;
+static size_t edits;
+static boxrig_ui_status edit(const boxrig_ui_editable_replacement_request *request,
+    const boxrig_ui_editable_document_snapshot *proposed, void *data)
+{
+    (void)data;
+    CHECK(request->range.offset == 3 && request->range.length == 6);
+    CHECK(request->replacement_length == strlen("記者") && memcmp(request->replacement, "記者", request->replacement_length) == 0);
+    CHECK(proposed->context_length == strlen("前記者後") && memcmp(proposed->context, "前記者後", proposed->context_length) == 0);
+    edits++;
+    return BOXRIG_UI_OK;
+}
 #ifndef BOXRIG_TEST_GTK3
 static GtkEventController *key_controller, *focus_controller;
 GtkEventController *__real_gtk_event_controller_key_new(void);
@@ -135,8 +149,41 @@ static void output(const char *expected)
 {
     const uint8_t *bytes;
     CHECK(boxrig_terminal_output_peek(terminal, &bytes) == strlen(expected));
-    CHECK(memcmp(bytes, expected, strlen(expected)) == 0);
+    CHECK(expected[0] == 0 || memcmp(bytes, expected, strlen(expected)) == 0);
     CHECK(boxrig_terminal_output_consume(terminal, strlen(expected)) == BOXRIG_STATUS_OK);
+}
+static void real_mozc(void)
+{
+    GDBusConnection *bus = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, NULL);
+    CHECK(bus != NULL);
+    GVariant *reply = g_dbus_connection_call_sync(bus, "org.fcitx.Fcitx5", "/controller",
+        "org.fcitx.Fcitx.Controller1", "SetCurrentIM", g_variant_new("(s)", "mozc"),
+        G_VARIANT_TYPE_UNIT, G_DBUS_CALL_FLAGS_NO_AUTO_START, 60000, NULL, NULL);
+    CHECK(reply != NULL);
+    g_variant_unref(reply);
+    for (const char *letter = "kisha"; *letter != 0; letter++) key((guint)*letter);
+    boxrig_composition_view text = composition();
+    CHECK(text.active && text.text_length == strlen("きしゃ") && memcmp(text.text, "きしゃ", text.text_length) == 0);
+    output("");
+    key(GDK_KEY_space);
+    text = composition();
+    CHECK(text.active && text.text_length != 0);
+    CHECK(text.text_length != strlen("きしゃ") || memcmp(text.text, "きしゃ", text.text_length) != 0);
+    char *converted = g_strndup(text.text, text.text_length);
+    key(GDK_KEY_Return);
+    CHECK(!composition().active);
+    output(converted);
+    g_free(converted);
+    for (const char *letter = "kisha"; *letter != 0; letter++) key((guint)*letter);
+    key(GDK_KEY_Escape);
+    CHECK(!composition().active);
+    output("");
+    key('a');
+    focus(false);
+    frame();
+    output("あ");
+    g_object_unref(bus);
+    printf("PASS GTK %u fcitx5/Mozc conversion, commit, cancellation and focus commit\n", gtk_get_major_version());
 }
 int main(void)
 {
@@ -187,6 +234,10 @@ int main(void)
     CHECK(state.active_route == BOXRIG_GTK_IME_ROUTE_FCITX5);
     CHECK(state.reason == BOXRIG_GTK_IME_REASON_EXPLICIT_FCITX5);
     CHECK(state.candidate_owner == BOXRIG_UI_CANDIDATE_OWNER_SYSTEM);
+    if (getenv("BOXRIG_TEST_FCITX_REAL") != NULL) {
+        real_mozc();
+        goto cleanup;
+    }
     key('a');
     boxrig_composition_view text = composition();
     CHECK(text.text_length == strlen("きしゃ") && memcmp(text.text, "きしゃ", text.text_length) == 0);
@@ -198,6 +249,17 @@ int main(void)
     output("汽車🙂");
     key('u');
     output("u");
+    key('f');
+    output("x");
+    boxrig_ui_editable_document *document = boxrig_ui_view_editable_document(widget_view(widget));
+    boxrig_ui_editable_context_input context = {.document_identity = 1, .document_revision = 1,
+        .context = "前かな後", .context_length = strlen("前かな後"), .cursor = 9, .anchor = 9};
+    CHECK(boxrig_ui_editable_document_set_apply_handler(document, edit, NULL) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_editable_document_publish_context(document, &context) == BOXRIG_UI_OK);
+    key('d');
+    CHECK(edits == 1);
+    output("");
+    CHECK(boxrig_ui_editable_document_clear(document) == BOXRIG_UI_OK);
     key('a');
     focus(false);
     timer = g_timeout_add_seconds(60, deadline, "focus commit");
