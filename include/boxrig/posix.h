@@ -161,7 +161,7 @@ typedef enum boxrig_posix_pty_spawn_stage {
     BOXRIG_POSIX_PTY_STAGE_CONTROLLING_TERMINAL,
     /** Connecting standard input, output, or error to the slave. */
     BOXRIG_POSIX_PTY_STAGE_STDIO,
-    /** Preparing the child's TERM environment variable. */
+    /** Preparing the child's environment and executable search. */
     BOXRIG_POSIX_PTY_STAGE_ENVIRONMENT,
     /** Executing the requested command. */
     BOXRIG_POSIX_PTY_STAGE_EXEC,
@@ -195,7 +195,8 @@ int boxrig_posix_get_tty_erase(int descriptor, boxrig_tty_erase *erase_out);
 /**
  * Spawns a command connected to a new pseudoterminal.
  *
- * @param arguments NULL-terminated argument vector passed to execvp().
+ * @param arguments NULL-terminated argument vector with execvp-style PATH
+ * search and /bin/sh fallback for an executable text file without a shebang.
  * @param terminal_type Nonempty TERM value installed in the child environment.
  * @param rows Initial terminal rows.
  * @param columns Initial terminal columns.
@@ -206,6 +207,9 @@ int boxrig_posix_get_tty_erase(int descriptor, boxrig_tty_erase *erase_out);
  * does not read BOXRIG_TERM or another process-environment policy input.
  * Child setup and exec results are obtained with get_spawn_result(); a zero
  * return alone does not imply exec success. Parent preparation is synchronous.
+ * Environment and search storage are prepared before fork; the child performs
+ * no allocation or environment mutation. The caller must serialize concurrent
+ * mutations to its process environment while the spawn call snapshots it.
  */
 int boxrig_posix_pty_spawn(
     char *const arguments[],
@@ -216,7 +220,7 @@ int boxrig_posix_pty_spawn(
 
 /**
  * Spawns a PTY child and also preserves parent preparation diagnostics.
- * @param arguments NULL-terminated argument vector passed to execvp().
+ * @param arguments NULL-terminated argument vector with execvp-style lookup.
  * @param terminal_type Nonempty child TERM value.
  * @param rows Initial nonzero terminal rows.
  * @param columns Initial nonzero terminal columns.

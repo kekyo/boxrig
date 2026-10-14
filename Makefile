@@ -5378,7 +5378,7 @@ test-posix-spawn: $(BUILD_DIR)/tests/test_posix_spawn
 	$(BUILD_DIR)/tests/test_posix_spawn
 
 $(BUILD_DIR)/tests/test_posix_spawn: tests/test_posix_spawn.c $(POSIX_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
-	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(POSIX_LIBRARY) $(LIBRARY) -lutil -Wl,--wrap=execvp,--wrap=setsid,--wrap=calloc,--wrap=openpty,--wrap=pipe2,--wrap=fork -o $@
+	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(POSIX_LIBRARY) $(LIBRARY) -lutil -Wl,--wrap=execve,--wrap=setenv,--wrap=setsid,--wrap=calloc,--wrap=malloc,--wrap=strdup,--wrap=openpty,--wrap=pipe2,--wrap=fork -o $@
 
 test: test-grid-resize test-grid-resize-win32
 test-grid-resize: $(BUILD_DIR)/tests/test_grid_resize

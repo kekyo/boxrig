@@ -78,6 +78,9 @@ Use `boxrig_posix_pty_spawn_with_diagnostic()` to receive parent preparation fai
 A `-1` return preserves the cause in both `errno` and that diagnostic, without returning a PTY or child.
 A `0` return provides an initial `PENDING` diagnostic; query the returned PTY for subsequent results.
 Parent preparation remains synchronous.
+Environment and PATH search storage are also prepared before fork.
+The child's TERM does not change the parent's TERM; PATH lookup and executable scripts without a shebang follow `execvp()` semantics.
+Serialize process-environment mutations from other threads with this spawn call.
 
 A missing command produces `FAILED`, `EXEC`, and `ENOENT`; a command that starts and exits with 127 produces `SUCCEEDED`.
 Both children can have exit status 127, so the exit code alone cannot distinguish them.

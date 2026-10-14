@@ -101,6 +101,152 @@ static void child_failure(int descriptor, boxrig_posix_pty_spawn_stage stage, in
     _exit(127);
 }
 
+/* A fork from a host worker must not inherit and then acquire libc allocator
+ * or environment locks. Build the environment, PATH candidates and shell
+ * fallback argv entirely in the parent. The child only uses execve and
+ * descriptor/session setup system calls. */
+typedef struct spawn_preparation {
+    char **environment;
+    char **programs;
+    char **shell_arguments;
+    bool search_path;
+} spawn_preparation;
+
+static void release_preparation(spawn_preparation *preparation)
+{
+    if (preparation->environment != NULL) {
+        for (size_t index = 0; preparation->environment[index] != NULL; index++)
+            free(preparation->environment[index]);
+        free(preparation->environment);
+    }
+    if (preparation->programs != NULL) {
+        for (size_t index = 0; preparation->programs[index] != NULL; index++)
+            free(preparation->programs[index]);
+        free(preparation->programs);
+    }
+    free(preparation->shell_arguments);
+}
+
+static int prepare_spawn(char *const arguments[], const char *terminal_type,
+    spawn_preparation *preparation)
+{
+    size_t count = 0;
+    while (environ != NULL && environ[count] != NULL) count++;
+    if (count > SIZE_MAX / sizeof(char *) - 2) { errno = ENOMEM; return -1; }
+    preparation->environment = calloc(count + 2, sizeof(char *));
+    if (preparation->environment == NULL) return -1;
+    size_t term_length = strlen(terminal_type);
+    if (term_length > SIZE_MAX - 6) { errno = ENOMEM; return -1; }
+    preparation->environment[0] = malloc(term_length + 6);
+    if (preparation->environment[0] == NULL) return -1;
+    memcpy(preparation->environment[0], "TERM=", 5);
+    memcpy(preparation->environment[0] + 5, terminal_type, term_length + 1);
+    size_t copied = 1;
+    const char *path = NULL;
+    for (size_t index = 0; index < count; index++) {
+        if (strncmp(environ[index], "TERM=", 5) == 0) continue;
+        char *entry = strdup(environ[index]);
+        if (entry == NULL) return -1;
+        preparation->environment[copied++] = entry;
+        if (path == NULL && strncmp(entry, "PATH=", 5) == 0) path = entry + 5;
+    }
+    count = 0;
+    while (arguments[count] != NULL) count++;
+    if (count > SIZE_MAX / sizeof(char *) - 2) { errno = ENOMEM; return -1; }
+    preparation->shell_arguments = calloc(count + 2, sizeof(char *));
+    if (preparation->shell_arguments == NULL) return -1;
+    preparation->shell_arguments[0] = (char *)"/bin/sh";
+    for (size_t index = 1; index < count; index++) preparation->shell_arguments[index + 1] = arguments[index];
+
+    const char *file = arguments[0];
+    preparation->search_path = file[0] != '\0' && strchr(file, '/') == NULL;
+    if (!preparation->search_path) {
+        preparation->programs = calloc(2, sizeof(char *));
+        if (preparation->programs == NULL) return -1;
+        preparation->programs[0] = strdup(file);
+        return preparation->programs[0] == NULL ? -1 : 0;
+    }
+    char *default_path = NULL;
+    if (path == NULL) {
+        size_t length = confstr(_CS_PATH, NULL, 0);
+        if (length == 0) { errno = EINVAL; return -1; }
+        default_path = malloc(length);
+        if (default_path == NULL) return -1;
+        if (confstr(_CS_PATH, default_path, length) != length) {
+            free(default_path);
+            errno = EINVAL;
+            return -1;
+        }
+        path = default_path;
+    }
+    count = 1;
+    for (const char *cursor = path; *cursor != '\0'; cursor++) if (*cursor == ':') count++;
+    if (count > SIZE_MAX / sizeof(char *) - 1) {
+        free(default_path);
+        errno = ENOMEM;
+        return -1;
+    }
+    preparation->programs = calloc(count + 1, sizeof(char *));
+    if (preparation->programs == NULL) {
+        int saved_errno = errno;
+        free(default_path);
+        errno = saved_errno;
+        return -1;
+    }
+    const size_t file_length = strlen(file);
+    copied = 0;
+    const char *begin = path;
+    for (;;) {
+        const char *end = strchr(begin, ':');
+        size_t length = end == NULL ? strlen(begin) : (size_t)(end - begin);
+        /* As with execvp, an overlong PATH component must not hide a later
+         * usable directory. Empty components denote the current directory. */
+        if (length < PATH_MAX) {
+            if (file_length > SIZE_MAX - length - 2) {
+                free(default_path);
+                errno = ENOMEM;
+                return -1;
+            }
+            char *program = malloc(length + file_length + 2);
+            if (program == NULL) {
+                int saved_errno = errno;
+                free(default_path);
+                errno = saved_errno;
+                return -1;
+            }
+            preparation->programs[copied++] = program;
+            memcpy(program, begin, length);
+            if (length != 0) program[length++] = '/';
+            memcpy(program + length, file, file_length + 1);
+        }
+        if (end == NULL) break;
+        begin = end + 1;
+    }
+    free(default_path);
+    return 0;
+}
+
+static void execute_prepared(spawn_preparation *preparation, char *const arguments[], int diagnostic)
+{
+    int error_number = ENOENT;
+    bool access_denied = false;
+    for (size_t index = 0; preparation->programs[index] != NULL; index++) {
+        char *program = preparation->programs[index];
+        execve(program, arguments, preparation->environment);
+        if (errno == ENOEXEC) {
+            preparation->shell_arguments[1] = program;
+            execve("/bin/sh", preparation->shell_arguments, preparation->environment);
+        }
+        error_number = errno;
+        if (!preparation->search_path) break;
+        if (error_number == EACCES) access_denied = true;
+        else if (error_number != ENOENT && error_number != ENOTDIR && error_number != ESTALE &&
+            error_number != ENODEV && error_number != ETIMEDOUT) break;
+        if (preparation->programs[index + 1] == NULL && access_denied) error_number = EACCES;
+    }
+    child_failure(diagnostic, BOXRIG_POSIX_PTY_STAGE_EXEC, error_number);
+}
+
 int boxrig_posix_pty_spawn_with_diagnostic(
     char *const arguments[],
     const char *terminal_type,
@@ -121,10 +267,13 @@ int boxrig_posix_pty_spawn_with_diagnostic(
     }
     boxrig_posix_pty_spawn_stage stage = BOXRIG_POSIX_PTY_STAGE_ALLOCATE;
     int slave = -1, descriptors[2] = {-1, -1};
+    spawn_preparation preparation = {0};
     boxrig_posix_pty *pty = calloc(1, sizeof(*pty));
     if (pty == NULL) goto failed;
     pty->master_descriptor = -1;
     pty->spawn_descriptor = -1;
+    stage = BOXRIG_POSIX_PTY_STAGE_ENVIRONMENT;
+    if (prepare_spawn(arguments, terminal_type, &preparation) == -1) goto failed;
     struct winsize size = {.ws_row = (unsigned short)rows, .ws_col = (unsigned short)columns};
     stage = BOXRIG_POSIX_PTY_STAGE_OPEN_PTY;
     if (openpty(&pty->master_descriptor, &slave, NULL, NULL, &size) == -1) goto failed;
@@ -155,21 +304,20 @@ int boxrig_posix_pty_spawn_with_diagnostic(
             if (duplicated == -1) child_failure(descriptors[1], BOXRIG_POSIX_PTY_STAGE_STDIO, errno);
         }
         close(slave);
-        if (setenv("TERM", terminal_type, 1) == -1)
-            child_failure(descriptors[1], BOXRIG_POSIX_PTY_STAGE_ENVIRONMENT, errno);
-        execvp(arguments[0], arguments);
-        child_failure(descriptors[1], BOXRIG_POSIX_PTY_STAGE_EXEC, errno);
+        execute_prepared(&preparation, arguments, descriptors[1]);
     }
     close(slave);
     close(descriptors[1]);
     pty->child_process = process;
     pty->spawn_descriptor = descriptors[0];
     pty->spawn_result = result;
+    release_preparation(&preparation);
     *pty_out = pty;
     if (diagnostic_out != NULL) *diagnostic_out = result;
     return 0;
 failed: {
     int saved_errno = errno;
+    release_preparation(&preparation);
     if (slave >= 0) close(slave);
     if (descriptors[0] >= 0) close(descriptors[0]);
     if (descriptors[1] >= 0) close(descriptors[1]);
