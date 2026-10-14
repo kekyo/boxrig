@@ -16,6 +16,10 @@
 
 #include <sys/types.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 enum {
     /** Maximum number of native events handled before servicing other work. */
     BOXRIG_X11_EVENT_BATCH_CAPACITY = 64
@@ -219,5 +223,9 @@ int boxrig_x11_font_resize_transaction_resolve(
     size_t current_rows,
     size_t current_columns,
     boxrig_x11_font_resize_resolution *resolution_out);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

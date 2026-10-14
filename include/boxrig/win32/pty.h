@@ -12,6 +12,10 @@
 #include <stddef.h>
 #include <stdbool.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** Opaque reusable Windows pseudoconsole process. */
 typedef struct boxrig_win32_pty boxrig_win32_pty;
 
@@ -260,5 +264,9 @@ void boxrig_win32_pty_close(boxrig_win32_pty *pty);
  * the pseudoconsole and keeps the input pipe open until host shutdown returns.
  */
 void boxrig_win32_pty_destroy(boxrig_win32_pty *pty);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

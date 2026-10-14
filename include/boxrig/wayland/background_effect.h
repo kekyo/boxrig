@@ -3,6 +3,10 @@
 #define BOXRIG_WAYLAND_BACKGROUND_EFFECT_H
 #include "boxrig/ui/background_effect.h"
 #include <wayland-client.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 /** One exclusively delegated toplevel's ext-background-effect-v1 owner. */
 typedef struct boxrig_wayland_background_effect boxrig_wayland_background_effect;
 /** Borrowed Wayland resources and host event-loop callbacks. */
@@ -66,4 +70,8 @@ boxrig_ui_background_effect_state boxrig_wayland_background_effect_get_state(con
  * dispatches or destroys the borrowed display, queue or surface.
  */
 void boxrig_wayland_background_effect_destroy(boxrig_wayland_background_effect *effect);
+#ifdef __cplusplus
+}
+#endif
+
 #endif

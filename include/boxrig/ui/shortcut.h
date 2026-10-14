@@ -9,6 +9,10 @@
 
 #include "boxrig/terminal.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** Portable terminal-view command selected by a conventional shortcut. */
 typedef enum boxrig_ui_zoom_shortcut {
     /** The event does not select a zoom command. */
@@ -111,5 +115,9 @@ bool boxrig_ui_background_opacity_shortcut_next(
     uint8_t remembered_opacity,
     uint8_t *next_opacity_out,
     uint8_t *next_remembered_opacity_out);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -19,6 +19,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** Opaque Win32-to-logical-input adapter used by the Win32 sample. */
 typedef struct boxrig_win32_input_adapter boxrig_win32_input_adapter;
 
@@ -337,5 +341,9 @@ bool boxrig_win32_input_adapter_blocked(
  * @param adapter Adapter to destroy, or NULL.
  */
 void boxrig_win32_input_adapter_destroy(boxrig_win32_input_adapter *adapter);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

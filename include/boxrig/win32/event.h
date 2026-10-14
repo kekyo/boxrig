@@ -13,6 +13,10 @@
 
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /**
  * Samples the Win32 monotonic tick count as absolute milliseconds.
  *
@@ -33,5 +37,9 @@ int boxrig_win32_animation_wait_timeout(
     const boxrig_terminal *terminal,
     uint64_t now_milliseconds,
     DWORD *timeout_milliseconds_out);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

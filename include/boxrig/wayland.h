@@ -15,6 +15,10 @@
 #include <poll.h>
 #include <wayland-client.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /**
  * Creates a standard monotonic-clock adapter for one owning Wayland loop.
  * @param adapter_out Receives the owned adapter, or NULL on failure.
@@ -1369,5 +1373,9 @@ uint32_t boxrig_wayland_terminal_component_capabilities(
 boxrig_ui_status boxrig_wayland_terminal_component_get_diagnostic(
     const boxrig_wayland_terminal_component *component,
     boxrig_wayland_component_diagnostic *diagnostic_out);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

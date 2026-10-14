@@ -8,6 +8,10 @@
 #include <windows.h>
 #include "opengl.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** Opaque, thread-confined OpenGL ES 3.0 or desktop OpenGL 3.3 core child surface. */
 typedef struct boxrig_wgl_surface boxrig_wgl_surface;
 
@@ -135,4 +139,8 @@ boxrig_gl_status boxrig_wgl_surface_swap(
  */
 boxrig_gl_status boxrig_wgl_surface_destroy(
     boxrig_wgl_surface **surface, boxrig_gl_diagnostic *diagnostic_out);
+#ifdef __cplusplus
+}
+#endif
+
 #endif

@@ -10,6 +10,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** Semantic layer role controlling background-opacity application. */
 typedef enum boxrig_ui_pixel_role {
     /** Grid, excess, default, explicit SGR, or reversed background. */
@@ -90,5 +94,9 @@ uint32_t boxrig_ui_argb32_for_role(
     uint8_t blue,
     uint8_t source_alpha,
     uint8_t background_opacity);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

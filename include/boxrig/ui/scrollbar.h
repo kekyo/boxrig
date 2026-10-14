@@ -13,6 +13,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** Identifies one physical-row scrollbar operation. */
 typedef enum boxrig_scrollbar_action {
     /** Moves one physical row toward older history. */
@@ -122,5 +126,9 @@ size_t boxrig_scrollbar_position_from_thumb(
     size_t track_length,
     size_t minimum_length,
     size_t thumb_start);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

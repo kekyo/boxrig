@@ -19,6 +19,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** Opaque X11-to-logical-input adapter used by the X11 sample. */
 typedef struct boxrig_x11_input_adapter boxrig_x11_input_adapter;
 
@@ -325,5 +329,9 @@ bool boxrig_x11_input_adapter_blocked(
  * @param adapter Adapter to destroy, or NULL.
  */
 void boxrig_x11_input_adapter_destroy(boxrig_x11_input_adapter *adapter);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

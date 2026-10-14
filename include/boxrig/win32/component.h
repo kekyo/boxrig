@@ -19,6 +19,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** Opaque terminal component using one explicit native hosting mode. */
 typedef struct boxrig_win32_terminal_component
     boxrig_win32_terminal_component;
@@ -952,5 +956,9 @@ uint32_t boxrig_win32_terminal_component_capabilities(
 boxrig_ui_status boxrig_win32_terminal_component_get_diagnostic(
     const boxrig_win32_terminal_component *component,
     boxrig_ui_component_diagnostic *diagnostic_out);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

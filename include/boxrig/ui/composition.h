@@ -14,6 +14,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** Opaque frontend-owned IME composition and preedit overlay state. */
 typedef struct boxrig_composition boxrig_composition;
 
@@ -331,5 +335,9 @@ boxrig_composition_status boxrig_composition_get_cluster(
     const boxrig_composition *composition,
     size_t cluster_index,
     boxrig_composition_cluster_view *cluster_out);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

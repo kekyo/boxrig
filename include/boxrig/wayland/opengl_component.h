@@ -9,6 +9,10 @@
 
 #include "boxrig/wayland.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** Configuration for the optional EGL/OpenGL Wayland component factory. */
 typedef struct boxrig_wayland_opengl_component_config {
     /** Requested EGL swap interval. Zero and one are accepted. */
@@ -98,5 +102,9 @@ boxrig_ui_status boxrig_wayland_opengl_terminal_component_create_with_config(
 boxrig_ui_status boxrig_wayland_opengl_terminal_component_get_diagnostic(
     const boxrig_wayland_terminal_component *component,
     boxrig_wayland_opengl_component_diagnostic *diagnostic_out);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

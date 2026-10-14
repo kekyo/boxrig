@@ -9,6 +9,10 @@
 #include "boxrig/ui/view.h"
 #include <windows.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** Application-selected presentation policy; never inferred from OS identity. */
 typedef enum boxrig_win32_opacity_mode {
     /** Request background alpha, optionally substituting whole-window alpha. */
@@ -235,5 +239,9 @@ boxrig_ui_status boxrig_win32_transparency_host_commit(
  */
 boxrig_ui_status boxrig_win32_transparency_host_cancel(
     boxrig_win32_transparency_host *host);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

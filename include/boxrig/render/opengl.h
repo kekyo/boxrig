@@ -14,6 +14,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** Hard maximum number of glyph cache entries retained by one renderer. */
 #define BOXRIG_OGL_GLYPH_CACHE_LIMIT_MAX ((size_t)1048576u)
 
@@ -388,5 +392,9 @@ void boxrig_ogl_renderer_fail_next(
 int boxrig_ogl_renderer_get_render_statistics(
     const boxrig_ogl_renderer *renderer,
     boxrig_ogl_render_statistics *statistics_out);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

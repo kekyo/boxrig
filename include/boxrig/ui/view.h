@@ -20,6 +20,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** Number of fixed-point units in one output pixel. */
 #define BOXRIG_UI_FIXED_ONE INT64_C(64)
 
@@ -2045,5 +2049,9 @@ boxrig_ui_status boxrig_ui_view_notify_local_input(boxrig_ui_view *view);
  */
 boxrig_ui_status boxrig_ui_view_set_composition_active(
     boxrig_ui_view *view, bool active);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

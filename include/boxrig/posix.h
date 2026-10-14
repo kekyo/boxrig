@@ -12,6 +12,10 @@
 #include <stddef.h>
 #include <sys/types.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /**
  * Reads a bounded Kitty graphics external transport on POSIX hosts.
  * @param transport Borrowed file, temporary-file, or shared-memory request.
@@ -209,5 +213,9 @@ boxrig_session_status boxrig_posix_pty_session_create(
     boxrig_posix_pty *pty,
     const boxrig_session_config *config,
     boxrig_session **session_out);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

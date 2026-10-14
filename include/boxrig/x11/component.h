@@ -18,6 +18,10 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** Opaque terminal component using one explicit native hosting mode. */
 typedef struct boxrig_x11_terminal_component boxrig_x11_terminal_component;
 
@@ -861,5 +865,9 @@ boxrig_x11_terminal_component_dispatch_event(
 boxrig_ui_status boxrig_x11_terminal_component_frame(
     boxrig_x11_terminal_component *component,
     boxrig_ui_component_frame_result *result_out);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
