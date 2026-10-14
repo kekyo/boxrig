@@ -288,6 +288,7 @@ struct boxrig_terminal {
     boxrig_notification_state *notification_state;
     /* The input config owns one allocation for mapping entries and bytes. */
     boxrig_input_config input_config;
+    boxrig_tty_erase tty_erase;
     boxrig_newline paste_newline;
     boxrig_receive_newline receive_newline;
     size_t output_capacity;

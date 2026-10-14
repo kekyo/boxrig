@@ -48,6 +48,9 @@ int main(void)
     boxrig_posix_pty_input_batch batch;
     boxrig_posix_pty_input_batch_initialize(&batch);
     assert(!boxrig_posix_pty_input_batch_pending(&batch));
+    boxrig_tty_erase unavailable;
+    assert(boxrig_posix_get_tty_erase(-1, &unavailable) == -1);
+    assert(!unavailable.available);
     boxrig_x11_host_policy policy = boxrig_x11_host_policy_default();
     boxrig_wayland_context_config wayland = boxrig_wayland_context_config_default();
     boxrig_ogl_renderer_config renderer = boxrig_ogl_renderer_config_default();
@@ -61,6 +64,10 @@ int main(void)
     assert(boxrig_terminal_set_input_config(terminal, &input) == BOXRIG_STATUS_OK);
     assert(boxrig_terminal_get_input_config(terminal, &input) == BOXRIG_STATUS_OK);
     assert(input.backspace_binding == BOXRIG_ERASE_ASCII_BACKSPACE);
+    boxrig_tty_erase erase = {true, 0};
+    assert(boxrig_terminal_set_tty_erase(terminal, erase) == BOXRIG_STATUS_OK);
+    assert(boxrig_terminal_get_tty_erase(terminal, &erase) == BOXRIG_STATUS_OK);
+    assert(erase.available && erase.byte == 0);
     boxrig_terminal_destroy(terminal);
     boxrig_regex_limits limits = boxrig_regex_limits_default();
     boxrig_regex_program *program = NULL;

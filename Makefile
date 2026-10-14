@@ -2660,6 +2660,21 @@ $(POSIX_EXAMPLE_COMMON_TEST_BINARY): tests/test_posix_example_common.c \
 		examples/boxrig_term/common/posix_application.c $(POSIX_LIBRARY) \
 		$(SESSION_LIBRARY) $(UI_LIBRARY) $(LIBRARY) -lutil $(SANITIZERS) -o $@
 
+.PHONY: test-tty-erase
+test: test-tty-erase
+test-tty-erase: $(BUILD_DIR)/tests/test_posix_tty_erase
+	$(BUILD_DIR)/tests/test_posix_tty_erase
+
+$(BUILD_DIR)/tests/test_posix_tty_erase: tests/test_posix_tty_erase.c \
+		examples/boxrig_term/common/posix_application.c \
+		examples/boxrig_term/common/posix_application.h $(POSIX_LIBRARY) \
+		$(SESSION_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(POSIX_CPPFLAGS) \
+		-Iexamples/boxrig_term/common $(CFLAGS) $(PROJECT_CFLAGS) \
+		$(SANITIZERS) $< examples/boxrig_term/common/posix_application.c \
+		$(POSIX_LIBRARY) $(SESSION_LIBRARY) $(UI_LIBRARY) $(LIBRARY) \
+		-lutil $(SANITIZERS) -o $@
+
 $(EXAMPLE_RUNTIME_INFO_TEST_BINARY): tests/test_example_runtime_info.c \
 		examples/boxrig_term/common/runtime_info.c \
 		examples/boxrig_term/common/runtime_info.h | $(BUILD_DIR)/tests

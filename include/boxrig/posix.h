@@ -130,6 +130,19 @@ int boxrig_posix_pty_input_batch_service(
 typedef struct boxrig_posix_pty boxrig_posix_pty;
 
 /**
+ * Reads the current terminal erase byte with tcgetattr().
+ * @param descriptor Open PTY master or other local terminal descriptor.
+ * @param erase_out Required output, reset to unavailable before querying.
+ * @return Zero on success, or -1 with errno set (including ENOTTY/EBADF).
+ * @remarks Call at TTY-bound key processing time so child stty changes are
+ * observed. NUL and _POSIX_VDISABLE remain available one-byte values. This
+ * synchronous query does not change terminal attributes, retain the descriptor,
+ * or update a core terminal. Pass the result to boxrig_terminal_set_tty_erase(),
+ * including unavailable results on failure; clear it when changing channels.
+ */
+int boxrig_posix_get_tty_erase(int descriptor, boxrig_tty_erase *erase_out);
+
+/**
  * Spawns a command connected to a new pseudoterminal.
  *
  * @param arguments NULL-terminated argument vector passed to execvp().

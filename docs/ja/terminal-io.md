@@ -97,6 +97,7 @@ Kittyのキー報告を選んだイベントはKittyの形式を維持します�
 | `ASCII_BACKSPACE` | BS、`0x08` | BS、`0x08` |
 | `ASCII_DELETE` | DEL、`0x7f` | DEL、`0x7f` |
 | `DELETE_SEQUENCE` | `ESC [ 3 ~` | `ESC [ 3 ~` |
+| `TTY` | 通信路の消去文字。未取得ならAuto | 通信路の消去文字。未取得ならAuto |
 
 BS／DELはCtrlで相互に反転し、AltではESCを前置します。
 削除シーケンスは`CSI 3 ; modifier ~`で修飾を表し、AltのESCを重ねません。
@@ -131,6 +132,30 @@ X11とWin32のinput adapterにも同じ設定APIがあります。
 同じ端末を複数のコンポーネントで共有する場合は、全ての入力系列が終了したことをホスト側で確認してください。
 
 [キー設定の例](../../examples/core/key_mapping.c)では、実行中に矢印・Enter・両消去キーを変更した送信列も確認できます。
+
+## TTYの消去文字を使う
+
+`BOXRIG_ERASE_TTY`は、通信路から取得した現在の消去文字を使う設定です。
+取得状態は`boxrig_tty_erase.available`、値は`byte`で表します。
+coreはOSへ問い合わせないため、通信路を所有するホストが`boxrig_terminal_set_tty_erase()`で渡してください。
+最後に渡した状態は`boxrig_terminal_get_tty_erase()`で取得できます。
+初期状態は未取得で、該当キーのAutoへ戻ります。
+
+POSIXでは`boxrig_posix_get_tty_erase(fd, &erase)`を利用してください。
+対象キーを送る直前に呼び出し、成功・失敗のどちらでも結果をcoreへ渡します。
+このAPIは[tcgetattr()](https://pubs.opengroup.org/onlinepubs/9799919799/functions/tcgetattr.html)で現在の`VERASE`を取得します。
+失敗時は未取得に戻り、戻り値と`errno`で理由を確認できます。
+起動時の値を固定しないので、子プロセスが後から行った`stty erase`も次のキーに反映されます。
+同梱のGTK3・GTK4・X11・Waylandドライバーにも、この処理を組み込んでいます。
+
+NULと`_POSIX_VDISABLE`も、取得済みの1バイトとして送ります。
+Ctrlで反転するのはBSとDELだけです。他の値はCtrlでも変えず、AltではESCを前置します。
+TTY情報は設定交換や画面リセットで失われず、キーを押し続けている間も更新できます。
+接続の切断・切り替え時には、ホストが`available = false`を渡し、前の通信路の値を破棄してください。
+
+SSH・Telnet・シリアルなどでは、接続層が値を把握できる場合にだけ渡します。
+Win32 PTYには取得APIがないため、未取得のままAutoを使います。
+POSIXドライバーでの値の変更と受信バイトを確認するコマンドは、`make test-tty-erase`です。
 
 ## 文字コードと生バイト
 

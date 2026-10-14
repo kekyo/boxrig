@@ -35,11 +35,11 @@ static void erase_bindings(void)
 {
     const boxrig_erase_binding bindings[] = {
         BOXRIG_ERASE_AUTO, BOXRIG_ERASE_ASCII_BACKSPACE,
-        BOXRIG_ERASE_ASCII_DELETE, BOXRIG_ERASE_DELETE_SEQUENCE
+        BOXRIG_ERASE_ASCII_DELETE, BOXRIG_ERASE_DELETE_SEQUENCE, BOXRIG_ERASE_TTY
     };
     const boxrig_key keys[] = {BOXRIG_KEY_BACKSPACE, BOXRIG_KEY_DELETE, BOXRIG_KEY_KP_DELETE};
     for (size_t construction = 0; construction < 2; construction++)
-    for (size_t bs = 0; bs < 4; bs++) for (size_t del = 0; del < 4; del++) {
+    for (size_t bs = 0; bs < 5; bs++) for (size_t del = 0; del < 5; del++) {
         boxrig_terminal_config config = boxrig_terminal_config_default();
         boxrig_input_config input = boxrig_input_config_default();
         input.backspace_binding = bindings[bs];
@@ -60,7 +60,7 @@ static void erase_bindings(void)
             char expected[32];
             size_t length = 0;
             boxrig_erase_binding binding = k == 0 ? input.backspace_binding : input.delete_binding;
-            if (binding == BOXRIG_ERASE_AUTO) {
+            if (binding == BOXRIG_ERASE_AUTO || binding == BOXRIG_ERASE_TTY) {
                 binding = k == 0 ? BOXRIG_ERASE_ASCII_DELETE : BOXRIG_ERASE_DELETE_SEQUENCE;
             }
             if (action != BOXRIG_KEY_RELEASE) {
@@ -79,6 +79,67 @@ static void erase_bindings(void)
         }
         boxrig_terminal_destroy(terminal);
     }
+}
+
+static void tty_erase(void)
+{
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    config.input.backspace_binding = BOXRIG_ERASE_TTY;
+    config.input.delete_binding = BOXRIG_ERASE_TTY;
+    boxrig_terminal *terminal;
+    assert(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    boxrig_tty_erase erase;
+    assert(boxrig_terminal_get_tty_erase(terminal, &erase) == BOXRIG_STATUS_OK);
+    assert(!erase.available);
+    const struct { uint8_t byte; uint8_t control; } cases[] = {
+        {8, 127}, {127, 8}, {'x', 'x'}, {0, 0}, {255, 255}
+    };
+    const boxrig_key keys[] = {BOXRIG_KEY_BACKSPACE, BOXRIG_KEY_DELETE, BOXRIG_KEY_KP_DELETE};
+    for (size_t c = 0; c < sizeof(cases) / sizeof(cases[0]); c++) {
+        erase.available = true;
+        erase.byte = cases[c].byte;
+        assert(boxrig_terminal_set_tty_erase(terminal, erase) == BOXRIG_STATUS_OK);
+        boxrig_tty_erase current;
+        assert(boxrig_terminal_get_tty_erase(terminal, &current) == BOXRIG_STATUS_OK);
+        assert(current.available && current.byte == cases[c].byte);
+        size_t consumed;
+        assert(boxrig_terminal_feed(terminal, (const uint8_t *)"\x1b[>11u", 6,
+                                   &consumed) == BOXRIG_STATUS_OK);
+        send(terminal, BOXRIG_KEY_BACKSPACE, "\x1b[127u");
+        send(terminal, BOXRIG_KEY_DELETE, "\x1b[3~");
+        assert(boxrig_terminal_feed(terminal, (const uint8_t *)"\x1b[<u", 4,
+                                   &consumed) == BOXRIG_STATUS_OK);
+        /* A screen reset does not change the attached communication channel. */
+        assert(boxrig_terminal_feed(terminal, (const uint8_t *)"\x1b" "c", 2,
+                                   &consumed) == BOXRIG_STATUS_OK);
+        for (size_t k = 0; k < 3; k++) for (uint32_t modifiers = 0; modifiers < 64; modifiers++)
+        for (unsigned action = 0; action < 3; action++) {
+            boxrig_key_event key = {0};
+            key.key = keys[k];
+            key.modifiers = modifiers;
+            key.action = (boxrig_key_action)action;
+            assert(boxrig_terminal_send_key(terminal, &key) == BOXRIG_STATUS_OK);
+            uint8_t bytes[2];
+            size_t length = 0;
+            if (action != BOXRIG_KEY_RELEASE) {
+                if (modifiers & BOXRIG_MODIFIER_ALT) bytes[length++] = 27;
+                bytes[length++] = modifiers & BOXRIG_MODIFIER_CONTROL
+                    ? cases[c].control : cases[c].byte;
+            }
+            output_is(terminal, bytes, length);
+        }
+        /* Dropping the old connection must not reuse its erase byte. */
+        erase.available = false;
+        assert(boxrig_terminal_set_tty_erase(terminal, erase) == BOXRIG_STATUS_OK);
+        assert(boxrig_terminal_get_tty_erase(terminal, &current) == BOXRIG_STATUS_OK);
+        assert(!current.available && current.byte == 0);
+        send(terminal, BOXRIG_KEY_BACKSPACE, "\x7f");
+        send(terminal, BOXRIG_KEY_DELETE, "\x1b[3~");
+    }
+    assert(boxrig_terminal_set_tty_erase(NULL, erase) == BOXRIG_STATUS_INVALID_ARGUMENT);
+    assert(boxrig_terminal_get_tty_erase(terminal, NULL) == BOXRIG_STATUS_INVALID_ARGUMENT);
+    assert(boxrig_terminal_get_tty_erase(NULL, &erase) == BOXRIG_STATUS_INVALID_ARGUMENT);
+    boxrig_terminal_destroy(terminal);
 }
 
 static void atomic_exchange(void)
@@ -190,6 +251,7 @@ static void protocol_priority(void)
 int main(void)
 {
     erase_bindings();
+    tty_erase();
     atomic_exchange();
     protocol_priority();
     puts("PASS atomic runtime key settings and erase bindings");

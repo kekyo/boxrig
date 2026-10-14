@@ -13,6 +13,7 @@
 #include <signal.h>
 #include <stdbool.h>
 #include <stdlib.h>
+#include <termios.h>
 #include <unistd.h>
 
 #include <sys/ioctl.h>
@@ -23,6 +24,23 @@ struct boxrig_posix_pty {
     pid_t child_process;
     bool child_reaped;
 };
+
+int boxrig_posix_get_tty_erase(int descriptor, boxrig_tty_erase *erase_out)
+{
+    if (erase_out == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+    erase_out->available = false;
+    erase_out->byte = 0;
+    struct termios attributes;
+    if (tcgetattr(descriptor, &attributes) == -1) {
+        return -1;
+    }
+    erase_out->available = true;
+    erase_out->byte = (uint8_t)attributes.c_cc[VERASE];
+    return 0;
+}
 
 static bool valid_size(size_t rows, size_t columns)
 {

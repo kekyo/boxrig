@@ -13,7 +13,7 @@
 | 2 | 完了 | 独立regex APIとCLI。NUL、不正UTF-8、診断位置、容量制限、分割再開、不一致時の処理量 |
 | 3 | 完了 | 番号・名前付きキャプチャ、認識器とのプログラム共有、同長時の優先、反復、未参加と空文字、結合文字、revisionと不変コピーの寿命、保持量 |
 | 4 | 完了 | Enter・矢印・両消去キーの設定交換。画面保持、Ctrl/Alt、keypad、Kitty、失敗時の旧設定保持、UIの押下系列との境界 |
-| 5 | 未着手 | キー処理時のTTY消去文字取得。変更、無効値、NUL、未取得、接続切替、他の通信路のAutoへの復帰 |
+| 5 | 完了 | キー処理時のTTY消去文字取得。変更、無効値、NUL、未取得、接続切替、他の通信路のAutoへの復帰 |
 | 6 | 未着手 | 入力禁止と停止完了。遅延IME・clipboard・pasteの無効化、paste終端、選択コピーと端末応答の継続 |
 | 7 | 未着手 | 行列数変更のhost通知。分割受信、0と省略、キュー満杯、拒否、layoutへの接続 |
 | 8 | 未着手 | POSIX起動診断FDと終了結果、Win32の既存診断と終了HANDLE。異常起動と127/259、fallback、回収と資源の寿命、実Windows検証 |
@@ -102,6 +102,28 @@ Waylandの追加試験では既存の一括受信を途中で処理してしま�
 Win32の新しいcore試験と既存input adapter試験は、amd64/i686の両方でWine上で成功しています。
 公開ヘッダーのC99/C++20試験と既存coreの101試験も成功しました。
 実行中の設定交換は[キー設定の実行例](../../../examples/core/key_mapping.c)で観察できます。
+
+## 段階5
+
+`BOXRIG_ERASE_TTY`と、通信路の取得状態・1バイトの値を渡すAPIを追加しました。
+NULと無効値も取得済みとして扱い、未取得の場合だけ該当キーのAutoへ戻ります。
+Ctrlによる反転はBSとDELに限定し、任意のTTY文字は変換しません。
+TTY情報は画面リセットで保持します。接続を切り替えるホストは明示的に破棄する契約です。
+
+POSIX補助層の`boxrig_posix_get_tty_erase()`は、現在の`VERASE`を取得します。
+失敗時は過去の値を残さず未取得へ戻します。
+同梱のGTK3・GTK4・X11・Waylandドライバーが問い合わせるのは、対象キーの処理時です。
+子の終了確認時にも情報を破棄し、起動前の値やタイマーによる監視に依存しません。
+
+公開APIとPOSIXドライバーの不足をREDで確認した後、実PTYの子プロセスで値を変更する試験を追加しました。
+BS・DEL・任意文字・NUL・無効値、Ctrl/Alt、Backspace/Delete/keypad Delete、press/repeatを子の受信バイトで確認できています。
+legacy releaseは出力せず、Kittyの優先と画面リセット後の状態もcore試験で確認しました。
+未取得と接続情報の破棄によるAuto復帰は、Linuxとamd64/i686のWineで成功しています。
+
+`test-tty-erase`、`test-input-config`、`test-input-config-win32`、POSIX共通ドライバー試験が成功しました。
+core・UI・POSIXを計装したAddressSanitizer/UndefinedBehaviorSanitizer試験でも問題は見つかりませんでした。
+4種類のPOSIX GUIドライバーは警告なしでビルドできています。
+`test-public-headers`も成功し、新しいAPIを通常includeするC99/C++20利用側でリンク・実行を確認しました。
 
 ## 後続段階の事前確認
 

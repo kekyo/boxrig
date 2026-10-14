@@ -412,8 +412,18 @@ typedef enum boxrig_erase_binding {
     /** Send the single ASCII DEL byte (0x7f). */
     BOXRIG_ERASE_ASCII_DELETE,
     /** Send CSI 3 ~, with the existing Delete modifier parameter when needed. */
-    BOXRIG_ERASE_DELETE_SEQUENCE
+    BOXRIG_ERASE_DELETE_SEQUENCE,
+    /** Send the current communication channel's erase byte; use AUTO if unknown. */
+    BOXRIG_ERASE_TTY
 } boxrig_erase_binding;
+
+/** Erase information supplied by the owner of the current communication channel. */
+typedef struct boxrig_tty_erase {
+    /** True when byte was obtained; NUL and disabled erase values remain available. */
+    bool available;
+    /** Unmodified one-byte value, ignored when unavailable. */
+    uint8_t byte;
+} boxrig_tty_erase;
 
 /** Input settings validated and copied atomically at construction or runtime. */
 typedef struct boxrig_input_config {
@@ -1154,6 +1164,32 @@ boxrig_status boxrig_terminal_set_input_config(
  */
 boxrig_status boxrig_terminal_get_input_config(
     const boxrig_terminal *terminal, boxrig_input_config *config_out);
+
+/**
+ * Replaces erase information for the current communication channel.
+ * @param terminal Terminal to update.
+ * @param erase Current value; an unavailable value discards any previous byte.
+ * @return OK or INVALID_ARGUMENT for a NULL terminal.
+ * @remarks Initially unavailable. The channel owner updates this immediately
+ * before sending a TTY-bound erase key, and clears it on disconnect or channel
+ * replacement. Core performs no OS query. NUL and disabled values are sent as
+ * bytes. Ctrl exchanges only BS/DEL; other bytes are unchanged. Alt prefixes ESC.
+ * This information is independent of input settings, survives screen resets,
+ * and may be refreshed during a held-key series. Calls must be serialized.
+ */
+boxrig_status boxrig_terminal_set_tty_erase(
+    boxrig_terminal *terminal, boxrig_tty_erase erase);
+
+/**
+ * Reads the last erase information supplied by the communication channel owner.
+ * @param terminal Terminal to inspect.
+ * @param erase_out Required output; byte is zero when unavailable.
+ * @return OK or INVALID_ARGUMENT for a NULL argument.
+ * @remarks This is a snapshot, not an OS query. Unknown TTY bindings use the
+ * corresponding key's AUTO behavior, including on Win32 or remote transports.
+ */
+boxrig_status boxrig_terminal_get_tty_erase(
+    const boxrig_terminal *terminal, boxrig_tty_erase *erase_out);
 
 /** Logical key transition type. */
 typedef enum boxrig_key_action {

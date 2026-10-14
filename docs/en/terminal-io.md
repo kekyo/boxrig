@@ -105,6 +105,7 @@ runtime; codec and paste/receive newline policies remain construction settings.
 | `ASCII_BACKSPACE` | BS (`0x08`) | BS (`0x08`) |
 | `ASCII_DELETE` | DEL (`0x7f`) | DEL (`0x7f`) |
 | `DELETE_SEQUENCE` | `ESC [ 3 ~` | `ESC [ 3 ~` |
+| `TTY` | Channel erase byte, or Auto when unavailable | Channel erase byte, or Auto when unavailable |
 
 Ctrl exchanges BS and DEL; Alt prefixes a one-byte binding with ESC. A delete
 sequence carries modifiers as `CSI 3 ; modifier ~` without an extra Alt prefix.
@@ -127,6 +128,33 @@ The [key-mapping example](../../examples/core/key_mapping.c), built with
 `make example-key-mapping`, also prints bytes after changing arrows, Enter,
 Backspace, and Delete at runtime. The [Japanese original](../ja/terminal-io.md)
 includes a configuration example.
+
+## Using the TTY erase byte
+
+`BOXRIG_ERASE_TTY` uses the current erase byte supplied by the communication
+channel owner. `boxrig_tty_erase.available` distinguishes an obtained `byte`
+from unavailable information. Core performs no OS query: pass information with
+`boxrig_terminal_set_tty_erase()` and inspect the last supplied value with
+`boxrig_terminal_get_tty_erase()`. Initially unavailable, TTY uses the key's Auto
+behavior until a value is supplied.
+
+On POSIX, call `boxrig_posix_get_tty_erase(fd, &erase)` immediately before sending
+a TTY-bound key and pass the result to core on both success and failure. It reads
+the current `VERASE` using [tcgetattr()](https://pubs.opengroup.org/onlinepubs/9799919799/functions/tcgetattr.html).
+Failure clears the information and returns -1 with `errno` set. Querying at key
+time observes later `stty erase` changes. The GTK3, GTK4, X11, and Wayland example
+drivers include this integration.
+
+NUL and `_POSIX_VDISABLE` are available bytes, not missing values. Ctrl exchanges
+only BS and DEL; other bytes are unchanged. Alt prefixes ESC. TTY information
+survives settings exchanges and screen resets and can be refreshed during a
+held-key series. The host must supply `available = false` on disconnect or
+channel replacement so the next connection cannot reuse the previous value.
+
+For SSH, Telnet, serial, or other channels, supply a byte only when the connection
+layer knows it. Win32 PTY has no erase-query API and uses unavailable information
+with Auto fallback. Run `make test-tty-erase` to exercise POSIX changes and the
+actual bytes received by the PTY child.
 
 ## Character encodings and raw bytes
 

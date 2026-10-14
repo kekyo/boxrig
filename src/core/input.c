@@ -80,8 +80,8 @@ boxrig_status boxrig_terminal_set_input_config(
 {
     if (terminal == NULL || config == NULL ||
         (unsigned int)config->enter_newline > BOXRIG_NEWLINE_TERMINAL ||
-        (unsigned int)config->backspace_binding > BOXRIG_ERASE_DELETE_SEQUENCE ||
-        (unsigned int)config->delete_binding > BOXRIG_ERASE_DELETE_SEQUENCE) {
+        (unsigned int)config->backspace_binding > BOXRIG_ERASE_TTY ||
+        (unsigned int)config->delete_binding > BOXRIG_ERASE_TTY) {
         return BOXRIG_STATUS_INVALID_ARGUMENT;
     }
     boxrig_input_config candidate = *config;
@@ -103,6 +103,29 @@ boxrig_status boxrig_terminal_get_input_config(
         return BOXRIG_STATUS_INVALID_ARGUMENT;
     }
     *config_out = terminal->input_config;
+    return BOXRIG_STATUS_OK;
+}
+
+boxrig_status boxrig_terminal_set_tty_erase(
+    boxrig_terminal *terminal, boxrig_tty_erase erase)
+{
+    if (terminal == NULL) {
+        return BOXRIG_STATUS_INVALID_ARGUMENT;
+    }
+    if (!erase.available) {
+        erase.byte = 0;
+    }
+    terminal->tty_erase = erase;
+    return BOXRIG_STATUS_OK;
+}
+
+boxrig_status boxrig_terminal_get_tty_erase(
+    const boxrig_terminal *terminal, boxrig_tty_erase *erase_out)
+{
+    if (terminal == NULL || erase_out == NULL) {
+        return BOXRIG_STATUS_INVALID_ARGUMENT;
+    }
+    *erase_out = terminal->tty_erase;
     return BOXRIG_STATUS_OK;
 }
 
@@ -752,7 +775,8 @@ static boxrig_status append_erase_key(
     boxrig_erase_binding binding = event->key == BOXRIG_KEY_BACKSPACE
         ? terminal->input_config.backspace_binding
         : terminal->input_config.delete_binding;
-    if (binding == BOXRIG_ERASE_AUTO) {
+    if (binding == BOXRIG_ERASE_AUTO ||
+        (binding == BOXRIG_ERASE_TTY && !terminal->tty_erase.available)) {
         binding = event->key == BOXRIG_KEY_BACKSPACE
             ? BOXRIG_ERASE_ASCII_DELETE : BOXRIG_ERASE_DELETE_SEQUENCE;
     }
@@ -770,8 +794,10 @@ static boxrig_status append_erase_key(
     }
     uint8_t bytes[2];
     size_t length = 0u;
-    uint8_t byte = binding == BOXRIG_ERASE_ASCII_BACKSPACE ? 0x08u : 0x7fu;
-    if ((event->modifiers & BOXRIG_MODIFIER_CONTROL) != 0u) {
+    uint8_t byte = binding == BOXRIG_ERASE_TTY ? terminal->tty_erase.byte
+        : binding == BOXRIG_ERASE_ASCII_BACKSPACE ? 0x08u : 0x7fu;
+    if ((byte == 0x08u || byte == 0x7fu) &&
+        (event->modifiers & BOXRIG_MODIFIER_CONTROL) != 0u) {
         byte = byte == 0x08u ? 0x7fu : 0x08u;
     }
     if ((event->modifiers & BOXRIG_MODIFIER_ALT) != 0u) {
