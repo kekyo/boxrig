@@ -9,6 +9,7 @@ void boxrig_pango_candidates_dispose(boxrig_pango_candidate_frame *frame)
     for (size_t i = 0; i < BOXRIG_UI_CANDIDATE_PAGE_MAXIMUM; i++)
         if (frame->items[i] != NULL) g_object_unref(frame->items[i]);
     if (frame->auxiliary != NULL) g_object_unref(frame->auxiliary);
+    if (frame->auxiliary_above != NULL) g_object_unref(frame->auxiliary_above);
     memset(frame, 0, sizeof(*frame));
 }
 
@@ -71,8 +72,9 @@ int boxrig_pango_candidates_prepare(PangoContext *context,
     memset(frame, 0, sizeof(*frame));
     frame->layout.revision = candidates->revision;
     const boxrig_ui_candidate_snapshot *s = &candidates->snapshot;
-    if (s->count == 0 || (!s->visible && !s->auxiliary_visible)) return 0;
-    frame->page = s->cursor / s->page_size * s->page_size;
+    if ((s->format == BOXRIG_UI_CANDIDATE_TABLE && s->count == 0) ||
+        (!s->visible && !s->auxiliary_visible && !s->auxiliary_above_visible)) return 0;
+    frame->page = s->format == BOXRIG_UI_CANDIDATE_PAGE || s->count == 0 ? 0 : s->cursor / s->page_size * s->page_size;
     frame->selected = s->cursor;
     frame->cursor_visible = s->cursor_visible;
     frame->padding = m.cell_width / 2 > 2 ? m.cell_width / 2 : 2;
@@ -98,17 +100,23 @@ int boxrig_pango_candidates_prepare(PangoContext *context,
         pango_layout_get_pixel_size(frame->items[i], &m.items[i], &height);
         if (height > m.line_height) m.line_height = height;
     }
-    if (s->auxiliary_visible && s->auxiliary != NULL && s->auxiliary[0] != 0) {
-        char *text = auxiliary_lines(s->auxiliary);
+    for (size_t section = 0; section < 2; section++) {
+        const char *source = section == 0 ? s->auxiliary_above : s->auxiliary;
+        bool visible = section == 0 ? s->auxiliary_above_visible : s->auxiliary_visible;
+        if (!visible || source == NULL || source[0] == 0) continue;
+        PangoLayout **layout = section == 0 ? &frame->auxiliary_above : &frame->auxiliary;
+        int32_t *width = section == 0 ? &m.auxiliary_above_width : &m.auxiliary_width;
+        int32_t *line_count = section == 0 ? &m.auxiliary_above_lines : &m.auxiliary_lines;
+        char *text = auxiliary_lines(source);
         if (text == NULL) goto failure;
-        frame->auxiliary = create_layout(context, font, features, fallback, text, false);
+        *layout = create_layout(context, font, features, fallback, text, false);
         free(text);
-        if (frame->auxiliary == NULL) goto failure;
-        constrain_layout(frame->auxiliary, m.width - 2 - frame->padding * 2, 2);
+        if (*layout == NULL) goto failure;
+        constrain_layout(*layout, m.width - 2 - frame->padding * 2, 2);
         int height;
-        pango_layout_get_pixel_size(frame->auxiliary, &m.auxiliary_width, &height);
-        int lines = pango_layout_get_line_count(frame->auxiliary);
-        m.auxiliary_lines = lines > 2 ? 2 : lines;
+        pango_layout_get_pixel_size(*layout, width, &height);
+        int lines = pango_layout_get_line_count(*layout);
+        *line_count = lines > 2 ? 2 : lines;
         int line_height = lines == 0 ? 0 : (height + lines - 1) / lines;
         if (line_height > m.line_height) m.line_height = line_height;
     }
@@ -117,9 +125,12 @@ int boxrig_pango_candidates_prepare(PangoContext *context,
         size_t source = frame->layout.first - frame->page + i;
         constrain_layout(frame->items[source], frame->layout.items[i].width - frame->padding * 2, 1);
     }
-    if (frame->auxiliary != NULL && frame->layout.auxiliary.height > 0) {
-        int lines = (frame->layout.auxiliary.height - frame->padding * 2) / m.line_height;
-        constrain_layout(frame->auxiliary, frame->layout.auxiliary.width - frame->padding * 2, lines < 1 ? 1 : lines);
+    for (size_t section = 0; section < 2; section++) {
+        PangoLayout *layout = section == 0 ? frame->auxiliary_above : frame->auxiliary;
+        boxrig_ui_candidate_rectangle rect = section == 0 ? frame->layout.auxiliary_above : frame->layout.auxiliary;
+        if (layout == NULL || rect.height <= 0) continue;
+        int lines = (rect.height - frame->padding * 2) / m.line_height;
+        constrain_layout(layout, rect.width - frame->padding * 2, lines < 1 ? 1 : lines);
     }
     return 0;
 failure:
@@ -172,17 +183,18 @@ int boxrig_pango_candidates_draw(cairo_t *cr, const boxrig_pango_candidate_frame
             frame->padding, selected ? background : foreground);
     }
     draw_text(cr, frame->auxiliary, frame->layout.auxiliary, frame->padding, foreground);
-    /* Border markers indicate clipped entries without changing the engine's
-     * page, labels, or selection. They do not create clickable controls. */
+    draw_text(cr, frame->auxiliary_above, frame->layout.auxiliary_above, frame->padding, foreground);
+    /* Border markers indicate clipped entries or an adjacent engine page,
+     * without changing labels or selection or creating clickable controls. */
     source_pixel(cr, foreground);
     double center = panel.x + panel.width / 2.0;
-    if (frame->layout.hidden_before) {
+    if (frame->layout.hidden_before || frame->layout.has_previous_page) {
         cairo_move_to(cr, center, panel.y);
         cairo_line_to(cr, center - frame->padding, panel.y + frame->padding);
         cairo_line_to(cr, center + frame->padding, panel.y + frame->padding);
         cairo_close_path(cr); cairo_fill(cr);
     }
-    if (frame->layout.hidden_after) {
+    if (frame->layout.hidden_after || frame->layout.has_next_page) {
         cairo_move_to(cr, center, panel.y + panel.height);
         cairo_line_to(cr, center - frame->padding, panel.y + panel.height - frame->padding);
         cairo_line_to(cr, center + frame->padding, panel.y + panel.height - frame->padding);

@@ -69,6 +69,25 @@ static void owned_state(void)
     CHECK(boxrig_ui_view_set_visible(view, false) == BOXRIG_UI_OK);
     CHECK(boxrig_ui_view_get_candidates(view, &actual) == BOXRIG_UI_OK);
     CHECK(actual.snapshot.count == 0);
+    char above[] = "読み";
+    snapshot = (boxrig_ui_candidate_snapshot){.format = BOXRIG_UI_CANDIDATE_PAGE,
+        .count = 1, .page_size = 1, .items = items, .visible = true,
+        .has_previous_page = true, .has_next_page = true,
+        .auxiliary_above = above, .auxiliary_above_visible = true};
+    CHECK(boxrig_ui_view_set_candidates(view, &snapshot) == BOXRIG_UI_OK);
+    above[0] = 0;
+    CHECK(boxrig_ui_view_get_candidates(view, &actual) == BOXRIG_UI_OK);
+    CHECK(actual.snapshot.format == BOXRIG_UI_CANDIDATE_PAGE);
+    CHECK(actual.snapshot.has_previous_page && actual.snapshot.has_next_page);
+    CHECK(strcmp(actual.snapshot.auxiliary_above, "読み") == 0);
+    snapshot.page_size = 2;
+    CHECK(boxrig_ui_view_set_candidates(view, &snapshot) == BOXRIG_UI_INVALID_ARGUMENT);
+    snapshot = (boxrig_ui_candidate_snapshot){.format = BOXRIG_UI_CANDIDATE_PAGE,
+        .auxiliary_above = "候補なし", .auxiliary_above_visible = true};
+    CHECK(boxrig_ui_view_set_candidates(view, &snapshot) == BOXRIG_UI_OK);
+    boxrig_ui_view_clear_candidates(view);
+    CHECK(boxrig_ui_view_get_candidates(view, &actual) == BOXRIG_UI_OK);
+    CHECK(actual.snapshot.auxiliary_above == NULL);
     boxrig_ui_view_destroy(other);
     boxrig_ui_view_destroy(view);
     boxrig_ui_model_destroy(model);
@@ -127,6 +146,37 @@ static void placement(void)
     candidates.snapshot.count = 0;
     CHECK(boxrig_ui_candidates_place(&candidates, &m, &result) == BOXRIG_UI_OK);
     CHECK(result.bounds.width == 0 && result.bounds.height == 0);
+
+    candidates.snapshot = (boxrig_ui_candidate_snapshot){.format = BOXRIG_UI_CANDIDATE_PAGE,
+        .count = 3, .page_size = 3, .cursor = 2, .visible = true,
+        .has_previous_page = true, .has_next_page = true,
+        .auxiliary_above = "読み", .auxiliary_above_visible = true,
+        .auxiliary = "説明", .auxiliary_visible = true};
+    m.width = m.height = 500;
+    m.anchor = (boxrig_ui_candidate_rectangle){300, 150, 9, 21};
+    m.auxiliary_above_width = 100;
+    m.auxiliary_above_lines = 2;
+    CHECK(boxrig_ui_candidates_place(&candidates, &m, &result) == BOXRIG_UI_OK);
+    CHECK(result.first == 0 && result.count == 3);
+    CHECK(result.has_previous_page && result.has_next_page);
+    CHECK(!result.hidden_before && !result.hidden_after);
+    CHECK(result.auxiliary_above.height > 0 && result.auxiliary.height > 0);
+    CHECK(result.auxiliary_above.y + result.auxiliary_above.height <= result.items[0].y);
+    CHECK(result.items[2].y + result.items[2].height <= result.auxiliary.y);
+    for (size_t hi = 0; hi < sizeof(dimensions) / sizeof(*dimensions); hi++) {
+        m.height = dimensions[hi];
+        CHECK(boxrig_ui_candidates_place(&candidates, &m, &result) == BOXRIG_UI_OK);
+        CHECK(result.first <= 2 && result.first + result.count > 2);
+        CHECK(result.bounds.y >= 0 && result.bounds.y + result.bounds.height <= m.height);
+    }
+    candidates.snapshot.count = candidates.snapshot.page_size = candidates.snapshot.cursor = 0;
+    candidates.snapshot.visible = false;
+    CHECK(boxrig_ui_candidates_place(&candidates, &m, &result) == BOXRIG_UI_OK);
+    CHECK(result.count == 0 && result.bounds.height > 0);
+    CHECK(result.auxiliary_above.height > 0 && result.auxiliary.height > 0);
+    candidates.snapshot.auxiliary_above_visible = candidates.snapshot.auxiliary_visible = false;
+    CHECK(boxrig_ui_candidates_place(&candidates, &m, &result) == BOXRIG_UI_OK);
+    CHECK(result.bounds.height == 0);
 }
 
 int main(void)

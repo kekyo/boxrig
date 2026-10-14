@@ -8,7 +8,7 @@ typedef struct boxrig_ui_candidates {
     boxrig_ui_candidate_view value;
     char **items;
     char **labels;
-    char *auxiliary;
+    char *auxiliary, *auxiliary_above;
 } boxrig_ui_candidates;
 
 void boxrig_ui_candidates_dispose(boxrig_ui_candidates *candidates);
@@ -22,6 +22,7 @@ typedef struct boxrig_ui_candidate_measurement {
     boxrig_ui_candidate_rectangle anchor;
     int32_t items[BOXRIG_UI_CANDIDATE_PAGE_MAXIMUM];
     int32_t auxiliary_width, auxiliary_lines;
+    int32_t auxiliary_above_width, auxiliary_above_lines;
 } boxrig_ui_candidate_measurement;
 
 boxrig_ui_status boxrig_ui_candidates_place(const boxrig_ui_candidate_view *candidates,

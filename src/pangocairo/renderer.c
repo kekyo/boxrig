@@ -5611,7 +5611,7 @@ static int prepare_candidates(boxrig_pango_cairo_renderer *renderer,
     uint64_t grid_height = (uint64_t)renderer->cached_rows * renderer->cell_height;
     if (grid_width < (uint64_t)m.width) m.width = (int32_t)grid_width;
     if (grid_height < (uint64_t)m.height) m.height = (int32_t)grid_height;
-    if (candidates.snapshot.count != 0) {
+    if (candidates.snapshot.count != 0 || candidates.snapshot.auxiliary_visible || candidates.snapshot.auxiliary_above_visible) {
         if (composition->candidate.visible) {
             m.anchor = (boxrig_ui_candidate_rectangle){(int32_t)composition->candidate.spot_x,
                 (int32_t)composition->candidate.exclude_y, 1, (int32_t)composition->candidate.exclude_height};
