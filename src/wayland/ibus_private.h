@@ -21,6 +21,6 @@ boxrig_ui_status boxrig_wayland_ibus_filter_key(boxrig_wayland_terminal_componen
     boxrig_wayland_input_item *item, bool *blocked, bool *handled);
 boxrig_ui_status boxrig_wayland_ibus_apply_reply(boxrig_wayland_terminal_component *component,
     boxrig_wayland_input_item *item, bool *blocked, bool *consumed);
-void boxrig_wayland_ibus_release_request(struct boxrig_ibus_request *request);
+void boxrig_wayland_ibus_release_request(struct boxrig_ime_request *request);
 
 #endif

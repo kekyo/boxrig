@@ -49,7 +49,7 @@ struct boxrig_wayland_context {
     struct boxrig_wayland_clipboard_transfer *clipboard_transfers;
     struct xkb_context *xkb_context;
     struct xkb_compose_table *compose_table;
-    struct boxrig_ibus_client *ibus;
+    struct boxrig_ime_client *ibus;
     boxrig_wayland_terminal_component *components;
     boxrig_wayland_seat *seats;
     boxrig_wayland_output **outputs;

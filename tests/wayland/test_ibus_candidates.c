@@ -1,5 +1,5 @@
 /* boxrig - Under MIT. */
-#include "../../src/ibus/client.h"
+#include "../../src/ime/client.h"
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
 #pragma GCC diagnostic ignored "-Wvariadic-macros"
@@ -16,13 +16,17 @@
     fprintf(stderr, "FAIL IBus candidates %s:%d: %s\n", __FILE__, __LINE__, #value); \
     abort(); } } while (0)
 
-static boxrig_ibus_client *client;
-static boxrig_ibus_session *session;
-static boxrig_ibus_target target;
+static boxrig_ime_client *client;
+static boxrig_ime_session *session;
+static boxrig_ime_target target;
 static IBusBus *probe;
 static IBusInputContext *observed_proxy;
-static boxrig_ibus_request *queued[128];
+static boxrig_ime_request *queued[128];
 static size_t queue_count, received, clears, errors, commits, last_count, last_cursor;
+static bool default_dispatched;
+static gboolean default_ready(gpointer data)
+{ (void)data; default_dispatched = true; return G_SOURCE_REMOVE; }
+
 static bool last_visible, last_auxiliary, reject_once;
 static uint64_t generation;
 static char committed[64];
@@ -44,27 +48,27 @@ static void clear(void *data)
     clears++;
     last_visible = last_auxiliary = false;
 }
-static void enqueue(void *data, void *seat, boxrig_ibus_request *request)
+static void enqueue(void *data, void *seat, boxrig_ime_request *request)
 {
     (void)data; (void)seat;
     CHECK(queue_count < 128);
     queued[queue_count++] = request;
 }
 static bool forward(void *data, void *seat, uint32_t symbol, uint32_t code,
-    uint32_t modifiers, boxrig_ibus_effect *effect)
+    uint32_t modifiers, boxrig_ime_effect *effect)
 {
     (void)data; (void)seat; (void)symbol; (void)code; (void)modifiers; (void)effect;
     return false;
 }
-static boxrig_ui_status apply(void *data, boxrig_ibus_effect *effect,
+static boxrig_ui_status apply(void *data, boxrig_ime_effect *effect,
     bool *blocked, bool *accepted)
 {
     (void)data;
     *blocked = reject_once;
     *accepted = !reject_once;
     if (reject_once) { reject_once = false; return BOXRIG_UI_OK; }
-    if (effect->type == BOXRIG_IBUS_CANDIDATES) {
-        const boxrig_ibus_candidates *table = &effect->value.candidates;
+    if (effect->type == BOXRIG_IME_CANDIDATES) {
+        const boxrig_ime_candidates *table = &effect->value.candidates;
         received++;
         if (received == 1) CHECK(!table->auxiliary_visible);
         if (received == 2) CHECK(table->auxiliary_visible);
@@ -75,7 +79,7 @@ static boxrig_ui_status apply(void *data, boxrig_ibus_effect *effect,
         if (table->count != 0) {
             CHECK(table->count == 5 && table->page_size == 3 && table->cursor < 5);
             CHECK(table->cursor_visible && table->round);
-            CHECK(table->orientation == IBUS_ORIENTATION_VERTICAL);
+            CHECK(table->orientation == BOXRIG_UI_CANDIDATE_VERTICAL);
             CHECK(strcmp(table->items[0], "記者") == 0);
             CHECK(strcmp(table->items[1], "汽車") == 0);
             CHECK(strcmp(table->items[4], "喜捨") == 0);
@@ -86,7 +90,7 @@ static boxrig_ui_status apply(void *data, boxrig_ibus_effect *effect,
         if (table->auxiliary_visible) CHECK(strcmp(table->auxiliary, "説明🙂\n次の行") == 0);
         printf("candidates count=%zu cursor=%zu visible=%d auxiliary=%d\n",
             table->count, table->cursor, table->visible, table->auxiliary_visible);
-    } else if (effect->type == BOXRIG_IBUS_COMPOSITION &&
+    } else if (effect->type == BOXRIG_IME_COMPOSITION &&
         effect->value.composition.type == BOXRIG_COMPOSITION_COMMIT) {
         size_t length = effect->value.composition.text_length;
         CHECK(length < sizeof(committed));
@@ -102,14 +106,14 @@ static void dispatch(void)
     const struct pollfd *source;
     size_t count;
     int timeout = 60000;
-    CHECK(boxrig_ibus_prepare_poll(client, &source, &count, &timeout) == BOXRIG_UI_OK);
+    CHECK(boxrig_ime_prepare_poll(client, &source, &count, &timeout) == BOXRIG_UI_OK);
     struct pollfd *fds = malloc((count + 1) * sizeof(*fds));
     CHECK(fds != NULL);
     if (count != 0) memcpy(fds, source, count * sizeof(*fds));
     int result;
     do { result = poll(fds, count, timeout); } while (result < 0 && errno == EINTR);
     CHECK(result >= 0 && (result != 0 || timeout < 60000));
-    CHECK(boxrig_ibus_dispatch_poll(client, fds, count) == BOXRIG_UI_OK);
+    CHECK(boxrig_ime_dispatch_poll(client, fds, count) == BOXRIG_UI_OK);
     free(fds);
 }
 
@@ -128,21 +132,22 @@ static void drain(void)
 {
     for (size_t index = 0; index < queue_count; index++) {
         bool blocked, accepted;
-        CHECK(boxrig_ibus_apply_reply(&target, queued[index], &blocked, &accepted) == BOXRIG_UI_OK);
+        CHECK(boxrig_ime_apply_reply(&target, queued[index], &blocked, &accepted) == BOXRIG_UI_OK);
         CHECK(!blocked && accepted);
-        boxrig_ibus_release_request(queued[index]);
+        boxrig_ime_release_request(queued[index]);
     }
     queue_count = 0;
 }
 
 static void focus(void)
 {
-    boxrig_ibus_focus(session, &target, false, ++generation);
+    boxrig_ime_focus(session, &target, false, ++generation);
     for (;;) {
-        boxrig_ibus_diagnostic state;
-        boxrig_ibus_get_diagnostic(client, &state);
+        boxrig_ime_diagnostic state;
+        boxrig_ime_get_diagnostic(client, &state);
+        CHECK(state.backend == BOXRIG_IME_BACKEND_IBUS);
         if (state.contexts == 1) break;
-        CHECK(state.state != BOXRIG_IBUS_UNAVAILABLE);
+        CHECK(state.state != BOXRIG_IME_UNAVAILABLE);
         dispatch();
     }
     GVariant *reply = query("WaitForClient", g_variant_new("(s)", "boxrig-candidate-probe"),
@@ -153,21 +158,21 @@ static void focus(void)
 
 static void key(guint symbol)
 {
-    boxrig_ibus_request *request = NULL;
+    boxrig_ime_request *request = NULL;
     for (;;) {
         bool blocked, handled;
-        CHECK(boxrig_ibus_filter_key(session, &target, generation, symbol, 0, 0,
+        CHECK(boxrig_ime_filter_key(session, &target, generation, symbol, 0, 0,
             &request, &blocked, &handled) == BOXRIG_UI_OK);
         if (!blocked) { CHECK(handled); break; }
         /* A host capacity retry needs no unrelated socket event. */
         if (!reject_once && request != NULL) {
-            boxrig_ibus_diagnostic state;
-            boxrig_ibus_get_diagnostic(client, &state);
+            boxrig_ime_diagnostic state;
+            boxrig_ime_get_diagnostic(client, &state);
             if (state.pending == 0) continue;
         }
         dispatch();
     }
-    boxrig_ibus_release_request(request);
+    boxrig_ime_release_request(request);
     drain();
 }
 
@@ -184,14 +189,20 @@ int main(void)
     CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
     CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
     CHECK(boxrig_ui_view_create(model, &view_config, &view) == BOXRIG_UI_OK);
-    target = (boxrig_ibus_target){.view = view, .maximum_events = 128,
+    target = (boxrig_ime_target){.view = view, .maximum_events = 128,
         .maximum_bytes = 65536, .wake = wake, .error = error, .enqueue = enqueue,
         .forward = forward, .apply = apply, .cursor = cursor, .clear_candidates = clear};
-    client = boxrig_ibus_create(1, "boxrig-candidate-probe", selection, NULL);
+    client = boxrig_ime_create(BOXRIG_IME_BACKEND_IBUS, 1, "boxrig-candidate-probe", selection, NULL);
     CHECK(client != NULL);
-    session = boxrig_ibus_add_session(client, &target);
+    session = boxrig_ime_add_session(client, &target);
     CHECK(session != NULL);
+    GSource *idle = g_idle_source_new();
+    g_source_set_callback(idle, default_ready, NULL, NULL);
+    g_source_attach(idle, g_main_context_default());
     focus();
+    CHECK(!default_dispatched);
+    g_source_destroy(idle);
+    g_source_unref(idle);
     key(IBUS_KEY_F13);
     CHECK(received == 2 && last_count == 5 && last_cursor == 1 && last_visible && last_auxiliary);
     guint capabilities, panel_tables, panel_auxiliary;
@@ -255,7 +266,7 @@ int main(void)
     g_signal_emit_by_name(observed_proxy, "show-lookup-table");
     CHECK(received == before && queue_count == 2);
     bool blocked, accepted;
-    CHECK(boxrig_ibus_apply_reply(&target, queued[0], &blocked, &accepted) == BOXRIG_UI_OK);
+    CHECK(boxrig_ime_apply_reply(&target, queued[0], &blocked, &accepted) == BOXRIG_UI_OK);
     CHECK(accepted && !blocked && !last_visible);
     drain();
     CHECK(received == before + 2 && last_visible);
@@ -267,40 +278,40 @@ int main(void)
     g_signal_emit_by_name(observed_proxy, "commit-text", text);
     g_object_unref(text);
     before = received;
-    boxrig_ibus_focus(session, NULL, false, ++generation);
+    boxrig_ime_focus(session, NULL, false, ++generation);
     drain();
     CHECK(received == before && commits == 2 && strcmp(committed, "受信済み") == 0);
     CHECK(!last_visible && !last_auxiliary);
     focus();
     /* The key reply can be ready while the host has not applied its effects.
      * Refocusing the same target must not revive that old generation. */
-    boxrig_ibus_request *late = NULL;
-    CHECK(boxrig_ibus_filter_key(session, &target, generation, IBUS_KEY_F13, 0, 0,
+    boxrig_ime_request *late = NULL;
+    CHECK(boxrig_ime_filter_key(session, &target, generation, IBUS_KEY_F13, 0, 0,
         &late, &blocked, &accepted) == BOXRIG_UI_OK && blocked && late != NULL);
     for (;;) {
-        boxrig_ibus_diagnostic state;
-        boxrig_ibus_get_diagnostic(client, &state);
+        boxrig_ime_diagnostic state;
+        boxrig_ime_get_diagnostic(client, &state);
         if (state.pending == 0) break;
         dispatch();
     }
     before = received;
-    boxrig_ibus_focus(session, NULL, false, ++generation);
+    boxrig_ime_focus(session, NULL, false, ++generation);
     focus();
-    CHECK(boxrig_ibus_apply_reply(&target, late, &blocked, &accepted) == BOXRIG_UI_OK);
+    CHECK(boxrig_ime_apply_reply(&target, late, &blocked, &accepted) == BOXRIG_UI_OK);
     CHECK(accepted && !blocked && received == before && !last_visible);
-    boxrig_ibus_release_request(late);
+    boxrig_ime_release_request(late);
     key(IBUS_KEY_F13);
     before = clears;
     CHECK(kill((pid_t)atoi(getenv("BOXRIG_TEST_IBUS_DAEMON_PID")), SIGTERM) == 0);
     for (;;) {
-        boxrig_ibus_diagnostic state;
-        boxrig_ibus_get_diagnostic(client, &state);
-        if (state.state == BOXRIG_IBUS_UNAVAILABLE) break;
+        boxrig_ime_diagnostic state;
+        boxrig_ime_get_diagnostic(client, &state);
+        if (state.state == BOXRIG_IME_UNAVAILABLE) break;
         dispatch();
     }
     CHECK(clears > before && !last_visible && !last_auxiliary);
     drain();
-    boxrig_ibus_focus(session, NULL, false, ++generation);
+    boxrig_ime_focus(session, NULL, false, ++generation);
     g_object_unref(probe);
     CHECK(write(3, "restart\n", 8) == 8);
     char ready[128];
@@ -311,7 +322,7 @@ int main(void)
     CHECK(!last_visible && !last_auxiliary);
     key(IBUS_KEY_F13);
     before = clears;
-    boxrig_ibus_focus(session, NULL, false, ++generation);
+    boxrig_ime_focus(session, NULL, false, ++generation);
     CHECK(clears == before + 1 && !last_visible && !last_auxiliary);
     drain();
     /* Opt-out is the ordinary product until a renderer owns the overlay. */
@@ -325,9 +336,9 @@ int main(void)
     g_variant_unref(reply);
     CHECK((capabilities & (IBUS_CAP_LOOKUP_TABLE | IBUS_CAP_AUXILIARY_TEXT)) == 0);
     CHECK(panel_tables == 1 && panel_auxiliary == 1);
-    boxrig_ibus_remove_session(session);
+    boxrig_ime_remove_session(session);
     drain();
-    boxrig_ibus_destroy(client);
+    boxrig_ime_destroy(client);
     g_object_unref(probe);
     boxrig_ui_view_destroy(view);
     boxrig_ui_model_destroy(model);

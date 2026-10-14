@@ -236,11 +236,11 @@ GTK3_HEADERS := include/boxrig/gtk3.h $(wildcard include/boxrig/gtk3/*.h) $(wild
 PANGO_CANDIDATE_OBJECT := $(BUILD_DIR)/pangocairo/candidates.o
 GTK3_OBJECTS += $(PANGO_CANDIDATE_OBJECT)
 GTK4_OBJECTS += $(PANGO_CANDIDATE_OBJECT)
-IBUS_SOURCES := src/ibus/client.c src/ibus/source.c src/ime/preedit.c
-IBUS_HEADERS := src/ibus/client.h src/ibus/source.h src/ime/preedit.h
-IBUS_OBJECTS := $(BUILD_DIR)/ibus/ibus_client.o $(BUILD_DIR)/ibus/ibus_source.o $(BUILD_DIR)/ibus/ime_preedit.o
-GTK3_OBJECTS += $(IBUS_OBJECTS) $(BUILD_DIR)/gtk3/ime_probe.o
-GTK4_OBJECTS += $(IBUS_OBJECTS) $(BUILD_DIR)/gtk4/ime_probe.o
+IME_SOURCES := src/ime/client.c src/ibus/client.c src/ime/source.c src/ime/preedit.c
+IME_HEADERS := src/ime/client.h src/ime/client_private.h src/ime/source.h src/ime/preedit.h
+IME_OBJECTS := $(BUILD_DIR)/ime/client.o $(BUILD_DIR)/ime/ibus.o $(BUILD_DIR)/ime/source.o $(BUILD_DIR)/ime/preedit.o
+GTK3_OBJECTS += $(IME_OBJECTS) $(BUILD_DIR)/gtk3/ime_probe.o
+GTK4_OBJECTS += $(IME_OBJECTS) $(BUILD_DIR)/gtk4/ime_probe.o
 WAYLAND_HEADERS := include/boxrig/wayland.h
 OPENGL_RENDERER_HEADERS := include/boxrig/render/opengl.h include/boxrig/render/runtime.h
 WAYLAND_OPENGL_HEADERS := $(wildcard include/boxrig/wayland/*.h)
@@ -273,7 +273,7 @@ WAYLAND_OBJECTS := $(patsubst src/wayland/%.c,$(BUILD_DIR)/wayland/%.o,$(WAYLAND
 	$(BUILD_DIR)/wayland/fractional-scale-v1-protocol.o \
 	$(BUILD_DIR)/wayland/text-input-v3-protocol.o \
 	$(BUILD_DIR)/wayland/primary-selection-v1-protocol.o
-WAYLAND_OBJECTS += $(IBUS_OBJECTS) $(PANGO_CANDIDATE_OBJECT)
+WAYLAND_OBJECTS += $(IME_OBJECTS) $(PANGO_CANDIDATE_OBJECT)
 WAYLAND_OBJECTS += $(BUILD_DIR)/background_effect/wayland.o $(BUILD_DIR)/background_effect/protocol.o
 UTF8PROC_SOURCE := deps/utf8proc/utf8proc.c
 UTF8PROC_OBJECT := $(BUILD_DIR)/core/utf8proc.o
@@ -2587,7 +2587,7 @@ $(GTK3_WAYLAND_SAMPLE_CHILD_BINARY): \
 		$(SANITIZERS) $< $(SANITIZERS) -o $@
 
 $(WAYLAND_CONTEXT_TEST_BINARY): tests/wayland/test_wayland_context.c tests/editable_fixture.h $(UI_LIBRARY) $(LIBRARY) \
-        src/wayland/input.c src/wayland/ibus.c $(IBUS_SOURCES) $(IBUS_HEADERS) $(WAYLAND_PRIVATE_HEADERS) \
+        src/wayland/input.c src/wayland/ibus.c $(IME_SOURCES) $(IME_HEADERS) $(WAYLAND_PRIVATE_HEADERS) \
 		$(FRONTEND_COMPONENT_FIXTURE_SOURCES) \
 		$(FRONTEND_COMPONENT_FIXTURE_HEADER) \
 		$(WAYLAND_HEADERS) $(WAYLAND_LIBRARY) $(WAYLAND_VIEWPORTER_SERVER_HEADER) \
@@ -2595,7 +2595,7 @@ $(WAYLAND_CONTEXT_TEST_BINARY): tests/wayland/test_wayland_context.c tests/edita
 		$(WAYLAND_PRIMARY_SELECTION_SERVER_HEADER) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) \
 		-I$(WAYLAND_PROTOCOL_DIR) $(WAYLAND_CPPFLAGS) $(PANGO_CAIRO_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) \
-		-Isrc/ui tests/wayland/test_wayland_context.c src/wayland/input.c src/wayland/ibus.c $(IBUS_SOURCES) \
+		-Isrc/ui tests/wayland/test_wayland_context.c src/wayland/input.c src/wayland/ibus.c $(IME_SOURCES) \
 		$(FRONTEND_COMPONENT_FIXTURE_SOURCES) \
 		$(WAYLAND_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(WAYLAND_LIBS) \
 		$(PANGO_CAIRO_LIBS) $(SANITIZERS) -Wl,--wrap=boxrig_ui_editable_document_apply_edit,--wrap=boxrig_composition_apply_event -o $@
@@ -5034,30 +5034,33 @@ test-ime-clause: $(GTK3_WIDGET_TEST_BINARY) $(GTK4_WIDGET_TEST_BINARY) $(POSIX_E
 
 # Direct IBus uses a private daemon and engine, never the desktop input method.
 .PHONY: test-gtk-ibus-direct
-$(BUILD_DIR)/tests/test_gtk4_ibus: tests/gtk/test_ibus_widget.c include/boxrig/gtk/input.h $(IBUS_SOURCES) $(IBUS_HEADERS) $(GTK4_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
-	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK4_CPPFLAGS) $(IBUS_CPPFLAGS) $(CFLAGS) $(GTK4_PROJECT_CFLAGS) $(SANITIZERS) $< $(IBUS_SOURCES) $(GTK4_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK4_LIBS) $(IBUS_LIBS) $(SANITIZERS) -Wl,--wrap=gtk_im_multicontext_new,--wrap=gtk_event_controller_key_new,--wrap=gtk_event_controller_focus_new -o $@
+$(BUILD_DIR)/tests/test_gtk4_ibus: tests/gtk/test_ibus_widget.c include/boxrig/gtk/input.h $(IME_SOURCES) $(IME_HEADERS) $(GTK4_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK4_CPPFLAGS) $(IBUS_CPPFLAGS) $(CFLAGS) $(GTK4_PROJECT_CFLAGS) $(SANITIZERS) $< $(IME_SOURCES) $(GTK4_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK4_LIBS) $(IBUS_LIBS) $(SANITIZERS) -Wl,--wrap=gtk_im_multicontext_new,--wrap=gtk_event_controller_key_new,--wrap=gtk_event_controller_focus_new -o $@
 
-$(BUILD_DIR)/tests/test_gtk3_ibus: tests/gtk/test_ibus_widget.c include/boxrig/gtk/input.h $(IBUS_SOURCES) $(IBUS_HEADERS) $(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
-	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK3_CPPFLAGS) $(IBUS_CPPFLAGS) $(CFLAGS) $(GTK3_PROJECT_CFLAGS) $(SANITIZERS) -DBOXRIG_TEST_GTK3=1 $< $(IBUS_SOURCES) $(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK3_LIBS) $(IBUS_LIBS) $(SANITIZERS) -o $@
+$(BUILD_DIR)/tests/test_gtk3_ibus: tests/gtk/test_ibus_widget.c include/boxrig/gtk/input.h $(IME_SOURCES) $(IME_HEADERS) $(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK3_CPPFLAGS) $(IBUS_CPPFLAGS) $(CFLAGS) $(GTK3_PROJECT_CFLAGS) $(SANITIZERS) -DBOXRIG_TEST_GTK3=1 $< $(IME_SOURCES) $(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK3_LIBS) $(IBUS_LIBS) $(SANITIZERS) -o $@
 
 test-gtk-ibus-direct: $(BUILD_DIR)/tests/test_gtk3_ibus $(BUILD_DIR)/tests/test_gtk4_ibus $(BUILD_DIR)/tests/wayland_ibus_engine
 	@for gtk in 3 4; do for scale in 1 2; do for renderer in cairo opengl; do \
 		env GDK_SCALE=$$scale BOXRIG_TEST_DELAY_ESCAPE_RELEASE=1 BOXRIG_TEST_IBUS_WAYLAND=1 dbus-run-session -- bash tests/gtk/run_gl_wayland.sh node tests/wayland/run_ibus_context.mjs "$(BUILD_DIR)/tests/test_gtk$${gtk}_ibus" "$(TEST_FONT_FILE)" "$(BUILD_DIR)/tests/wayland_ibus_engine" "$(BUILD_DIR)/test-results/gtk$${gtk}-ibus/$$scale-$$renderer" $$renderer || exit $$?; \
 	done; done; done
 
-$(BUILD_DIR)/ibus:
+$(BUILD_DIR)/ime:
 	mkdir -p $@
 
-$(BUILD_DIR)/ibus/ibus_client.o: src/ibus/client.c $(IBUS_HEADERS) | $(BUILD_DIR)/ibus
+$(BUILD_DIR)/ime/client.o: src/ime/client.c $(IME_HEADERS) | $(BUILD_DIR)/ime
 	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(IBUS_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) -c $< -o $@
 
-$(BUILD_DIR)/ibus/ibus_source.o: src/ibus/source.c $(IBUS_HEADERS) | $(BUILD_DIR)/ibus
+$(BUILD_DIR)/ime/ibus.o: src/ibus/client.c $(IME_HEADERS) | $(BUILD_DIR)/ime
 	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(IBUS_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) -c $< -o $@
 
-$(BUILD_DIR)/ibus/ime_preedit.o: src/ime/preedit.c $(IBUS_HEADERS) | $(BUILD_DIR)/ibus
+$(BUILD_DIR)/ime/source.o: src/ime/source.c $(IME_HEADERS) | $(BUILD_DIR)/ime
+	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(IBUS_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/ime/preedit.o: src/ime/preedit.c $(IME_HEADERS) | $(BUILD_DIR)/ime
 	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) -c $< -o $@
 
-$(GTK3_OBJECTS) $(GTK4_OBJECTS) $(WAYLAND_OBJECTS): $(IBUS_HEADERS)
+$(GTK3_OBJECTS) $(GTK4_OBJECTS) $(WAYLAND_OBJECTS): $(IME_HEADERS)
 
 .PHONY: test-gtk-ibus-auto
 test-gtk-ibus-auto: $(BUILD_DIR)/tests/test_gtk3_ibus $(BUILD_DIR)/tests/test_gtk4_ibus $(BUILD_DIR)/tests/wayland_ibus_engine
@@ -5095,8 +5098,8 @@ test-gtk-ime-routing: $(BUILD_DIR)/tests/test_gtk3_ime_protocol $(BUILD_DIR)/tes
 
 # X11 uses GTK IBus, including AUTO without GTK_IM_MODULE.
 
-$(BUILD_DIR)/tests/test_ibus_candidates: tests/wayland/test_ibus_candidates.c $(IBUS_SOURCES) $(IBUS_HEADERS) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
-	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(POSIX_CPPFLAGS) $(IBUS_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< src/ibus/client.c src/ime/preedit.c $(UI_LIBRARY) $(LIBRARY) $(IBUS_LIBS) $(SANITIZERS) -Wl,--wrap=ibus_input_context_new_async_finish -o $@
+$(BUILD_DIR)/tests/test_ibus_candidates: tests/wayland/test_ibus_candidates.c $(IME_SOURCES) $(IME_HEADERS) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(POSIX_CPPFLAGS) $(IBUS_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< src/ime/client.c src/ibus/client.c src/ime/preedit.c $(UI_LIBRARY) $(LIBRARY) $(IBUS_LIBS) $(SANITIZERS) -Wl,--wrap=ibus_input_context_new_async_finish -o $@
 
 .PHONY: test-ibus-candidates
 test-ibus-candidates: $(BUILD_DIR)/tests/test_ibus_candidates $(BUILD_DIR)/tests/wayland_ibus_engine

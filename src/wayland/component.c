@@ -3674,10 +3674,10 @@ boxrig_ui_status boxrig_wayland_terminal_component_get_diagnostic(
         component->input_queue_high_water;
     diagnostic_out->input_blocked = component->input_blocked;
     diagnostic_out->ime_waiting = component->ime_waiting;
-    boxrig_ibus_diagnostic ibus;
-    boxrig_ibus_get_diagnostic(component->context->ibus, &ibus);
+    boxrig_ime_diagnostic ibus;
+    boxrig_ime_get_diagnostic(component->context->ibus, &ibus);
     bool pending = component->context->state == BOXRIG_WAYLAND_CONTEXT_INITIALIZING ||
-        ibus.state == BOXRIG_IBUS_CONNECTING;
+        ibus.state == BOXRIG_IME_CONNECTING;
     bool client = boxrig_wayland_ibus_selected(component->context) &&
         component->context->config.candidate_policy != BOXRIG_UI_CANDIDATE_SYSTEM;
     diagnostic_out->candidate_policy = component->context->config.candidate_policy;
@@ -3685,7 +3685,7 @@ boxrig_ui_status boxrig_wayland_terminal_component_get_diagnostic(
         client ? BOXRIG_UI_CANDIDATE_OWNER_CLIENT : BOXRIG_UI_CANDIDATE_OWNER_SYSTEM;
     diagnostic_out->candidate_reason = pending ? BOXRIG_UI_CANDIDATE_PENDING :
         diagnostic_out->candidate_policy == BOXRIG_UI_CANDIDATE_SYSTEM ? BOXRIG_UI_CANDIDATE_SYSTEM_REQUEST :
-        ibus.state == BOXRIG_IBUS_UNAVAILABLE ? BOXRIG_UI_CANDIDATE_IBUS_UNAVAILABLE :
+        ibus.state == BOXRIG_IME_UNAVAILABLE ? BOXRIG_UI_CANDIDATE_IBUS_UNAVAILABLE :
         client ? BOXRIG_UI_CANDIDATE_READY : BOXRIG_UI_CANDIDATE_STANDARD_INPUT;
     boxrig_ui_candidate_view candidates;
     (void)boxrig_ui_view_get_candidates(component->view, &candidates);

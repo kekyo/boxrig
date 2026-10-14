@@ -43,7 +43,7 @@ static void target_error(void *data, bool resource)
     else component->input_error_count++;
 }
 
-static void enqueue_reply(void *data, void *seat, boxrig_ibus_request *request)
+static void enqueue_reply(void *data, void *seat, boxrig_ime_request *request)
 {
     boxrig_wayland_input_item item = {.type = BOXRIG_WAYLAND_INPUT_IME_REPLY,
         .seat = seat, .ime_request = request};
@@ -51,17 +51,17 @@ static void enqueue_reply(void *data, void *seat, boxrig_ibus_request *request)
 }
 
 static bool forward_key(void *data, void *seat, uint32_t symbol, uint32_t code,
-    uint32_t modifiers, boxrig_ibus_effect *effect)
+    uint32_t modifiers, boxrig_ime_effect *effect)
 {
     (void)data; (void)code;
     boxrig_wayland_input_item item;
     if (!boxrig_wayland_input_forward_key(seat, symbol, modifiers, &item)) return false;
-    *effect = (boxrig_ibus_effect){.type = BOXRIG_IBUS_KEY,
+    *effect = (boxrig_ime_effect){.type = BOXRIG_IME_KEY,
         .value.key = item.value.key, .text = item.text};
     return true;
 }
 
-static boxrig_ui_status apply_effect(void *data, boxrig_ibus_effect *effect,
+static boxrig_ui_status apply_effect(void *data, boxrig_ime_effect *effect,
     bool *blocked, bool *accepted)
 {
     boxrig_wayland_terminal_component *component = data;
@@ -70,13 +70,11 @@ static boxrig_ui_status apply_effect(void *data, boxrig_ibus_effect *effect,
         *accepted = true;
         return BOXRIG_UI_OK;
     }
-    if (effect->type == BOXRIG_IBUS_CANDIDATES) {
-        const boxrig_ibus_candidates *source = &effect->value.candidates;
+    if (effect->type == BOXRIG_IME_CANDIDATES) {
+        const boxrig_ime_candidates *source = &effect->value.candidates;
         boxrig_ui_candidate_snapshot snapshot = {
             .count = source->count, .page_size = source->page_size, .cursor = source->cursor,
-            .orientation = source->orientation == IBUS_ORIENTATION_HORIZONTAL ? BOXRIG_UI_CANDIDATE_HORIZONTAL :
-                source->orientation == IBUS_ORIENTATION_VERTICAL ? BOXRIG_UI_CANDIDATE_VERTICAL :
-                BOXRIG_UI_CANDIDATE_SYSTEM_ORIENTATION,
+            .orientation = source->orientation,
             .visible = source->visible, .cursor_visible = source->cursor_visible,
             .auxiliary_visible = source->auxiliary_visible,
             .items = (const char *const *)source->items, .labels = (const char *const *)source->labels,
@@ -87,7 +85,7 @@ static boxrig_ui_status apply_effect(void *data, boxrig_ibus_effect *effect,
     }
     boxrig_wayland_input_item item = {.text = effect->text, .segments = effect->segments,
         .input_generation = component->input_control.state.generation};
-    if (effect->type == BOXRIG_IBUS_KEY) {
+    if (effect->type == BOXRIG_IME_KEY) {
         item.type = BOXRIG_WAYLAND_INPUT_KEY;
         item.ime_forwarded = true;
         item.value.key = effect->value.key;
@@ -112,7 +110,7 @@ static void clear_candidates(void *data)
 static void initialize_target(boxrig_wayland_terminal_component *component)
 {
     if (component == NULL || component->ibus_target.data != NULL) return;
-    component->ibus_target = (boxrig_ibus_target){.view = component->view,
+    component->ibus_target = (boxrig_ime_target){.view = component->view,
         .maximum_events = component->config.maximum_input_events,
         .maximum_bytes = component->config.maximum_ime_bytes, .data = component,
         .wake = wake_target, .error = target_error, .enqueue = enqueue_reply,
@@ -138,14 +136,14 @@ bool boxrig_wayland_ibus_initialize(boxrig_wayland_context *context)
         if (module != NULL ? strcmp(module, "ibus") != 0 :
             modifiers == NULL || strcmp(modifiers, "@im=ibus") != 0) return true;
     }
-    context->ibus = boxrig_ibus_create(context->config.maximum_seats,
+    context->ibus = boxrig_ime_create(BOXRIG_IME_BACKEND_IBUS, context->config.maximum_seats,
         "boxrig-wayland", selection_changed, context);
     return context->ibus != NULL;
 }
 
 bool boxrig_wayland_ibus_selected(const boxrig_wayland_context *context)
 {
-    return boxrig_ibus_selected(context->ibus);
+    return boxrig_ime_selected(context->ibus);
 }
 
 void boxrig_wayland_ibus_focus(boxrig_wayland_seat *seat,
@@ -157,25 +155,25 @@ void boxrig_wayland_ibus_focus(boxrig_wayland_seat *seat,
     initialize_target(component);
     if (seat->ibus == NULL) {
         if (component == NULL) return;
-        seat->ibus = boxrig_ibus_add_session(seat->context->ibus, seat);
+        seat->ibus = boxrig_ime_add_session(seat->context->ibus, seat);
         if (seat->ibus == NULL) { target_error(component, true); return; }
     }
-    boxrig_ibus_target *target = component == NULL ? NULL : &component->ibus_target;
-    if (!boxrig_ibus_is_focused(seat->ibus, target))
-        boxrig_ibus_focus(seat->ibus, target, commit, ++seat->ime_generation);
+    boxrig_ime_target *target = component == NULL ? NULL : &component->ibus_target;
+    if (!boxrig_ime_is_focused(seat->ibus, target))
+        boxrig_ime_focus(seat->ibus, target, commit, ++seat->ime_generation);
 }
 
 void boxrig_wayland_ibus_remove_seat(boxrig_wayland_seat *seat)
 {
     boxrig_wayland_ibus_focus(seat, NULL, false);
-    boxrig_ibus_remove_session(seat->ibus);
+    boxrig_ime_remove_session(seat->ibus);
     seat->ibus = NULL;
 }
 
 void boxrig_wayland_ibus_forget_component(boxrig_wayland_terminal_component *component)
 {
     for (boxrig_wayland_seat *seat = component->context->seats; seat != NULL; seat = seat->next)
-        if (boxrig_ibus_is_focused(seat->ibus, &component->ibus_target))
+        if (boxrig_ime_is_focused(seat->ibus, &component->ibus_target))
             boxrig_wayland_ibus_focus(seat, NULL, false);
 }
 
@@ -186,7 +184,7 @@ boxrig_ui_status boxrig_wayland_ibus_filter_key(boxrig_wayland_terminal_componen
         *handled = true;
         return BOXRIG_UI_OK;
     }
-    return boxrig_ibus_filter_key(item->seat->ibus, &component->ibus_target,
+    return boxrig_ime_filter_key(item->seat->ibus, &component->ibus_target,
         item->ime_generation, item->keysym, item->native_code, item->ime_modifiers,
         &item->ime_request, blocked, handled);
 }
@@ -194,12 +192,12 @@ boxrig_ui_status boxrig_wayland_ibus_filter_key(boxrig_wayland_terminal_componen
 boxrig_ui_status boxrig_wayland_ibus_apply_reply(boxrig_wayland_terminal_component *component,
     boxrig_wayland_input_item *item, bool *blocked, bool *consumed)
 {
-    return boxrig_ibus_apply_reply(&component->ibus_target, item->ime_request, blocked, consumed);
+    return boxrig_ime_apply_reply(&component->ibus_target, item->ime_request, blocked, consumed);
 }
 
-void boxrig_wayland_ibus_release_request(boxrig_ibus_request *request)
+void boxrig_wayland_ibus_release_request(boxrig_ime_request *request)
 {
-    boxrig_ibus_release_request(request);
+    boxrig_ime_release_request(request);
 }
 
 void boxrig_wayland_ibus_cursor(boxrig_wayland_terminal_component *component, bool placed)
@@ -211,7 +209,7 @@ void boxrig_wayland_ibus_cursor(boxrig_wayland_terminal_component *component, bo
     int64_t y = (int64_t)rectangle[1] + component->candidate_y + component->ime_window_y;
     if (x < INT32_MIN || x > INT32_MAX || y < INT32_MIN || y > INT32_MAX) return;
     rectangle[0] = (int32_t)x; rectangle[1] = (int32_t)y;
-    boxrig_ibus_cursor(component->context->ibus, &component->ibus_target, rectangle, true);
+    boxrig_ime_cursor(component->context->ibus, &component->ibus_target, rectangle, true);
 }
 
 boxrig_ui_status boxrig_wayland_terminal_component_set_ime_window_offset(
@@ -227,20 +225,20 @@ boxrig_ui_status boxrig_wayland_terminal_component_set_ime_window_offset(
 
 void boxrig_wayland_ibus_update(boxrig_wayland_context *context)
 {
-    boxrig_ibus_update(context->ibus);
+    boxrig_ime_update(context->ibus);
 }
 
 void boxrig_wayland_ibus_diagnostic(const boxrig_wayland_context *context,
     boxrig_wayland_context_diagnostic *diagnostic)
 {
-    boxrig_ibus_diagnostic state;
-    boxrig_ibus_get_diagnostic(context->ibus, &state);
+    boxrig_ime_diagnostic state;
+    boxrig_ime_get_diagnostic(context->ibus, &state);
     diagnostic->input_method = boxrig_wayland_ibus_selected(context) ? BOXRIG_WAYLAND_IME_IBUS : BOXRIG_WAYLAND_IME_WAYLAND;
     switch (state.state) {
-    case BOXRIG_IBUS_DISABLED: diagnostic->ibus_state = BOXRIG_WAYLAND_IBUS_DISABLED; break;
-    case BOXRIG_IBUS_CONNECTING: diagnostic->ibus_state = BOXRIG_WAYLAND_IBUS_CONNECTING; break;
-    case BOXRIG_IBUS_READY: diagnostic->ibus_state = BOXRIG_WAYLAND_IBUS_READY; break;
-    case BOXRIG_IBUS_UNAVAILABLE: diagnostic->ibus_state = BOXRIG_WAYLAND_IBUS_UNAVAILABLE; break;
+    case BOXRIG_IME_DISABLED: diagnostic->ibus_state = BOXRIG_WAYLAND_IBUS_DISABLED; break;
+    case BOXRIG_IME_CONNECTING: diagnostic->ibus_state = BOXRIG_WAYLAND_IBUS_CONNECTING; break;
+    case BOXRIG_IME_READY: diagnostic->ibus_state = BOXRIG_WAYLAND_IBUS_READY; break;
+    case BOXRIG_IME_UNAVAILABLE: diagnostic->ibus_state = BOXRIG_WAYLAND_IBUS_UNAVAILABLE; break;
     }
     diagnostic->pending_ibus_request_count = state.pending;
     diagnostic->ibus_error_count = state.errors;
@@ -252,18 +250,18 @@ boxrig_ui_status boxrig_wayland_context_prepare_ime_poll(boxrig_wayland_context 
     const struct pollfd **descriptors_out, size_t *count_out, int *timeout_inout)
 {
     if (context == NULL) return BOXRIG_UI_INVALID_ARGUMENT;
-    return boxrig_ibus_prepare_poll(context->ibus, descriptors_out, count_out, timeout_inout);
+    return boxrig_ime_prepare_poll(context->ibus, descriptors_out, count_out, timeout_inout);
 }
 
 boxrig_ui_status boxrig_wayland_context_dispatch_ime_poll(boxrig_wayland_context *context,
     const struct pollfd *descriptors, size_t count)
 {
     if (context == NULL) return BOXRIG_UI_INVALID_ARGUMENT;
-    return boxrig_ibus_dispatch_poll(context->ibus, descriptors, count);
+    return boxrig_ime_dispatch_poll(context->ibus, descriptors, count);
 }
 
 void boxrig_wayland_ibus_destroy(boxrig_wayland_context *context)
 {
-    boxrig_ibus_destroy(context->ibus);
+    boxrig_ime_destroy(context->ibus);
     context->ibus = NULL;
 }

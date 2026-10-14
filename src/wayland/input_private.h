@@ -9,7 +9,7 @@
 
 #include "boxrig/wayland.h"
 #include "../ime/preedit.h"
-#include "../ibus/client.h"
+#include "../ime/client.h"
 #include "text-input-v3-client-protocol.h"
 
 #include <xkbcommon/xkbcommon-compose.h>
@@ -18,8 +18,8 @@
 typedef struct boxrig_wayland_seat boxrig_wayland_seat;
 typedef struct boxrig_wayland_clipboard_offer boxrig_wayland_clipboard_offer;
 typedef struct boxrig_wayland_clipboard_source boxrig_wayland_clipboard_source;
-struct boxrig_ibus_session;
-struct boxrig_ibus_request;
+struct boxrig_ime_session;
+struct boxrig_ime_request;
 
 /* At most 256 boundaries normalize into at most 255 composition segments. */
 #define BOXRIG_WAYLAND_PREEDIT_HINTS_MAXIMUM BOXRIG_IME_HINTS_MAXIMUM
@@ -69,7 +69,7 @@ typedef struct boxrig_wayland_input_item {
     bool compose_pending;
     bool ime_forwarded;
     bool ime_focus;
-    struct boxrig_ibus_request *ime_request;
+    struct boxrig_ime_request *ime_request;
 } boxrig_wayland_input_item;
 
 typedef struct boxrig_wayland_pressed_key {
@@ -94,7 +94,7 @@ struct boxrig_wayland_seat {
     struct wl_keyboard *keyboard;
     struct wl_pointer *pointer;
     struct zwp_text_input_v3 *text_input;
-    struct boxrig_ibus_session *ibus;
+    struct boxrig_ime_session *ibus;
     uint64_t ime_generation;
     /* Borrowed focus identity; only the host may commit a parent surface. */
     struct wl_surface *text_focus_surface;
