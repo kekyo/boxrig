@@ -18,7 +18,7 @@
 | 7 | 完了 | 行列数変更のhost通知。分割受信、0と省略、キュー満杯、拒否、layoutへの接続 |
 | 8 | 完了 | POSIX起動診断FDと終了結果、Win32の既存診断と終了HANDLE。異常起動と127/259、fallback、回収と資源の寿命、実Windows検証 |
 | 9 | 完了 | GUIを止めない起動・中止・後始末。完了との競合、世代、二重生成・二重回収、ConPTY終了処理をドライバーで実測 |
-| 10 | 未着手 | Linux共有ビルド。公開symbol、SONAME、pkg-config、PIC、private codecの可視性、クリーン・増分・外部ビルド、配布先でのロード |
+| 10 | 実装中 | Linux共有ビルド。公開symbol、SONAME、pkg-config、PIC、private codecの可視性、クリーン・増分・外部ビルド、配布先でのロード |
 | 11 | 未着手 | 共通本文snapshotとGTK3 AtkText。VTE・AT-SPI・Orcaとの比較、本文・位置・caret・選択・通知順序、履歴・代替画面・reflow・複数表示・破棄 |
 | 12 | 未着手 | GTK4 GtkAccessibleText。最低版4.14での本文・caret・選択・通知、GTK4版VTEとの比較、4.16/4.22以降の操作の採否と検証 |
 
@@ -258,6 +258,26 @@ Linuxと実Windowsのamd64/i686、システム版・同梱版ConPTYで確認し�
 ラベル・ボタンを含むGTK実行例では、Fontconfig内の確保が終了時に残りました。
 報告された全182件のスタックを確認し、この実行例の試験だけに`libfontconfig.so`の[LeakSanitizer抑制](https://clang.llvm.org/docs/AddressSanitizer.html#suppressing-memory-leaks)を適用しています。
 外部コードやGUIの終了処理は変更していません。
+
+## 段階10
+
+最初にcore・UI・session・POSIXの共有版を追加し、インストールしたヘッダーとpkg-configだけでC99/C++20利用側をビルドして実行します。
+次にGTK3・GTK4を同じ分割へ接続し、通常のwidget生成と描画を配布先から検証します。
+既存の静的版は維持し、PICのオブジェクトは専用ディレクトリへ生成する方針です。
+公開シンボルを明示したversion scriptとSONAMEを設定し、private codecは共有版でも外へ公開しません。
+ライブラリ間で必要な非公開の関数がある場合は、公開APIと別のprivate versionに限定して列挙します。
+
+生成先に残る`build/`固定値を整理し、`BUILD_DIR`で指定した外部ディレクトリでクリーンビルドできるようにします。
+コード生成は既存のTypeScript/Vite/funcityを使い、npm依存の配置はソース側の`tools/codegen`を基準に解決します。
+2回目のビルドで不要な再生成・再リンクが起きず、ヘッダーや設定変更には追従することも完了条件です。
+インストール先を移動した後のロード、共有版と静的版のpkg-config利用、SONAME依存、GTKのcodecとの共存を検証し、Linux配布パッケージへ共有版を含めます。
+
+core・UI・session・POSIXの共有版は実装済みです。
+`shared-base`が存在しない状態のREDから、外部ディレクトリのクリーンビルド、`lib64`へのインストール、SDK全体の移動、C99/C++20利用側の実行までGREENを確認しました。
+同じpkg-config情報を使う静的版の実行、SONAME、TEXTRELがないこと、codecの動的シンボルが見えないことも成功しています。
+2回目のビルドでは生成物の更新時刻が変わりません。
+コード生成ツールの配置を別の深さへ移した試験では、旧実装のnpm依存解決失敗を再現し、ソース側のパッケージを基準にする修正後に成功しました。
+GTK共有版と配布パッケージの検証は続けて行います。
 
 ## 後続段階の事前確認
 

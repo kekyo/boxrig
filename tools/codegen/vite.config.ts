@@ -5,12 +5,13 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   plugins: [prettierMax()],
   build: {
-    outDir: '../../build/tools/codegen',
+    outDir: process.env.BOXRIG_CODEGEN_OUT_DIR ?? '../../build/tools/codegen',
     emptyOutDir: true,
     lib: {
       entry: {
         'generate-shift-jis': 'src/generate-shift-jis.ts',
         'generate-wayland-notices': 'src/generate-wayland-notices.ts',
+        'generate-linux-metadata': 'src/generate-linux-metadata.ts',
       },
       formats: ['es'],
       fileName: (_format, name) => `${name}.mjs`,

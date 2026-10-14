@@ -43,6 +43,33 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
+test('generators can execute from an external build directory', async () => {
+  await cp(
+    resolve(root, 'build/tools/codegen'),
+    resolve(root, 'external/sdk/cache/tools'),
+    {
+      recursive: true,
+    }
+  );
+  await writeFile(
+    resolve(root, 'protocol.xml'),
+    '<protocol><copyright>Copyright C</copyright></protocol>'
+  );
+  await execute(
+    process.execPath,
+    [
+      'external/sdk/cache/tools/generate-wayland-notices.mjs',
+      'notices.md',
+      '1.48',
+      'protocol.xml',
+    ],
+    { cwd: root }
+  );
+  expect(await readFile(resolve(root, 'notices.md'), 'utf8')).toContain(
+    'Copyright C'
+  );
+});
+
 test('notices retain every upstream copyright block and its source', async () => {
   const notices = [
     '\nCopyright A\nPermission & conditions.\n',

@@ -76,6 +76,30 @@ Specify `native` if you do not need Windows.
 The common UI, communication, and POSIX libraries are `build/libboxrig-ui.a`, `build/libboxrig-session.a`, and `build/libboxrig-posix.a` respectively.
 Platform-specific static libraries also go in `build/`.
 
+### Use Linux shared libraries
+
+Build and install shared core, UI, session, and POSIX libraries with:
+
+```sh
+make shared-base BUILD_DIR=/tmp/boxrig-build
+make install-shared-base BUILD_DIR=/tmp/boxrig-build PREFIX="$HOME/.local"
+pkg-config --cflags --libs boxrig-ui boxrig-posix
+```
+
+Products go in `BUILD_DIR/shared/`, or `build/shared/` by default.
+Dedicated PIC objects keep these outputs separate from ordinary static builds.
+Installation includes shared and static libraries; shared SONAMEs include `libboxrig.so.0`.
+Distribute the required `.so.0` files together with their boxrig dependencies.
+Libraries find sibling dependencies in the same directory, but your application must locate that directory through the standard loader path, its RUNPATH, or `LD_LIBRARY_PATH`.
+
+Set `PREFIX`, `LIBDIR`, `INCLUDEDIR`, and `PKGCONFIGDIR` to absolute paths without whitespace.
+Use `DESTDIR` for staging. Generated pkg-config paths are relative to the installation, so the SDK can be relocated as a unit.
+For a custom location, add its `lib/pkgconfig` directory to `PKG_CONFIG_PATH`.
+Use `pkg-config --static --libs` to include static dependencies.
+When shared libraries are present in the same search path, selecting static linkage also requires compiler/linker options.
+Public APIs are the functions declared in installed headers. Applications must not use symbols in `BOXRIG_PRIVATE_0`.
+Bundled libpng, zlib, and utf8proc symbols are not exported and remain independent of the codecs used by the application or GTK.
+
 ## Cross-build for Windows
 
 ```sh

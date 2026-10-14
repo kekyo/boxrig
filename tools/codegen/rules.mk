@@ -15,7 +15,8 @@ WAYLAND_PROTOCOL_XMLS := $(WAYLAND_VIEWPORTER_XML) $(WAYLAND_FRACTIONAL_SCALE_XM
 BACKGROUND_WAYLAND_XML := $(WAYLAND_PROTOCOLS_DIR)/staging/ext-background-effect/ext-background-effect-v1.xml
 WAYLAND_LICENSE_XMLS := $(WAYLAND_PROTOCOL_XMLS) $(BACKGROUND_WAYLAND_XML)
 WAYLAND_LICENSE_NOTICES := $(BUILD_DIR)/generated/licenses/Wayland-protocols-NOTICES.md
-CODEGEN_TOOLS := build/tools/codegen/generate-wayland-notices.mjs build/tools/codegen/generate-shift-jis.mjs
+CODEGEN_DIR := $(BUILD_DIR)/tools/codegen
+CODEGEN_TOOLS := $(addprefix $(CODEGEN_DIR)/,generate-wayland-notices.mjs generate-shift-jis.mjs generate-linux-metadata.mjs)
 
 .PHONY: codegen-tools package-codegen
 codegen-tools: $(CODEGEN_TOOLS)
@@ -23,9 +24,9 @@ package-codegen: codegen-tools $(WAYLAND_LICENSE_NOTICES)
 
 $(CODEGEN_TOOLS) &: $(wildcard tools/codegen/src/*.ts) tools/codegen/vite.config.ts tools/codegen/tsconfig.json tools/codegen/package.json tools/codegen/package-lock.json
 	@test -d tools/codegen/node_modules || { echo 'Run npm ci --prefix tools/codegen to install code generation dependencies.' >&2; exit 1; }
-	npm --prefix tools/codegen run build
+	BOXRIG_CODEGEN_OUT_DIR="$(abspath $(CODEGEN_DIR))" npm --prefix tools/codegen run build
 
-# Use the TypeScript/Vite/funcity toolchain only for generated notices.
-$(WAYLAND_LICENSE_NOTICES): $(WAYLAND_LICENSE_XMLS) build/tools/codegen/generate-wayland-notices.mjs
+# Generate distribution notices through the TypeScript/Vite/funcity toolchain.
+$(WAYLAND_LICENSE_NOTICES): $(WAYLAND_LICENSE_XMLS) $(CODEGEN_DIR)/generate-wayland-notices.mjs
 	mkdir -p $(@D)
-	node build/tools/codegen/generate-wayland-notices.mjs "$@" "$(WAYLAND_PROTOCOLS_VERSION)" $(WAYLAND_LICENSE_XMLS)
+	node $(CODEGEN_DIR)/generate-wayland-notices.mjs "$@" "$(WAYLAND_PROTOCOLS_VERSION)" $(WAYLAND_LICENSE_XMLS)

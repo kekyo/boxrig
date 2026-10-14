@@ -1,6 +1,5 @@
 import { createRequire } from 'node:module';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
 
 // funcity 1.5.0 publishes extensionless relative declaration imports, which
 // NodeNext rejects. Keep that packaging detail behind a narrow typed facade;
@@ -19,12 +18,10 @@ interface TemplateEngine {
   ) => Promise<string | undefined>;
 }
 
-const engine = createRequire(
-  resolve(
-    dirname(fileURLToPath(import.meta.url)),
-    '../../../tools/codegen/package.json'
-  )
-)('funcity') as TemplateEngine;
+// Make invokes generators at the source root even with an external BUILD_DIR.
+const engine = createRequire(resolve('tools/codegen/package.json'))(
+  'funcity'
+) as TemplateEngine;
 
 /**
  * Renders generated source with the documented funcity text engine.

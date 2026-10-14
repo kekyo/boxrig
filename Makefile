@@ -15,9 +15,10 @@ PREFIX ?= /usr/local
 LIBDIR ?= $(PREFIX)/lib
 INCLUDEDIR ?= $(PREFIX)/include
 PKGCONFIGDIR ?= $(LIBDIR)/pkgconfig
+BUILD_DIR ?= build
 
 WARNINGS := -Wall -Wextra -Wpedantic -Werror
-PNG_CONFIG_DIR := build/generated/libpng
+PNG_CONFIG_DIR := $(BUILD_DIR)/generated/libpng
 PNG_CONFIG := $(PNG_CONFIG_DIR)/pnglibconf.h
 DEPENDENCY_CPPFLAGS := -Ideps/zlib -Ideps/libpng -I$(PNG_CONFIG_DIR) -DPNG_STATIC
 # Private static codecs must not interpose GTK or another shared library's codec.
@@ -173,7 +174,6 @@ GTK4_TEST_IM_ENV := BOXRIG_TEST_GTK4_IM_MODULE=$(GTK4_TEST_IM_MODULE) \
 	GTK_IM_MODULE=$(GTK4_TEST_IM_MODULE)
 TEST_FONT_FILE ?= $(shell fc-match -f '%{file}\n' 'DejaVu Sans Mono' | head -n 1)
 
-BUILD_DIR := build
 include tools/codegen/rules.mk
 GTK_RENDER_CONFIG := $(BUILD_DIR)/gtk-render.config
 ifneq ($(shell cat $(GTK_RENDER_CONFIG) 2>/dev/null),$(GTK_OPENGL))
@@ -4649,7 +4649,7 @@ test-codegen: codegen-tools
 	npm --prefix tools/codegen test
 
 generate-shift-jis: codegen-tools
-	node build/tools/codegen/generate-shift-jis.mjs .
+	node $(CODEGEN_DIR)/generate-shift-jis.mjs .
 
 install-gtk3 install-gtk4 install-wayland install-render-ogl install-x11-opengl install-wayland-opengl install-core-win32-amd64 install-win32-amd64 install-win32-opengl-amd64 install-render-d3d11-amd64 install-win32-d3d11-amd64 install-core-win32-i686 install-win32-i686 install-win32-opengl-i686 install-render-d3d11-i686 install-win32-d3d11-i686: install-common-licenses
 
@@ -5150,11 +5150,11 @@ test-wayland-candidates-startup: $(WAYLAND_EXAMPLE_BINARY) $(BUILD_DIR)/tests/wa
 
 .PHONY: test-notification-dispatch
 test: test-notification-dispatch
-test-notification-dispatch: build/tests/test_notification_dispatch
+test-notification-dispatch: $(BUILD_DIR)/tests/test_notification_dispatch
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
 
-build/tests/test_notification_dispatch: tests/test_notification_dispatch.c build/libboxrig-ui.a build/libboxrig.a | build/tests
-	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< build/libboxrig-ui.a build/libboxrig.a -Wl,--wrap=boxrig_terminal_complete_host_request -o $@
+$(BUILD_DIR)/tests/test_notification_dispatch: tests/test_notification_dispatch.c $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(UI_LIBRARY) $(LIBRARY) -Wl,--wrap=boxrig_terminal_complete_host_request -o $@
 
 .PHONY: test-win32-notifications
 test-win32-notifications: $(MINGW_AMD64_HOST_TEST) $(MINGW_I686_HOST_TEST) $(MINGW_AMD64_SAMPLE_TEST) $(MINGW_I686_SAMPLE_TEST) $(MINGW_AMD64_NOTIFICATION_EXAMPLE) $(MINGW_I686_NOTIFICATION_EXAMPLE) $(MINGW_AMD64_PTY_HELPER) $(MINGW_I686_PTY_HELPER)
@@ -5370,6 +5370,7 @@ test-packages:
 	$(WINE_RUN) $(abspath $(BUILD_DIR)/tests/package-consumers/i686.exe)
 
 include tests/headers/rules.mk
+include packaging/linux/rules.mk
 
 .PHONY: test-grid-resize test-grid-resize-win32
 .PHONY: test-posix-spawn
