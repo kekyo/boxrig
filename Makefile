@@ -3766,6 +3766,7 @@ test-win32-first-frame-fence: $(MINGW_AMD64_FIRST_FRAME_FENCE_TEST) $(MINGW_I686
 
 .PHONY: test-win32-sample-first-frame-fence
 test: test-win32-sample-first-frame-fence
+test-p2-win32: $(MINGW_AMD64_BUILD_DIR)/tests/first_frame_child.exe $(MINGW_I686_BUILD_DIR)/tests/first_frame_child.exe
 $(MINGW_AMD64_BUILD_DIR)/tests/first_frame_child.exe: tests/win32/first_frame_child.c | $(MINGW_AMD64_BUILD_DIR)/tests
 	$(MINGW_AMD64_CC) $(CPPFLAGS) $(MINGW_TERM_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< -o $@
 $(MINGW_I686_BUILD_DIR)/tests/first_frame_child.exe: tests/win32/first_frame_child.c | $(MINGW_I686_BUILD_DIR)/tests
@@ -3897,6 +3898,7 @@ $(MINGW_I686_OPACITY_NATIVE_TEST): tests/win32/test_win32_opacity_native.c inclu
 # Exercise new application policies before the remaining complete regression suite.
 # Each sample resolves the console launcher beside its own executable.
 .PHONY: test-win32-opacity-policy
+test-p2-win32: $(MINGW_AMD64_BUILD_DIR)/boxrig-opacity-unavailable.exe $(MINGW_I686_BUILD_DIR)/boxrig-opacity-unavailable.exe
 test-win32-opacity-policy: $(MINGW_AMD64_BUILD_DIR)/boxrig-opacity-unavailable.exe \
 	$(MINGW_AMD64_SAMPLE_TEST) $(MINGW_AMD64_EXAMPLE) $(MINGW_AMD64_PTY_HELPER) \
 	$(MINGW_AMD64_LAUNCHER) $(MINGW_AMD64_TEST_LAUNCHER) \
