@@ -13,6 +13,7 @@
  * server. Neither flag has the fcitx 5 client-side interpretation. */
 #define FCITX4_METHOD "org.fcitx.Fcitx.InputMethod"
 #define FCITX4_CONTEXT "org.fcitx.Fcitx.InputContext"
+#define FCITX4_CLIENT_UI (1u << 0)
 #define FCITX4_PREEDIT (1u << 1)
 #define FCITX4_FORMATTED (1u << 4)
 #define FCITX4_SURROUNDING (1u << 6)
@@ -29,6 +30,7 @@ static void surrounding(boxrig_ime_session *session, const char *text,
     uint32_t cursor, uint32_t anchor, bool available)
 {
     uint32_t capabilities = FCITX4_PREEDIT | FCITX4_FORMATTED;
+    if (boxrig_ime_owns_candidates(session)) capabilities |= FCITX4_CLIENT_UI;
     if (session->owner->wayland) capabilities |= FCITX4_RELATIVE;
     if (available) capabilities |= FCITX4_SURROUNDING;
     if (session->capabilities != capabilities) {
@@ -98,17 +100,59 @@ allocation_failed:
     boxrig_ime_publish_preedit(session);
 }
 
+static void panel_received(boxrig_ime_session *session, GVariant *parameters)
+{
+    if (!boxrig_ime_owns_candidates(session)) return;
+    if (!g_variant_is_of_type(parameters, G_VARIANT_TYPE("(sssssi)"))) {
+        boxrig_ime_reject_candidates(session, BOXRIG_UI_INVALID_ARGUMENT);
+        return;
+    }
+    const char *above, *below, *preedit, *text, *name;
+    gint caret;
+    g_variant_get(parameters, "(&s&s&s&s&si)", &above, &below, &preedit, &text, &name, &caret);
+    (void)name; /* The input-method name is metadata, not a candidate label. */
+    boxrig_ime_candidates panel = {.format = BOXRIG_UI_CANDIDATE_STRING_PANEL};
+    size_t budget = boxrig_ime_candidate_budget(session->component);
+    boxrig_ui_status status = boxrig_ime_copy_candidate_text(above, &panel.auxiliary_above, &budget);
+    if (status == BOXRIG_UI_OK) status = boxrig_ime_copy_candidate_text(below, &panel.auxiliary, &budget);
+    if (status == BOXRIG_UI_OK) status = boxrig_ime_copy_candidate_text(preedit, &panel.panel_preedit, &budget);
+    if (status == BOXRIG_UI_OK) status = boxrig_ime_copy_candidate_text(text, &panel.panel_text, &budget);
+    if (status == BOXRIG_UI_OK) {
+        size_t length = strlen(panel.panel_preedit);
+        if (caret < 0 || (size_t)caret > length || ((size_t)caret < length &&
+                ((unsigned char)panel.panel_preedit[caret] & 0xc0) == 0x80)) status = BOXRIG_UI_INVALID_ARGUMENT;
+    }
+    if (status == BOXRIG_UI_OK) {
+        panel.panel_cursor = (size_t)caret;
+        panel.visible = panel.panel_preedit[0] != 0 || panel.panel_text[0] != 0;
+        panel.auxiliary_above_visible = panel.auxiliary_above[0] != 0;
+        panel.auxiliary_visible = panel.auxiliary[0] != 0;
+        /* Fcitx 4's client UI replaces ordinary preedit delivery. Preserve
+         * its text solely in the panel, never as a locally committable string. */
+        boxrig_ime_clear_preedit(session);
+        boxrig_ime_publish_preedit(session);
+        boxrig_ime_free_candidates(&session->candidates);
+        session->candidates = panel;
+        memset(&panel, 0, sizeof(panel));
+        session->candidates_confirmed = true;
+        boxrig_ime_publish_candidates(session);
+    }
+    boxrig_ime_free_candidates(&panel);
+    if (status != BOXRIG_UI_OK) boxrig_ime_reject_candidates(session, status);
+}
+
 static void signal_received(GDBusProxy *proxy, const char *sender, const char *name,
     GVariant *parameters, gpointer data)
 {
     (void)sender;
     boxrig_ime_session *session = data;
     if (session->proxy != proxy || session->component == NULL) return;
-    if (strcmp(name, "CommitString") == 0 && g_variant_is_of_type(parameters, G_VARIANT_TYPE("(s)"))) {
+    if (strcmp(name, "UpdateClientSideUI") == 0) panel_received(session, parameters);
+    else if (strcmp(name, "CommitString") == 0 && g_variant_is_of_type(parameters, G_VARIANT_TYPE("(s)"))) {
         const char *text;
         g_variant_get(parameters, "(&s)", &text);
         boxrig_ime_commit(session, text);
-    } else if (strcmp(name, "UpdateFormattedPreedit") == 0 &&
+    } else if (strcmp(name, "UpdateFormattedPreedit") == 0 && !session->candidates_confirmed &&
             g_variant_is_of_type(parameters, G_VARIANT_TYPE("(a(si)i)"))) {
         GVariant *parts;
         gint32 caret;

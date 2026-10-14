@@ -81,7 +81,9 @@ static boxrig_ui_status apply_effect(void *data, boxrig_ime_effect *effect,
             .auxiliary_above_visible = source->auxiliary_above_visible,
             .has_previous_page = source->has_previous_page, .has_next_page = source->has_next_page,
             .items = (const char *const *)source->items, .labels = (const char *const *)source->labels,
-            .auxiliary = source->auxiliary, .auxiliary_above = source->auxiliary_above};
+            .auxiliary = source->auxiliary, .auxiliary_above = source->auxiliary_above,
+            .panel_text = source->panel_text, .panel_preedit = source->panel_preedit,
+            .panel_cursor = source->panel_cursor};
         *blocked = false;
         *accepted = true;
         return boxrig_ui_view_set_candidates(component->view, &snapshot);

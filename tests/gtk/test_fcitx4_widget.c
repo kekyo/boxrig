@@ -1,16 +1,60 @@
 /* boxrig - Under MIT. */
+#ifdef BOXRIG_TEST_GTK3
 #include "boxrig/gtk3.h"
+#define Widget BoxrigGtk3TerminalWidget
+#define widget_take_layout boxrig_gtk3_terminal_widget_take_layout_action
+#define widget_complete_resize boxrig_gtk3_terminal_widget_complete_grid_resize
+#define widget_visible boxrig_gtk3_terminal_widget_set_visible
+#define widget_frame boxrig_gtk3_terminal_widget_frame
+#define widget_composition boxrig_gtk3_terminal_widget_composition
+#define widget_view boxrig_gtk3_terminal_widget_view
+#define widget_config boxrig_gtk3_terminal_widget_config
+#define widget_config_default boxrig_gtk3_terminal_widget_config_default
+#define widget_create boxrig_gtk3_terminal_widget_create
+#define widget_ime_state boxrig_gtk3_terminal_widget_get_ime_state
+#define widget_set_input_enabled boxrig_gtk3_terminal_widget_set_input_enabled
+#define widget_diagnostic boxrig_gtk3_terminal_widget_get_diagnostic
+#define widget_width gtk_widget_get_allocated_width
+#define widget_height gtk_widget_get_allocated_height
+#else
+#include "boxrig/gtk4.h"
+#define Widget BoxrigGtk4TerminalWidget
+#define widget_take_layout boxrig_gtk4_terminal_widget_take_layout_action
+#define widget_complete_resize boxrig_gtk4_terminal_widget_complete_grid_resize
+#define widget_visible boxrig_gtk4_terminal_widget_set_visible
+#define widget_frame boxrig_gtk4_terminal_widget_frame
+#define widget_composition boxrig_gtk4_terminal_widget_composition
+#define widget_view boxrig_gtk4_terminal_widget_view
+#define widget_config boxrig_gtk4_terminal_widget_config
+#define widget_config_default boxrig_gtk4_terminal_widget_config_default
+#define widget_create boxrig_gtk4_terminal_widget_create
+#define widget_ime_state boxrig_gtk4_terminal_widget_get_ime_state
+#define widget_set_input_enabled boxrig_gtk4_terminal_widget_set_input_enabled
+#define widget_diagnostic boxrig_gtk4_terminal_widget_get_diagnostic
+#define widget_width gtk_widget_get_width
+#define widget_height gtk_widget_get_height
+#endif
 #include "boxrig/ui/editable.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #define CHECK(value) do { if (!(value)) { fprintf(stderr, "FAIL GTK fcitx4 %d: %s\n", __LINE__, #value); abort(); } } while (0)
-static BoxrigGtk3TerminalWidget *widget;
+static Widget *widget;
 static boxrig_terminal *terminal;
 static bool dispatch_requested;
 static size_t edits;
 static bool focus_edit;
+static bool panels;
+#ifndef BOXRIG_TEST_GTK3
+static GtkEventController *key_controller, *focus_controller;
+GtkEventController *__real_gtk_event_controller_key_new(void);
+GtkEventController *__wrap_gtk_event_controller_key_new(void)
+{ return key_controller = __real_gtk_event_controller_key_new(); }
+GtkEventController *__real_gtk_event_controller_focus_new(void);
+GtkEventController *__wrap_gtk_event_controller_focus_new(void)
+{ return focus_controller = __real_gtk_event_controller_focus_new(); }
+#endif
 static void request_frame(void *data)
 { (void)data; dispatch_requested = true; g_main_context_wakeup(NULL); }
 static gboolean deadline(gpointer data)
@@ -25,12 +69,15 @@ static void frame(void)
 {
     dispatch_requested = false;
     boxrig_ui_component_frame_result result;
-    CHECK(boxrig_gtk3_terminal_widget_frame(widget, &result) == BOXRIG_UI_OK);
+    boxrig_ui_status status = widget_frame(widget, &result);
+    if (status != BOXRIG_UI_OK) fprintf(stderr, "fcitx4 frame status=%d, size=%dx%d\n", (int)status,
+        widget_width(GTK_WIDGET(widget)), widget_height(GTK_WIDGET(widget)));
+    CHECK(status == BOXRIG_UI_OK);
     boxrig_ui_layout_action action;
-    while (boxrig_gtk3_terminal_widget_take_layout_action(widget, &action)) {
+    while (widget_take_layout(widget, &action)) {
         CHECK(action.kind == BOXRIG_UI_LAYOUT_ACTION_GRID_RESIZE);
         CHECK(boxrig_terminal_resize(terminal, action.value.grid_resize.rows, action.value.grid_resize.columns) == BOXRIG_STATUS_OK);
-        CHECK(boxrig_gtk3_terminal_widget_complete_grid_resize(widget, action.revision, true) == BOXRIG_UI_OK);
+        CHECK(widget_complete_resize(widget, action.revision, true) == BOXRIG_UI_OK);
         result.additional_dispatch = true;
     }
     dispatch_requested |= result.additional_dispatch;
@@ -42,8 +89,8 @@ static void settle(size_t contexts)
         frame();
         boxrig_gtk_ime_state ime;
         boxrig_ui_component_diagnostic state;
-        CHECK(boxrig_gtk3_terminal_widget_get_ime_state(widget, &ime) == BOXRIG_UI_OK);
-        CHECK(boxrig_gtk3_terminal_widget_get_diagnostic(widget, &state) == BOXRIG_UI_OK);
+        CHECK(widget_ime_state(widget, &ime) == BOXRIG_UI_OK);
+        CHECK(widget_diagnostic(widget, &state) == BOXRIG_UI_OK);
         if (ime.direct.pending == 0 && ime.direct.contexts == contexts && state.native_input_queue_depth == 0) break;
         iterate();
     }
@@ -51,16 +98,21 @@ static void settle(size_t contexts)
 }
 static void focus(bool active)
 {
+#ifdef BOXRIG_TEST_GTK3
     GdkEvent *event = gdk_event_new(GDK_FOCUS_CHANGE);
     event->focus_change.in = active;
     event->focus_change.window = g_object_ref(gtk_widget_get_window(GTK_WIDGET(widget)));
     gboolean handled;
     g_signal_emit_by_name(widget, active ? "focus-in-event" : "focus-out-event", event, &handled);
     gdk_event_free(event);
+#else
+    g_signal_emit_by_name(focus_controller, active ? "enter" : "leave");
+#endif
     settle(active ? 1 : 0);
 }
 static void key(guint symbol)
 {
+#ifdef BOXRIG_TEST_GTK3
     for (int release = 0; release < 2; release++) {
         GdkEvent *event = gdk_event_new(release ? GDK_KEY_RELEASE : GDK_KEY_PRESS);
         event->key.window = g_object_ref(gtk_widget_get_window(GTK_WIDGET(widget)));
@@ -75,12 +127,18 @@ static void key(guint symbol)
         CHECK(handled);
         gdk_event_free(event);
     }
+#else
+    gboolean handled;
+    g_signal_emit_by_name(key_controller, "key-pressed", symbol, 38, 0, &handled);
+    CHECK(handled);
+    g_signal_emit_by_name(key_controller, "key-released", symbol, 38, 0);
+#endif
     settle(1);
 }
 static boxrig_composition_view composition(void)
 {
     boxrig_composition_view view;
-    CHECK(boxrig_composition_get_view(boxrig_gtk3_terminal_widget_composition(widget), &view) == BOXRIG_COMPOSITION_OK);
+    CHECK(boxrig_composition_get_view(widget_composition(widget), &view) == BOXRIG_COMPOSITION_OK);
     return view;
 }
 static void output(const char *expected)
@@ -89,6 +147,55 @@ static void output(const char *expected)
     CHECK(boxrig_terminal_output_peek(terminal, &bytes) == strlen(expected));
     CHECK(expected[0] == 0 || memcmp(bytes, expected, strlen(expected)) == 0);
     CHECK(boxrig_terminal_output_consume(terminal, strlen(expected)) == BOXRIG_STATUS_OK);
+}
+static boxrig_ui_candidate_view panel_state(void)
+{
+    boxrig_ui_candidate_view view;
+    CHECK(boxrig_ui_view_get_candidates(widget_view(widget), &view) == BOXRIG_UI_OK);
+    CHECK(view.snapshot.count == 0 && !composition().active);
+    return view;
+}
+static void mock_panel(void)
+{
+    key('a');
+    boxrig_ui_candidate_view view = panel_state();
+    CHECK(view.snapshot.format == BOXRIG_UI_CANDIDATE_STRING_PANEL && view.snapshot.visible);
+    CHECK(view.snapshot.panel_preedit != NULL);
+    CHECK(strcmp(view.snapshot.panel_preedit, "きしゃ🙂") == 0 && view.snapshot.panel_cursor == 6);
+    CHECK(view.layout.panel_preedit.height > 0 && view.layout.panel_caret.height > 0);
+    boxrig_gtk_ime_state state;
+    CHECK(widget_ime_state(widget, &state) == BOXRIG_UI_OK);
+    CHECK(state.candidate_owner == BOXRIG_UI_CANDIDATE_OWNER_CLIENT && state.candidate_reason == BOXRIG_UI_CANDIDATE_READY);
+    key('p');
+    view = panel_state();
+    CHECK(strcmp(view.snapshot.panel_text, "1. 汽車 2号 2. 記者 🙂") == 0);
+    CHECK(view.layout.panel_text.height > 0 && view.layout.auxiliary.height > 0);
+    CHECK(view.layout.bounds.x + view.layout.bounds.width <= widget_width(GTK_WIDGET(widget)));
+    CHECK(view.layout.bounds.y + view.layout.bounds.height <= widget_height(GTK_WIDGET(widget)));
+    key('n');
+    CHECK(strcmp(panel_state().snapshot.panel_text, "1. 次ページ 2. 候補") == 0);
+    output("");
+    key('b');
+    CHECK(!panel_state().snapshot.visible);
+    output("汽車🙂");
+    key('a');
+    key(GDK_KEY_Escape);
+    CHECK(!panel_state().snapshot.visible);
+    output("");
+    key('j');
+    CHECK(panel_state().snapshot.auxiliary_above_visible);
+    key('a');
+    CHECK(widget_set_input_enabled(widget, false) == BOXRIG_UI_OK);
+    settle(0);
+    CHECK(panel_state().snapshot.panel_text == NULL);
+    output("");
+    CHECK(widget_set_input_enabled(widget, true) == BOXRIG_UI_OK);
+    settle(1);
+    key('p');
+    focus(false);
+    CHECK(panel_state().snapshot.panel_text == NULL);
+    output("server-commit");
+    puts("PASS GTK fcitx4 string panel, keyboard pages, caret, cancellation, focus commit and input disabling");
 }
 static boxrig_ui_status edit(const boxrig_ui_editable_replacement_request *request,
     const boxrig_ui_editable_document_snapshot *proposed, void *data)
@@ -154,7 +261,7 @@ static void real_mozc(void)
     key(GDK_KEY_Escape);
     CHECK(!composition().active);
     output("");
-    boxrig_ui_editable_document *document = boxrig_ui_view_editable_document(boxrig_gtk3_terminal_widget_view(widget));
+    boxrig_ui_editable_document *document = boxrig_ui_view_editable_document(widget_view(widget));
     boxrig_ui_editable_context_input context = {.document_identity = 1, .document_revision = 1,
         .context = "前かな後", .context_length = strlen("前かな後"), .cursor = 9, .anchor = 3};
     converted = NULL;
@@ -181,39 +288,52 @@ static void real_mozc(void)
 }
 int main(void)
 {
+#ifdef BOXRIG_TEST_GTK3
     gtk_init(NULL, NULL);
+#else
+    gtk_init();
+#endif
+    panels = g_getenv("BOXRIG_TEST_FCITX4_PANELS") != NULL;
     bool automatic = g_getenv("BOXRIG_TEST_IME_AUTO") != NULL;
     if (automatic) g_object_set(gtk_settings_get_default(), "gtk-im-module", "gtk-im-context-simple", NULL);
     boxrig_terminal_config config = boxrig_terminal_config_default();
     boxrig_ui_model *model;
     CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
     CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
-    boxrig_gtk3_terminal_widget_config wc = boxrig_gtk3_terminal_widget_config_default();
+    widget_config wc = widget_config_default();
     wc.ime_policy = automatic ? BOXRIG_GTK_IME_AUTO : BOXRIG_GTK_IME_FCITX4;
-    wc.candidate_policy = BOXRIG_UI_CANDIDATE_SYSTEM;
+    wc.candidate_policy = panels ? BOXRIG_UI_CANDIDATE_CLIENT : BOXRIG_UI_CANDIDATE_SYSTEM;
     wc.render_policy = BOXRIG_GTK_RENDER_CAIRO;
     wc.frame_request_callback = request_frame;
     wc.frame_request_context = &dispatch_requested;
-    CHECK(boxrig_gtk3_terminal_widget_create(model, &wc, &widget) == BOXRIG_UI_OK);
+    CHECK(widget_create(model, &wc, &widget) == BOXRIG_UI_OK);
     g_object_ref_sink(widget);
-    CHECK(boxrig_gtk3_terminal_widget_set_visible(widget, true) == BOXRIG_UI_OK);
+    CHECK(widget_visible(widget, true) == BOXRIG_UI_OK);
     gtk_widget_set_size_request(GTK_WIDGET(widget), 480, 240);
+#ifdef BOXRIG_TEST_GTK3
     GtkWidget *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_container_add(GTK_CONTAINER(window), GTK_WIDGET(widget));
     gtk_widget_show_all(window);
+#else
+    GtkWidget *window = gtk_window_new();
+    gtk_window_set_child(GTK_WINDOW(window), GTK_WIDGET(widget));
+    gtk_widget_set_visible(window, true);
+#endif
     gtk_window_present(GTK_WINDOW(window));
     guint timer = g_timeout_add_seconds(60, deadline, "window mapping");
-    while (!gtk_widget_get_mapped(GTK_WIDGET(widget))) iterate();
+    while (!gtk_widget_get_mapped(GTK_WIDGET(widget)) || widget_width(GTK_WIDGET(widget)) <= 1) iterate();
     g_source_remove(timer);
     focus(true);
     boxrig_gtk_ime_state state;
-    CHECK(boxrig_gtk3_terminal_widget_get_ime_state(widget, &state) == BOXRIG_UI_OK);
+    CHECK(widget_ime_state(widget, &state) == BOXRIG_UI_OK);
     CHECK(state.active_route == BOXRIG_GTK_IME_ROUTE_FCITX4);
     CHECK(state.direct.backend == BOXRIG_IME_BACKEND_FCITX4);
     CHECK(automatic ? state.direct.selection_reason == BOXRIG_IME_SELECTION_SINGLE :
         state.reason == BOXRIG_GTK_IME_REASON_EXPLICIT_FCITX4);
-    CHECK(state.candidate_owner == BOXRIG_UI_CANDIDATE_OWNER_SYSTEM && state.candidate_valid && !state.candidate_surface_relative);
+    CHECK(state.candidate_owner == (panels ? BOXRIG_UI_CANDIDATE_OWNER_NONE : BOXRIG_UI_CANDIDATE_OWNER_SYSTEM));
+    CHECK(state.candidate_valid);
     if (g_getenv("BOXRIG_TEST_FCITX_REAL") != NULL) { real_mozc(); goto cleanup; }
+    if (panels) { mock_panel(); goto cleanup; }
     key('a');
     boxrig_composition_view text = composition();
     CHECK(text.active && text.text_length == strlen("きしゃ") && memcmp(text.text, "きしゃ", text.text_length) == 0);
@@ -231,7 +351,7 @@ int main(void)
     focus(false);
     output("server-commit");
     focus(true);
-    boxrig_ui_editable_document *document = boxrig_ui_view_editable_document(boxrig_gtk3_terminal_widget_view(widget));
+    boxrig_ui_editable_document *document = boxrig_ui_view_editable_document(widget_view(widget));
     boxrig_ui_editable_context_input context = {.document_identity = 1, .document_revision = 1,
         .context = "前かな後", .context_length = strlen("前かな後"), .cursor = 9, .anchor = 9};
     CHECK(boxrig_ui_editable_document_set_apply_handler(document, edit, NULL) == BOXRIG_UI_OK);
@@ -247,7 +367,11 @@ int main(void)
     output("");
     puts("PASS GTK 3 fcitx4 system preedit, input, cancellation and focus commit to the original document");
 cleanup:
+#ifdef BOXRIG_TEST_GTK3
     gtk_widget_destroy(window);
+#else
+    gtk_window_destroy(GTK_WINDOW(window));
+#endif
     g_object_unref(widget);
     boxrig_ui_model_destroy(model);
     boxrig_terminal_destroy(terminal);

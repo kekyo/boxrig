@@ -27,6 +27,8 @@ void boxrig_ime_free_candidates(boxrig_ime_candidates *table)
     free(table->labels);
     free(table->auxiliary);
     free(table->auxiliary_above);
+    free(table->panel_text);
+    free(table->panel_preedit);
     memset(table, 0, sizeof(*table));
 }
 
@@ -76,6 +78,7 @@ boxrig_ui_status boxrig_ime_copy_candidates(const boxrig_ime_candidates *source,
     target->items = target->labels = NULL;
     target->auxiliary = NULL;
     target->auxiliary_above = NULL;
+    target->panel_text = target->panel_preedit = NULL;
     boxrig_ui_status status = boxrig_ime_allocate_candidates(target);
     for (size_t index = 0; status == BOXRIG_UI_OK && index < source->count; index++)
         status = boxrig_ime_copy_candidate_text(source->items[index], &target->items[index], &budget);
@@ -85,6 +88,10 @@ boxrig_ui_status boxrig_ime_copy_candidates(const boxrig_ime_candidates *source,
         status = boxrig_ime_copy_candidate_text(source->auxiliary, &target->auxiliary, &budget);
     if (status == BOXRIG_UI_OK)
         status = boxrig_ime_copy_candidate_text(source->auxiliary_above, &target->auxiliary_above, &budget);
+    if (status == BOXRIG_UI_OK)
+        status = boxrig_ime_copy_candidate_text(source->panel_text, &target->panel_text, &budget);
+    if (status == BOXRIG_UI_OK)
+        status = boxrig_ime_copy_candidate_text(source->panel_preedit, &target->panel_preedit, &budget);
     if (status != BOXRIG_UI_OK) boxrig_ime_free_candidates(target);
     return status;
 }

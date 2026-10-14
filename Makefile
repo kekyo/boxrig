@@ -5608,6 +5608,12 @@ test-fcitx4: $(BUILD_DIR)/tests/fcitx4_server $(BUILD_DIR)/tests/test_fcitx4
 
 test: test-fcitx4
 
+.PHONY: test-fcitx4-panels-core
+test-fcitx4-panels-core: $(BUILD_DIR)/tests/fcitx4_server $(BUILD_DIR)/tests/test_fcitx4
+	BOXRIG_TEST_FCITX4_PANELS=1 ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4.sh $(BUILD_DIR)/tests/fcitx4_server $(BUILD_DIR)/tests/test_fcitx4
+
+test: test-fcitx4-panels-core
+
 $(BUILD_DIR)/tests/test_fcitx4_focus: tests/ime/test_fcitx4_focus.c $(IME_SOURCES) $(IME_HEADERS) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(IBUS_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(IME_SOURCES) $(UI_LIBRARY) $(LIBRARY) $(IBUS_LIBS) $(SANITIZERS) -o $@
 
@@ -5628,7 +5634,19 @@ test-fcitx4-address: $(BUILD_DIR)/tests/fcitx4_server $(BUILD_DIR)/tests/test_fc
 test: test-fcitx4-address
 
 $(BUILD_DIR)/tests/test_gtk3_fcitx4: tests/gtk/test_fcitx4_widget.c $(IME_SOURCES) $(IME_HEADERS) $(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
-	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK3_CPPFLAGS) $(CFLAGS) $(GTK3_PROJECT_CFLAGS) $(SANITIZERS) $< $(IME_SOURCES) $(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK3_LIBS) $(SANITIZERS) -o $@
+	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK3_CPPFLAGS) $(CFLAGS) $(GTK3_PROJECT_CFLAGS) $(SANITIZERS) -DBOXRIG_TEST_GTK3=1 $< $(IME_SOURCES) $(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK3_LIBS) $(SANITIZERS) -o $@
+
+$(BUILD_DIR)/tests/test_gtk4_fcitx4: tests/gtk/test_fcitx4_widget.c $(IME_SOURCES) $(IME_HEADERS) $(GTK4_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK4_CPPFLAGS) $(CFLAGS) $(GTK4_PROJECT_CFLAGS) $(SANITIZERS) $< $(IME_SOURCES) $(GTK4_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK4_LIBS) $(SANITIZERS) -Wl,--wrap=gtk_event_controller_key_new,--wrap=gtk_event_controller_focus_new -o $@
+
+.PHONY: test-fcitx4-panels-gtk
+test-fcitx4-panels-gtk: $(BUILD_DIR)/tests/test_gtk3_fcitx4 $(BUILD_DIR)/tests/test_gtk4_fcitx4 $(BUILD_DIR)/tests/fcitx4_server
+	$(XVFB_RUN) -a env BOXRIG_TEST_FCITX4_PANELS=1 GDK_BACKEND=x11 GTK_IM_MODULE=gtk-im-context-simple GTK_A11Y=none NO_AT_BRIDGE=1 GIO_USE_VFS=local ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4.sh --display $(BUILD_DIR)/tests/fcitx4_server $(BUILD_DIR)/tests/test_gtk3_fcitx4
+	@for gtk in 3 4; do \
+		$(XVFB_RUN) -a env BOXRIG_TEST_FCITX4_PANELS=1 BOXRIG_TEST_WESTON_BACKEND=x11 GTK_IM_MODULE=gtk-im-context-simple GTK_A11Y=none GIO_USE_VFS=local LIBGL_ALWAYS_SOFTWARE=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/gtk/run_gl_wayland.sh bash tests/ime/run_fcitx4.sh --display $(BUILD_DIR)/tests/fcitx4_server $(BUILD_DIR)/tests/test_gtk$${gtk}_fcitx4 || exit $$?; \
+	done
+
+test: test-fcitx4-panels-gtk
 
 .PHONY: test-gtk-fcitx4
 test-gtk-fcitx4: $(BUILD_DIR)/tests/fcitx4_server $(BUILD_DIR)/tests/test_gtk3_fcitx4
@@ -5731,6 +5749,13 @@ test-fcitx4-native: $(WAYLAND_CONTEXT_TEST_BINARY) $(BUILD_DIR)/tests/fcitx4_ser
 	IBUS_ADDRESS= XMODIFIERS= BOXRIG_TEST_FCITX4=1 BOXRIG_TEST_IME_AUTO=1 ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4.sh $(BUILD_DIR)/tests/fcitx4_server $< "$(TEST_FONT_FILE)"
 
 test: test-fcitx4-native
+
+.PHONY: test-fcitx4-panels-native
+test-fcitx4-panels-native: $(WAYLAND_CONTEXT_TEST_BINARY) $(BUILD_DIR)/tests/fcitx4_server
+	IBUS_ADDRESS= XMODIFIERS= BOXRIG_TEST_FCITX4_PANELS=1 BOXRIG_TEST_FCITX4=1 ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4.sh $(BUILD_DIR)/tests/fcitx4_server $(WAYLAND_CONTEXT_TEST_BINARY) "$(TEST_FONT_FILE)"
+	IBUS_ADDRESS= XMODIFIERS= BOXRIG_TEST_IME_AUTO=1 BOXRIG_TEST_FCITX4_PANELS=1 BOXRIG_TEST_FCITX4=1 ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4.sh $(BUILD_DIR)/tests/fcitx4_server $(WAYLAND_CONTEXT_TEST_BINARY) "$(TEST_FONT_FILE)"
+
+test: test-fcitx4-panels-native
 
 .PHONY: test-fcitx5-auto-core
 test-fcitx5-auto-core: $(BUILD_DIR)/tests/test_fcitx5 $(BUILD_DIR)/tests/fcitx5_server

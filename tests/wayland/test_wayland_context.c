@@ -9619,7 +9619,8 @@ static void test_fcitx4_native_input(void)
     struct wl_registry *registry = create_host_registry(&server, &host);
     boxrig_wayland_context_config config = boxrig_wayland_context_config_default();
     config.input_method = getenv("BOXRIG_TEST_IME_AUTO") != NULL ? BOXRIG_WAYLAND_IME_AUTO : BOXRIG_WAYLAND_IME_FCITX4;
-    config.candidate_policy = BOXRIG_UI_CANDIDATE_SYSTEM;
+    bool panels = getenv("BOXRIG_TEST_FCITX4_PANELS") != NULL;
+    config.candidate_policy = panels ? BOXRIG_UI_CANDIDATE_AUTO : BOXRIG_UI_CANDIDATE_SYSTEM;
     boxrig_wayland_context *context = NULL;
     CHECK(boxrig_wayland_context_create(server.client_display, server.client_queue, &config, &context) == BOXRIG_UI_OK);
     pump(&server); pump(&server); pump(&server);
@@ -9653,8 +9654,50 @@ static void test_fcitx4_native_input(void)
     ibus_test_drain(&server, context, component);
     boxrig_composition_view text;
     CHECK(boxrig_composition_get_view(boxrig_wayland_terminal_component_composition(component), &text) == BOXRIG_COMPOSITION_OK);
-    CHECK(text.active && text.text_length == strlen("きしゃ") && memcmp(text.text, "きしゃ", text.text_length) == 0);
-    CHECK(text.caret_offset == 3 && text.segment_count == 2);
+    if (panels) {
+        CHECK(!text.active && component_state.candidate_owner == BOXRIG_UI_CANDIDATE_OWNER_NONE);
+        boxrig_font_effective_metrics metrics;
+        CHECK(boxrig_wayland_terminal_component_get_effective_metrics(component, &metrics) == BOXRIG_FONT_CATALOG_OK);
+        boxrig_ui_component_allocation allocation = {.width = tc.columns * metrics.cell_width,
+            .height = tc.rows * metrics.cell_height, .window_state = BOXRIG_UI_WINDOW_EMBEDDED};
+        boxrig_ui_layout_result layout;
+        CHECK(boxrig_wayland_terminal_component_allocate(component, &allocation, &layout) == BOXRIG_UI_OK);
+        CHECK(boxrig_wayland_terminal_component_set_visible(component, true) == BOXRIG_UI_OK);
+        boxrig_ui_component_frame_result frame;
+        CHECK(boxrig_wayland_terminal_component_frame(component, &frame) == BOXRIG_UI_OK);
+        boxrig_ui_candidate_view panel;
+        CHECK(boxrig_ui_view_get_candidates(boxrig_wayland_terminal_component_view(component), &panel) == BOXRIG_UI_OK);
+        CHECK(panel.snapshot.format == BOXRIG_UI_CANDIDATE_STRING_PANEL && panel.snapshot.panel_preedit != NULL);
+        CHECK(strcmp(panel.snapshot.panel_preedit, "きしゃ🙂") == 0 && panel.snapshot.panel_cursor == 6);
+        CHECK(panel.layout.panel_preedit.height > 0 && panel.layout.panel_caret.height > 0);
+        ibus_test_key(&server, KEY_P);
+        ibus_test_drain(&server, context, component);
+        for (size_t index = 0; index < server.frame_callback_count; index++)
+            if (server.frame_callbacks[index] != NULL) complete_frame(&server, index);
+        for (size_t index = 0; index < server.shm_buffer_create_count; index++)
+            if (server.shm_buffers[index] != NULL && server.shm_buffer_busy[index]) release_buffer(&server, index);
+        pump(&server);
+        CHECK(boxrig_wayland_terminal_component_frame(component, &frame) == BOXRIG_UI_OK);
+        CHECK(boxrig_ui_view_get_candidates(boxrig_wayland_terminal_component_view(component), &panel) == BOXRIG_UI_OK);
+        CHECK(strcmp(panel.snapshot.panel_text, "1. 汽車 2号 2. 記者 🙂") == 0);
+        CHECK(panel.layout.panel_text.height > 0 && panel.snapshot.count == 0);
+        ibus_test_key(&server, KEY_N);
+        ibus_test_drain(&server, context, component);
+        CHECK(boxrig_ui_view_get_candidates(boxrig_wayland_terminal_component_view(component), &panel) == BOXRIG_UI_OK);
+        CHECK(strcmp(panel.snapshot.panel_text, "1. 次ページ 2. 候補") == 0);
+        CHECK(boxrig_wayland_terminal_component_get_diagnostic(component, &component_state) == BOXRIG_UI_OK);
+        CHECK(component_state.candidate_owner == BOXRIG_UI_CANDIDATE_OWNER_CLIENT);
+        CHECK(boxrig_wayland_terminal_component_set_input_enabled(component, false) == BOXRIG_UI_OK);
+        CHECK(boxrig_ui_view_get_candidates(boxrig_wayland_terminal_component_view(component), &panel) == BOXRIG_UI_OK);
+        CHECK(panel.snapshot.panel_text == NULL);
+        CHECK(boxrig_wayland_terminal_component_set_input_enabled(component, true) == BOXRIG_UI_OK);
+        ibus_test_drain(&server, context, component);
+        ibus_test_key(&server, KEY_A);
+        ibus_test_drain(&server, context, component);
+    } else {
+        CHECK(text.active && text.text_length == strlen("きしゃ") && memcmp(text.text, "きしゃ", text.text_length) == 0);
+        CHECK(text.caret_offset == 3 && text.segment_count == 2);
+    }
     check_ibus_output(terminal, "");
     ibus_test_key(&server, KEY_ESC);
     ibus_test_drain(&server, context, component);
@@ -9687,6 +9730,11 @@ static void test_fcitx4_native_input(void)
         if (destination != 0) CHECK(owner.accepted == 1 && strcmp(owner.text, "前かなserver-commit後") == 0);
         check_ibus_output(terminal, destination == 0 ? "server-commit" : "");
         check_ibus_inactive(component);
+    }
+    if (panels) {
+        boxrig_ui_candidate_view panel;
+        CHECK(boxrig_ui_view_get_candidates(boxrig_wayland_terminal_component_view(component), &panel) == BOXRIG_UI_OK);
+        CHECK(panel.snapshot.panel_text == NULL && !panel.snapshot.visible);
     }
     wl_array_release(&keys);
     boxrig_wayland_terminal_component_destroy(component);

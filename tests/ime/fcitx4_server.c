@@ -17,7 +17,8 @@ static char *surrounding;
 static gint rectangle[4];
 typedef struct context {
     char *path, *sender;
-    bool composing, strict, native;
+    bool composing, strict, native, gtk4;
+    guint capabilities;
 } context;
 static context *active;
 static GDBusMethodInvocation *held;
@@ -41,6 +42,8 @@ static const char xml[] =
     "<method name='ProcessKeyEvent'><arg type='u' direction='in'/><arg type='u' direction='in'/>"
     "<arg type='u' direction='in'/><arg type='i' direction='in'/><arg type='u' direction='in'/><arg type='i' direction='out'/></method>"
     "<signal name='UpdateFormattedPreedit'><arg type='a(si)'/><arg type='i'/></signal>"
+    "<signal name='UpdateClientSideUI'><arg type='s'/><arg type='s'/><arg type='s'/>"
+    "<arg type='s'/><arg type='s'/><arg type='i'/></signal>"
     "<signal name='CommitString'><arg type='s'/></signal>"
     "<signal name='DeleteSurroundingText'><arg type='i'/><arg type='u'/></signal>"
     "<signal name='ForwardKey'><arg type='u'/><arg type='u'/><arg type='i'/></signal></interface>"
@@ -60,6 +63,39 @@ static const char xml[] =
 static void emit(const char *sender, const char *path, const char *name, GVariant *value)
 {
     CHECK(g_dbus_connection_emit_signal(connection, sender, path, INTERFACE, name, value, NULL));
+}
+static void panel(context *input, const char *preedit, const char *text,
+    const char *above, const char *below, gint cursor)
+{
+    emit(input->sender, input->path, "UpdateClientSideUI",
+        g_variant_new("(sssssi)", above, below, preedit, text, "test engine", cursor));
+}
+static bool panel_key(context *input, guint symbol)
+{
+    if (symbol == 'a' || symbol == 'p' || symbol == 'n' || symbol == 'f' || symbol == 'o') {
+        input->composing = true;
+        panel(input, "きしゃ🙂", symbol == 'a' ? "" : symbol == 'n' ? "1. 次ページ 2. 候補" :
+            "1. 汽車 2号 2. 記者 🙂", symbol == 'a' ? "" : "読み", symbol == 'a' ? "" : "説明",
+            symbol == 'f' ? 1 : symbol == 'o' ? 9999 : 6);
+        if (symbol == 'p') {
+            /* A redundant inline update must not duplicate the panel preedit. */
+            GVariantBuilder text;
+            g_variant_builder_init(&text, G_VARIANT_TYPE("a(si)"));
+            g_variant_builder_add(&text, "(si)", "きしゃ", 0);
+            emit(input->sender, input->path, "UpdateFormattedPreedit", g_variant_new("(a(si)i)", &text, 3));
+        }
+    } else if (symbol == 'j') panel(input, "", "", "補助情報のみ", "", 0);
+    else if (symbol == 'm') emit(input->sender, input->path, "UpdateClientSideUI", g_variant_new("(s)", "wrong type"));
+    else if (symbol == 'l') {
+        char *large = g_strnfill(65536, 'x');
+        panel(input, "", large, "", "", 0);
+        g_free(large);
+    } else if (symbol == 'b' || symbol == 'x' || symbol == 0xff1b) {
+        input->composing = false;
+        if (symbol == 'b') emit(input->sender, input->path, "CommitString", g_variant_new("(s)", "汽車🙂"));
+        panel(input, "", "", "", "", 0);
+    } else return false;
+    return true;
 }
 static void commit_focus(context *input)
 {
@@ -113,7 +149,8 @@ static void method(GDBusConnection *bus, const char *sender, const char *path,
         CHECK(program[0] != 0 && pid > 0);
         input = g_new0(context, 1);
         input->native = strcmp(program, "boxrig-wayland") == 0;
-        input->strict = strcmp(program, "boxrig-gtk3") != 0 && !input->native;
+        input->gtk4 = strcmp(program, "boxrig-gtk4-wayland") == 0;
+        input->strict = strcmp(program, "boxrig-gtk3") != 0 && !input->native && !input->gtk4;
         input->path = g_strdup_printf("/inputcontext_%u", ++contexts);
         input->sender = g_strdup(sender);
         CHECK(g_dbus_connection_register_object(connection, input->path, node->interfaces[1], &methods, input, free_context, NULL));
@@ -134,6 +171,8 @@ static void method(GDBusConnection *bus, const char *sender, const char *path,
         CHECK(held != NULL);
         emit(g_dbus_method_invocation_get_sender(held), g_dbus_method_invocation_get_object_path(held),
             "CommitString", g_variant_new("(s)", "late-key"));
+        emit(g_dbus_method_invocation_get_sender(held), g_dbus_method_invocation_get_object_path(held),
+            "UpdateClientSideUI", g_variant_new("(sssssi)", "", "", "late", "late candidates", "test engine", 4));
         if (strcmp(name, "FailKey") == 0)
             g_dbus_method_invocation_return_dbus_error(held, "org.boxrig.Uncertain", "Key outcome is unknown");
         else g_dbus_method_invocation_return_value(held, g_variant_new("(i)", 1));
@@ -162,7 +201,8 @@ static void method(GDBusConnection *bus, const char *sender, const char *path,
     }
     if (strcmp(name, "SetCapacity") == 0) {
         g_variant_get(parameters, "(u)", &capabilities);
-        CHECK((capabilities & ((1u << 0) | (1u << 5))) == 0);
+        CHECK((capabilities & (1u << 5)) == 0);
+        input->capabilities = capabilities;
     } else if (strcmp(name, "SetSurroundingText") == 0) {
         guint cursor, anchor;
         g_free(surrounding);
@@ -184,11 +224,16 @@ static void method(GDBusConnection *bus, const char *sender, const char *path,
         gint type;
         g_variant_get(parameters, "(uuuiu)", &symbol, &code, &state, &type, &time);
         guint expected_code = input->native ?
-            (symbol == 'b' ? 56u : symbol == 'u' ? 30u : symbol == 0xff1b ? 9u : 38u) : 38u;
-        CHECK(code == expected_code && state == (input->strict ? 4u : 0u) && time == (input->native ? 0u : 1234u));
+            (symbol == 'b' ? 56u : symbol == 'u' ? 30u : symbol == 'p' ? 33u :
+                symbol == 'n' ? 57u : symbol == 0xff1b ? 9u : 38u) : 38u;
+        CHECK(code == expected_code && state == (input->strict ? 4u : 0u) && time == (input->native || input->gtk4 ? 0u : 1234u));
         if (input->strict) CHECK(type == (symbol == 'z' ? 1 : 0));
         else if (type == 1) { g_dbus_method_invocation_return_value(invocation, g_variant_new("(i)", 0)); return; }
         keys++;
+        if ((input->capabilities & 1u) != 0 && panel_key(input, symbol)) {
+            g_dbus_method_invocation_return_value(invocation, g_variant_new("(i)", 1));
+            return;
+        }
         if (symbol == 'a' || symbol == 'f' || symbol == 0xff1b) {
             input->composing = symbol != 0xff1b;
             GVariantBuilder text;

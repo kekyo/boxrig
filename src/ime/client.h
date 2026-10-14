@@ -35,6 +35,8 @@ typedef struct boxrig_ime_candidates {
     bool auxiliary_above_visible, has_previous_page, has_next_page;
     char **items, **labels;
     char *auxiliary, *auxiliary_above;
+    char *panel_text, *panel_preedit;
+    size_t panel_cursor;
 } boxrig_ime_candidates;
 
 /* A transaction owns its effects, including all text and segment storage. */
