@@ -261,8 +261,10 @@ static bool emit_presentation_pattern(HANDLE output)
 
     if (!write_all(
             output,
-            "\033[?25l\033[48;2;20;42;76m\033[38;2;232;238;248m"
-            "\033[2J\033[H")) {
+            /* Leave unused cells in the default background. ConPTY extends
+             * those cells when resizing, independently of the last SGR. */
+            "\033[?25l\033[0m\033[2J\033[H"
+            "\033[38;2;232;238;248m")) {
         return false;
     }
     for (row = 0; row < 24; row++) {
