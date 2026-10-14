@@ -16,7 +16,7 @@
 | 5 | 完了 | キー処理時のTTY消去文字取得。変更、無効値、NUL、未取得、接続切替、他の通信路のAutoへの復帰 |
 | 6 | 完了 | 入力禁止と停止完了。遅延IME・clipboard・pasteの無効化、paste終端、選択コピーと端末応答の継続 |
 | 7 | 完了 | 行列数変更のhost通知。分割受信、0と省略、キュー満杯、拒否、layoutへの接続 |
-| 8 | 未着手 | POSIX起動診断FDと終了結果、Win32の既存診断と終了HANDLE。異常起動と127/259、fallback、回収と資源の寿命、実Windows検証 |
+| 8 | 実装中 | POSIX起動診断FDと終了結果、Win32の既存診断と終了HANDLE。異常起動と127/259、fallback、回収と資源の寿命、実Windows検証 |
 | 9 | 未着手 | GUIを止めない起動・中止・後始末。完了との競合、世代、二重生成・二重回収、ConPTY終了処理をドライバーで実測 |
 | 10 | 未着手 | Linux共有ビルド。公開symbol、SONAME、pkg-config、PIC、private codecの可視性、クリーン・増分・外部ビルド、配布先でのロード |
 | 11 | 未着手 | 共通本文snapshotとGTK3 AtkText。VTE・AT-SPI・Orcaとの比較、本文・位置・caret・選択・通知順序、履歴・代替画面・reflow・複数表示・破棄 |
@@ -196,6 +196,23 @@ host queueが満杯でも、未消費のfinal byteから再開すれば要求を
 `test-grid-resize`、`test-grid-resize-win32`、core・parserの既存試験が成功しました。
 coreと共通UIを計装したAddressSanitizer/UndefinedBehaviorSanitizerでも問題は見つかりませんでした。
 公開ヘッダーはnativeとMinGWのamd64/i686で、C99/C++20の通常include・リンク・実行を確認済みです。
+
+## 段階8
+
+POSIXに、親側の準備失敗を保存する起動APIと、子の起動診断を取得するAPIを追加しました。
+起動診断は`PENDING`・`SUCCEEDED`・`FAILED`で返し、失敗した処理と`errno`を保持します。
+専用の非同期FDを監視でき、診断の取得自体は待機も子の回収も行いません。
+成功は、close-on-execの診断経路がエラー報告なしで閉じたことを表します。
+アプリケーションの利用準備や継続実行を保証するものではありません。
+
+公開APIの不足でREDを確認した後、実PTYの試験で不存在・実行権限なし・通常終了127・即時終了を区別できました。
+子をexec直前で停止させても、問い合わせが待たずに`PENDING`を返すことを確認済みです。
+子の端末設定失敗と、親側のメモリ・PTY・pipe・forkの失敗も注入し、診断と資源の寿命を検証しています。
+標準入出力が初めから閉じられた呼び出し側でも、子のTTYと診断FDは正常に機能します。
+
+`test-posix-spawn`と、POSIX・coreを計装したAddressSanitizer/UndefinedBehaviorSanitizer試験が成功しました。
+既存のPTY・session・POSIX共通ドライバー試験、公開ヘッダーのC99/C++20利用側試験も成功しています。
+Windowsでの起動診断・終了監視の検証と、観測用ドライバーの追加は継続中です。
 
 ## 後続段階の事前確認
 

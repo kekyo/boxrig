@@ -57,6 +57,33 @@ int connect_shell(boxrig_terminal *terminal,
 ビルドにはcore、UIを使う場合はUI、session、POSIXの各ライブラリとPTYのリンク依存が必要です。
 [ビルドガイド](./building.md)と[POSIXの利用例](../../examples/boxrig_term/common/posix_application.c)で実際の接続を確認できます。
 
+## POSIXの起動結果と終了結果を分ける
+
+`boxrig_posix_pty_spawn()`が`0`を返した時点で確定するのは、子プロセスを生成できたことです。
+`boxrig_posix_pty_get_spawn_result()`で、端末の準備と`exec`の結果を取得してください。
+この取得は待機せず、子プロセスも回収しません。
+
+| 起動状態 | アプリの処理 |
+| --- | --- |
+| `PENDING` | `boxrig_posix_pty_spawn_descriptor()`の読み取り可能・切断を待ち、再取得 |
+| `SUCCEEDED` | 起動診断の監視を終了。以後の稼働・終了は別に監視 |
+| `FAILED` | `stage`と`error_number`で失敗を処理し、子の回収を完了 |
+
+診断FDはPTYが所有し、破棄まで同じFDを保持します。
+直接の読み取り、close、フラグ変更は行わず、状態が確定したら待機登録を解除してください。
+成功判定には、[close-on-execを指定したpipe](https://www.man7.org/linux/man-pages/man2/pipe.2.html)の終了を使います。
+起動成功はアプリケーションの準備完了や、その後も動作していることを保証しません。
+
+親側の準備失敗も構造体で受け取りたい場合は、`boxrig_posix_pty_spawn_with_diagnostic()`を使います。
+戻り値が`-1`なら`errno`と呼び出し元の診断へ原因を残し、PTYと子プロセスは返しません。
+`0`なら初期診断は`PENDING`で、返されたPTYから続きの結果を取得できます。
+親側の準備は同期処理です。
+
+不存在のコマンドは`FAILED`・`EXEC`・`ENOENT`、起動後に127で終了するコマンドは`SUCCEEDED`です。
+どちらも子の終了値が127になるため、終了値だけでは区別できません。
+子の回収は`boxrig_posix_pty_wait()`かアプリの`waitpid()`のどちらか一方へ集約します。
+最終診断は子の回収後も取得でき、PTYの破棄ではmasterと診断FDを閉じます。
+
 ## Win32 PTYにつなぐ
 
 Windowsでは[PTY API](../../include/boxrig/win32/pty.h)で疑似コンソールを作り、`boxrig_win32_pty_session_create()`へ渡します。

@@ -5364,6 +5364,14 @@ test-packages:
 include tests/headers/rules.mk
 
 .PHONY: test-grid-resize test-grid-resize-win32
+.PHONY: test-posix-spawn
+test: test-posix-spawn
+test-posix-spawn: $(BUILD_DIR)/tests/test_posix_spawn
+	$(BUILD_DIR)/tests/test_posix_spawn
+
+$(BUILD_DIR)/tests/test_posix_spawn: tests/test_posix_spawn.c $(POSIX_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(POSIX_LIBRARY) $(LIBRARY) -lutil -Wl,--wrap=execvp,--wrap=setsid,--wrap=calloc,--wrap=openpty,--wrap=pipe2,--wrap=fork -o $@
+
 test: test-grid-resize test-grid-resize-win32
 test-grid-resize: $(BUILD_DIR)/tests/test_grid_resize
 	$(BUILD_DIR)/tests/test_grid_resize

@@ -57,6 +57,33 @@ The library does not read `BOXRIG_TERM`.
 Building requires core, UI if used, the session and POSIX libraries, and the PTY link dependencies.
 See the [build guide](./building.md) and [POSIX example](../../examples/boxrig_term/common/posix_application.c) for the actual connections.
 
+## Separate POSIX startup and process exit
+
+A `0` return from `boxrig_posix_pty_spawn()` establishes that a child was created.
+Use `boxrig_posix_pty_get_spawn_result()` to obtain terminal setup and `exec` results.
+This query does not block or reap the child.
+
+| Spawn state | Application action |
+| --- | --- |
+| `PENDING` | Wait for readability or hangup on `boxrig_posix_pty_spawn_descriptor()` and query again |
+| `SUCCEEDED` | Stop monitoring startup diagnostics; monitor continued execution and exit separately |
+| `FAILED` | Handle `stage` and `error_number`, and finish reaping the child |
+
+The PTY owns the diagnostic FD and retains it until destruction.
+Do not read, close, or change its flags directly; remove its wait registration once the result is final.
+Success is determined from closure of a [close-on-exec pipe](https://www.man7.org/linux/man-pages/man2/pipe.2.html).
+Successful startup does not establish application readiness or continued execution.
+
+Use `boxrig_posix_pty_spawn_with_diagnostic()` to receive parent preparation failures in a caller-owned structure too.
+A `-1` return preserves the cause in both `errno` and that diagnostic, without returning a PTY or child.
+A `0` return provides an initial `PENDING` diagnostic; query the returned PTY for subsequent results.
+Parent preparation remains synchronous.
+
+A missing command produces `FAILED`, `EXEC`, and `ENOENT`; a command that starts and exits with 127 produces `SUCCEEDED`.
+Both children can have exit status 127, so the exit code alone cannot distinguish them.
+Choose either `boxrig_posix_pty_wait()` or the application's `waitpid()` path as the sole reaper.
+Final diagnostics remain available after reaping; destroying the PTY closes its master and diagnostic FD.
+
 ## Connect a Win32 PTY
 
 On Windows, create a pseudoconsole with the [PTY API](../../include/boxrig/win32/pty.h) and pass it to `boxrig_win32_pty_session_create()`.

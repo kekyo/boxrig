@@ -61,6 +61,10 @@ int main(void)
     assert(!boxrig_posix_pty_input_batch_pending(&batch));
     boxrig_tty_erase unavailable;
     assert(boxrig_posix_get_tty_erase(-1, &unavailable) == -1);
+    boxrig_posix_pty_spawn_result spawned;
+    assert(boxrig_posix_pty_spawn_with_diagnostic(NULL, NULL, 0, 0, NULL, &spawned) == -1);
+    assert(boxrig_posix_pty_spawn_descriptor(NULL) == -1);
+    assert(boxrig_posix_pty_get_spawn_result(NULL, &spawned) == -1);
     assert(!unavailable.available);
     boxrig_ui_input_state input_state;
     assert(boxrig_x11_input_adapter_set_input_enabled(NULL, false) == BOXRIG_UI_INVALID_ARGUMENT);

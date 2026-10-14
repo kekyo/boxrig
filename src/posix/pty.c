@@ -4,15 +4,18 @@
  * https://github.com/kekyo/boxrig/
  */
 
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
 #include "boxrig/posix.h"
 
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <pty.h>
-#include <signal.h>
 #include <stdbool.h>
 #include <stdlib.h>
+#include <string.h>
 #include <termios.h>
 #include <unistd.h>
 
@@ -23,6 +26,10 @@ struct boxrig_posix_pty {
     int master_descriptor;
     pid_t child_process;
     bool child_reaped;
+    int spawn_descriptor;
+    boxrig_posix_pty_spawn_result spawn_result;
+    unsigned char spawn_bytes[sizeof(boxrig_posix_pty_spawn_result)];
+    size_t spawn_length;
 };
 
 int boxrig_posix_get_tty_erase(int descriptor, boxrig_tty_erase *erase_out)
@@ -55,54 +62,160 @@ int boxrig_posix_pty_spawn(
     size_t columns,
     boxrig_posix_pty **pty_out)
 {
-    boxrig_posix_pty *pty;
-    struct winsize size;
-    pid_t process;
-    int flags;
+    return boxrig_posix_pty_spawn_with_diagnostic(
+        arguments, terminal_type, rows, columns, pty_out, NULL);
+}
 
+/* Keep private descriptors out of the standard-stream range before dup2 in
+ * the child, even when the caller initially has a closed stdin/stdout/stderr. */
+static int prepare_descriptor(int *descriptor, bool nonblocking)
+{
+    if (*descriptor < 3) {
+        int replacement = fcntl(*descriptor, F_DUPFD_CLOEXEC, 3);
+        if (replacement == -1) return -1;
+        close(*descriptor);
+        *descriptor = replacement;
+    } else {
+        int flags = fcntl(*descriptor, F_GETFD);
+        if (flags == -1 || fcntl(*descriptor, F_SETFD, flags | FD_CLOEXEC) == -1) return -1;
+    }
+    if (nonblocking) {
+        int flags = fcntl(*descriptor, F_GETFL);
+        if (flags == -1 || fcntl(*descriptor, F_SETFL, flags | O_NONBLOCK) == -1) return -1;
+    }
+    return 0;
+}
+
+static void child_failure(int descriptor, boxrig_posix_pty_spawn_stage stage, int error_number)
+{
+    const boxrig_posix_pty_spawn_result result = {BOXRIG_POSIX_PTY_SPAWN_FAILED, stage, error_number};
+    const unsigned char *bytes = (const unsigned char *)&result;
+    size_t remaining = sizeof(result);
+    while (remaining != 0) {
+        ssize_t count = write(descriptor, bytes, remaining);
+        if (count == -1 && errno == EINTR) continue;
+        if (count <= 0) break;
+        bytes += (size_t)count;
+        remaining -= (size_t)count;
+    }
+    _exit(127);
+}
+
+int boxrig_posix_pty_spawn_with_diagnostic(
+    char *const arguments[],
+    const char *terminal_type,
+    size_t rows,
+    size_t columns,
+    boxrig_posix_pty **pty_out,
+    boxrig_posix_pty_spawn_result *diagnostic_out)
+{
+    boxrig_posix_pty_spawn_result result = {BOXRIG_POSIX_PTY_SPAWN_PENDING, BOXRIG_POSIX_PTY_STAGE_NONE, 0};
+    if (pty_out != NULL) *pty_out = NULL;
     if (arguments == NULL || arguments[0] == NULL || terminal_type == NULL ||
         terminal_type[0] == '\0' || pty_out == NULL ||
         !valid_size(rows, columns)) {
+        result = (boxrig_posix_pty_spawn_result){BOXRIG_POSIX_PTY_SPAWN_FAILED, BOXRIG_POSIX_PTY_STAGE_ARGUMENTS, EINVAL};
+        if (diagnostic_out != NULL) *diagnostic_out = result;
         errno = EINVAL;
         return -1;
     }
-    *pty_out = NULL;
-    pty = calloc(1, sizeof(*pty));
-    if (pty == NULL) {
-        return -1;
-    }
+    boxrig_posix_pty_spawn_stage stage = BOXRIG_POSIX_PTY_STAGE_ALLOCATE;
+    int slave = -1, descriptors[2] = {-1, -1};
+    boxrig_posix_pty *pty = calloc(1, sizeof(*pty));
+    if (pty == NULL) goto failed;
     pty->master_descriptor = -1;
-    size.ws_row = (unsigned short)rows;
-    size.ws_col = (unsigned short)columns;
-    size.ws_xpixel = 0;
-    size.ws_ypixel = 0;
-    process = forkpty(&pty->master_descriptor, NULL, NULL, &size);
-    if (process == -1) {
-        free(pty);
-        return -1;
-    }
+    pty->spawn_descriptor = -1;
+    struct winsize size = {.ws_row = (unsigned short)rows, .ws_col = (unsigned short)columns};
+    stage = BOXRIG_POSIX_PTY_STAGE_OPEN_PTY;
+    if (openpty(&pty->master_descriptor, &slave, NULL, NULL, &size) == -1) goto failed;
+    stage = BOXRIG_POSIX_PTY_STAGE_DESCRIPTORS;
+    if (prepare_descriptor(&pty->master_descriptor, true) == -1 || prepare_descriptor(&slave, false) == -1) goto failed;
+    stage = BOXRIG_POSIX_PTY_STAGE_PIPE;
+#if defined(__linux__)
+    if (pipe2(descriptors, O_CLOEXEC) == -1) goto failed;
+#else
+    if (pipe(descriptors) == -1) goto failed;
+#endif
+    stage = BOXRIG_POSIX_PTY_STAGE_DESCRIPTORS;
+    if (prepare_descriptor(&descriptors[0], true) == -1 || prepare_descriptor(&descriptors[1], false) == -1) goto failed;
+    /* All parent preparation precedes fork: failure never leaves a live child
+     * to kill or synchronously reap on an error path. */
+    stage = BOXRIG_POSIX_PTY_STAGE_FORK;
+    pid_t process = fork();
+    if (process == -1) goto failed;
     if (process == 0) {
-        if (setenv("TERM", terminal_type, 1) == -1) {
-            _exit(127);
-        }
-        execvp(arguments[0], arguments);
-        _exit(127);
-    }
-    pty->child_process = process;
-    flags = fcntl(pty->master_descriptor, F_GETFL);
-    if (flags == -1 ||
-        fcntl(pty->master_descriptor, F_SETFL, flags | O_NONBLOCK) == -1) {
-        int saved_errno = errno;
-
         close(pty->master_descriptor);
-        kill(process, SIGHUP);
-        while (waitpid(process, NULL, 0) == -1 && errno == EINTR) {
+        close(descriptors[0]);
+        if (setsid() == -1) child_failure(descriptors[1], BOXRIG_POSIX_PTY_STAGE_SESSION, errno);
+        if (ioctl(slave, TIOCSCTTY, 0) == -1)
+            child_failure(descriptors[1], BOXRIG_POSIX_PTY_STAGE_CONTROLLING_TERMINAL, errno);
+        for (int descriptor = 0; descriptor < 3; descriptor++) {
+            int duplicated;
+            do { duplicated = dup2(slave, descriptor); } while (duplicated == -1 && errno == EINTR);
+            if (duplicated == -1) child_failure(descriptors[1], BOXRIG_POSIX_PTY_STAGE_STDIO, errno);
         }
-        free(pty);
-        errno = saved_errno;
-        return -1;
+        close(slave);
+        if (setenv("TERM", terminal_type, 1) == -1)
+            child_failure(descriptors[1], BOXRIG_POSIX_PTY_STAGE_ENVIRONMENT, errno);
+        execvp(arguments[0], arguments);
+        child_failure(descriptors[1], BOXRIG_POSIX_PTY_STAGE_EXEC, errno);
     }
+    close(slave);
+    close(descriptors[1]);
+    pty->child_process = process;
+    pty->spawn_descriptor = descriptors[0];
+    pty->spawn_result = result;
     *pty_out = pty;
+    if (diagnostic_out != NULL) *diagnostic_out = result;
+    return 0;
+failed: {
+    int saved_errno = errno;
+    if (slave >= 0) close(slave);
+    if (descriptors[0] >= 0) close(descriptors[0]);
+    if (descriptors[1] >= 0) close(descriptors[1]);
+    if (pty != NULL) {
+        if (pty->master_descriptor >= 0) close(pty->master_descriptor);
+        free(pty);
+    }
+    result = (boxrig_posix_pty_spawn_result){BOXRIG_POSIX_PTY_SPAWN_FAILED, stage, saved_errno};
+    if (diagnostic_out != NULL) *diagnostic_out = result;
+    errno = saved_errno;
+    return -1;
+}
+}
+
+int boxrig_posix_pty_spawn_descriptor(const boxrig_posix_pty *pty)
+{
+    if (pty == NULL) { errno = EINVAL; return -1; }
+    return pty->spawn_descriptor;
+}
+
+int boxrig_posix_pty_get_spawn_result(boxrig_posix_pty *pty, boxrig_posix_pty_spawn_result *result_out)
+{
+    if (pty == NULL || result_out == NULL) { errno = EINVAL; return -1; }
+    while (pty->spawn_result.state == BOXRIG_POSIX_PTY_SPAWN_PENDING) {
+        ssize_t count = read(pty->spawn_descriptor, pty->spawn_bytes + pty->spawn_length,
+            sizeof(pty->spawn_bytes) - pty->spawn_length);
+        if (count == -1 && errno == EINTR) continue;
+        if (count == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) break;
+        if (count <= 0) {
+            if (count == 0 && pty->spawn_length == 0)
+                pty->spawn_result.state = BOXRIG_POSIX_PTY_SPAWN_SUCCEEDED;
+            else pty->spawn_result = (boxrig_posix_pty_spawn_result){BOXRIG_POSIX_PTY_SPAWN_FAILED,
+                BOXRIG_POSIX_PTY_STAGE_DIAGNOSTIC, count == 0 ? EIO : errno};
+            break;
+        }
+        pty->spawn_length += (size_t)count;
+        if (pty->spawn_length == sizeof(pty->spawn_bytes)) {
+            memcpy(&pty->spawn_result, pty->spawn_bytes, sizeof(pty->spawn_result));
+            if (pty->spawn_result.state != BOXRIG_POSIX_PTY_SPAWN_FAILED ||
+                pty->spawn_result.stage < BOXRIG_POSIX_PTY_STAGE_SESSION ||
+                pty->spawn_result.stage > BOXRIG_POSIX_PTY_STAGE_EXEC || pty->spawn_result.error_number <= 0)
+                pty->spawn_result = (boxrig_posix_pty_spawn_result){BOXRIG_POSIX_PTY_SPAWN_FAILED,
+                    BOXRIG_POSIX_PTY_STAGE_DIAGNOSTIC, EIO};
+        }
+    }
+    *result_out = pty->spawn_result;
     return 0;
 }
 
@@ -169,5 +282,6 @@ void boxrig_posix_pty_destroy(boxrig_posix_pty *pty)
     if (pty->master_descriptor >= 0) {
         close(pty->master_descriptor);
     }
+    if (pty->spawn_descriptor >= 0) close(pty->spawn_descriptor);
     free(pty);
 }
