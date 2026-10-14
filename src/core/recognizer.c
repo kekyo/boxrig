@@ -1183,10 +1183,22 @@ boxrig_status boxrig_terminal_register_text_recognizer(
     candidate.scope = options->scope;
     candidate.limits = options->limits;
     candidate.pattern_length = options->pattern_length;
+    if (options->limits.line_byte_capacity == 0u ||
+        options->limits.line_column_capacity == 0u ||
+        options->limits.line_match_capacity == 0u ||
+        options->limits.result_capacity == 0u ||
+        options->limits.dirty_line_capacity == 0u ||
+        options->limits.snapshot_byte_capacity == 0u ||
+        options->limits.snapshot_line_capacity == 0u) {
+        return BOXRIG_STATUS_INVALID_ARGUMENT;
+    }
+    boxrig_regex_limits regex_limits = boxrig_regex_limits_default();
+    regex_limits.state_capacity = options->limits.state_capacity;
+    regex_limits.quantifier_capacity = options->limits.quantifier_capacity;
     status = boxrig_regex_compile(
         options->pattern,
         options->pattern_length,
-        &options->limits,
+        &regex_limits,
         diagnostic_out,
         &candidate.program);
     if (status != BOXRIG_STATUS_OK) {

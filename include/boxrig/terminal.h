@@ -7,6 +7,8 @@
 #ifndef BOXRIG_TERMINAL_H
 #define BOXRIG_TERMINAL_H
 
+#include "boxrig/regex.h"
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -52,21 +54,6 @@ typedef struct boxrig_key_mapping boxrig_key_mapping;
 
 /** Maximum upper bound accepted by one finite regex quantifier. */
 #define BOXRIG_TEXT_RECOGNIZER_QUANTIFIER_CAPACITY_MAX ((size_t)4096u)
-
-/** Result codes returned by fallible boxrig operations. */
-typedef enum boxrig_status {
-    BOXRIG_STATUS_OK = 0,
-    BOXRIG_STATUS_INVALID_ARGUMENT,
-    BOXRIG_STATUS_OUT_OF_MEMORY,
-    BOXRIG_STATUS_LIMIT_EXCEEDED,
-    BOXRIG_STATUS_WOULD_BLOCK,
-    /** A current result set is not available until bounded work completes. */
-    BOXRIG_STATUS_INCOMPLETE,
-    /** A retained text position or range no longer names the same text. */
-    BOXRIG_STATUS_STALE,
-    /** An exclusive owner already controls this operation. */
-    BOXRIG_STATUS_BUSY
-} boxrig_status;
 
 /** Measurement of the first terminal text cluster in a UTF-8 buffer. */
 typedef struct boxrig_text_cluster_measurement {
@@ -294,40 +281,6 @@ typedef enum boxrig_text_recognizer_scope {
     /** Scan primary text followed by alternate-screen text. */
     BOXRIG_TEXT_RECOGNIZER_SCOPE_BOTH
 } boxrig_text_recognizer_scope;
-
-/** Stable machine-readable result of compiling a bounded regular expression. */
-typedef enum boxrig_text_regex_diagnostic_code {
-    /** Compilation succeeded. */
-    BOXRIG_TEXT_REGEX_DIAGNOSTIC_NONE = 0,
-    /** Pattern bytes are not valid RFC 3629 UTF-8. */
-    BOXRIG_TEXT_REGEX_INVALID_UTF8,
-    /** A backslash escape is incomplete or unsupported. */
-    BOXRIG_TEXT_REGEX_INVALID_ESCAPE,
-    /** A group or scalar class delimiter is missing or unexpected. */
-    BOXRIG_TEXT_REGEX_UNBALANCED_DELIMITER,
-    /** A scalar-class range is reversed or otherwise malformed. */
-    BOXRIG_TEXT_REGEX_INVALID_RANGE,
-    /** Syntax outside the documented boxrig regular language was used. */
-    BOXRIG_TEXT_REGEX_UNSUPPORTED_SYNTAX,
-    /** A finite quantifier is malformed or has a reversed range. */
-    BOXRIG_TEXT_REGEX_INVALID_QUANTIFIER,
-    /** The complete expression can match an empty string. */
-    BOXRIG_TEXT_REGEX_NULLABLE,
-    /** Pattern bytes exceed the public or configured capacity. */
-    BOXRIG_TEXT_REGEX_PATTERN_LIMIT,
-    /** A finite quantifier exceeds its configured upper bound. */
-    BOXRIG_TEXT_REGEX_QUANTIFIER_LIMIT,
-    /** Thompson compilation exceeds its configured state capacity. */
-    BOXRIG_TEXT_REGEX_STATE_LIMIT
-} boxrig_text_regex_diagnostic_code;
-
-/** Compile failure location without a borrowed error-message pointer. */
-typedef struct boxrig_text_regex_diagnostic {
-    /** Machine-readable compile result. */
-    boxrig_text_regex_diagnostic_code code;
-    /** UTF-8 byte offset of the failure, or pattern length on success. */
-    size_t pattern_offset;
-} boxrig_text_regex_diagnostic;
 
 /**
  * Strict per-recognizer resource limits.

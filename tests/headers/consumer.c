@@ -57,5 +57,22 @@ int main(void)
 #endif
 
     boxrig_terminal_destroy(terminal);
+    boxrig_regex_limits limits = boxrig_regex_limits_default();
+    boxrig_regex_program *program = NULL;
+    boxrig_text_regex_diagnostic diagnostic;
+    const uint8_t text[] = {'a'};
+    assert(boxrig_regex_compile(text, sizeof(text), &limits, &diagnostic,
+                                &program) == BOXRIG_STATUS_OK);
+    boxrig_regex_matcher *matcher = NULL;
+    size_t offset, used;
+    assert(boxrig_regex_matcher_create(program, text, sizeof(text), 0,
+                                       &offset, &matcher) == BOXRIG_STATUS_OK);
+    boxrig_regex_program_destroy(program);
+    boxrig_regex_progress progress;
+    boxrig_regex_match match;
+    assert(boxrig_regex_matcher_resume(matcher, 64, &used, &progress, &match) ==
+           BOXRIG_STATUS_OK);
+    assert(progress == BOXRIG_REGEX_MATCH && match.start == 0 && match.end == 1);
+    boxrig_regex_matcher_destroy(matcher);
     return 0;
 }
