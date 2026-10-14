@@ -12,7 +12,7 @@ static HRESULT create_result = S_OK;
 static HRESULT packaged_result = S_OK;
 static const wchar_t *package_dll;
 static bool check_fallback_cleanup;
-static bool fail_process;
+static DWORD process_error;
 static unsigned creates, closes, resizes, processes;
 static HANDLE console_token;
 static HANDLE owned_handles[32];
@@ -126,8 +126,8 @@ BOOL WINAPI boxrig_test_CreateProcessW(LPCWSTR application, LPWSTR command,
     assert(environment == NULL && directory == NULL);
     assert(flags == EXTENDED_STARTUPINFO_PRESENT && startup != NULL);
     processes++;
-    if (fail_process) {
-        SetLastError(ERROR_FILE_NOT_FOUND);
+    if (process_error != ERROR_SUCCESS) {
+        SetLastError(process_error);
         return FALSE;
     }
     information->hProcess = CreateEventW(NULL, TRUE, FALSE, NULL);
@@ -188,7 +188,7 @@ int main(void)
     assert(owned_count == 0);
 
     create_result = S_OK;
-    fail_process = true;
+    process_error = ERROR_FILE_NOT_FOUND;
     assert(boxrig_win32_pty_spawn_with_config(L"test", 24, 80, &config,
         &diagnostic, &pty) == -1);
     assert(pty == NULL && GetLastError() == ERROR_FILE_NOT_FOUND);
@@ -197,7 +197,7 @@ int main(void)
     assert(creates == 2 && closes == 2 && processes == 1);
     assert(owned_count == 0);
 
-    fail_process = false;
+    process_error = ERROR_SUCCESS;
     assert(boxrig_win32_pty_spawn_with_config(L"test", 24, 80, &config,
         &diagnostic, &pty) == 0);
     assert(diagnostic.selected_backend == BOXRIG_WIN32_PTY_BACKEND_SYSTEM);
@@ -353,12 +353,21 @@ int main(void)
     }
     packaged_result = S_OK;
     config.policy = BOXRIG_WIN32_PTY_PACKAGED_PREFERRED;
-    fail_process = true;
-    assert(boxrig_win32_pty_spawn_with_config(L"test", 24, 80, &config,
-        &diagnostic, &pty) == -1);
-    assert(diagnostic.stage == BOXRIG_WIN32_PTY_STAGE_CREATE_PROCESS);
-    assert(!diagnostic.fallback_attempted && GetModuleHandleW(dll) == NULL && owned_count == 0);
-    fail_process = false;
+    const DWORD process_errors[] = {ERROR_FILE_NOT_FOUND, ERROR_ACCESS_DENIED, ERROR_BAD_EXE_FORMAT};
+    for (size_t index = 0; index < sizeof(process_errors) / sizeof(process_errors[0]); index++) {
+        process_error = process_errors[index];
+        const unsigned before_processes = processes, before_creates = creates;
+        assert(boxrig_win32_pty_spawn_with_config(L"test", 24, 80, &config,
+            &diagnostic, &pty) == -1);
+        assert(pty == NULL && GetLastError() == process_error);
+        assert(diagnostic.stage == BOXRIG_WIN32_PTY_STAGE_CREATE_PROCESS);
+        assert(diagnostic.win32_error == process_error && diagnostic.attempt_count == 1);
+        assert(diagnostic.attempts[0].win32_error == process_error);
+        assert(diagnostic.attempts[0].hresult_valid && diagnostic.attempts[0].hresult == S_OK);
+        assert(processes == before_processes + 1 && creates == before_creates + 1);
+        assert(!diagnostic.fallback_attempted && GetModuleHandleW(dll) == NULL && owned_count == 0);
+    }
+    process_error = ERROR_SUCCESS;
 
     assert(DeleteFileW(dll));
     wcscpy(basename + 1, L"pty_runtime_missing.dll");

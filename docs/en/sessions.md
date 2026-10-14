@@ -97,6 +97,20 @@ Choosing OS-supplied or bundled ConPTY is a PTY setting.
 Diagnostics record the selected backend, attempted stage, and failure reason.
 Do not infer successful creation from the Windows version alone.
 
+Keep spawn diagnostics separate from process exit results.
+The report from `boxrig_win32_pty_spawn_with_config()` includes the failure stage, Win32 error, ConPTY HRESULT, and fallback attempts.
+Success records `CreateProcessW()` success; it does not guarantee application readiness or continued execution.
+See [Microsoft's process creation contract](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-createprocessw).
+
+Observe exit through the borrowed HANDLE from `boxrig_win32_pty_process_handle()`.
+Wait until it is signaled, for example with Cardio's `from_win32_handle()`, before obtaining the exit value with `GetExitCodeProcess()`.
+Normal exit 127 is not a spawn failure. Exit value 259 is also a real exit result when the handle is signaled.
+Comparing 259 with `STILL_ACTIVE` alone can keep waiting after termination, as described in [Microsoft's exit status documentation](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-getexitcodeprocess).
+Finish or cancel registered waits before destroying the PTY; do not close the borrowed HANDLE directly.
+
+Runnable diagnostic and exit drivers are available for [POSIX](../../tests/test_posix_spawn.c) and [Win32](../../tests/win32/test_pty_spawn.cpp).
+At this stage, startup and failure cleanup are synchronous; GUI responsiveness and cancellation during startup are separate verification tasks.
+
 ## Connect a custom transport
 
 For a socket or another transport, register nonblocking read and write operations as `read` and `write` in `boxrig_session_transport`.

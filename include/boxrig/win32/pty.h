@@ -165,6 +165,9 @@ boxrig_win32_pty_config boxrig_win32_pty_config_default(void);
  * @remarks Calls do not share diagnostic storage. The minimum system ConPTY
  * version is Windows 10 version 1809. The public header does not require a
  * Windows 10 SDK target macro. Communication handles use synchronous I/O.
+ * Preparation and failure cleanup run synchronously. A successful return
+ * records CreateProcessW success, not application readiness or continued
+ * execution; observe the process handle separately for its eventual exit.
  * Packaged policies require an absolute directory. Only package defects and
  * known capability failures can trigger fallback, before starting the child.
  * Access, resource and child-start failures are returned without retrying.
@@ -229,6 +232,10 @@ HANDLE boxrig_win32_pty_output_handle(const boxrig_win32_pty *pty);
  *
  * @param pty Pseudoconsole to inspect.
  * @return Parent-owned waitable process handle, or NULL for invalid input.
+ * @remarks Borrowed until PTY destruction; do not close it. Finish or cancel
+ * every registered wait before destroying the PTY. After the handle becomes
+ * signaled, GetExitCodeProcess() returns the actual exit code, including 259.
+ * The numeric value STILL_ACTIVE alone cannot determine process liveness.
  */
 HANDLE boxrig_win32_pty_process_handle(const boxrig_win32_pty *pty);
 

@@ -97,6 +97,21 @@ OS付属と同梱版のConPTYの選択はPTYの設定です。
 診断には選択した方式、試行段階、失敗理由が残ります。
 生成に成功したかどうかを、Windowsのバージョンだけで推測しないでください。
 
+起動診断と終了結果は別々に保持します。
+`boxrig_win32_pty_spawn_with_config()`が返す診断には、失敗段階、Win32エラー、ConPTYが返したHRESULT、fallbackの経過が含まれます。
+成功が示すのは`CreateProcessW()`の成功までで、アプリケーションが利用可能になったことや、その後も実行中であることは保証しません。
+[Microsoftの生成結果の契約](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-createprocessw)も参照してください。
+
+終了の監視には、`boxrig_win32_pty_process_handle()`で取得した借用HANDLEを使います。
+Cardioの`from_win32_handle()`などでsignaledを確認してから、`GetExitCodeProcess()`の終了値を取得してください。
+通常終了127は起動失敗ではありません。終了値259も、signaledであれば実際の終了結果です。
+259を`STILL_ACTIVE`と比較するだけでは、終了後も待ち続けることがあります。
+[Microsoftの終了値の説明](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-getexitcodeprocess)にある注意点です。
+待機を完了または取り消してからPTYを破棄し、借用HANDLEを直接閉じないでください。
+
+起動と終了を分けて確認するドライバーは、[POSIX](../../tests/test_posix_spawn.c)と[Win32](../../tests/win32/test_pty_spawn.cpp)にあります。
+この段階では起動と失敗時の後始末は同期処理で、起動中のGUI応答や中止は別の検証対象です。
+
 ## 独自の通信路につなぐ
 
 ソケットなどを使う場合は、非ブロッキングの読み書き処理を`boxrig_session_transport`の`read`と`write`へ登録します。

@@ -4211,6 +4211,14 @@ test-win32-pty-runtime: $(MINGW_AMD64_BUILD_DIR)/tests/test_pty_runtime.exe $(MI
 
 test: test-win32-pty-runtime
 
+$(MINGW_AMD64_BUILD_DIR)/tests/test_pty_spawn.exe: tests/win32/test_pty_spawn.cpp $(MINGW_AMD64_WIN32_LIBRARY) deps/cardio/include/cardio.h | $(MINGW_AMD64_BUILD_DIR)/tests
+	$(MINGW_AMD64_CXX) $(PUBLIC_CPPFLAGS) $(MINGW_WIN32_CPPFLAGS) -Ideps/cardio/include $(CFLAGS) -std=c++20 $(WARNINGS) -static -municode $< $(MINGW_AMD64_WIN32_LIBRARY) -lversion -o $@
+
+$(MINGW_I686_BUILD_DIR)/tests/test_pty_spawn.exe: tests/win32/test_pty_spawn.cpp $(MINGW_I686_WIN32_LIBRARY) deps/cardio/include/cardio.h | $(MINGW_I686_BUILD_DIR)/tests
+	$(MINGW_I686_CXX) $(PUBLIC_CPPFLAGS) $(MINGW_WIN32_CPPFLAGS) -Ideps/cardio/include $(CFLAGS) -std=c++20 $(WARNINGS) -static -municode $< $(MINGW_I686_WIN32_LIBRARY) -lversion -o $@
+
+test-p2-win32: $(MINGW_AMD64_BUILD_DIR)/tests/test_pty_spawn.exe $(MINGW_I686_BUILD_DIR)/tests/test_pty_spawn.exe
+
 $(BUILD_DIR)/tests/test_decoration_demo: tests/test_decoration_demo.c examples/boxrig_term/common/decoration_demo.c examples/boxrig_term/common/color_demo.c $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) tests/test_decoration_demo.c examples/boxrig_term/common/decoration_demo.c examples/boxrig_term/common/color_demo.c $(UI_LIBRARY) $(LIBRARY) -o $@
 
