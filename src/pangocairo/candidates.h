@@ -9,9 +9,10 @@
 typedef struct boxrig_pango_candidate_frame {
     boxrig_ui_candidate_layout layout;
     PangoLayout *items[BOXRIG_UI_CANDIDATE_PAGE_MAXIMUM];
-    PangoLayout *auxiliary, *auxiliary_above;
+    PangoLayout *auxiliary, *auxiliary_above, *panel_text, *panel_preedit;
     size_t page, selected;
     int padding;
+    int preedit_scroll;
     bool cursor_visible;
 } boxrig_pango_candidate_frame;
 

@@ -45,20 +45,25 @@ typedef enum boxrig_ui_candidate_orientation {
     BOXRIG_UI_CANDIDATE_HORIZONTAL /**< Place a page on one row when it fits. */
 } boxrig_ui_candidate_orientation;
 
-/** Whether entry indices address a complete table or only the received page. */
+/** Candidate data supplied by the engine, without inferred entry boundaries. */
 typedef enum boxrig_ui_candidate_format {
     BOXRIG_UI_CANDIDATE_TABLE = 0, /**< Complete candidate table with absolute indices. */
-    BOXRIG_UI_CANDIDATE_PAGE /**< One page; total count and absolute page number are unknown. */
+    BOXRIG_UI_CANDIDATE_PAGE, /**< One page; total count and absolute page number are unknown. */
+    BOXRIG_UI_CANDIDATE_STRING_PANEL /**< Opaque text and preedit; entry and page information is unavailable. */
 } boxrig_ui_candidate_format;
 
-/** Plain UTF-8 candidate data. Applying it never writes terminal text. */
+/** Plain UTF-8 candidate data. Applying it never writes terminal text.
+ * STRING_PANEL uses only panel strings, their byte cursor and auxiliary text;
+ * count, page_size, cursor, entry/page flags and orientation must be zero,
+ * and items/labels must be NULL. Other formats leave the panel fields empty.
+ */
 typedef struct boxrig_ui_candidate_snapshot {
     boxrig_ui_candidate_format format; /**< Determines the scope of count and cursor. */
     size_t count; /**< Received entries, bounded by BOXRIG_UI_CANDIDATES_MAXIMUM. */
     size_t page_size; /**< Page size from 1 to 16; equals count for PAGE. Zero is allowed when empty. */
     size_t cursor; /**< Selected entry in this snapshot, or zero when empty/unselected. */
     boxrig_ui_candidate_orientation orientation; /**< Requested page direction. */
-    bool visible; /**< Whether the lookup table is shown. */
+    bool visible; /**< Show entries, or STRING_PANEL text and preedit. */
     bool cursor_visible; /**< Whether the selected entry is highlighted. */
     bool auxiliary_visible; /**< Show text below entries; PAGE also supports text-only panels. */
     bool auxiliary_above_visible; /**< Show supplementary text above entries. */
@@ -68,6 +73,9 @@ typedef struct boxrig_ui_candidate_snapshot {
     const char *const *labels; /**< Optional page_size labels; individual labels may be NULL. */
     const char *auxiliary; /**< Optional NUL-terminated supplementary text. */
     const char *auxiliary_above; /**< Optional NUL-terminated text above the entries. */
+    const char *panel_text; /**< STRING_PANEL only: optional opaque candidate text, without inferred entries. */
+    const char *panel_preedit; /**< STRING_PANEL only: optional preedit displayed within the panel. */
+    size_t panel_cursor; /**< UTF-8 byte boundary in panel_preedit; zero when absent. Never an entry index. */
 } boxrig_ui_candidate_snapshot;
 
 /** Rectangle in view-local output pixels, independent of desktop coordinates. */
@@ -85,6 +93,9 @@ typedef struct boxrig_ui_candidate_layout {
     boxrig_ui_candidate_rectangle items[BOXRIG_UI_CANDIDATE_PAGE_MAXIMUM]; /**< Visible entry rectangles. */
     boxrig_ui_candidate_rectangle auxiliary; /**< At most two lines of supplementary text. */
     boxrig_ui_candidate_rectangle auxiliary_above; /**< At most two lines above the entries. */
+    boxrig_ui_candidate_rectangle panel_text; /**< Wrapped STRING_PANEL candidate text, bounded by the viewport. */
+    boxrig_ui_candidate_rectangle panel_preedit; /**< STRING_PANEL preedit row, scrolled to keep its caret visible. */
+    boxrig_ui_candidate_rectangle panel_caret; /**< Shaped preedit insertion point; zero size when hidden. */
     size_t first; /**< Index in the snapshot of the first displayed candidate. */
     size_t count; /**< Number of displayed candidates. */
     bool horizontal; /**< Effective row arrangement. */

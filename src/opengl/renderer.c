@@ -3212,7 +3212,7 @@ static int prepare_candidates(boxrig_ogl_renderer *renderer, boxrig_ui_view *vie
     uint32_t width = grid_width < renderer->target.width ? (uint32_t)grid_width : renderer->target.width;
     uint32_t height = grid_height < renderer->target.height ? (uint32_t)grid_height : renderer->target.height;
     boxrig_ui_candidate_rectangle anchor = {0};
-    if (candidates.snapshot.count != 0 || candidates.snapshot.auxiliary_visible || candidates.snapshot.auxiliary_above_visible) {
+    if (candidates.snapshot.visible || candidates.snapshot.auxiliary_visible || candidates.snapshot.auxiliary_above_visible) {
         if (composition->candidate.visible) {
             anchor = (boxrig_ui_candidate_rectangle){(int32_t)composition->candidate.spot_x,
                 (int32_t)composition->candidate.exclude_y, 1, (int32_t)composition->candidate.exclude_height};

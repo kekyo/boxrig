@@ -10,6 +10,8 @@ void boxrig_pango_candidates_dispose(boxrig_pango_candidate_frame *frame)
         if (frame->items[i] != NULL) g_object_unref(frame->items[i]);
     if (frame->auxiliary != NULL) g_object_unref(frame->auxiliary);
     if (frame->auxiliary_above != NULL) g_object_unref(frame->auxiliary_above);
+    if (frame->panel_text != NULL) g_object_unref(frame->panel_text);
+    if (frame->panel_preedit != NULL) g_object_unref(frame->panel_preedit);
     memset(frame, 0, sizeof(*frame));
 }
 
@@ -46,7 +48,7 @@ static char *auxiliary_lines(const char *source)
         if (a == 0xe2 && i + 2 < length && (unsigned char)source[i + 1] == 0x80 &&
             (unsigned char)source[i + 2] == 0xa9) { i += 2; newline = true; }
         /* Pango's negative height is per paragraph. A line separator retains
-         * explicit line breaks in one paragraph, giving a true two-line cap. */
+         * explicit line breaks in one paragraph, giving a true line cap. */
         if (newline) { memcpy(text + used, "\xe2\x80\xa8", 3); used += 3; }
         else text[used++] = source[i];
     }
@@ -100,23 +102,33 @@ int boxrig_pango_candidates_prepare(PangoContext *context,
         pango_layout_get_pixel_size(frame->items[i], &m.items[i], &height);
         if (height > m.line_height) m.line_height = height;
     }
-    for (size_t section = 0; section < 2; section++) {
-        const char *source = section == 0 ? s->auxiliary_above : s->auxiliary;
-        bool visible = section == 0 ? s->auxiliary_above_visible : s->auxiliary_visible;
+    const char *sources[] = {s->auxiliary_above, s->auxiliary, s->panel_text, s->panel_preedit};
+    bool visible_sections[] = {s->auxiliary_above_visible, s->auxiliary_visible,
+        s->format == BOXRIG_UI_CANDIDATE_STRING_PANEL && s->visible,
+        s->format == BOXRIG_UI_CANDIDATE_STRING_PANEL && s->visible};
+    PangoLayout **layouts[] = {&frame->auxiliary_above, &frame->auxiliary, &frame->panel_text, &frame->panel_preedit};
+    int32_t *widths[] = {&m.auxiliary_above_width, &m.auxiliary_width, &m.panel_text_width, &m.panel_preedit_width};
+    int32_t preedit_lines = 0;
+    int32_t *line_counts[] = {&m.auxiliary_above_lines, &m.auxiliary_lines, &m.panel_text_lines, &preedit_lines};
+    for (size_t section = 0; section < 4; section++) {
+        const char *source = sources[section];
+        bool visible = visible_sections[section];
         if (!visible || source == NULL || source[0] == 0) continue;
-        PangoLayout **layout = section == 0 ? &frame->auxiliary_above : &frame->auxiliary;
-        int32_t *width = section == 0 ? &m.auxiliary_above_width : &m.auxiliary_width;
-        int32_t *line_count = section == 0 ? &m.auxiliary_above_lines : &m.auxiliary_lines;
-        char *text = auxiliary_lines(source);
-        if (text == NULL) goto failure;
-        *layout = create_layout(context, font, features, fallback, text, false);
+        PangoLayout **layout = layouts[section];
+        int32_t *width = widths[section], *line_count = line_counts[section];
+        bool preedit = section == 3;
+        char *text = preedit ? NULL : auxiliary_lines(source);
+        if (!preedit && text == NULL) goto failure;
+        *layout = create_layout(context, font, features, fallback, preedit ? source : text, preedit);
         free(text);
         if (*layout == NULL) goto failure;
-        constrain_layout(*layout, m.width - 2 - frame->padding * 2, 2);
+        int maximum_lines = section == 2 && m.height > 0 && m.line_height > 0 ?
+            (m.height - 1) / m.line_height + 1 : 2;
+        if (!preedit) constrain_layout(*layout, m.width - 2 - frame->padding * 2, maximum_lines);
         int height;
         pango_layout_get_pixel_size(*layout, width, &height);
         int lines = pango_layout_get_line_count(*layout);
-        *line_count = lines > 2 ? 2 : lines;
+        *line_count = lines > maximum_lines ? maximum_lines : lines;
         int line_height = lines == 0 ? 0 : (height + lines - 1) / lines;
         if (line_height > m.line_height) m.line_height = line_height;
     }
@@ -125,12 +137,29 @@ int boxrig_pango_candidates_prepare(PangoContext *context,
         size_t source = frame->layout.first - frame->page + i;
         constrain_layout(frame->items[source], frame->layout.items[i].width - frame->padding * 2, 1);
     }
-    for (size_t section = 0; section < 2; section++) {
-        PangoLayout *layout = section == 0 ? frame->auxiliary_above : frame->auxiliary;
-        boxrig_ui_candidate_rectangle rect = section == 0 ? frame->layout.auxiliary_above : frame->layout.auxiliary;
+    const boxrig_ui_candidate_rectangle rectangles[] = {frame->layout.auxiliary_above,
+        frame->layout.auxiliary, frame->layout.panel_text};
+    for (size_t section = 0; section < 3; section++) {
+        PangoLayout *layout = *layouts[section];
+        boxrig_ui_candidate_rectangle rect = rectangles[section];
         if (layout == NULL || rect.height <= 0) continue;
         int lines = (rect.height - frame->padding * 2) / m.line_height;
         constrain_layout(layout, rect.width - frame->padding * 2, lines < 1 ? 1 : lines);
+    }
+    boxrig_ui_candidate_rectangle preedit = frame->layout.panel_preedit;
+    int text_width = preedit.width - frame->padding * 2;
+    int text_height = preedit.height - frame->padding * 2;
+    if (frame->panel_preedit != NULL && text_width > 0 && text_height > 0) {
+        PangoRectangle caret;
+        pango_layout_get_cursor_pos(frame->panel_preedit, (int)s->panel_cursor, &caret, NULL);
+        int x = PANGO_PIXELS(caret.x), y = PANGO_PIXELS(caret.y);
+        int height = PANGO_PIXELS(caret.height);
+        if (x >= text_width) frame->preedit_scroll = x - text_width + 1;
+        if (x < 0) frame->preedit_scroll = x;
+        if (height > text_height - y) height = text_height - y;
+        if (y >= 0 && height > 0) frame->layout.panel_caret = (boxrig_ui_candidate_rectangle){
+            preedit.x + frame->padding + x - frame->preedit_scroll,
+            preedit.y + frame->padding + y, 1, height};
     }
     return 0;
 failure:
@@ -145,14 +174,14 @@ static void source_pixel(cairo_t *cr, uint32_t pixel)
 }
 
 static void draw_text(cairo_t *cr, PangoLayout *text, boxrig_ui_candidate_rectangle rectangle,
-    int padding, uint32_t color)
+    int padding, int scroll, uint32_t color)
 {
     if (text == NULL || rectangle.width <= 0 || rectangle.height <= 0) return;
     cairo_save(cr);
     cairo_rectangle(cr, rectangle.x, rectangle.y, rectangle.width, rectangle.height);
     cairo_clip(cr);
     source_pixel(cr, color);
-    cairo_move_to(cr, rectangle.x + padding, rectangle.y + padding);
+    cairo_move_to(cr, rectangle.x + padding - scroll, rectangle.y + padding);
     pango_cairo_show_layout(cr, text);
     cairo_restore(cr);
 }
@@ -180,10 +209,18 @@ int boxrig_pango_candidates_draw(cairo_t *cr, const boxrig_pango_candidate_frame
             cairo_fill(cr);
         }
         draw_text(cr, frame->items[frame->layout.first - frame->page + i], item,
-            frame->padding, selected ? background : foreground);
+            frame->padding, 0, selected ? background : foreground);
     }
-    draw_text(cr, frame->auxiliary, frame->layout.auxiliary, frame->padding, foreground);
-    draw_text(cr, frame->auxiliary_above, frame->layout.auxiliary_above, frame->padding, foreground);
+    draw_text(cr, frame->auxiliary, frame->layout.auxiliary, frame->padding, 0, foreground);
+    draw_text(cr, frame->auxiliary_above, frame->layout.auxiliary_above, frame->padding, 0, foreground);
+    draw_text(cr, frame->panel_text, frame->layout.panel_text, frame->padding, 0, foreground);
+    draw_text(cr, frame->panel_preedit, frame->layout.panel_preedit, frame->padding, frame->preedit_scroll, foreground);
+    boxrig_ui_candidate_rectangle caret = frame->layout.panel_caret;
+    if (caret.width > 0 && caret.height > 0) {
+        source_pixel(cr, foreground);
+        cairo_rectangle(cr, caret.x, caret.y, caret.width, caret.height);
+        cairo_fill(cr);
+    }
     /* Border markers indicate clipped entries or an adjacent engine page,
      * without changing labels or selection or creating clickable controls. */
     source_pixel(cr, foreground);

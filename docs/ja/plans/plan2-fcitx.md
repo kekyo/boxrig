@@ -529,3 +529,13 @@ native Waylandに4系の公開設定と診断を追加し、付属ターミナ�
 Debian 13の実fcitx 4／Mozcでも、アドレスファイルを使ったGTK 3のAUTO選択と文書編集が成功しました。native Waylandでは、フォーカス喪失時のサーバー確定を端末出力と編集可能な文書の両方で確認しています。`test-fcitx5-auto`、`test-fcitx5-auto-real`、`test-wayland-input`の回帰試験と、Wayland版の付属ターミナルのビルドも成功しました。記録は`build/test-results/fcitx4/auto-native-green.log`、`native-document-green.log`、`auto-regression.log`と、Debian 13の配布環境試験ログにあります。
 
 この時点では文字列パネルは未実装です。4系のCLIENT表示を成功とは診断せず、段階5は継続中とします。
+
+### 段階5の文字列パネルを描画
+
+候補モデルへ`STRING_PANEL`形式を追加しました。候補文字列、パネル内の未確定文字、UTF-8バイト単位のカーソル位置を保持します。上下の補助文字列も表示でき、候補数や選択項目、ページ情報は持ちません。通知をコピーする際は、全文字列を合計した容量とUTF-8の妥当性、カーソルの文字境界を検査します。
+
+CairoとOpenGLの配置と描画は共通です。候補文字列は画面幅で折り返し、収まらない場合は省略記号を表示します。未確定文字はカーソルが見える位置まで横へ移動して描画します。小さな画面では、補助情報より未確定文字と候補の行を優先する配置です。カーソル位置はPangoの実際の文字配置から取得します。[位置取得API](https://docs.gtk.org/Pango/method.Layout.get_cursor_pos.html)
+
+実装前の失敗を確認した後、`test-ui-candidates`、`test-pangocairo-candidates`、`test-opengl-candidates`が成功しました。文字列の所有権、容量超過、不正UTF-8、不正カーソル、候補なしの表示、狭い画面での配置、表示後の消去を検証しています。描画結果は画素で検証し、保存画像も目視しました。既存のGTK 3／4の候補試験も成功しています。
+
+検証中に、候補数と補助文字列だけを調べる既存の消去判定では、新形式が残ることを確認しました。パネル文字列の保持状態も判定し、フォーカス喪失時に消去するよう修正済みです。記録は`build/test-results/fcitx4/panel-model-red.log`、`panel-opengl-red.log`、`panel-model-green.log`と`string-panel.png`に保存しました。この時点では描画モデルまでの実装であり、4系の通知への接続は次の作業です。
