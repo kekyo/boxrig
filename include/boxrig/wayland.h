@@ -8,6 +8,7 @@
 #define BOXRIG_WAYLAND_H
 
 #include "boxrig/ui.h"
+#include "boxrig/ime.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -241,7 +242,7 @@ typedef struct boxrig_wayland_serial {
 typedef enum boxrig_wayland_input_method {
     /** Use the compositor text-input protocol, with xkb compose fallback. */
     BOXRIG_WAYLAND_IME_WAYLAND = 0,
-    /** Prefer version-2 clause hints, otherwise a configured IBus daemon. */
+    /** Prefer version-2 clause hints, otherwise discover a running direct IME. */
     BOXRIG_WAYLAND_IME_AUTO,
     /** Connect directly to IBus, falling back when it is unavailable. */
     BOXRIG_WAYLAND_IME_IBUS,
@@ -249,22 +250,9 @@ typedef enum boxrig_wayland_input_method {
     BOXRIG_WAYLAND_IME_FCITX5
 } boxrig_wayland_input_method;
 
-/** Lifecycle of the optional direct IBus connection. */
-typedef enum boxrig_wayland_ibus_state {
-    /** The selected policy does not need an IBus connection. */
-    BOXRIG_WAYLAND_IBUS_DISABLED = 0,
-    /** An asynchronous bus or input-context request is being established. */
-    BOXRIG_WAYLAND_IBUS_CONNECTING,
-    /** The owned bus connection is usable. */
-    BOXRIG_WAYLAND_IBUS_READY,
-    /** IBus could not be reached; ordinary input remains available. */
-    BOXRIG_WAYLAND_IBUS_UNAVAILABLE
-} boxrig_wayland_ibus_state;
-
-
 /** Bounded display-wide context configuration. */
 typedef struct boxrig_wayland_context_config {
-    /** Input policy; defaults to compositor-managed Wayland. */
+    /** Input policy; defaults to AUTO. */
     boxrig_wayland_input_method input_method;
     /** Candidate display policy; AUTO keeps a capable standard Wayland route. */
     boxrig_ui_candidate_policy candidate_policy;
@@ -286,16 +274,10 @@ typedef struct boxrig_wayland_context_config {
 
 /** Queryable display-wide Wayland state. */
 typedef struct boxrig_wayland_context_diagnostic {
-    /** Currently selected route: WAYLAND or IBUS (never AUTO). */
+    /** Selected input route; AUTO while direct service discovery is pending. */
     boxrig_wayland_input_method input_method;
-    /** Current optional IBus connection state. */
-    boxrig_wayland_ibus_state ibus_state;
-    /** Number of focused, ready per-seat IBus input contexts. */
-    size_t active_ibus_context_count;
-    /** Outstanding asynchronous setup and key requests. */
-    size_t pending_ibus_request_count;
-    /** Recoverable IBus connection, protocol, or key-request errors. */
-    size_t ibus_error_count;
+    /** Common direct IME selection and transport diagnostics. */
+    boxrig_ime_diagnostic direct;
     /** Current asynchronous registry lifecycle. */
     boxrig_wayland_context_state state;
     /** First sticky failure, or BOXRIG_WAYLAND_FAILURE_NONE. */

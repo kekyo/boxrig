@@ -565,7 +565,7 @@ boxrig_wayland_context_config boxrig_wayland_context_config_default(void)
 {
     boxrig_wayland_context_config config;
 
-    config.input_method = BOXRIG_WAYLAND_IME_WAYLAND;
+    config.input_method = BOXRIG_WAYLAND_IME_AUTO;
     config.candidate_policy = BOXRIG_UI_CANDIDATE_AUTO;
     config.maximum_components = BOXRIG_WAYLAND_COMPONENTS_DEFAULT;
     config.maximum_work_items = BOXRIG_WAYLAND_WORK_ITEMS_DEFAULT;

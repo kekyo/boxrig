@@ -109,7 +109,7 @@ static void settle(void)
         boxrig_ui_component_diagnostic state;
         CHECK(widget_ime_state(widget, &ime) == BOXRIG_UI_OK);
         CHECK(widget_diagnostic(widget, &state) == BOXRIG_UI_OK);
-        if (ime.ibus_pending == 0 && ime.ibus_contexts == 1 && state.native_input_queue_depth == 0) break;
+        if (ime.direct.pending == 0 && ime.direct.contexts == 1 && state.native_input_queue_depth == 0) break;
         iterate();
     }
     g_source_remove(timer);
@@ -156,9 +156,11 @@ static void real_mozc(void)
 {
     GDBusConnection *bus = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, NULL);
     CHECK(bus != NULL);
+    GError *error = NULL;
     GVariant *reply = g_dbus_connection_call_sync(bus, "org.fcitx.Fcitx5", "/controller",
         "org.fcitx.Fcitx.Controller1", "SetCurrentIM", g_variant_new("(s)", "mozc"),
-        G_VARIANT_TYPE_UNIT, G_DBUS_CALL_FLAGS_NO_AUTO_START, 60000, NULL, NULL);
+        G_VARIANT_TYPE_UNIT, G_DBUS_CALL_FLAGS_NO_AUTO_START, 60000, NULL, &error);
+    if (error != NULL) fprintf(stderr, "fcitx5 SetCurrentIM: %s\n", error->message);
     CHECK(reply != NULL);
     g_variant_unref(reply);
     for (const char *letter = "kisha"; *letter != 0; letter++) key((guint)*letter);
@@ -212,12 +214,16 @@ int main(void)
 #else
     gtk_init();
 #endif
+    bool automatic = getenv("BOXRIG_TEST_IME_AUTO") != NULL;
+    const char *module = getenv("BOXRIG_TEST_GTK_MODULE");
+    if (automatic) g_object_set(gtk_settings_get_default(), "gtk-im-module",
+        module == NULL ? "gtk-im-context-simple" : module, NULL);
     boxrig_terminal_config config = boxrig_terminal_config_default();
     boxrig_ui_model *model;
     CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
     CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
     widget_config wc = widget_config_default();
-    wc.ime_policy = BOXRIG_GTK_IME_FCITX5;
+    wc.ime_policy = automatic ? BOXRIG_GTK_IME_AUTO : BOXRIG_GTK_IME_FCITX5;
     bool client_candidates = getenv("BOXRIG_TEST_FCITX_CANDIDATES") != NULL;
     wc.candidate_policy = client_candidates ? BOXRIG_UI_CANDIDATE_CLIENT : BOXRIG_UI_CANDIDATE_SYSTEM;
     wc.render_policy = BOXRIG_GTK_RENDER_CAIRO;
@@ -242,10 +248,19 @@ int main(void)
     frame();
     boxrig_gtk_ime_state state;
     CHECK(widget_ime_state(widget, &state) == BOXRIG_UI_OK);
+    if (automatic && (getenv("GTK_IM_MODULE") != NULL || (module != NULL && strcmp(module, "fcitx") == 0))) {
+        if (state.active_route != BOXRIG_GTK_IME_ROUTE_GTK || state.direct.state != BOXRIG_IME_DISABLED)
+            fprintf(stderr, "GTK delegation: route=%d direct=%d module=%s registry=%d/%d\n",
+                state.active_route, state.direct.state, state.gtk_module, state.registry_queried, state.registry_complete);
+        CHECK(state.active_route == BOXRIG_GTK_IME_ROUTE_GTK && state.direct.state == BOXRIG_IME_DISABLED);
+        CHECK(state.direct.contexts == 0 && state.candidate_owner == BOXRIG_UI_CANDIDATE_OWNER_SYSTEM);
+        puts("PASS explicit GTK modules and the actual fcitx delegate retain GTK ownership");
+        goto cleanup;
+    }
     if (GTK_MAJOR_VERSION == 4 && strcmp(state.display_type, "GdkX11Display") == 0) {
         CHECK(state.active_route == BOXRIG_GTK_IME_ROUTE_GTK);
-        CHECK(strcmp(state.gtk_module, "fcitx") == 0);
-        CHECK(state.ibus_contexts == 0);
+        CHECK(automatic || strcmp(state.gtk_module, "fcitx") == 0);
+        CHECK(state.direct.contexts == 0);
         puts("PASS GTK 4 X11 delegates explicit fcitx5 to the GTK module");
         goto cleanup;
     }
@@ -253,7 +268,7 @@ int main(void)
     settle();
     CHECK(widget_ime_state(widget, &state) == BOXRIG_UI_OK);
     CHECK(state.active_route == BOXRIG_GTK_IME_ROUTE_FCITX5);
-    CHECK(state.reason == BOXRIG_GTK_IME_REASON_EXPLICIT_FCITX5);
+    CHECK(automatic || state.reason == BOXRIG_GTK_IME_REASON_EXPLICIT_FCITX5);
     if (!client_candidates) CHECK(state.candidate_owner == BOXRIG_UI_CANDIDATE_OWNER_SYSTEM);
     if (getenv("BOXRIG_TEST_FCITX_REAL") != NULL) {
         real_mozc();

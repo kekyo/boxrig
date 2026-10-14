@@ -134,14 +134,12 @@ bool boxrig_wayland_ibus_initialize(boxrig_wayland_context *context)
         if (context->config.candidate_policy != BOXRIG_UI_CANDIDATE_CLIENT &&
             context->text_input_manager != NULL &&
             wl_proxy_get_version((struct wl_proxy *)context->text_input_manager) >= 2) return true;
-        const char *module = getenv("GTK_IM_MODULE");
-        const char *modifiers = getenv("XMODIFIERS");
-        if (module != NULL ? strcmp(module, "ibus") != 0 :
-            modifiers == NULL || strcmp(modifiers, "@im=ibus") != 0) return true;
     }
-    context->ibus = boxrig_ime_create(context->config.input_method == BOXRIG_WAYLAND_IME_FCITX5 ?
-        BOXRIG_IME_BACKEND_FCITX5 : BOXRIG_IME_BACKEND_IBUS, true, context->config.maximum_seats,
-        "boxrig-wayland", selection_changed, context);
+    context->ibus = context->config.input_method == BOXRIG_WAYLAND_IME_AUTO ?
+        boxrig_ime_create_auto(true, context->config.maximum_seats, "boxrig-wayland", NULL, selection_changed, context) :
+        boxrig_ime_create(context->config.input_method == BOXRIG_WAYLAND_IME_FCITX5 ?
+            BOXRIG_IME_BACKEND_FCITX5 : BOXRIG_IME_BACKEND_IBUS, true, context->config.maximum_seats,
+            "boxrig-wayland", selection_changed, context);
     return context->ibus != NULL;
 }
 
@@ -241,17 +239,10 @@ void boxrig_wayland_ibus_diagnostic(const boxrig_wayland_context *context,
     boxrig_ime_diagnostic state;
     boxrig_ime_get_diagnostic(context->ibus, &state);
     diagnostic->input_method = boxrig_wayland_ibus_selected(context) ?
-        (state.backend == BOXRIG_IME_BACKEND_FCITX5 ? BOXRIG_WAYLAND_IME_FCITX5 : BOXRIG_WAYLAND_IME_IBUS) : BOXRIG_WAYLAND_IME_WAYLAND;
-    switch (state.state) {
-    case BOXRIG_IME_DISABLED: diagnostic->ibus_state = BOXRIG_WAYLAND_IBUS_DISABLED; break;
-    case BOXRIG_IME_CONNECTING: diagnostic->ibus_state = BOXRIG_WAYLAND_IBUS_CONNECTING; break;
-    case BOXRIG_IME_READY: diagnostic->ibus_state = BOXRIG_WAYLAND_IBUS_READY; break;
-    case BOXRIG_IME_UNAVAILABLE: diagnostic->ibus_state = BOXRIG_WAYLAND_IBUS_UNAVAILABLE; break;
-    }
-    diagnostic->pending_ibus_request_count = state.pending;
-    diagnostic->ibus_error_count = state.errors;
-    diagnostic->active_ibus_context_count = state.contexts;
-    if (boxrig_wayland_ibus_selected(context)) diagnostic->input_capabilities |=
+        (state.backend == BOXRIG_IME_BACKEND_NONE ? BOXRIG_WAYLAND_IME_AUTO :
+         state.backend == BOXRIG_IME_BACKEND_FCITX5 ? BOXRIG_WAYLAND_IME_FCITX5 : BOXRIG_WAYLAND_IME_IBUS) : BOXRIG_WAYLAND_IME_WAYLAND;
+    diagnostic->direct = state;
+    if (boxrig_wayland_ibus_selected(context) && state.backend != BOXRIG_IME_BACKEND_NONE) diagnostic->input_capabilities |=
         state.backend == BOXRIG_IME_BACKEND_FCITX5 ? BOXRIG_WAYLAND_INPUT_CAPABILITY_FCITX5 :
             BOXRIG_WAYLAND_INPUT_CAPABILITY_IBUS;
 }

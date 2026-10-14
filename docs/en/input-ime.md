@@ -45,17 +45,25 @@ Check diagnostics for the requested policy, actual candidate owner, and reason.
 
 ## Choose an input route
 
-| Platform | Main input routes | Information to check |
+| Environment | Main input routes | What to inspect |
 | --- | --- | --- |
-| X11 | XIM, direct IBus | Connection state, input owner, candidate owner |
-| GTK 3/4 | GtkIMContext, direct IBus when applicable | Route and reason from `get_ime_state()` |
-| Native Wayland | Compositor text-input, direct IBus | Context input route and component diagnostics |
-| Win32 | IMM, TSF integration for editable documents | Input capabilities, reconversion and editing availability |
+| Native X11 | XIM | Connection, input owner, and candidate owner |
+| GTK 3/X11 and GTK 3/4/Wayland | GtkIMContext, direct IBus, direct fcitx 5 | Route, reason, and direct in `get_ime_state()` |
+| GTK 4/X11 | GtkIMContext | Selected GTK module |
+| Native Wayland | Compositor text-input, direct IBus, direct fcitx 5 | Context route and direct diagnostics; component candidate diagnostics |
+| Win32 | IMM, with TSF for editable documents | Input, reconversion, and editing capabilities |
 
-In GTK, choose the rendering backend and IME policy separately.
-Explicit GTK modules, the actual display, and runtime capabilities also affect selection.
-Do not infer that direct IBus is active from a policy name alone.
-In particular, GTK 4/X11 can use GTK's IBus module even with the IBus policy.
+GTK and native Wayland default to AUTO. GTK preserves an explicit `GTK_IM_MODULE` and an already selected fcitx module, delegating input to GTK. A supported Wayland input route is also preserved. When a direct connection is needed, AUTO discovers IBus and fcitx 5. Native X11 continues to use XIM.
+
+Direct AUTO selection uses the applicable GTK module, `XMODIFIERS`, then an explicit IBus address as hints. Native Wayland ignores `GTK_IM_MODULE`. Service ownership must be verified even when a hint exists. With no hint and multiple independent services, the initial preference is fcitx 5. Later arrivals do not replace a valid current selection. Discovery never starts a daemon.
+
+Applications can explicitly select 5 using `BOXRIG_GTK_IME_FCITX5` or `BOXRIG_WAYLAND_IME_FCITX5`, and can similarly select IBus. An unavailable explicit provider falls back to framework input without selecting another direct provider. GTK 4/X11 passes explicit policies to the corresponding GTK module. Rendering and IME policies are independent.
+
+The `direct` diagnostic reports the protocol, connection state, selection reason, conflicting hints, multiple providers, compatibility aliases, and counts of requests, errors, and contexts. `CONNECTING` means discovery or connection is pending; `UNAVAILABLE` means the eligible service is unavailable; `DISABLED` means input is delegated to the framework. Even with `READY`, an input target can wait for its own context creation. Inspect the active route and `direct.backend` instead of inferring the route from configuration alone.
+
+Client candidates from fcitx 5 contain one received page and upper/lower auxiliary text. Counts and cursor positions are local to that page; previous/next availability is recorded without inventing a total count or absolute page number. Until a valid panel notification arrives, the owner remains NONE with reason UNCONFIRMED. SYSTEM means delegation to system UI, not confirmation that a popup appeared on screen.
+
+On X11, client candidates may require `FCITX_X11_USE_CLIENT_SIDE_UI=True` in the daemon environment. Capabilities can also be adjusted according to the Wayland compositor and panel environment. If candidates are missing, inspect both configuration and candidate ownership diagnostics. [fcitx 5 capability adjustment](https://github.com/fcitx/fcitx5/blob/5.1.7/src/frontend/dbusfrontend/dbusfrontend.cpp), [official Wayland setup guide](https://fcitx-im.org/wiki/Using_Fcitx_5_on_Wayland)
 
 ## Supply an application-owned editable document
 

@@ -91,7 +91,7 @@ typedef struct boxrig_term_wayland_application {
     boxrig_ui_layout_action pending_layout_action;
     boxrig_wayland_component_diagnostic reported_candidate_state;
     boxrig_wayland_input_method reported_input_method;
-    boxrig_wayland_ibus_state reported_ibus_state;
+    boxrig_ime_diagnostic reported_direct;
     bool candidate_state_reported;
     boxrig_posix_pty *pty;
     boxrig_session *session;

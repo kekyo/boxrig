@@ -34,7 +34,7 @@ typedef enum boxrig_ui_candidate_reason {
     BOXRIG_UI_CANDIDATE_SYSTEM_REQUEST, /**< The caller requested system display. */
     BOXRIG_UI_CANDIDATE_STANDARD_INPUT, /**< The selected input route owns system candidates. */
     BOXRIG_UI_CANDIDATE_NO_RENDERER, /**< The selected renderer cannot present client candidates. */
-    BOXRIG_UI_CANDIDATE_IBUS_UNAVAILABLE, /**< The direct IBus connection is unavailable. */
+    BOXRIG_UI_CANDIDATE_IME_UNAVAILABLE, /**< The requested direct IME connection is unavailable. */
     BOXRIG_UI_CANDIDATE_UNCONFIRMED /**< Client display was requested but no panel notification has confirmed it. */
 } boxrig_ui_candidate_reason;
 

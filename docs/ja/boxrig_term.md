@@ -127,20 +127,22 @@ APIから設定する場合は、[フォント](./fonts-and-layout.md)、[色補
 
 | 環境変数 | 選択 |
 | --- | --- |
-| `BOXRIG_GTK_IME=auto/gtk/ibus` | GTKの自動選択、通常GTK、直接IBus |
-| `BOXRIG_WAYLAND_IME=auto/wayland/ibus` | native Waylandの自動選択、text-input-v3、直接IBus |
+| `BOXRIG_GTK_IME=auto/gtk/ibus/fcitx5` | GTKの自動選択、通常GTK、直接IBus、直接fcitx 5 |
+| `BOXRIG_WAYLAND_IME=auto/wayland/ibus/fcitx5` | native Waylandの自動選択、text-input-v3、直接IBus、直接fcitx 5 |
 | `BOXRIG_IME_CANDIDATES=auto/system/client` | 自動、OS側、端末内の候補 |
 
 空でない`GTK_IM_MODULE`はGTK側の自動選択より優先します。
 通常GTKだけを選ぶには`BOXRIG_GTK_IME=gtk`を使ってください。
 native Waylandで明示した`wayland`も端末内候補の指定より優先します。
 
-端末内候補は直接IBusの候補情報を描画する機能です。
+端末内候補は直接IBus／fcitx 5の候補情報を描画する機能です。
 標準GTK／Wayland経路から同じ候補一覧を取得できるわけではありません。
-GTK 4のX11経路は候補の座標処理をGTK moduleに任せるため、`ibus`を指定しても直接IBusには切り替わりません。
+GTK 4のX11経路は候補の座標処理をGTK moduleに任せるため、`ibus`や`fcitx5`を指定しても直接接続には切り替わりません。
 候補はキーボードで選び、候補領域のクリックをPTYへ送りません。
 focusを失うと候補を消し、復帰しても古い候補を再表示しません。
-`ime-route`、`candidate-owner`、`candidate-reason`の診断で実効経路を確認できます。
+既定のAUTOは設定と稼働中サービスから直接接続先を選択します。GTKが選択済みのfcitxモジュールは維持します。
+`ime-route`、`direct-backend`、`direct-selection`、`candidate-owner`、`candidate-reason`の診断で実効経路を確認できます。
+fcitx 5でCLIENTを要求した場合も、有効な候補通知を受け取るまでは候補所有者がNONEとなります。
 
 通常のデモはアプリ所有の編集文書を提供しません。
 そのため、IBusが周辺文字列を要求した場合の未対応警告は、画面に文字が表示できないという意味ではありません。

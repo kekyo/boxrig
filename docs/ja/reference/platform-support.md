@@ -93,6 +93,7 @@ WineでAPIが成功した結果を、Windowsの最終合成と同じとは扱い
 | GTK 3／4 | 文書の参照と同期所有者への置換 | GTK 3のAPIは選択anchorを渡さない |
 | GTK 4＋通常IBus module | 同上 | IBus 1.5.29-rc2の独自ウィジェット経路ではanchorがエンジンへ届かない |
 | 直接IBus | cursorとanchorを渡し、端末内の候補を表示 | IBusへの接続が必要 |
+| 直接fcitx 5 | cursorとanchor、同期置換、装飾付き未確定文字、ページ候補 | 稼働中の5系へ接続。候補通知の受信まではCLIENT表示未確認 |
 | native Wayland text-input-v3 | 削除と確定を一つの置換として扱う | 接続先プロトコルが必要 |
 | XIM | 対応するサーバーに文脈・文字単位の編集を提供 | サーバーが文字列変換の能力を公開しなければ利用不可 |
 | Win32 | DOCUMENTFEED、選択した文字列の再変換 | 通常のIME確定はPTYへ送る。共通の同期所有者だけでは切り替わらない |
@@ -110,7 +111,7 @@ GTKの装飾はUTF-8のscalar境界を使い、不正範囲だけを除外しま
 Wayland version 2は1回のdone内の異なる128範囲を上限とし、超過時も有効な文字と確定は保持します。
 
 GTKの自動選択は、空でない`GTK_IM_MODULE`を優先します。
-GTK 4 Waylandの文節表示には、runtimeのGTK 4.23.4以上とtext-input-v3 version 2の両方が必要で、それを満たさない場合の直接IBus経路も用意しています。
+GTK 4 Waylandの文節表示には、runtimeのGTK 4.23.4以上とtext-input-v3 version 2の両方が必要で、それを満たさない場合は直接IBus／fcitx 5の検出経路も用意しています。
 経路の選択条件は[IME選択の実装](../../../src/gtk/ime_probe.c)、文脈や編集の利用条件は[入力とIME](../input-ime.md)で確認できます。
 
 IBus 1.5.29-rc2の通常GTK 4経路では、既定同期モードの取消通知に制約があります。

@@ -355,3 +355,15 @@ GTK 3／X11では`FCITX_X11_USE_CLIENT_SIDE_UI=True`を指定した場合と、�
 内部診断には選択理由、複数候補の有無、環境設定の競合、互換サービスの検出結果を追加しました。所有者の消失は再接続とまとめず、その場でホストに通知します。これにより、短時間で同じサービスが戻った場合も古い未確定文字を無効にできます。
 
 `test-ime-discovery`は、サービスなし、fcitx 5だけが稼働、競合する設定、互換名、停止・再起動を検証します。実際の独立したIBusデーモンと模擬fcitx 5を同時に動かす試験では、初回の優先順位と既存IBus選択の維持を確認しました。`test-fcitx5-auto-core`は自動選択後の入力、候補、所有者交代、遅延応答、結果不明のキー処理を検証します。両ターゲットと`test-ibus-candidates`、`test-wayland-input`が成功しています。この時点ではGTK／native WaylandホストのAUTO設定へ接続しておらず、公開診断への反映も次の作業です。
+
+### 段階3のAUTOを各ホストへ接続
+
+GTK 3／X11、GTK 3／4／Wayland、native Waylandへ自動検出を接続しました。native Waylandの既定方針もAUTOです。標準text-inputの経路を選ぶプロトコル試験では、その方針を明示します。native WaylandはGTK専用の設定を参照せず、`XMODIFIERS`と接続先の所有者から判断します。
+
+GTKで実際にfcitxモジュールが選択済みの場合は、Waylandの照会を待たずにGTKへの委譲を確定します。この待機の問題は、競合する`XMODIFIERS`を与える試験で再現しました。明示した`GTK_IM_MODULE`も維持し、直接接続のコンテキストを作らないことを確認しています。
+
+公開診断を`boxrig_ime_diagnostic`へ統一しました。GTK／Waylandの`direct`から、選択方式・接続状態・選択理由・複数候補・設定競合・互換サービスと、要求・エラー・コンテキストの件数を取得できます。付属ターミナルの診断と公開ヘッダーのインストールにも反映しています。[入力とIME](../input-ime.md)、[付属ターミナル](../boxrig_term.md)、[対応表](../reference/platform-support.md)を日本語・英語で更新しました。
+
+`test-fcitx5-auto`、`test-gtk-ibus-auto`、`test-gtk-ime-x11`、`test-gtk-ime-startup`、`test-wayland-input`が成功し、3種類の付属ターミナルもビルドできています。`test-gtk-ime-routing`は実際のGTK 3.24.41／4.14.5で120ケースが成功しました。設定がない場合の試験は、稼働中IBusを検出する新しい契約に合わせています。試験用エンジンへ制御を送るアドレスは、検出対象の環境変数と分けて保持します。
+
+Ubuntu 24.04の5.1.7とMozcを使う`test-fcitx5-auto-real`でも、対象の4経路で変換・候補ページ操作・確定・キャンセルを確認しました。公開診断の変更前とGTK委譲の修正前にはREDを確認しています。段階3の全体テストと、実表示での候補配置の確認は継続中です。

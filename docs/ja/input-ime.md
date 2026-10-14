@@ -47,15 +47,23 @@ CLIENTを希望しても、入力経路が候補を提供できなければア�
 
 | 環境 | 主な入力経路 | 確認する情報 |
 | --- | --- | --- |
-| X11 | XIM、直接IBus | 接続状態、入力所有者、候補の所有者 |
-| GTK 3／4 | GtkIMContext、条件に応じた直接IBus | `get_ime_state()`のrouteとreason |
-| native Wayland | コンポジターのtext-input、直接IBus | contextの入力経路とコンポーネントの診断 |
+| native X11 | XIM | 接続状態、入力所有者、候補の所有者 |
+| GTK 3／X11、GTK 3／4／Wayland | GtkIMContext、直接IBus、直接fcitx 5 | `get_ime_state()`のroute、reason、direct |
+| GTK 4／X11 | GtkIMContext | 選択されたGTKモジュール |
+| native Wayland | コンポジターのtext-input、直接IBus、直接fcitx 5 | contextの入力経路とdirect、コンポーネントの候補診断 |
 | Win32 | IMM、編集文書向けのTSF接続 | 入力能力、再変換や編集の可否 |
 
-GTKでは描画方式とIME方針を別々に選びます。
-明示したGTKモジュールや実際のdisplay、実行時の能力も選択に関係します。
-設定名だけから直接IBusを使用中だとは判断しないでください。
-特にGTK 4/X11では、IBus方針でもGTKのIBusモジュールを使う経路があります。
+GTKとnative Waylandの既定方針はAUTOです。GTKでは、明示した`GTK_IM_MODULE`と、GTKが選択済みのfcitxモジュールを優先し、GTKへ入力を委譲します。対応するWaylandの入力経路がある場合も、その経路を使用します。直接接続が必要な場合に、IBusとfcitx 5を検出します。native X11は引き続きXIMを使用します。
+
+直接接続のAUTOでは、そのホストに適用されるGTKモジュール、`XMODIFIERS`、明示IBusアドレスの順に選択の手掛かりを使います。native Waylandは`GTK_IM_MODULE`を参照しません。設定だけで稼働中とは判断せず、サービスの所有者を確認します。手掛かりがなく複数の独立したサービスが動いている場合は、初回にfcitx 5を優先します。選択後に別のサービスが現れても、接続中の方式を維持します。検出のためにデーモンを起動することはありません。
+
+アプリケーションはGTKの`BOXRIG_GTK_IME_FCITX5`、native Waylandの`BOXRIG_WAYLAND_IME_FCITX5`で5系を明示できます。IBusも同様に明示できます。指定した直接接続先が利用できない場合、別の直接接続先へ切り替えず、フレームワークの入力経路を使います。GTK 4／X11では、明示方針もGTKの対応モジュールへ渡します。描画方式とIME方針は別々に選びます。
+
+診断の`direct`には、選択した方式、接続状態、選択理由、設定の競合、複数候補、互換サービスの有無と、要求・エラー・コンテキストの件数が入ります。`CONNECTING`は検出または接続中、`UNAVAILABLE`は対象サービスが利用できない状態です。`DISABLED`ならフレームワークへ委譲しています。`READY`でも各入力先のコンテキスト生成が完了するまでは入力が待機する場合があります。設定名だけで使用中の経路を判断せず、routeと`direct.backend`を確認してください。
+
+fcitx 5のクライアント候補は、受信したページの候補と上下の補助文字列を表示します。ページ内の候補数・選択位置と前後ページの有無を扱い、総候補数や絶対ページ番号は推測しません。有効な候補通知を受信するまでは、所有者をNONE、理由をUNCONFIRMEDで報告します。SYSTEMはシステム表示への委譲を表し、ポップアップが実際に表示されたことを保証する値ではありません。
+
+X11でfcitx 5のクライアント候補を使うには、デーモン側の`FCITX_X11_USE_CLIENT_SIDE_UI=True`設定が必要な場合があります。Waylandでも、コンポジターやパネル環境によって能力が調整されます。候補が表示されない場合は、設定と候補所有者の診断を確認してください。[fcitx 5の候補表示能力の調整](https://github.com/fcitx/fcitx5/blob/5.1.7/src/frontend/dbusfrontend/dbusfrontend.cpp)、[公式Wayland設定ガイド](https://fcitx-im.org/wiki/Using_Fcitx_5_on_Wayland)
 
 ## アプリケーションの編集文書を渡す
 

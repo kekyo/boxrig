@@ -104,7 +104,12 @@ static void report_ime_state(boxrig_term_gtk4_application *application)
     if (boxrig_gtk4_terminal_widget_get_ime_state(application->widget, &state) != BOXRIG_UI_OK) return;
     const boxrig_gtk_ime_state *previous = &application->reported_ime_state;
     if (application->ime_state_reported && previous->active_route == state.active_route &&
-        previous->reason == state.reason && previous->ibus_state == state.ibus_state &&
+        previous->reason == state.reason && previous->direct.state == state.direct.state &&
+        previous->direct.backend == state.direct.backend &&
+        previous->direct.selection_reason == state.direct.selection_reason &&
+        previous->direct.ambiguous == state.direct.ambiguous &&
+        previous->direct.conflicting_hints == state.direct.conflicting_hints &&
+        previous->direct.compatibility_alias == state.direct.compatibility_alias &&
         previous->registry_complete == state.registry_complete &&
         previous->candidate_valid == state.candidate_valid &&
         previous->candidate_owner == state.candidate_owner &&
@@ -113,19 +118,23 @@ static void report_ime_state(boxrig_term_gtk4_application *application)
         strcmp(previous->gtk_module, state.gtk_module) == 0) return;
     static const char *const routes[] = {"pending", "gtk", "ibus", "fcitx5"};
     static const char *const reasons[] = {"pending", "non-wayland", "explicit-gtk",
-        "explicit-module", "explicit-ibus", "wayland-clauses", "legacy-ibus",
-        "gtk-fallback", "ibus-unavailable", "display-closed", "x11-ibus", "client-candidates", "explicit-fcitx5", "fcitx5-unavailable"};
+        "explicit-module", "explicit-ibus", "wayland-clauses", "legacy-direct",
+        "gtk-fallback", "ime-unavailable", "display-closed", "x11-direct", "client-candidates", "explicit-fcitx5"};
+    static const char *const backends[] = {"none", "ibus", "fcitx5"};
+    static const char *const selections[] = {"explicit", "discovery", "module", "xmodifiers", "address", "single", "priority", "retained"};
     static const char *const candidate_policies[] = {"auto", "system", "client"};
     static const char *const candidate_owners[] = {"none", "system", "client"};
     static const char *const candidate_reasons[] = {"pending", "ready", "system-request",
-        "standard-input", "no-renderer", "ibus-unavailable", "unconfirmed"};
+        "standard-input", "no-renderer", "ime-unavailable", "unconfirmed"};
     application->reported_ime_state = state;
     application->ime_state_reported = true;
-    fprintf(stdout, "boxrig_term: ime-policy=%d ime-route=%s ime-reason=%s gtk=%u.%u.%u display=%s module=%s registry=%d/%d text-input-version=%u ibus=%d contexts=%zu errors=%zu candidate-policy=%s candidate-owner=%s candidate-reason=%s candidate-revision=%" PRIu64 " candidate-count=%zu candidate-cursor=%zu candidate-visible=%d auxiliary-visible=%d\n",
+    fprintf(stdout, "boxrig_term: ime-policy=%d ime-route=%s ime-reason=%s gtk=%u.%u.%u display=%s module=%s registry=%d/%d text-input-version=%u direct-state=%d direct-backend=%s direct-selection=%s ambiguous=%d conflicting-hints=%d compatibility-alias=%d contexts=%zu errors=%zu candidate-policy=%s candidate-owner=%s candidate-reason=%s candidate-revision=%" PRIu64 " candidate-count=%zu candidate-cursor=%zu candidate-visible=%d auxiliary-visible=%d\n",
         state.requested_policy, routes[state.active_route], reasons[state.reason],
         state.gtk_major, state.gtk_minor, state.gtk_micro, state.display_type, state.gtk_module,
-        state.registry_queried, state.registry_complete, state.text_input_version, state.ibus_state,
-        state.ibus_contexts, state.ibus_errors, candidate_policies[state.candidate_policy],
+        state.registry_queried, state.registry_complete, state.text_input_version, state.direct.state,
+        backends[state.direct.backend], selections[state.direct.selection_reason],
+        state.direct.ambiguous, state.direct.conflicting_hints, state.direct.compatibility_alias,
+        state.direct.contexts, state.direct.errors, candidate_policies[state.candidate_policy],
         candidate_owners[state.candidate_owner], candidate_reasons[state.candidate_reason],
         state.candidate_revision, state.candidate_count, state.candidate_cursor,
         state.candidate_visible, state.auxiliary_visible);

@@ -3684,7 +3684,7 @@ boxrig_ui_status boxrig_wayland_terminal_component_get_diagnostic(
         owner;
     diagnostic_out->candidate_reason = pending ? BOXRIG_UI_CANDIDATE_PENDING :
         diagnostic_out->candidate_policy == BOXRIG_UI_CANDIDATE_SYSTEM ? BOXRIG_UI_CANDIDATE_SYSTEM_REQUEST :
-        ibus.state == BOXRIG_IME_UNAVAILABLE ? BOXRIG_UI_CANDIDATE_IBUS_UNAVAILABLE :
+        ibus.state == BOXRIG_IME_UNAVAILABLE ? BOXRIG_UI_CANDIDATE_IME_UNAVAILABLE :
         owner == BOXRIG_UI_CANDIDATE_OWNER_NONE ? BOXRIG_UI_CANDIDATE_UNCONFIRMED :
         owner == BOXRIG_UI_CANDIDATE_OWNER_CLIENT ? BOXRIG_UI_CANDIDATE_READY : BOXRIG_UI_CANDIDATE_STANDARD_INPUT;
     boxrig_ui_candidate_view candidates;
@@ -3694,7 +3694,7 @@ boxrig_ui_status boxrig_wayland_terminal_component_get_diagnostic(
     diagnostic_out->candidate_cursor = candidates.snapshot.cursor;
     diagnostic_out->candidate_visible = candidates.snapshot.visible;
     diagnostic_out->auxiliary_visible = candidates.snapshot.auxiliary_visible || candidates.snapshot.auxiliary_above_visible;
-    if (boxrig_wayland_ibus_selected(component->context))
+    if (boxrig_wayland_ibus_selected(component->context) && ibus.backend != BOXRIG_IME_BACKEND_NONE)
         diagnostic_out->input_capabilities |= ibus.backend == BOXRIG_IME_BACKEND_FCITX5 ?
             BOXRIG_WAYLAND_INPUT_CAPABILITY_FCITX5 : BOXRIG_WAYLAND_INPUT_CAPABILITY_IBUS;
     diagnostic_out->pressed_key_count = component->pressed_key_count;

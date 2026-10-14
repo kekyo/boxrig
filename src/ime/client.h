@@ -1,6 +1,7 @@
 /* boxrig - Under MIT. */
 #ifndef BOXRIG_IME_CLIENT_H
 #define BOXRIG_IME_CLIENT_H
+#include "boxrig/ime.h"
 #include "boxrig/ui/view.h"
 #include "boxrig/ui/input.h"
 #include <poll.h>
@@ -9,36 +10,12 @@ typedef struct boxrig_ime_client boxrig_ime_client;
 typedef struct boxrig_ime_session boxrig_ime_session;
 typedef struct boxrig_ime_request boxrig_ime_request;
 
-typedef enum boxrig_ime_backend_kind {
-    BOXRIG_IME_BACKEND_NONE = 0,
-    BOXRIG_IME_BACKEND_IBUS,
-    BOXRIG_IME_BACKEND_FCITX5
-} boxrig_ime_backend_kind;
-
-typedef enum boxrig_ime_selection_reason {
-    BOXRIG_IME_SELECTION_EXPLICIT = 0,
-    BOXRIG_IME_SELECTION_DISCOVERY,
-    BOXRIG_IME_SELECTION_MODULE,
-    BOXRIG_IME_SELECTION_XMODIFIERS,
-    BOXRIG_IME_SELECTION_ADDRESS,
-    BOXRIG_IME_SELECTION_SINGLE,
-    BOXRIG_IME_SELECTION_PRIORITY,
-    BOXRIG_IME_SELECTION_RETAINED
-} boxrig_ime_selection_reason;
-
 /* Native timestamps are milliseconds; code is evdev (XKB hardware minus 8).
  * Modifiers use the X11/XKB masks, with release and repeat kept separately. */
 typedef struct boxrig_ime_key {
     uint32_t symbol, code, modifiers, time;
     bool release, repeat;
 } boxrig_ime_key;
-
-typedef enum boxrig_ime_state {
-    BOXRIG_IME_DISABLED = 0,
-    BOXRIG_IME_CONNECTING,
-    BOXRIG_IME_READY,
-    BOXRIG_IME_UNAVAILABLE
-} boxrig_ime_state;
 
 typedef enum boxrig_ime_effect_type {
     BOXRIG_IME_COMPOSITION,
@@ -92,14 +69,6 @@ typedef struct boxrig_ime_target {
      * Set only after a renderer is ready, and keep fixed until focus detaches. */
     void (*clear_candidates)(void *data);
 } boxrig_ime_target;
-
-typedef struct boxrig_ime_diagnostic {
-    boxrig_ime_backend_kind backend;
-    boxrig_ime_state state;
-    boxrig_ime_selection_reason selection_reason;
-    bool ambiguous, conflicting_hints, compatibility_alias;
-    size_t pending, errors, contexts;
-} boxrig_ime_diagnostic;
 
 /* The client owns its private GMainContext, connection, sessions and callbacks.
  * No callback dispatches the GTK/default main context. Host owns this client. */

@@ -228,20 +228,20 @@ X11_HEADERS := include/boxrig/x11.h $(wildcard include/boxrig/x11/*.h)
 GTK4_SOURCES := $(wildcard src/gtk4/*.c)
 GTK4_OBJECTS := $(patsubst src/gtk4/%.c,$(BUILD_DIR)/gtk4/%.o,$(GTK4_SOURCES)) \
 	$(BUILD_DIR)/gtk4/pangocairo_renderer.o $(BUILD_DIR)/gtk4/accessible_text.o
-GTK4_HEADERS := include/boxrig/gtk4.h $(wildcard include/boxrig/gtk4/*.h) $(wildcard include/boxrig/gtk/*.h)
+GTK4_HEADERS := include/boxrig/gtk4.h include/boxrig/ime.h $(wildcard include/boxrig/gtk4/*.h) $(wildcard include/boxrig/gtk/*.h)
 GTK3_SOURCES := $(wildcard src/gtk3/*.c)
 GTK3_OBJECTS := $(patsubst src/gtk3/%.c,$(BUILD_DIR)/gtk3/%.o,$(GTK3_SOURCES)) \
 	$(BUILD_DIR)/gtk3/pangocairo_renderer.o $(BUILD_DIR)/gtk3/accessible_text.o
-GTK3_HEADERS := include/boxrig/gtk3.h $(wildcard include/boxrig/gtk3/*.h) $(wildcard include/boxrig/gtk/*.h)
+GTK3_HEADERS := include/boxrig/gtk3.h include/boxrig/ime.h $(wildcard include/boxrig/gtk3/*.h) $(wildcard include/boxrig/gtk/*.h)
 PANGO_CANDIDATE_OBJECT := $(BUILD_DIR)/pangocairo/candidates.o
 GTK3_OBJECTS += $(PANGO_CANDIDATE_OBJECT)
 GTK4_OBJECTS += $(PANGO_CANDIDATE_OBJECT)
 IME_SOURCES := src/ime/client.c src/ime/detect.c src/ibus/client.c src/fcitx5/client.c src/ime/source.c src/ime/preedit.c
-IME_HEADERS := src/ime/client.h src/ime/client_private.h src/ime/source.h src/ime/preedit.h
+IME_HEADERS := include/boxrig/ime.h src/ime/client.h src/ime/client_private.h src/ime/source.h src/ime/preedit.h
 IME_OBJECTS := $(BUILD_DIR)/ime/client.o $(BUILD_DIR)/ime/detect.o $(BUILD_DIR)/ime/ibus.o $(BUILD_DIR)/ime/fcitx5.o $(BUILD_DIR)/ime/source.o $(BUILD_DIR)/ime/preedit.o
 GTK3_OBJECTS += $(IME_OBJECTS) $(BUILD_DIR)/gtk3/ime_probe.o
 GTK4_OBJECTS += $(IME_OBJECTS) $(BUILD_DIR)/gtk4/ime_probe.o
-WAYLAND_HEADERS := include/boxrig/wayland.h
+WAYLAND_HEADERS := include/boxrig/wayland.h include/boxrig/ime.h
 OPENGL_RENDERER_HEADERS := include/boxrig/render/opengl.h include/boxrig/render/runtime.h
 WAYLAND_OPENGL_HEADERS := $(wildcard include/boxrig/wayland/*.h)
 WAYLAND_PROTOCOL_DIR := $(BUILD_DIR)/generated/wayland
@@ -940,7 +940,7 @@ install-gtk4: $(LIBRARY) $(UI_LIBRARY) $(GTK4_LIBRARY) \
 	$(INSTALL) -m 644 $(LIBRARY) $(UI_LIBRARY) $(GTK4_LIBRARY) \
 		$(DESTDIR)$(LIBDIR)
 	$(INSTALL) -m 644 $(CORE_PUBLIC_HEADERS) include/boxrig/ui.h \
-		include/boxrig/gtk4.h $(DESTDIR)$(INCLUDEDIR)/boxrig
+		include/boxrig/gtk4.h include/boxrig/ime.h $(DESTDIR)$(INCLUDEDIR)/boxrig
 	$(INSTALL) -m 644 include/boxrig/ui/*.h \
 		$(DESTDIR)$(INCLUDEDIR)/boxrig/ui
 	$(INSTALL) -m 644 include/boxrig/gtk4/*.h \
@@ -961,7 +961,7 @@ install-gtk3: $(LIBRARY) $(UI_LIBRARY) $(GTK3_LIBRARY) \
 	$(INSTALL) -m 644 $(LIBRARY) $(UI_LIBRARY) $(GTK3_LIBRARY) \
 		$(DESTDIR)$(LIBDIR)
 	$(INSTALL) -m 644 $(CORE_PUBLIC_HEADERS) include/boxrig/ui.h \
-		include/boxrig/gtk3.h $(DESTDIR)$(INCLUDEDIR)/boxrig
+		include/boxrig/gtk3.h include/boxrig/ime.h $(DESTDIR)$(INCLUDEDIR)/boxrig
 	$(INSTALL) -m 644 include/boxrig/ui/*.h \
 		$(DESTDIR)$(INCLUDEDIR)/boxrig/ui
 	$(INSTALL) -m 644 include/boxrig/gtk3/*.h \
@@ -980,7 +980,7 @@ install-wayland: $(LIBRARY) $(UI_LIBRARY) $(WAYLAND_LIBRARY) \
 	$(INSTALL) -m 644 $(LIBRARY) $(UI_LIBRARY) $(WAYLAND_LIBRARY) \
 		$(DESTDIR)$(LIBDIR)
 	$(INSTALL) -m 644 $(CORE_PUBLIC_HEADERS) include/boxrig/ui.h \
-		include/boxrig/wayland.h $(DESTDIR)$(INCLUDEDIR)/boxrig
+		include/boxrig/wayland.h include/boxrig/ime.h $(DESTDIR)$(INCLUDEDIR)/boxrig
 	$(INSTALL) -m 644 include/boxrig/ui/*.h \
 		$(DESTDIR)$(INCLUDEDIR)/boxrig/ui
 	$(INSTALL) -m 644 $(WAYLAND_PKG_CONFIG) \
@@ -1046,7 +1046,7 @@ install-wayland-opengl: $(LIBRARY) $(UI_LIBRARY) $(WAYLAND_LIBRARY) \
 		$(OPENGL_RENDERER_LIBRARY) $(WAYLAND_OPENGL_LIBRARY) \
 		$(DESTDIR)$(LIBDIR)
 	$(INSTALL) -m 644 $(CORE_PUBLIC_HEADERS) include/boxrig/ui.h \
-		include/boxrig/wayland.h $(DESTDIR)$(INCLUDEDIR)/boxrig
+		include/boxrig/wayland.h include/boxrig/ime.h $(DESTDIR)$(INCLUDEDIR)/boxrig
 	$(INSTALL) -m 644 include/boxrig/ui/*.h \
 		$(DESTDIR)$(INCLUDEDIR)/boxrig/ui
 	$(INSTALL) -m 644 $(WAYLAND_OPENGL_HEADERS) \
@@ -5657,3 +5657,29 @@ test-fcitx5-auto-core: $(BUILD_DIR)/tests/test_fcitx5 $(BUILD_DIR)/tests/fcitx5_
 	GIO_USE_VFS=local IBUS_ADDRESS= XMODIFIERS= BOXRIG_TEST_IME_AUTO=1 ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx5.sh $(BUILD_DIR)/tests/fcitx5_server $<
 
 test: test-fcitx5-auto-core
+
+.PHONY: test-fcitx5-auto
+test-fcitx5-auto: $(BUILD_DIR)/tests/fcitx5_server $(WAYLAND_CONTEXT_TEST_BINARY) $(BUILD_DIR)/tests/test_gtk3_fcitx $(BUILD_DIR)/tests/test_gtk4_fcitx
+	GIO_USE_VFS=local IBUS_ADDRESS= XMODIFIERS= BOXRIG_TEST_IME_AUTO=1 BOXRIG_TEST_FCITX5=1 BOXRIG_TEST_FCITX_CANDIDATES=1 ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx5.sh $(BUILD_DIR)/tests/fcitx5_server $(WAYLAND_CONTEXT_TEST_BINARY) "$(TEST_FONT_FILE)"
+	$(XVFB_RUN) -a env -u GTK_IM_MODULE GDK_BACKEND=x11 GIO_USE_VFS=local GTK_A11Y=none NO_AT_BRIDGE=1 IBUS_ADDRESS= XMODIFIERS= BOXRIG_TEST_IME_AUTO=1 BOXRIG_TEST_FCITX_CANDIDATES=1 ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx5.sh $(BUILD_DIR)/tests/fcitx5_server $(BUILD_DIR)/tests/test_gtk3_fcitx
+	@for gtk in 3 4; do \
+		$(XVFB_RUN) -a env -u GTK_IM_MODULE BOXRIG_TEST_WESTON_BACKEND=x11 GTK_A11Y=none GIO_USE_VFS=local LIBGL_ALWAYS_SOFTWARE=1 IBUS_ADDRESS= XMODIFIERS= BOXRIG_TEST_IME_AUTO=1 BOXRIG_TEST_FCITX_CANDIDATES=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/gtk/run_gl_wayland.sh bash tests/ime/run_fcitx5.sh $(BUILD_DIR)/tests/fcitx5_server $(BUILD_DIR)/tests/test_gtk$${gtk}_fcitx || exit $$?; \
+	done
+	@for gtk in 3 4; do for module in gtk-im-context-simple fcitx; do \
+		$(XVFB_RUN) -a env BOXRIG_TEST_WESTON_BACKEND=x11 GTK_IM_MODULE=$$module GTK_A11Y=none GIO_USE_VFS=local LIBGL_ALWAYS_SOFTWARE=1 IBUS_ADDRESS= XMODIFIERS=@im=fcitx BOXRIG_TEST_IME_AUTO=1 BOXRIG_TEST_FCITX_CANDIDATES=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/gtk/run_gl_wayland.sh bash tests/ime/run_fcitx5.sh $(BUILD_DIR)/tests/fcitx5_server $(BUILD_DIR)/tests/test_gtk$${gtk}_fcitx || exit $$?; \
+	done; done
+	@for gtk in 3 4; do \
+		$(XVFB_RUN) -a env -u GTK_IM_MODULE BOXRIG_TEST_WESTON_BACKEND=x11 BOXRIG_TEST_GTK_MODULE=fcitx GTK_A11Y=none GIO_USE_VFS=local LIBGL_ALWAYS_SOFTWARE=1 IBUS_ADDRESS= XMODIFIERS=@im=ibus BOXRIG_TEST_IME_AUTO=1 BOXRIG_TEST_FCITX_CANDIDATES=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/gtk/run_gl_wayland.sh bash tests/ime/run_fcitx5.sh $(BUILD_DIR)/tests/fcitx5_server $(BUILD_DIR)/tests/test_gtk$${gtk}_fcitx || exit $$?; \
+	done
+
+test: test-fcitx5-auto
+
+.PHONY: test-fcitx5-auto-real
+test-fcitx5-auto-real: $(WAYLAND_CONTEXT_TEST_BINARY) $(BUILD_DIR)/tests/test_gtk3_fcitx $(BUILD_DIR)/tests/test_gtk4_fcitx
+	GIO_USE_VFS=local IBUS_ADDRESS= XMODIFIERS= BOXRIG_TEST_IME_AUTO=1 BOXRIG_TEST_FCITX5=1 BOXRIG_TEST_FCITX_CANDIDATES=1 ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx5_real.sh $(WAYLAND_CONTEXT_TEST_BINARY) "$(TEST_FONT_FILE)"
+	$(XVFB_RUN) -a env -u GTK_IM_MODULE GDK_BACKEND=x11 GTK_A11Y=none NO_AT_BRIDGE=1 GIO_USE_VFS=local IBUS_ADDRESS= XMODIFIERS= BOXRIG_TEST_IME_AUTO=1 BOXRIG_TEST_FCITX_CANDIDATES=1 FCITX_X11_USE_CLIENT_SIDE_UI=True ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx5_real.sh --display $(BUILD_DIR)/tests/test_gtk3_fcitx
+	@for gtk in 3 4; do \
+		$(XVFB_RUN) -a env -u GTK_IM_MODULE BOXRIG_TEST_WESTON_BACKEND=x11 GTK_A11Y=none GIO_USE_VFS=local LIBGL_ALWAYS_SOFTWARE=1 IBUS_ADDRESS= XMODIFIERS= BOXRIG_TEST_IME_AUTO=1 BOXRIG_TEST_FCITX_CANDIDATES=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/gtk/run_gl_wayland.sh bash tests/ime/run_fcitx5_real.sh --display $(BUILD_DIR)/tests/test_gtk$${gtk}_fcitx || exit $$?; \
+	done
+
+test: test-fcitx5-auto-real

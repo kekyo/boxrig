@@ -105,7 +105,7 @@ static void settle(void)
         boxrig_ui_component_diagnostic state;
         CHECK(boxrig_gtk3_terminal_widget_get_ime_state(widget, &ime) == BOXRIG_UI_OK);
         CHECK(boxrig_gtk3_terminal_widget_get_diagnostic(widget, &state) == BOXRIG_UI_OK);
-        if (ime.ibus_pending == 0 && state.native_input_queue_depth == 0 &&
+        if (ime.direct.pending == 0 && state.native_input_queue_depth == 0 &&
             boxrig_gtk3_terminal_widget_has_presentation(widget)) break;
         iterate();
     }

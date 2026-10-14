@@ -148,11 +148,13 @@ static void read_module(boxrig_gtk_ime_probe *probe)
     g_strlcpy(probe->state.gtk_module, module == NULL ? "" : module, sizeof(probe->state.gtk_module));
 }
 
-static bool ibus_configured(const boxrig_gtk_ime_probe *probe)
+static const char *configured_module(const boxrig_gtk_ime_probe *probe)
 {
-    return strcmp(probe->state.gtk_module, "ibus") == 0 ||
-        nonempty(g_getenv("IBUS_ADDRESS")) ||
-        g_strcmp0(g_getenv("XMODIFIERS"), "@im=ibus") == 0;
+    const char *module = probe->state.gtk_module;
+    if (strcmp(module, "ibus") == 0 || strcmp(module, "fcitx") == 0) return module;
+    if (g_strcmp0(g_getenv("XMODIFIERS"), "@im=fcitx") == 0) return "fcitx";
+    if (g_strcmp0(g_getenv("XMODIFIERS"), "@im=ibus") == 0 || nonempty(g_getenv("IBUS_ADDRESS"))) return "ibus";
+    return NULL;
 }
 
 static void select_module(boxrig_gtk_ime_probe *probe, const char *module)
@@ -212,29 +214,31 @@ boxrig_gtk_ime_probe *boxrig_gtk_ime_probe_new(GdkDisplay *display,
         } else if (policy == BOXRIG_GTK_IME_AUTO && explicit_module)
             probe->state.reason = BOXRIG_GTK_IME_REASON_EXPLICIT_MODULE;
         else if (x11 && probe->state.gtk_major == 3 && policy == BOXRIG_GTK_IME_AUTO &&
-            known && ibus_configured(probe)) {
+            known) {
             probe->direct = true;
-            probe->state.reason = BOXRIG_GTK_IME_REASON_X11_IBUS;
+            probe->state.reason = BOXRIG_GTK_IME_REASON_X11_DIRECT;
         }
         /* GTK 4 delegates X11 root coordinates and scaling to its IM
          * module. Surface-relative direct IME coordinates cannot place an
-         * engine-owned X11 candidate window. AUTO preserves the sample's
-         * IBus default without changing the process environment or
+         * engine-owned X11 candidate window. AUTO applies configured hints
+         * through the GTK module without changing the process environment or
          * overriding a deliberately chosen module. */
         if (x11 && probe->state.gtk_major == 4 && explicit_direct &&
             GTK_IS_IM_MULTICONTEXT(context))
             select_module(probe, policy == BOXRIG_GTK_IME_FCITX5 ? "fcitx" : "ibus");
         else if (policy == BOXRIG_GTK_IME_AUTO && !explicit_module && x11 &&
-            GTK_IS_IM_MULTICONTEXT(context) && ibus_configured(probe) &&
+            GTK_IS_IM_MULTICONTEXT(context) && configured_module(probe) != NULL &&
             (!nonempty(module) || strcmp(module, "xim") == 0 ||
              strcmp(module, "simple") == 0 || strcmp(module, "gtk-im-context-simple") == 0))
-            select_module(probe, "ibus");
+            select_module(probe, configured_module(probe));
     }
     else if (policy == BOXRIG_GTK_IME_GTK) probe->state.reason = BOXRIG_GTK_IME_REASON_EXPLICIT_GTK;
     else if (explicit_direct) {
         probe->direct = true;
         probe->state.reason = explicit_reason;
     } else if (nonempty(g_getenv("GTK_IM_MODULE"))) probe->state.reason = BOXRIG_GTK_IME_REASON_EXPLICIT_MODULE;
+    else if (strcmp(probe->state.gtk_module, "fcitx") == 0 || strcmp(probe->state.gtk_module, "fcitx5") == 0)
+        probe->state.reason = BOXRIG_GTK_IME_REASON_GTK_FALLBACK;
     else {
         probe->cache = get_cache(display);
         if (probe->cache == NULL) { release_probe(probe); return NULL; }
@@ -258,7 +262,6 @@ bool boxrig_gtk_ime_probe_get(boxrig_gtk_ime_probe *probe,
         const char *module = probe->state.gtk_module;
         bool known = !nonempty(module) || strcmp(module, "wayland") == 0 || strcmp(module, "ibus") == 0 ||
             strcmp(module, "simple") == 0 || strcmp(module, "gtk-im-context-simple") == 0;
-        bool configured = ibus_configured(probe);
         /* 4.23.0 introduced hints, but 4.23.4 fixed their pending ranges.
          * Unknown major versions and backports remain conservatively unknown. */
         bool supported = probe->cache->complete && probe->cache->version >= 2 &&
@@ -268,15 +271,15 @@ bool boxrig_gtk_ime_probe_get(boxrig_gtk_ime_probe *probe,
             select_module(probe, "wayland");
         }
         if (probe->cache->closed) probe->state.reason = BOXRIG_GTK_IME_REASON_DISPLAY_CLOSED;
-        else if (known && configured && probe->candidates == BOXRIG_UI_CANDIDATE_CLIENT) {
+        else if (known && probe->candidates == BOXRIG_UI_CANDIDATE_CLIENT) {
             probe->direct = true;
             probe->state.reason = BOXRIG_GTK_IME_REASON_CLIENT_CANDIDATES;
         }
         else if (supported && strcmp(probe->state.gtk_module, "wayland") == 0)
             probe->state.reason = BOXRIG_GTK_IME_REASON_WAYLAND_CLAUSES;
-        else if (known && configured) {
+        else if (known) {
             probe->direct = true;
-            probe->state.reason = BOXRIG_GTK_IME_REASON_LEGACY_IBUS;
+            probe->state.reason = BOXRIG_GTK_IME_REASON_LEGACY_DIRECT;
         } else probe->state.reason = BOXRIG_GTK_IME_REASON_GTK_FALLBACK;
     }
     if (probe->resolved) g_clear_object(&probe->context);
