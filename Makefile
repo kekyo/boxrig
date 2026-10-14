@@ -2888,11 +2888,12 @@ $(MINGW_AMD64_HOST_TRANSPARENCY_TEST): tests/win32/test_win32_host_transparency.
 $(MINGW_I686_HOST_TRANSPARENCY_TEST): tests/win32/test_win32_host_transparency.c include/boxrig/win32/host_transparency.h $(MINGW_I686_WIN32_LIBRARY) $(MINGW_I686_UI_LIBRARY) $(MINGW_I686_LIBRARY) | $(MINGW_I686_BUILD_DIR)/tests
 	$(MINGW_I686_CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(MINGW_WIN32_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(MINGW_I686_WIN32_LIBRARY) $(MINGW_I686_UI_LIBRARY) $(MINGW_I686_LIBRARY) $(WIN32_TRANSPARENCY_LIBS) -o $@
 
-$(MINGW_AMD64_TRANSPARENCY_TEST): tests/win32/test_win32_transparency.c src/win32/transparency_private.h $(MINGW_AMD64_WIN32_LIBRARY) $(MINGW_AMD64_UI_LIBRARY) $(MINGW_AMD64_LIBRARY) | $(MINGW_AMD64_BUILD_DIR)/tests
-	$(MINGW_AMD64_CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(MINGW_WIN32_CPPFLAGS) -Isrc/win32 $(CFLAGS) $(PROJECT_CFLAGS) tests/win32/test_win32_transparency.c $(MINGW_AMD64_WIN32_LIBRARY) $(MINGW_AMD64_UI_LIBRARY) $(MINGW_AMD64_LIBRARY) $(WIN32_TRANSPARENCY_LIBS) -o $@
+# Layered child windows require the Windows 8 compatibility manifest on Windows.
+$(MINGW_AMD64_TRANSPARENCY_TEST): tests/win32/test_win32_transparency.c src/win32/transparency_private.h $(MINGW_AMD64_BUILD_DIR)/tests/basic_ui_manifest.o Makefile $(MINGW_AMD64_WIN32_LIBRARY) $(MINGW_AMD64_UI_LIBRARY) $(MINGW_AMD64_LIBRARY) | $(MINGW_AMD64_BUILD_DIR)/tests
+	$(MINGW_AMD64_CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(MINGW_WIN32_CPPFLAGS) -Isrc/win32 $(CFLAGS) $(PROJECT_CFLAGS) tests/win32/test_win32_transparency.c $(MINGW_AMD64_BUILD_DIR)/tests/basic_ui_manifest.o $(MINGW_AMD64_WIN32_LIBRARY) $(MINGW_AMD64_UI_LIBRARY) $(MINGW_AMD64_LIBRARY) $(WIN32_TRANSPARENCY_LIBS) -o $@
 
-$(MINGW_I686_TRANSPARENCY_TEST): tests/win32/test_win32_transparency.c src/win32/transparency_private.h $(MINGW_I686_WIN32_LIBRARY) $(MINGW_I686_UI_LIBRARY) $(MINGW_I686_LIBRARY) | $(MINGW_I686_BUILD_DIR)/tests
-	$(MINGW_I686_CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(MINGW_WIN32_CPPFLAGS) -Isrc/win32 $(CFLAGS) $(PROJECT_CFLAGS) tests/win32/test_win32_transparency.c $(MINGW_I686_WIN32_LIBRARY) $(MINGW_I686_UI_LIBRARY) $(MINGW_I686_LIBRARY) $(WIN32_TRANSPARENCY_LIBS) -o $@
+$(MINGW_I686_TRANSPARENCY_TEST): tests/win32/test_win32_transparency.c src/win32/transparency_private.h $(MINGW_I686_BUILD_DIR)/tests/basic_ui_manifest.o Makefile $(MINGW_I686_WIN32_LIBRARY) $(MINGW_I686_UI_LIBRARY) $(MINGW_I686_LIBRARY) | $(MINGW_I686_BUILD_DIR)/tests
+	$(MINGW_I686_CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(MINGW_WIN32_CPPFLAGS) -Isrc/win32 $(CFLAGS) $(PROJECT_CFLAGS) tests/win32/test_win32_transparency.c $(MINGW_I686_BUILD_DIR)/tests/basic_ui_manifest.o $(MINGW_I686_WIN32_LIBRARY) $(MINGW_I686_UI_LIBRARY) $(MINGW_I686_LIBRARY) $(WIN32_TRANSPARENCY_LIBS) -o $@
 
 $(MINGW_AMD64_EVENT_LOOP_TEST): tests/win32/test_win32_event_loop.c $(MINGW_AMD64_WIN32_LIBRARY) $(MINGW_AMD64_SESSION_LIBRARY) $(MINGW_AMD64_UI_LIBRARY) $(MINGW_AMD64_LIBRARY) | $(MINGW_AMD64_BUILD_DIR)/tests
 	$(MINGW_AMD64_CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(MINGW_TERM_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) tests/win32/test_win32_event_loop.c $(MINGW_AMD64_WIN32_LIBRARY) $(MINGW_AMD64_SESSION_LIBRARY) $(MINGW_AMD64_UI_LIBRARY) $(MINGW_AMD64_LIBRARY) $(WIN32_RENDERER_LIBS) $(WIN32_HOST_LIBS) $(WIN32_TRANSPARENCY_LIBS) -ladvapi32 -o $@
@@ -3894,11 +3895,12 @@ uninstall-win32-opengl-i686:
 	rm -f $(DESTDIR)$(INCLUDEDIR)/boxrig/win32/opengl.h $(DESTDIR)$(INCLUDEDIR)/boxrig/win32/opengl_component.h $(DESTDIR)$(INCLUDEDIR)/boxrig/win32/wgl.h $(addprefix $(DESTDIR)$(INCLUDEDIR)/boxrig/render/,$(notdir $(OPENGL_RENDERER_HEADERS)))
 	rm -f $(DESTDIR)$(PREFIX)/share/boxrig/examples/win32/renderer.c
 
-$(MINGW_AMD64_OPACITY_NATIVE_TEST): tests/win32/test_win32_opacity_native.c include/boxrig/win32/opacity_native.h src/win32/opacity_native_private.h $(MINGW_AMD64_WIN32_LIBRARY) $(MINGW_AMD64_UI_LIBRARY) $(MINGW_AMD64_LIBRARY) | $(MINGW_AMD64_BUILD_DIR)/tests
-	$(MINGW_AMD64_CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(MINGW_WIN32_CPPFLAGS) -Isrc/win32 $(CFLAGS) $(PROJECT_CFLAGS) $< $(MINGW_AMD64_WIN32_LIBRARY) $(MINGW_AMD64_UI_LIBRARY) $(MINGW_AMD64_LIBRARY) $(WIN32_TRANSPARENCY_LIBS) -o $@
+# Layered child windows require the Windows 8 compatibility manifest on Windows.
+$(MINGW_AMD64_OPACITY_NATIVE_TEST): tests/win32/test_win32_opacity_native.c include/boxrig/win32/opacity_native.h src/win32/opacity_native_private.h $(MINGW_AMD64_BUILD_DIR)/tests/basic_ui_manifest.o Makefile $(MINGW_AMD64_WIN32_LIBRARY) $(MINGW_AMD64_UI_LIBRARY) $(MINGW_AMD64_LIBRARY) | $(MINGW_AMD64_BUILD_DIR)/tests
+	$(MINGW_AMD64_CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(MINGW_WIN32_CPPFLAGS) -Isrc/win32 $(CFLAGS) $(PROJECT_CFLAGS) $< $(MINGW_AMD64_BUILD_DIR)/tests/basic_ui_manifest.o $(MINGW_AMD64_WIN32_LIBRARY) $(MINGW_AMD64_UI_LIBRARY) $(MINGW_AMD64_LIBRARY) $(WIN32_TRANSPARENCY_LIBS) -o $@
 
-$(MINGW_I686_OPACITY_NATIVE_TEST): tests/win32/test_win32_opacity_native.c include/boxrig/win32/opacity_native.h src/win32/opacity_native_private.h $(MINGW_I686_WIN32_LIBRARY) $(MINGW_I686_UI_LIBRARY) $(MINGW_I686_LIBRARY) | $(MINGW_I686_BUILD_DIR)/tests
-	$(MINGW_I686_CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(MINGW_WIN32_CPPFLAGS) -Isrc/win32 $(CFLAGS) $(PROJECT_CFLAGS) $< $(MINGW_I686_WIN32_LIBRARY) $(MINGW_I686_UI_LIBRARY) $(MINGW_I686_LIBRARY) $(WIN32_TRANSPARENCY_LIBS) -o $@
+$(MINGW_I686_OPACITY_NATIVE_TEST): tests/win32/test_win32_opacity_native.c include/boxrig/win32/opacity_native.h src/win32/opacity_native_private.h $(MINGW_I686_BUILD_DIR)/tests/basic_ui_manifest.o Makefile $(MINGW_I686_WIN32_LIBRARY) $(MINGW_I686_UI_LIBRARY) $(MINGW_I686_LIBRARY) | $(MINGW_I686_BUILD_DIR)/tests
+	$(MINGW_I686_CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(MINGW_WIN32_CPPFLAGS) -Isrc/win32 $(CFLAGS) $(PROJECT_CFLAGS) $< $(MINGW_I686_BUILD_DIR)/tests/basic_ui_manifest.o $(MINGW_I686_WIN32_LIBRARY) $(MINGW_I686_UI_LIBRARY) $(MINGW_I686_LIBRARY) $(WIN32_TRANSPARENCY_LIBS) -o $@
 
 # Exercise new application policies before the remaining complete regression suite.
 # Each sample resolves the console launcher beside its own executable.
