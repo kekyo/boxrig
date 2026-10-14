@@ -80,10 +80,10 @@ OpenGLを希望する設定と、OpenGLを必須にする設定があります�
 
 ## 支援技術から本文を取得する
 
-GTK 3のウィジェットは`AtkText`を実装しています。
+GTK 3のウィジェットは`AtkText`、GTK 4のウィジェットは`GtkAccessibleText`を実装しています。
 AT-SPI経由で、表示中の本文、端末カーソルに対応するcaret、表示ごとの選択範囲と文字属性を取得できます。
 本文の位置はUnicodeスカラー単位です。全角文字の継続セルは文字数へ加算せず、結合文字はそれぞれのスカラーを数えます。
-文字の表示領域は書記素が占めるセルに対応します。
+GTK 3で取得できる文字の表示領域は、書記素が占めるセルに対応します。
 
 本文には表示領域内の行を含め、履歴全体は含めません。
 履歴移動、代替画面への切り替え、幅変更による折り返し直しに追従します。
@@ -99,7 +99,13 @@ caretが表示範囲外にある場合は本文末尾の位置を返します。
 
 1回に公開する本文と位置情報の保存量は16MiBが上限です。
 上限を超える場合、`frame()`は`BOXRIG_UI_LIMIT_EXCEEDED`を返し、直前の本文を保持します。
-取得APIの契約は[AtkText](https://docs.gtk.org/atk/iface.Text.html)を参照してください。
+取得APIの契約は[AtkText](https://docs.gtk.org/atk/iface.Text.html)と[GtkAccessibleText](https://docs.gtk.org/gtk4/iface.AccessibleText.html)を参照してください。
+
+GTK 4は最低版4.14の本文・caret・選択・文字属性と変更通知に対応しています。
+4.16以降の座標取得と、4.22以降のcaret・選択変更は提供しません。
+GTK 4.14でもAT-SPI経由の本文取得とOrcaの読み上げ文字列生成を確認しています。
+文字属性だけが変わった場合は、新しい属性を取得できますが、GTK 4.14には属性専用の公開通知APIがありません。
+利用できる操作と通知は[GtkAccessibleTextの版別API](https://docs.gtk.org/gtk4/iface.AccessibleText.html)に従います。
 
 ## 入力と破棄の注意点
 

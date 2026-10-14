@@ -827,15 +827,23 @@ static gboolean render_gl_frame(GtkGLArea *area, GdkGLContext *context, gpointer
             boxrig_gtk3_input_update_candidate(widget->input, widget->output_scale);
         if (notify) request_application_frame(widget);
     }
+    /* GTK rendering can consume a newer model and row mapping than the
+     * frame() that queued it. Publish that presented viewport as well. */
+    if (changed && accepts_calls(widget) &&
+        !boxrig_terminal_synchronized_output(boxrig_ui_model_terminal(widget->model)) &&
+        boxrig_gtk3_accessible_update(widget) != BOXRIG_UI_OK)
+        request_application_frame(widget);
     return TRUE;
 }
 static gboolean gl_render(GtkGLArea *area, GdkGLContext *context, gpointer data)
 {
     BoxrigGtk3TerminalWidget *widget = data;
     if (widget->in_frame || widget->in_gl_render) return TRUE;
+    g_object_ref(widget);
     widget->in_gl_render = true;
     gboolean result = render_gl_frame(area, context, data);
     widget->in_gl_render = false;
+    g_object_unref(widget);
     return result;
 }
 

@@ -80,10 +80,10 @@ A failed switch may preserve the previous usable rendering backend.
 
 ## Read terminal text through assistive technology
 
-The GTK 3 widget implements `AtkText`.
+The GTK 3 widget implements `AtkText`, and the GTK 4 widget implements `GtkAccessibleText`.
 AT-SPI exposes the visible text, a caret corresponding to the terminal cursor, per-view selections, and character attributes.
 Offsets count Unicode scalars. Wide-character continuation cells do not add characters, while combining characters count their individual scalars.
-Character extents cover the cells occupied by the grapheme.
+Character extents exposed by GTK 3 cover the cells occupied by the grapheme.
 
 Contents include visible rows, rather than the entire scrollback history.
 They follow history navigation, alternate-screen switches, and reflow after width changes.
@@ -99,7 +99,13 @@ Assistive-technology requests to move the caret or change selections are unsuppo
 
 Each published snapshot of text and position information is limited to 16 MiB.
 Exceeding that limit makes `frame()` return `BOXRIG_UI_LIMIT_EXCEEDED` and preserves the previous contents.
-See [AtkText](https://docs.gtk.org/atk/iface.Text.html) for the retrieval API contracts.
+See [AtkText](https://docs.gtk.org/atk/iface.Text.html) and [GtkAccessibleText](https://docs.gtk.org/gtk4/iface.AccessibleText.html) for the retrieval API contracts.
+
+GTK 4 supports the text, caret, selection, attribute, and change-notification contracts available in the minimum version, 4.14.
+Geometry queries introduced in 4.16 and caret/selection mutation introduced in 4.22 are not provided.
+AT-SPI text retrieval and Orca speech-text generation have been verified on GTK 4.14.
+Attribute-only changes are available through queries, but GTK 4.14 has no public notification API dedicated to attributes.
+See the [versioned GtkAccessibleText API](https://docs.gtk.org/gtk4/iface.AccessibleText.html) for available operations and notifications.
 
 ## Input and destruction considerations
 

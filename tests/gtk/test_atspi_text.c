@@ -160,6 +160,10 @@ int main(int argc, char **argv)
         /* The isolated Orca launcher acknowledges focus processing before
          * output, then acknowledges its speech log before closing the app. */
         char barrier[16];
+        puts("READY");
+        fflush(stdout);
+        CHECK(fgets(barrier, sizeof(barrier), stdin) != NULL);
+        command(input, text, "K", 0);
         CHECK(fgets(barrier, sizeof(barrier), stdin) != NULL);
         feed(input, text, "Hello boxrig.", 2);
         snapshot(text, "Hello boxrig.\n\n\n\n", 13);

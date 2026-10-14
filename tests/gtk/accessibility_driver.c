@@ -16,6 +16,7 @@ typedef boxrig_gtk4_terminal_widget_config WidgetConfig;
 
 static boxrig_terminal *terminal;
 static TerminalWidget *widget;
+static GtkWindow *window;
 static GMainLoop *loop;
 static guint frame_source;
 static bool ready, pending;
@@ -79,6 +80,9 @@ static gboolean command(GIOChannel *channel, GIOCondition condition, gpointer co
         g_assert_cmpint(boxrig_terminal_set_viewport_offset(terminal, 1), ==, BOXRIG_STATUS_OK);
     } else if (line[0] == 'Z') {
         g_assert_cmpint(boxrig_terminal_resize(terminal, 4, 10), ==, BOXRIG_STATUS_OK);
+    } else if (line[0] == 'K') {
+        gtk_window_set_focus(window, NULL);
+        gtk_widget_grab_focus(GTK_WIDGET(widget));
     } else if (line[0] == 'Q') {
         g_main_loop_quit(loop);
         g_free(line);
@@ -95,10 +99,10 @@ int main(void)
 {
 #if GTK_MAJOR_VERSION == 3
     gtk_init(NULL, NULL);
-    GtkWidget *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    window = GTK_WINDOW(gtk_window_new(GTK_WINDOW_TOPLEVEL));
 #else
     gtk_init();
-    GtkWidget *window = gtk_window_new();
+    window = GTK_WINDOW(gtk_window_new());
 #endif
     g_object_ref_sink(window);
     gtk_window_set_title(GTK_WINDOW(window), "boxrig-accessibility");
@@ -117,12 +121,14 @@ int main(void)
     g_object_ref_sink(widget);
 #if GTK_MAJOR_VERSION == 3
     gtk_container_add(GTK_CONTAINER(window), GTK_WIDGET(widget));
-    gtk_widget_show_all(window);
+    gtk_widget_show_all(GTK_WIDGET(window));
 #else
     gtk_window_set_child(GTK_WINDOW(window), GTK_WIDGET(widget));
     gtk_window_present(GTK_WINDOW(window));
 #endif
-    gtk_widget_grab_focus(GTK_WIDGET(widget));
+    /* The speech test first observes a complete AT-SPI round trip, then
+     * requests focus. GTK4 may emit focus before exporting its D-Bus object. */
+    gtk_window_set_focus(window, NULL);
     GIOChannel *input = g_io_channel_unix_new(0);
     guint input_source = g_io_add_watch(input, G_IO_IN | G_IO_HUP, command, NULL);
     loop = g_main_loop_new(NULL, FALSE);
@@ -131,7 +137,7 @@ int main(void)
     g_source_remove(input_source);
     g_io_channel_unref(input);
 #if GTK_MAJOR_VERSION == 3
-    gtk_widget_destroy(window);
+    gtk_widget_destroy(GTK_WIDGET(window));
 #else
     gtk_window_destroy(GTK_WINDOW(window));
 #endif

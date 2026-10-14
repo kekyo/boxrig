@@ -35,32 +35,38 @@ cat > "$settings/user-settings.conf" <<'EOF'
   "keybindings": {}
 }
 EOF
-mkfifo "$settings/orca-output" "$settings/client-input"
+mkfifo "$settings/orca-output" "$settings/client-input" "$settings/client-output"
 exec 3<> "$settings/client-input"
 exec 4<> "$settings/orca-output"
 export ORCA_TEST_SETTINGS="$settings"
 setsid script -q -e -c 'exec orca -u "$ORCA_TEST_SETTINGS" -d braille --debug --debug-file /dev/stdout' /dev/null > "$settings/orca-output" 2>&1 &
 orca_pid=$!
-wait_for_log() {
-    local pattern=$1 line remaining deadline=$((SECONDS + 180))
+wait_for_line() {
+    local descriptor=$1 pattern=$2 log=$3 line remaining deadline=$((SECONDS + 180))
     # The timeout is only a failure watchdog. Success requires an actual Orca
     # event, regardless of how long startup or speech dispatch takes.
-    while (( (remaining = deadline - SECONDS) > 0 )) && IFS= read -r -t "$remaining" line <&4; do
-        printf '%s\n' "$line" >> "$output/orca.log"
+    while (( (remaining = deadline - SECONDS) > 0 )) && IFS= read -r -t "$remaining" -u "$descriptor" line; do
+        printf '%s\n' "$line" >> "$log"
         if [[ "$line" == *"$pattern"* ]]; then return; fi
     done
-    echo "FAIL Orca did not report: $pattern" >&2
+    echo "FAIL accessibility test did not report: $pattern" >&2
     return 1
 }
-wait_for_log 'Starting Atspi main event loop'
-"$client" "$driver" --speech <&3 > "$output/client.log" 2>&1 &
+wait_for_line 4 'Starting Atspi main event loop' "$output/orca.log"
+: > "$output/client.log"
+"$client" "$driver" --speech <&3 > "$settings/client-output" 2>&1 &
 client_pid=$!
+exec 5< "$settings/client-output"
+wait_for_line 5 'READY' "$output/client.log"
 window=$(xdotool search --sync --onlyvisible --name '^boxrig-accessibility$')
 xdotool windowfocus --sync "$window"
-wait_for_log '^^^^^ PROCESS OBJECT EVENT object:state-changed:focused'
 printf 'focus\n' >&3
-wait_for_log "SPEECH OUTPUT: 'Hello boxrig."
+wait_for_line 4 'Request to set locus of focus to [terminal]' "$output/orca.log"
+wait_for_line 4 '^^^^^ PROCESS OBJECT EVENT object:state-changed:focused' "$output/orca.log"
+printf 'output\n' >&3
+wait_for_line 4 "SPEECH OUTPUT: 'Hello boxrig." "$output/orca.log"
 printf 'speech\n' >&3
 wait "$client_pid"
 client_pid=
+cat <&5 >> "$output/client.log"
 echo 'PASS Orca generated Hello boxrig. speech output'

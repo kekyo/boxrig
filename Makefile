@@ -227,7 +227,7 @@ X11_OBJECTS += $(BUILD_DIR)/notification/freedesktop.o
 X11_HEADERS := include/boxrig/x11.h $(wildcard include/boxrig/x11/*.h)
 GTK4_SOURCES := $(wildcard src/gtk4/*.c)
 GTK4_OBJECTS := $(patsubst src/gtk4/%.c,$(BUILD_DIR)/gtk4/%.o,$(GTK4_SOURCES)) \
-	$(BUILD_DIR)/gtk4/pangocairo_renderer.o
+	$(BUILD_DIR)/gtk4/pangocairo_renderer.o $(BUILD_DIR)/gtk4/accessible_text.o
 GTK4_HEADERS := include/boxrig/gtk4.h $(wildcard include/boxrig/gtk4/*.h) $(wildcard include/boxrig/gtk/*.h)
 GTK3_SOURCES := $(wildcard src/gtk3/*.c)
 GTK3_OBJECTS := $(patsubst src/gtk3/%.c,$(BUILD_DIR)/gtk3/%.o,$(GTK3_SOURCES)) \
@@ -1923,6 +1923,11 @@ $(BUILD_DIR)/gtk3/accessible_text.o: src/gtk/accessible_text.c src/gtk/accessibl
 	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(GTK3_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/gtk3/accessible.o $(BUILD_DIR)/gtk3/terminal_widget.o: src/gtk3/accessible.h src/gtk/accessible_text.h src/ui/accessible.h
+
+$(BUILD_DIR)/gtk4/accessible_text.o: src/gtk/accessible_text.c src/gtk/accessible_text.h src/ui/accessible.h | $(BUILD_DIR)/gtk4
+	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(GTK4_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/gtk4/accessible.o $(BUILD_DIR)/gtk4/terminal_widget.o: src/gtk4/accessible.h src/gtk/accessible_text.h src/ui/accessible.h
 
 $(BUILD_DIR)/gtk3/gl_%.o: src/gtk/gl_%.c src/gtk/gl_area.h src/gtk/gl_surface.h | $(BUILD_DIR)/gtk3
 	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(POSIX_CPPFLAGS) \
@@ -5535,3 +5540,22 @@ $(BUILD_DIR)/tests/test_atspi_text: tests/gtk/test_atspi_text.c | $(BUILD_DIR)/t
 test: test-gtk3-orca
 test-gtk3-orca: $(BUILD_DIR)/tests/test_atspi_text $(BUILD_DIR)/tests/gtk3_accessibility_driver
 	sh tests/gtk/run_accessibility.sh bash tests/gtk/run_orca.sh $(abspath $(BUILD_DIR)/tests/test_atspi_text) $(abspath $(BUILD_DIR)/tests/gtk3_accessibility_driver) $(abspath $(BUILD_DIR)/test-results/accessibility/gtk3)
+
+.PHONY: test-gtk4-accessible test-gtk4-atspi test-gtk4-orca
+test: test-gtk4-accessible test-gtk4-atspi test-gtk4-orca
+test-gtk4-accessible: $(BUILD_DIR)/tests/test_gtk4_accessible
+	$(XVFB_RUN) -a env GDK_BACKEND=x11 GTK_A11Y=none GSK_RENDERER=cairo GSETTINGS_BACKEND=memory GIO_USE_VFS=local ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
+
+$(BUILD_DIR)/tests/test_gtk4_accessible: tests/gtk4/test_accessible_text.c $(GTK4_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK4_CPPFLAGS) $(CFLAGS) $(GTK4_PROJECT_CFLAGS) $(SANITIZERS) $< $(GTK4_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK4_LIBS) -lm \
+		-Wl,--wrap=gtk_accessible_text_update_contents -Wl,--wrap=gtk_accessible_text_update_caret_position \
+		-Wl,--wrap=gtk_accessible_text_update_selection_bound -o $@
+
+test-gtk4-atspi: $(BUILD_DIR)/tests/test_atspi_text $(BUILD_DIR)/tests/gtk4_accessibility_driver
+	sh tests/gtk/run_accessibility.sh $(BUILD_DIR)/tests/test_atspi_text $(abspath $(BUILD_DIR)/tests/gtk4_accessibility_driver)
+
+$(BUILD_DIR)/tests/gtk4_accessibility_driver: tests/gtk/accessibility_driver.c $(GTK4_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK4_CPPFLAGS) $(CFLAGS) $(GTK4_PROJECT_CFLAGS) $(SANITIZERS) $< $(GTK4_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK4_LIBS) -lm -o $@
+
+test-gtk4-orca: $(BUILD_DIR)/tests/test_atspi_text $(BUILD_DIR)/tests/gtk4_accessibility_driver
+	sh tests/gtk/run_accessibility.sh bash tests/gtk/run_orca.sh $(abspath $(BUILD_DIR)/tests/test_atspi_text) $(abspath $(BUILD_DIR)/tests/gtk4_accessibility_driver) $(abspath $(BUILD_DIR)/test-results/accessibility/gtk4)

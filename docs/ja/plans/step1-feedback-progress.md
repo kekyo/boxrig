@@ -20,7 +20,7 @@
 | 9 | 完了 | GUIを止めない起動・中止・後始末。完了との競合、世代、二重生成・二重回収、ConPTY終了処理をドライバーで実測 |
 | 10 | 実装済み・検証中 | Linux共有ビルド。公開symbol、SONAME、pkg-config、PIC、private codecの可視性、クリーン・増分・外部ビルド、配布先でのロード。GTK静的リンクの環境依存を確認中 |
 | 11 | 完了 | 共通本文snapshotとGTK3 AtkText。本文・位置・caret・選択・通知順序、履歴・代替画面・reflow・複数表示・破棄。VTEとの比較、AT-SPIとOrcaの生成文字列を実測 |
-| 12 | 未着手 | GTK4 GtkAccessibleText。最低版4.14での本文・caret・選択・通知、GTK4版VTEとの比較、4.16/4.22以降の操作の採否と検証 |
+| 12 | 完了 | GTK4 GtkAccessibleText。最低版4.14で本文・caret・選択・通知とOrcaの生成文字列を確認。共有版・既存ウィジェットの回帰試験、後の版に依存する操作の採否を記録 |
 
 ## 段階1
 
@@ -321,6 +321,38 @@ snapshotとAtkTextが存在しない状態のREDから、共通UIと実GTK3ウ�
 Orca 46.1による追加出力`Hello boxrig.`の読み上げ文字列は、`test-gtk3-orca`で確認しています。
 音声出力先は比較専用設定で無効にしているため、確認範囲はOrcaが生成した文字列までで、実際の音声再生は未確認です。
 ログは`build/test-results/accessibility/gtk3/`に保存します。試験は独立したD-Bus・Xvfb・設定ディレクトリを使い、ユーザーのOrca設定は変更しません。
+
+## 段階12
+
+GTK4へ`GtkAccessibleText`を接続し、GTK3と同じ共通snapshotから本文・caret・選択・属性を返すようにしました。
+インターフェイスが存在しない状態のREDから、GTK 4.14.5上のnative APIと実AT-SPIのGREENを確認しています。
+削除通知中は旧本文、挿入通知中は新本文を取得でき、通知からの再フレーム処理は`BUSY`になります。
+通知中にアプリケーションが最後の所有参照を解放しても、処理を終えてからwidgetを破棄します。
+取得済みの本文はwidget破棄後も有効です。
+
+AT-SPI試験はGTK3と同じドライバー・入力・期待結果を使い、日本語・結合文字・絵文字、選択範囲、変更イベント、履歴移動、代替画面、reflowを検証します。
+実装を計装したAddressSanitizer/UndefinedBehaviorSanitizer試験も成功しました。
+Orca 46.1では`Hello boxrig.`の読み上げ文字列を取得でき、GTK4版VTEの比較条件を満たしています。
+音声再生は確認範囲に含めず、ログを`build/test-results/accessibility/gtk4/`へ保存します。
+
+最初のOrca試験では、GTK4の起動直後のフォーカス通知がD-Busオブジェクトの登録前に届き、Orcaが対象を見つけられませんでした。
+該当する外部の通知・登録経路は[GTK 4.14.5のAT-SPI context](https://github.com/GNOME/gtk/blob/4.14.5/gtk/a11y/gtkatspicontext.c)です。
+試験の順序を見直し、実際のAT-SPI本文取得を確認してからフォーカスを移します。
+Orcaによる端末フォーカスの処理完了を待って本文を送るようにした後、GTK3・GTK4とも成功しました。
+固定時間の待機は追加していません。
+
+描画方式の確認では、フレーム予約後にcoreのサイズが変わると、OpenGLの描画と公開本文がずれる問題を両版で再現しました。
+公開フレーム処理だけでは実際のGTK描画より古いsnapshotを保持するため、GL描画後にも表示内容と配置を反映します。
+この修正後、GTK3・GTK4のCairo・OpenGL優先・必須・初期化失敗の回帰試験が成功しました。
+
+版ごとの採否は、計画末尾の「比較観測で必要性を判断」に従って決めました。
+4.14の本文取得と通知で、今回のGTK4版VTE・Orca比較条件を満たせるため、4.16の座標取得は今回の実装に加えません。
+4.22のcaret・選択変更も採用せず、子が管理する端末カーソルへ入力を生成しない契約を維持します。
+後の版を必要とするAPIの呼び出しや最低版の変更はありません。
+APIの導入版は[GtkAccessibleTextの公式説明](https://docs.gtk.org/gtk4/iface.AccessibleText.html)で確認しています。
+共有ライブラリをリンクした利用側でも、GTK3・GTK4のAT-SPI試験が成功しました。
+既存のGTK4ウィジェット試験と、両版のCairo・OpenGL描画試験も成功しています。
+全段階をまとめた全体テストは、この後に実行します。
 
 ## 後続段階の事前確認
 

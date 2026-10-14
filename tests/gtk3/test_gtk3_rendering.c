@@ -17,6 +17,7 @@ static unsigned int rejected_es_contexts;
 static unsigned int rejected_es_renderers;
 static unsigned int context_attempts;
 static boxrig_terminal *resize_before_render;
+static size_t accessible_rows_after_render;
 
 void __real_gdk_gl_context_set_use_es(GdkGLContext *, int);
 void __wrap_gdk_gl_context_set_use_es(GdkGLContext *context, int use_es)
@@ -61,6 +62,7 @@ static gboolean before_render(GtkGLArea *area, GdkGLContext *context, gpointer d
         size_t rows, columns;
         boxrig_terminal_size(resize_before_render, &rows, &columns);
         CHECK(boxrig_terminal_resize(resize_before_render, rows + 1, columns + 1) == BOXRIG_STATUS_OK);
+        accessible_rows_after_render = rows + 1;
         resize_before_render = NULL;
     }
     return FALSE;
@@ -109,6 +111,15 @@ static gboolean drawn(GtkWidget *widget, cairo_t *cr, gpointer data)
     (void)cr;
     fixture *test = data;
     test->drawn_generation = boxrig_gtk3_terminal_widget_presentation_generation(test->widget);
+    if (accessible_rows_after_render != 0) {
+        AtkText *text = ATK_TEXT(gtk_widget_get_accessible(GTK_WIDGET(test->widget)));
+        char *contents = atk_text_get_text(text, 0, -1);
+        size_t rows = 0;
+        for (const char *p = contents; *p != '\0'; p++) rows += *p == '\n';
+        CHECK(rows == accessible_rows_after_render);
+        g_free(contents);
+        accessible_rows_after_render = 0;
+    }
     return FALSE;
 }
 
