@@ -164,7 +164,7 @@ static bool keys_paste_and_protocols(void)
     boxrig_terminal_config config = boxrig_terminal_config_default();
     config.encoding = BOXRIG_ENCODING_SHIFT_JIS;
     config.paste_newline = BOXRIG_NEWLINE_CRLF;
-    config.key_mappings = &mapping; config.key_mapping_count = 1;
+    config.input.key_mappings = &mapping; config.input.key_mapping_count = 1;
     CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
     boxrig_key_event key = {.key = BOXRIG_KEY_NONE, .codepoint = 0x65e5,
         .text = "日", .text_length = 3, .modifiers = BOXRIG_MODIFIER_ALT};

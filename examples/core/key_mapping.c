@@ -2,9 +2,9 @@
 #include "boxrig/terminal.h"
 #include <stdio.h>
 
-static bool show_up(boxrig_terminal *terminal, const char *label)
+static bool show_key(boxrig_terminal *terminal, boxrig_key identity, const char *label)
 {
-    boxrig_key_event key = {.key = BOXRIG_KEY_UP, .action = BOXRIG_KEY_PRESS};
+    boxrig_key_event key = {.key = identity, .action = BOXRIG_KEY_PRESS};
     if (boxrig_terminal_send_key(terminal, &key) != BOXRIG_STATUS_OK) return false;
     const uint8_t *bytes;
     size_t length = boxrig_terminal_output_peek(terminal, &bytes);
@@ -22,10 +22,10 @@ int main(void)
     boxrig_terminal *standard = NULL, *configured = NULL;
     int result = 1;
     if (boxrig_terminal_create(&config, &standard) != BOXRIG_STATUS_OK) goto cleanup;
-    config.key_mappings = &mapping;
-    config.key_mapping_count = 1;
+    config.input.key_mappings = &mapping;
+    config.input.key_mapping_count = 1;
     if (boxrig_terminal_create(&config, &configured) != BOXRIG_STATUS_OK) goto cleanup;
-    if (!show_up(standard, "default") || !show_up(configured, "configured")) goto cleanup;
+    if (!show_key(standard, BOXRIG_KEY_UP, "default") || !show_key(configured, BOXRIG_KEY_UP, "configured")) goto cleanup;
     const uint8_t application_mode[] = "\033[?1h";
     size_t consumed;
     if (boxrig_terminal_feed(standard, application_mode, sizeof(application_mode) - 1,
@@ -33,8 +33,16 @@ int main(void)
         boxrig_terminal_feed(configured, application_mode, sizeof(application_mode) - 1,
             &consumed) != BOXRIG_STATUS_OK || consumed != sizeof(application_mode) - 1)
         goto cleanup;
-    if (!show_up(standard, "application default") ||
-        !show_up(configured, "application configured")) goto cleanup;
+    if (!show_key(standard, BOXRIG_KEY_UP, "application default") ||
+        !show_key(configured, BOXRIG_KEY_UP, "application configured")) goto cleanup;
+    config.input.enter_newline = BOXRIG_NEWLINE_LF;
+    config.input.backspace_binding = BOXRIG_ERASE_DELETE_SEQUENCE;
+    config.input.delete_binding = BOXRIG_ERASE_ASCII_BACKSPACE;
+    if (boxrig_terminal_set_input_config(standard, &config.input) != BOXRIG_STATUS_OK ||
+        !show_key(standard, BOXRIG_KEY_UP, "runtime up") ||
+        !show_key(standard, BOXRIG_KEY_ENTER, "runtime enter") ||
+        !show_key(standard, BOXRIG_KEY_BACKSPACE, "runtime backspace") ||
+        !show_key(standard, BOXRIG_KEY_DELETE, "runtime delete")) goto cleanup;
     result = 0;
 cleanup:
     boxrig_terminal_destroy(standard);

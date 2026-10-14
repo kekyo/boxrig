@@ -5334,6 +5334,26 @@ test-packages:
 
 include tests/headers/rules.mk
 
+.PHONY: test-input-config
+test: test-input-config
+test-input-config: $(BUILD_DIR)/tests/test_terminal_input_config
+	$(BUILD_DIR)/tests/test_terminal_input_config
+
+$(BUILD_DIR)/tests/test_terminal_input_config: tests/test_terminal_input_config.c $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(LIBRARY) -Wl,--wrap=malloc -o $@
+
+.PHONY: test-input-config-win32
+test: test-input-config-win32
+test-input-config-win32: $(MINGW_AMD64_BUILD_DIR)/tests/test_terminal_input_config.exe $(MINGW_I686_BUILD_DIR)/tests/test_terminal_input_config.exe
+	$(WINE_RUN) $(abspath $(MINGW_AMD64_BUILD_DIR)/tests/test_terminal_input_config.exe)
+	$(WINE_RUN) $(abspath $(MINGW_I686_BUILD_DIR)/tests/test_terminal_input_config.exe)
+
+$(MINGW_AMD64_BUILD_DIR)/tests/test_terminal_input_config.exe: tests/test_terminal_input_config.c $(MINGW_AMD64_LIBRARY) | $(MINGW_AMD64_BUILD_DIR)/tests
+	$(MINGW_AMD64_CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(MINGW_AMD64_LIBRARY) -Wl,--wrap=malloc -o $@
+
+$(MINGW_I686_BUILD_DIR)/tests/test_terminal_input_config.exe: tests/test_terminal_input_config.c $(MINGW_I686_LIBRARY) | $(MINGW_I686_BUILD_DIR)/tests
+	$(MINGW_I686_CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(MINGW_I686_LIBRARY) -Wl,--wrap=malloc -o $@
+
 .PHONY: test-regex
 test: test-regex
 test-regex: $(BUILD_DIR)/tests/test_regex $(BUILD_DIR)/tests/test_regex_captures $(BUILD_DIR)/boxrig-regex

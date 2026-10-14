@@ -79,6 +79,17 @@ bool boxrig_x11_input_adapter_string_conversion_supported(
     const boxrig_x11_input_adapter *adapter);
 
 /**
+ * Exchanges input settings when no native key or IME transaction is pending.
+ * @param adapter Frontend to configure on its owning event thread.
+ * @param config Complete replacement, copied using the core validation rules.
+ * @return OK, BUSY while a key is held or input/IME/clipboard/paste is pending,
+ *         INVALID_ARGUMENT, LIMIT_EXCEEDED, or OUT_OF_MEMORY.
+ * @remarks BUSY and other failures preserve all old settings and input state.
+ */
+boxrig_ui_status boxrig_x11_input_adapter_set_input_config(
+    boxrig_x11_input_adapter *adapter, const boxrig_input_config *config);
+
+/**
  * Installs an application key router used before terminal input encoding.
  *
  * @param adapter Adapter to configure.

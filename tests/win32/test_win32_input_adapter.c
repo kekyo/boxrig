@@ -551,6 +551,8 @@ static bool test_application_key_routing_captures_the_key_series(void)
               adapter,
               route_control_shortcut,
               &trace) == 0);
+    boxrig_input_config replacement = boxrig_input_config_default();
+    CHECK(boxrig_win32_input_adapter_set_input_config(adapter, &replacement) == BOXRIG_UI_OK);
     CHECK(boxrig_terminal_feed(
               terminal,
               mode,
@@ -562,6 +564,7 @@ static bool test_application_key_routing_captures_the_key_series(void)
               VK_CONTROL,
               key_parameter(VK_CONTROL, false, false),
               &message_result) == 1);
+    CHECK(boxrig_win32_input_adapter_set_input_config(adapter, &replacement) == BOXRIG_UI_BUSY);
     output_length = boxrig_terminal_output_peek(terminal, &output);
     CHECK(boxrig_terminal_output_consume(terminal, output_length) ==
           BOXRIG_STATUS_OK);
@@ -4132,10 +4135,10 @@ static bool test_terminal_io_configuration(void)
         const boxrig_key_mapping mapping = {BOXRIG_KEY_UP, 0, mapped, sizeof(mapped)};
         boxrig_terminal_config config = boxrig_terminal_config_default();
         config.encoding = (boxrig_encoding)encoding;
-        config.enter_newline = BOXRIG_NEWLINE_LF;
+        config.input.enter_newline = BOXRIG_NEWLINE_LF;
         config.paste_newline = BOXRIG_NEWLINE_CRLF;
-        config.key_mappings = &mapping;
-        config.key_mapping_count = 1;
+        config.input.key_mappings = &mapping;
+        config.input.key_mapping_count = 1;
         boxrig_terminal *terminal = NULL;
         CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
 

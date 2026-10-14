@@ -23,7 +23,7 @@ typedef struct boxrig_terminal boxrig_terminal;
 /** Exclusive host ownership of a terminal animation clock. */
 typedef struct boxrig_animation_clock boxrig_animation_clock;
 
-/** One owned-at-construction override for a legacy cursor key. */
+/** One copied override for a legacy cursor key. */
 typedef struct boxrig_key_mapping boxrig_key_mapping;
 
 /** Maximum entries in a terminal's key mapping table. */
@@ -391,7 +391,7 @@ typedef enum boxrig_cursor_column_mode {
     BOXRIG_CURSOR_COLUMN_MODE_UTF16
 } boxrig_cursor_column_mode;
 
-/** Outbound newline encoding selected when a terminal is created. */
+/** Outbound newline encoding selected by input configuration. */
 typedef enum boxrig_newline {
     /** One carriage return byte. */
     BOXRIG_NEWLINE_CR = 0,
@@ -402,6 +402,34 @@ typedef enum boxrig_newline {
     /** Enter follows mode 20: CR when reset and CRLF when set. */
     BOXRIG_NEWLINE_TERMINAL
 } boxrig_newline;
+
+/** Legacy encoding selected independently for Backspace and Delete. */
+typedef enum boxrig_erase_binding {
+    /** Backspace sends DEL; Delete sends CSI 3 ~. */
+    BOXRIG_ERASE_AUTO = 0,
+    /** Send the single ASCII BS byte (0x08). */
+    BOXRIG_ERASE_ASCII_BACKSPACE,
+    /** Send the single ASCII DEL byte (0x7f). */
+    BOXRIG_ERASE_ASCII_DELETE,
+    /** Send CSI 3 ~, with the existing Delete modifier parameter when needed. */
+    BOXRIG_ERASE_DELETE_SEQUENCE
+} boxrig_erase_binding;
+
+/** Input settings validated and copied atomically at construction or runtime. */
+typedef struct boxrig_input_config {
+    /** Legacy Enter encoding. Defaults to TERMINAL; fixed CR, LF and CRLF
+     * ignore mode 20. Numeric keypad Enter follows this value. Kitty reports
+     * and application-keypad sequences retain their protocol encoding. */
+    boxrig_newline enter_newline;
+    /** Independent legacy Backspace choice; defaults to AUTO. */
+    boxrig_erase_binding backspace_binding;
+    /** Independent legacy Delete/keypad Delete choice; defaults to AUTO. */
+    boxrig_erase_binding delete_binding;
+    /** Copied legacy cursor-key overrides, or NULL for an empty table. */
+    const boxrig_key_mapping *key_mappings;
+    /** Table entries, at most BOXRIG_KEY_MAPPING_COUNT_MAX. */
+    size_t key_mapping_count;
+} boxrig_input_config;
 
 /** Interpretation of received display CR and LF controls. */
 typedef enum boxrig_receive_newline {
@@ -530,13 +558,8 @@ typedef struct boxrig_terminal_config {
     boxrig_ambiguous_width ambiguous_width;
     /** Unit used by horizontal cursor positions received from the client. */
     boxrig_cursor_column_mode cursor_column_mode;
-    /**
-     * Legacy Enter encoding. Defaults to TERMINAL; fixed CR, LF and CRLF
-     * ignore mode 20. Numeric keypad Enter follows this value. Kitty reports
-     * and application-keypad sequences retain their protocol encoding.
-     * The terminal copies this value and retains it across RIS and DECSTR.
-     */
-    boxrig_newline enter_newline;
+    /** Copied input settings, retained across RIS and DECSTR. */
+    boxrig_input_config input;
     /**
      * Encoding of LF bytes in paste chunks. Defaults to LF; only CR, LF and
      * CRLF are accepted. Other bytes and bracketed-paste markers are unchanged.
@@ -551,14 +574,6 @@ typedef struct boxrig_terminal_config {
      * boundaries; any intervening byte ends the pair. Retained across resets.
      */
     boxrig_receive_newline receive_newline;
-    /**
-     * Legacy cursor-key overrides, or NULL when key_mapping_count is zero.
-     * The entries and their byte sequences are copied during construction
-     * and retained across resets. The default is NULL.
-     */
-    const boxrig_key_mapping *key_mappings;
-    /** Number of entries in key_mappings; at most BOXRIG_KEY_MAPPING_COUNT_MAX. */
-    size_t key_mapping_count;
     /** Text codec, fixed at construction and retained across terminal resets. */
     boxrig_encoding encoding;
 } boxrig_terminal_config;
@@ -1104,6 +1119,41 @@ struct boxrig_key_mapping {
     /** Byte length; zero intentionally suppresses this legacy key event. */
     size_t length;
 };
+
+/**
+ * Returns default runtime input settings, also used by terminal construction.
+ * @return Terminal-mode Enter, Auto erase bindings, and no arrow overrides.
+ */
+boxrig_input_config boxrig_input_config_default(void);
+
+/**
+ * Atomically validates, copies, and replaces runtime input settings.
+ * @param terminal Terminal to configure.
+ * @param config Complete replacement; mapping payloads are copied.
+ * @return OK, INVALID_ARGUMENT, LIMIT_EXCEEDED, or OUT_OF_MEMORY.
+ * @remarks Failure preserves the old settings. Success preserves screen,
+ * history, selection, protocol modes, and already queued output. Settings
+ * survive RIS/DECSTR. Kitty encoding precedes all legacy settings. For a
+ * one-byte BS/DEL binding Ctrl exchanges BS and DEL and Alt prefixes ESC;
+ * DELETE_SEQUENCE encodes all modifiers in CSI without an extra Alt prefix.
+ * Legacy releases produce no bytes. Core applies changes at the call boundary;
+ * a frontend owner must use its guarded setter to avoid changing a held-key or
+ * pending IME series. Calls and borrowed settings must be externally serialized.
+ */
+boxrig_status boxrig_terminal_set_input_config(
+    boxrig_terminal *terminal, const boxrig_input_config *config);
+
+/**
+ * Reads all current settings without allocating.
+ * @param terminal Terminal to inspect.
+ * @param config_out Required output; mapping pointers are borrowed until the
+ *        next successful exchange or terminal destruction.
+ * @return OK or INVALID_ARGUMENT.
+ * @remarks The returned value may itself be passed to set_input_config(); all
+ * replacement data is copied before any old storage is released.
+ */
+boxrig_status boxrig_terminal_get_input_config(
+    const boxrig_terminal *terminal, boxrig_input_config *config_out);
 
 /** Logical key transition type. */
 typedef enum boxrig_key_action {

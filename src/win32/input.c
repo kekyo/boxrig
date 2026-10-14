@@ -81,6 +81,7 @@ typedef struct deferred_imm_preedit {
 struct boxrig_win32_input_adapter {
     HWND window;
     boxrig_terminal *terminal;
+    bool dispatching;
     boxrig_ui_view *animation_view;
     boxrig_ui_status animation_failure;
     unsigned int cell_width;
@@ -3048,6 +3049,31 @@ int boxrig_win32_input_adapter_set_editable_document(
     return 0;
 }
 
+boxrig_ui_status boxrig_win32_input_adapter_set_input_config(
+    boxrig_win32_input_adapter *adapter, const boxrig_input_config *config)
+{
+    if (adapter == NULL || config == NULL) return BOXRIG_UI_INVALID_ARGUMENT;
+    boxrig_composition_view composition;
+    if (boxrig_composition_get_view(adapter->composition, &composition) != BOXRIG_COMPOSITION_OK) {
+        return BOXRIG_UI_INVALID_ARGUMENT;
+    }
+    if (adapter->dispatching || adapter->pending.kind != PENDING_INPUT_NONE ||
+        adapter->paste_active || composition.active || composition.commit_pending ||
+        adapter->character.active || adapter->high_surrogate != 0 ||
+        adapter->ime_high_surrogate != 0 || adapter->native_composing ||
+        adapter->deferred_preedit.active || adapter->reconversion_sink_active) {
+        return BOXRIG_UI_BUSY;
+    }
+    for (size_t i = 0u; i < KEY_SLOT_COUNT; i++) {
+        if (adapter->pressed[i]) return BOXRIG_UI_BUSY;
+    }
+    boxrig_status status = boxrig_terminal_set_input_config(adapter->terminal, config);
+    if (status == BOXRIG_STATUS_OK) return BOXRIG_UI_OK;
+    if (status == BOXRIG_STATUS_OUT_OF_MEMORY) return BOXRIG_UI_OUT_OF_MEMORY;
+    if (status == BOXRIG_STATUS_LIMIT_EXCEEDED) return BOXRIG_UI_LIMIT_EXCEEDED;
+    return BOXRIG_UI_INVALID_ARGUMENT;
+}
+
 int boxrig_win32_input_adapter_set_key_router(
     boxrig_win32_input_adapter *adapter,
     boxrig_input_key_router router,
@@ -3281,7 +3307,21 @@ int boxrig_win32_input_adapter_pretranslate_message(
     return cancel_reconversion_session(adapter, true, true) == 0 ? 1 : -1;
 }
 
-int boxrig_win32_input_adapter_process_message(
+static int process_message(boxrig_win32_input_adapter *adapter, UINT message, WPARAM word_parameter,
+    LPARAM long_parameter, LRESULT *result_out);
+
+int boxrig_win32_input_adapter_process_message(boxrig_win32_input_adapter *adapter, UINT message, WPARAM word_parameter,
+    LPARAM long_parameter, LRESULT *result_out)
+{
+    if (adapter == NULL) return -1;
+    bool was_dispatching = adapter->dispatching;
+    adapter->dispatching = true;
+    int result = process_message(adapter, message, word_parameter, long_parameter, result_out);
+    adapter->dispatching = was_dispatching;
+    return result;
+}
+
+static int process_message(
     boxrig_win32_input_adapter *adapter,
     UINT message,
     WPARAM word_parameter,

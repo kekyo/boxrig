@@ -1851,3 +1851,17 @@ void boxrig_wayland_clipboard_get_component_diagnostic(
         }
     }
 }
+
+bool boxrig_wayland_clipboard_input_pending(
+    const boxrig_wayland_terminal_component *component)
+{
+    for (const boxrig_wayland_clipboard_transfer *transfer =
+             component->context->clipboard_transfers;
+         transfer != NULL; transfer = transfer->next) {
+        if (transfer->kind == BOXRIG_WAYLAND_TRANSFER_INCOMING &&
+            transfer->component == component) {
+            return true;
+        }
+    }
+    return false;
+}

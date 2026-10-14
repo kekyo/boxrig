@@ -509,6 +509,8 @@ static bool test_application_key_routing_captures_the_key_series(void)
               adapter,
               route_control_a,
               &trace) == 0);
+    boxrig_input_config replacement = boxrig_input_config_default();
+    CHECK(boxrig_x11_input_adapter_set_input_config(adapter, &replacement) == BOXRIG_UI_OK);
     CHECK(boxrig_terminal_feed(
               terminal,
               mode,
@@ -526,11 +528,13 @@ static bool test_application_key_routing_captures_the_key_series(void)
     event.xkey.time = 1;
     CHECK(event.xkey.keycode != 0);
     CHECK(boxrig_x11_input_adapter_process_event(adapter, &event) == 1);
+    CHECK(boxrig_x11_input_adapter_set_input_config(adapter, &replacement) == BOXRIG_UI_BUSY);
     event.xkey.time = 2;
     CHECK(boxrig_x11_input_adapter_process_event(adapter, &event) == 1);
     event.xkey.type = KeyRelease;
     event.xkey.time = 3;
     CHECK(boxrig_x11_input_adapter_process_event(adapter, &event) == 1);
+    CHECK(boxrig_x11_input_adapter_set_input_config(adapter, &replacement) == BOXRIG_UI_OK);
     CHECK(trace.count == 3);
     CHECK(trace.actions[0] == BOXRIG_KEY_PRESS);
     CHECK(trace.actions[1] == BOXRIG_KEY_REPEAT);
@@ -3324,10 +3328,10 @@ static bool test_terminal_io_configuration(void)
         const boxrig_key_mapping mapping = {BOXRIG_KEY_UP, 0, mapped, sizeof(mapped)};
         boxrig_terminal_config config = boxrig_terminal_config_default();
         config.encoding = (boxrig_encoding)encoding;
-        config.enter_newline = BOXRIG_NEWLINE_LF;
+        config.input.enter_newline = BOXRIG_NEWLINE_LF;
         config.paste_newline = BOXRIG_NEWLINE_CRLF;
-        config.key_mappings = &mapping;
-        config.key_mapping_count = 1;
+        config.input.key_mappings = &mapping;
+        config.input.key_mapping_count = 1;
         boxrig_terminal *terminal = NULL;
         CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
 

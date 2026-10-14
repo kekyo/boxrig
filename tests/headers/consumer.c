@@ -56,6 +56,11 @@ int main(void)
     (void)renderer;
 #endif
 
+    boxrig_input_config input = boxrig_input_config_default();
+    input.backspace_binding = BOXRIG_ERASE_ASCII_BACKSPACE;
+    assert(boxrig_terminal_set_input_config(terminal, &input) == BOXRIG_STATUS_OK);
+    assert(boxrig_terminal_get_input_config(terminal, &input) == BOXRIG_STATUS_OK);
+    assert(input.backspace_binding == BOXRIG_ERASE_ASCII_BACKSPACE);
     boxrig_terminal_destroy(terminal);
     boxrig_regex_limits limits = boxrig_regex_limits_default();
     boxrig_regex_program *program = NULL;

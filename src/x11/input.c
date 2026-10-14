@@ -124,6 +124,7 @@ struct boxrig_x11_input_adapter {
     Window client_window;
     Window window;
     boxrig_terminal *terminal;
+    bool dispatching;
     unsigned int cell_width;
     unsigned int cell_height;
     int viewport_x;
@@ -3931,6 +3932,31 @@ bool boxrig_x11_input_adapter_string_conversion_supported(
     return adapter != NULL && adapter->string_conversion_supported;
 }
 
+boxrig_ui_status boxrig_x11_input_adapter_set_input_config(
+    boxrig_x11_input_adapter *adapter, const boxrig_input_config *config)
+{
+    if (adapter == NULL || config == NULL) return BOXRIG_UI_INVALID_ARGUMENT;
+    boxrig_composition_view composition;
+    if (boxrig_composition_get_view(adapter->composition, &composition) != BOXRIG_COMPOSITION_OK) {
+        return BOXRIG_UI_INVALID_ARGUMENT;
+    }
+    if (adapter->dispatching || adapter->pending.kind != PENDING_INPUT_NONE ||
+        adapter->paste_active || composition.active || composition.commit_pending ||
+        adapter->preedit_started || adapter->document_reset_pending ||
+        adapter->reset_preedit_tail_pending || adapter->escape_preedit_pending ||
+        adapter->selection_receive_state != SELECTION_RECEIVE_IDLE) {
+        return BOXRIG_UI_BUSY;
+    }
+    for (size_t i = 0u; i < KEYCODE_COUNT; i++) {
+        if (adapter->pressed[i]) return BOXRIG_UI_BUSY;
+    }
+    boxrig_status status = boxrig_terminal_set_input_config(adapter->terminal, config);
+    if (status == BOXRIG_STATUS_OK) return BOXRIG_UI_OK;
+    if (status == BOXRIG_STATUS_OUT_OF_MEMORY) return BOXRIG_UI_OUT_OF_MEMORY;
+    if (status == BOXRIG_STATUS_LIMIT_EXCEEDED) return BOXRIG_UI_LIMIT_EXCEEDED;
+    return BOXRIG_UI_INVALID_ARGUMENT;
+}
+
 int boxrig_x11_input_adapter_set_key_router(
     boxrig_x11_input_adapter *adapter,
     boxrig_input_key_router router,
@@ -4292,7 +4318,19 @@ static int process_clipboard_event(
     }
 }
 
-int boxrig_x11_input_adapter_process_event(
+static int process_event(boxrig_x11_input_adapter *adapter, const XEvent *event);
+
+int boxrig_x11_input_adapter_process_event(boxrig_x11_input_adapter *adapter, const XEvent *event)
+{
+    if (adapter == NULL) return -1;
+    bool was_dispatching = adapter->dispatching;
+    adapter->dispatching = true;
+    int result = process_event(adapter, event);
+    adapter->dispatching = was_dispatching;
+    return result;
+}
+
+static int process_event(
     boxrig_x11_input_adapter *adapter,
     const XEvent *event)
 {

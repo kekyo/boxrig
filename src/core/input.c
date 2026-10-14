@@ -19,9 +19,21 @@ static const uint32_t all_modifiers =
     BOXRIG_MODIFIER_HYPER | BOXRIG_MODIFIER_META |
     BOXRIG_MODIFIER_CAPS_LOCK | BOXRIG_MODIFIER_NUM_LOCK;
 
-boxrig_status boxrig_input_initialize_key_mappings(
-    boxrig_terminal *terminal, const boxrig_terminal_config *config)
+boxrig_input_config boxrig_input_config_default(void)
 {
+    boxrig_input_config config;
+    config.enter_newline = BOXRIG_NEWLINE_TERMINAL;
+    config.backspace_binding = BOXRIG_ERASE_AUTO;
+    config.delete_binding = BOXRIG_ERASE_AUTO;
+    config.key_mappings = NULL;
+    config.key_mapping_count = 0u;
+    return config;
+}
+
+static boxrig_status copy_key_mappings(
+    const boxrig_input_config *config, boxrig_key_mapping **mappings_out)
+{
+    *mappings_out = NULL;
     if (config->key_mapping_count > BOXRIG_KEY_MAPPING_COUNT_MAX)
         return BOXRIG_STATUS_LIMIT_EXCEEDED;
     if (config->key_mapping_count == 0) return BOXRIG_STATUS_OK;
@@ -59,8 +71,38 @@ boxrig_status boxrig_input_initialize_key_mappings(
             bytes += owned[index].length;
         }
     }
-    terminal->key_mappings = owned;
-    terminal->key_mapping_count = config->key_mapping_count;
+    *mappings_out = owned;
+    return BOXRIG_STATUS_OK;
+}
+
+boxrig_status boxrig_terminal_set_input_config(
+    boxrig_terminal *terminal, const boxrig_input_config *config)
+{
+    if (terminal == NULL || config == NULL ||
+        (unsigned int)config->enter_newline > BOXRIG_NEWLINE_TERMINAL ||
+        (unsigned int)config->backspace_binding > BOXRIG_ERASE_DELETE_SEQUENCE ||
+        (unsigned int)config->delete_binding > BOXRIG_ERASE_DELETE_SEQUENCE) {
+        return BOXRIG_STATUS_INVALID_ARGUMENT;
+    }
+    boxrig_input_config candidate = *config;
+    boxrig_key_mapping *mappings;
+    boxrig_status status = copy_key_mappings(config, &mappings);
+    if (status != BOXRIG_STATUS_OK) {
+        return status;
+    }
+    candidate.key_mappings = mappings;
+    free((void *)terminal->input_config.key_mappings);
+    terminal->input_config = candidate;
+    return BOXRIG_STATUS_OK;
+}
+
+boxrig_status boxrig_terminal_get_input_config(
+    const boxrig_terminal *terminal, boxrig_input_config *config_out)
+{
+    if (terminal == NULL || config_out == NULL) {
+        return BOXRIG_STATUS_INVALID_ARGUMENT;
+    }
+    *config_out = terminal->input_config;
     return BOXRIG_STATUS_OK;
 }
 
@@ -651,7 +693,7 @@ static size_t enter_newline_bytes(
     const boxrig_terminal *terminal,
     uint8_t *bytes)
 {
-    boxrig_newline policy = terminal->enter_newline;
+    boxrig_newline policy = terminal->input_config.enter_newline;
 
     if (policy == BOXRIG_NEWLINE_TERMINAL) {
         policy = terminal->screen.newline_mode
@@ -678,12 +720,6 @@ static boxrig_status append_simple_key(
     case BOXRIG_KEY_ENTER:
         length = enter_newline_bytes(terminal, bytes);
         break;
-    case BOXRIG_KEY_BACKSPACE:
-        bytes[0] = (event->modifiers & BOXRIG_MODIFIER_CONTROL) != 0
-                       ? 0x08
-                       : 0x7f;
-        length = 1;
-        break;
     case BOXRIG_KEY_TAB:
         if ((event->modifiers & BOXRIG_MODIFIER_SHIFT) != 0) {
             bytes[0] = 0x1b;
@@ -708,6 +744,41 @@ static boxrig_status append_simple_key(
         base = 1;
     }
     return boxrig_terminal_append_output(terminal, bytes, length + base);
+}
+
+static boxrig_status append_erase_key(
+    boxrig_terminal *terminal, const boxrig_key_event *event)
+{
+    boxrig_erase_binding binding = event->key == BOXRIG_KEY_BACKSPACE
+        ? terminal->input_config.backspace_binding
+        : terminal->input_config.delete_binding;
+    if (binding == BOXRIG_ERASE_AUTO) {
+        binding = event->key == BOXRIG_KEY_BACKSPACE
+            ? BOXRIG_ERASE_ASCII_DELETE : BOXRIG_ERASE_DELETE_SEQUENCE;
+    }
+    if (binding == BOXRIG_ERASE_DELETE_SEQUENCE) {
+        unsigned int modifier = modifier_parameter(event->modifiers);
+        char sequence[32];
+        int length = modifier == 1u
+            ? snprintf(sequence, sizeof(sequence), "\x1b[3~")
+            : snprintf(sequence, sizeof(sequence), "\x1b[3;%u~", modifier);
+        if (length < 0 || (size_t)length >= sizeof(sequence)) {
+            return BOXRIG_STATUS_LIMIT_EXCEEDED;
+        }
+        return boxrig_terminal_append_output(terminal,
+            (const uint8_t *)sequence, (size_t)length);
+    }
+    uint8_t bytes[2];
+    size_t length = 0u;
+    uint8_t byte = binding == BOXRIG_ERASE_ASCII_BACKSPACE ? 0x08u : 0x7fu;
+    if ((event->modifiers & BOXRIG_MODIFIER_CONTROL) != 0u) {
+        byte = byte == 0x08u ? 0x7fu : 0x08u;
+    }
+    if ((event->modifiers & BOXRIG_MODIFIER_ALT) != 0u) {
+        bytes[length++] = 0x1bu;
+    }
+    bytes[length++] = byte;
+    return boxrig_terminal_append_output(terminal, bytes, length);
 }
 
 static bool keypad_value(
@@ -1319,12 +1390,12 @@ boxrig_status boxrig_terminal_send_key(
     if (status != BOXRIG_STATUS_OK || kitty_handled) {
         return status;
     }
-    if (terminal->key_mapping_count != 0 &&
+    if (terminal->input_config.key_mapping_count != 0 &&
         event->key >= BOXRIG_KEY_UP && event->key <= BOXRIG_KEY_LEFT) {
         uint32_t modifiers = event->modifiers &
             ~(BOXRIG_MODIFIER_CAPS_LOCK | BOXRIG_MODIFIER_NUM_LOCK);
-        for (size_t index = 0; index < terminal->key_mapping_count; index++) {
-            const boxrig_key_mapping *mapping = &terminal->key_mappings[index];
+        for (size_t index = 0; index < terminal->input_config.key_mapping_count; index++) {
+            const boxrig_key_mapping *mapping = &terminal->input_config.key_mappings[index];
             if (mapping->key == event->key && mapping->modifiers == modifiers) {
                 return boxrig_terminal_append_output(
                     terminal, mapping->bytes, mapping->length);
@@ -1381,8 +1452,10 @@ boxrig_status boxrig_terminal_send_key(
             (const uint8_t *)sequence,
             (size_t)length);
     }
-    if (event->key == BOXRIG_KEY_ENTER ||
-        event->key == BOXRIG_KEY_BACKSPACE || event->key == BOXRIG_KEY_TAB ||
+    if (event->key == BOXRIG_KEY_BACKSPACE || event->key == BOXRIG_KEY_DELETE) {
+        return append_erase_key(terminal, event);
+    }
+    if (event->key == BOXRIG_KEY_ENTER || event->key == BOXRIG_KEY_TAB ||
         event->key == BOXRIG_KEY_ESCAPE) {
         return append_simple_key(terminal, event);
     }

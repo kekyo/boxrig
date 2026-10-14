@@ -286,12 +286,10 @@ struct boxrig_terminal {
     size_t notification_capacity;
     size_t notification_pending_capacity;
     boxrig_notification_state *notification_state;
-    boxrig_newline enter_newline;
+    /* The input config owns one allocation for mapping entries and bytes. */
+    boxrig_input_config input_config;
     boxrig_newline paste_newline;
     boxrig_receive_newline receive_newline;
-    /* One allocation owns the immutable mapping entries and their byte data. */
-    boxrig_key_mapping *key_mappings;
-    size_t key_mapping_count;
     size_t output_capacity;
     size_t output_usage;
     boxrig_output_segment *output_head;
@@ -302,10 +300,6 @@ struct boxrig_terminal {
     boxrig_text_recognizer_state *text_recognizer_state;
     boxrig_animation_clock *animation_clock;
 };
-
-/* Validate and copy construction-time legacy key sequences into the terminal. */
-boxrig_status boxrig_input_initialize_key_mappings(
-    boxrig_terminal *terminal, const boxrig_terminal_config *config);
 
 boxrig_status boxrig_screen_initialize(
     boxrig_screen *screen,

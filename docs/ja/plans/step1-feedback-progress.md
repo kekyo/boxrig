@@ -12,7 +12,7 @@
 | 1 | 完了 | 公開ヘッダーを通常includeしたC99/C++20利用側のリンク・実行 |
 | 2 | 完了 | 独立regex APIとCLI。NUL、不正UTF-8、診断位置、容量制限、分割再開、不一致時の処理量 |
 | 3 | 完了 | 番号・名前付きキャプチャ、認識器とのプログラム共有、同長時の優先、反復、未参加と空文字、結合文字、revisionと不変コピーの寿命、保持量 |
-| 4 | 未着手 | Enter・矢印・両消去キーの設定交換。画面保持、Ctrl/Alt、keypad、Kitty、失敗時の旧設定保持、UIの押下系列との境界 |
+| 4 | 完了 | Enter・矢印・両消去キーの設定交換。画面保持、Ctrl/Alt、keypad、Kitty、失敗時の旧設定保持、UIの押下系列との境界 |
 | 5 | 未着手 | キー処理時のTTY消去文字取得。変更、無効値、NUL、未取得、接続切替、他の通信路のAutoへの復帰 |
 | 6 | 未着手 | 入力禁止と停止完了。遅延IME・clipboard・pasteの無効化、paste終端、選択コピーと端末応答の継続 |
 | 7 | 未着手 | 行列数変更のhost通知。分割受信、0と省略、キュー満杯、拒否、layoutへの接続 |
@@ -79,6 +79,29 @@ amd64/i686のWine試験と、core全体を計装したAddressSanitizer/Undefined
 reflow・解除後の寿命試験を含め、`make test-regex`、`make test-regex-win32`、`make test-public-headers`が成功しました。
 coreの既存101試験と、追加試験を含むサニタイザー確認も成功しています。
 キャプチャ付きの不一致検索でも、入力長を倍にしたときの処理量の上限を検証しました。
+
+## 段階4
+
+生成時と実行中に共通の`boxrig_input_config`を使い、Enter・矢印・Backspace・Deleteを一括交換できるようにしました。
+生成時の入口は`boxrig_terminal_config.input`です。従来の個別メンバーを使う利用側も更新しました。
+coreのsetterは全項目を検証し、矢印のバイト列をコピーしてから交換します。
+取得APIの借用値をそのままsetterへ戻す場合も有効です。
+
+API不足のREDを確認した後、両消去キーの全組み合わせ、6種類の修飾キー、press・repeat・releaseを送信バイトで確認しました。
+固定Enterとmode 20追従、keypad、Kitty push/pop、画面revisionと端末モードの保持、入力バッファのコピーを検証しています。
+不正値・上限超過・`malloc`失敗を注入した試験でも旧設定を保持できました。
+サニタイザー付きのcore試験も成功しています。
+
+GTK3・GTK4・X11・Wayland・Win32の各UIにも設定APIを追加しました。
+対象コンポーネントの押下系列・保留キー・IME・貼り付け処理が残る場合は`BUSY`です。
+複数コンポーネントで端末を共有する場合は、ホストが全入力系列の終了を確認する契約を記載しました。
+GTKのnativeキー入力では変更前後のLF／CRを確認でき、保留pasteとpreedit中の変更も拒否できています。
+Waylandの追加試験では既存の一括受信を途中で処理してしまう問題があり、検証位置を修正しました。既存のキュー最大深度の条件は維持しています。
+
+`test-input-config`、`test-terminal-newline`、`test-terminal-key-mapping`、GTK3/GTK4のcodec試験、Wayland入力試験、X11入力試験が成功しました。
+Win32の新しいcore試験と既存input adapter試験は、amd64/i686の両方でWine上で成功しています。
+公開ヘッダーのC99/C++20試験と既存coreの101試験も成功しました。
+実行中の設定交換は[キー設定の実行例](../../../examples/core/key_mapping.c)で観察できます。
 
 ## 後続段階の事前確認
 

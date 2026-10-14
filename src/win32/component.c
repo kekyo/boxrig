@@ -2218,6 +2218,15 @@ bool boxrig_win32_terminal_component_focused(
     return component != NULL && component->focused;
 }
 
+boxrig_ui_status boxrig_win32_terminal_component_set_input_config(
+    boxrig_win32_terminal_component *component, const boxrig_input_config *config)
+{
+    if (component == NULL || !boxrig_ui_lifecycle_accepts_events(&component->lifecycle)) {
+        return BOXRIG_UI_INVALID_ARGUMENT;
+    }
+    return boxrig_win32_input_adapter_set_input_config(component->input, config);
+}
+
 boxrig_ui_status boxrig_win32_terminal_component_set_key_router(
     boxrig_win32_terminal_component *component,
     boxrig_input_key_router router,

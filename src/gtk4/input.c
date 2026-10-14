@@ -3006,6 +3006,33 @@ void boxrig_gtk4_input_destroy(boxrig_gtk4_input *input)
     release_input(input);
 }
 
+boxrig_ui_status boxrig_gtk4_input_set_config(
+    boxrig_gtk4_input *input, const boxrig_input_config *config)
+{
+    if (input == NULL || !input->accepting || config == NULL) {
+        return BOXRIG_UI_INVALID_ARGUMENT;
+    }
+    boxrig_composition_view composition;
+    if (boxrig_composition_get_view(input->composition, &composition) != BOXRIG_COMPOSITION_OK) {
+        return BOXRIG_UI_INVALID_ARGUMENT;
+    }
+    if (input->processing || input->queue_count != 0u || input->ime_pending ||
+        input->ime_waiting || input->ibus_switch_pending || input->filtering_key ||
+        input->active_clipboard_transfers != 0u || composition.active || composition.commit_pending) {
+        return BOXRIG_UI_BUSY;
+    }
+    for (size_t i = 0u; i < BOXRIG_GTK4_PHYSICAL_KEY_STATES; i++) {
+        if (input->physical_keys[i].native_pressed || input->physical_keys[i].application_captured) {
+            return BOXRIG_UI_BUSY;
+        }
+    }
+    boxrig_status status = boxrig_terminal_set_input_config(input->terminal, config);
+    if (status == BOXRIG_STATUS_OK) return BOXRIG_UI_OK;
+    if (status == BOXRIG_STATUS_OUT_OF_MEMORY) return BOXRIG_UI_OUT_OF_MEMORY;
+    if (status == BOXRIG_STATUS_LIMIT_EXCEEDED) return BOXRIG_UI_LIMIT_EXCEEDED;
+    return BOXRIG_UI_INVALID_ARGUMENT;
+}
+
 boxrig_ui_status boxrig_gtk4_input_set_key_router(
     boxrig_gtk4_input *input,
     boxrig_input_key_router router,

@@ -32,7 +32,7 @@ static bool enter_policies(void)
         BOXRIG_NEWLINE_LF, BOXRIG_NEWLINE_CRLF};
     for (size_t p = 0; p < 4; p++) for (unsigned mode = 0; mode < 2; mode++) {
         boxrig_terminal_config config = boxrig_terminal_config_default();
-        config.enter_newline = policies[p];
+        config.input.enter_newline = policies[p];
         CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
         if (mode) CHECK(feed(terminal, "\033[20h", 5));
         for (unsigned keypad = 0; keypad < 2; keypad++)
@@ -66,7 +66,7 @@ static bool protocol_priority_and_reset(void)
 {
     boxrig_terminal *terminal = NULL;
     boxrig_terminal_config config = boxrig_terminal_config_default();
-    config.enter_newline = BOXRIG_NEWLINE_LF;
+    config.input.enter_newline = BOXRIG_NEWLINE_LF;
     config.paste_newline = BOXRIG_NEWLINE_CRLF;
     CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
     boxrig_key_event key = {.key = BOXRIG_KEY_KP_ENTER, .action = BOXRIG_KEY_PRESS};
@@ -208,7 +208,7 @@ static bool atomic_output_retry(void)
     boxrig_terminal *terminal = NULL;
     boxrig_terminal_config config = boxrig_terminal_config_default();
     config.output_capacity = 5;
-    config.enter_newline = BOXRIG_NEWLINE_CRLF;
+    config.input.enter_newline = BOXRIG_NEWLINE_CRLF;
     config.paste_newline = BOXRIG_NEWLINE_CRLF;
     CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
     CHECK(boxrig_terminal_send_text(terminal, "abcd", 4) == BOXRIG_STATUS_OK);
@@ -246,7 +246,7 @@ static bool receive_backpressure_and_barrier(void)
     boxrig_terminal *terminal = NULL;
     boxrig_terminal_config config = boxrig_terminal_config_default();
     config.receive_newline = BOXRIG_RECEIVE_NEWLINE_CRLF;
-    config.enter_newline = BOXRIG_NEWLINE_LF;
+    config.input.enter_newline = BOXRIG_NEWLINE_LF;
     config.paste_newline = BOXRIG_NEWLINE_CRLF;
     config.host_item_capacity = 1;
     config.clipboard_capacity = 8;
@@ -288,7 +288,7 @@ static bool invalid_configuration(void)
     boxrig_terminal *terminal = NULL;
     for (unsigned p = 0; p < 4; p++) {
         boxrig_terminal_config config = boxrig_terminal_config_default();
-        if (p == 0) config.enter_newline = (boxrig_newline)-1;
+        if (p == 0) config.input.enter_newline = (boxrig_newline)-1;
         if (p == 1) config.paste_newline = BOXRIG_NEWLINE_TERMINAL;
         if (p == 2) config.receive_newline = (boxrig_receive_newline)5;
         if (p == 3) config.receive_newline = (boxrig_receive_newline)-1;
@@ -304,10 +304,10 @@ static bool settings_are_owned_per_terminal(void)
 {
     boxrig_terminal *first = NULL, *second = NULL;
     boxrig_terminal_config config = boxrig_terminal_config_default();
-    config.enter_newline = BOXRIG_NEWLINE_LF;
+    config.input.enter_newline = BOXRIG_NEWLINE_LF;
     config.receive_newline = BOXRIG_RECEIVE_NEWLINE_CR;
     CHECK(boxrig_terminal_create(&config, &first) == BOXRIG_STATUS_OK);
-    config.enter_newline = BOXRIG_NEWLINE_CRLF;
+    config.input.enter_newline = BOXRIG_NEWLINE_CRLF;
     config.receive_newline = BOXRIG_RECEIVE_NEWLINE_STANDARD;
     CHECK(boxrig_terminal_create(&config, &second) == BOXRIG_STATUS_OK);
     config = boxrig_terminal_config_default();

@@ -2988,6 +2988,13 @@ boxrig_ui_status boxrig_gtk3_terminal_widget_set_frame_request_callback(
     return status;
 }
 
+boxrig_ui_status boxrig_gtk3_terminal_widget_set_input_config(
+    BoxrigGtk3TerminalWidget *widget, const boxrig_input_config *config)
+{
+    if (!accepts_calls(widget)) return BOXRIG_UI_INVALID_ARGUMENT;
+    return boxrig_gtk3_input_set_config(widget->input, config);
+}
+
 boxrig_ui_status boxrig_gtk3_terminal_widget_set_key_router(
     BoxrigGtk3TerminalWidget *widget,
     boxrig_input_key_router router,

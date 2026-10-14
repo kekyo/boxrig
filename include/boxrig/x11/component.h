@@ -619,6 +619,17 @@ bool boxrig_x11_terminal_component_focused(
     const boxrig_x11_terminal_component *component);
 
 /**
+ * Exchanges input settings when no native key or IME transaction is pending.
+ * @param component Frontend to configure on its owning event thread.
+ * @param config Complete replacement, copied using the core validation rules.
+ * @return OK, BUSY while a key is held or input/IME/clipboard/paste is pending,
+ *         INVALID_ARGUMENT, LIMIT_EXCEEDED, or OUT_OF_MEMORY.
+ * @remarks BUSY and other failures preserve all old settings and input state.
+ */
+boxrig_ui_status boxrig_x11_terminal_component_set_input_config(
+    boxrig_x11_terminal_component *component, const boxrig_input_config *config);
+
+/**
  * Installs application shortcut routing ahead of terminal encoding.
  *
  * @param component Component to configure.

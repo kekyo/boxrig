@@ -5594,6 +5594,8 @@ static void test_seat_keyboard_routing_and_removal(void)
               component,
               capture_key_route,
               &capture) == BOXRIG_UI_OK);
+    boxrig_input_config replacement = boxrig_input_config_default();
+    CHECK(boxrig_wayland_terminal_component_set_input_config(component, &replacement) == BOXRIG_UI_OK);
     pump(&server);
     send_keymap(&server, 0);
     wl_array_init(&keys);
@@ -5624,6 +5626,8 @@ static void test_seat_keyboard_routing_and_removal(void)
         11,
         30,
         WL_KEYBOARD_KEY_STATE_PRESSED);
+    pump(&server);
+    CHECK(boxrig_wayland_terminal_component_set_input_config(component, &replacement) == BOXRIG_UI_BUSY);
     wl_keyboard_send_key(
         server.keyboard_resources[0],
         45,
@@ -5645,6 +5649,7 @@ static void test_seat_keyboard_routing_and_removal(void)
     pump(&server);
     dispatch_context(context);
     CHECK(capture.count == 4);
+    CHECK(boxrig_wayland_terminal_component_set_input_config(component, &replacement) == BOXRIG_UI_OK);
     CHECK(capture.events[0].action == BOXRIG_KEY_PRESS);
     CHECK(capture.events[0].codepoint == 'a');
     CHECK(capture.events[0].shifted_codepoint == 'A');
@@ -5689,6 +5694,7 @@ static void test_seat_keyboard_routing_and_removal(void)
               &dispatch_result) == BOXRIG_UI_OK);
     CHECK(dispatch_result.has_repeat_deadline);
     CHECK(dispatch_result.repeat_deadline_milliseconds == 1400);
+    CHECK(boxrig_wayland_terminal_component_set_input_config(component, &replacement) == BOXRIG_UI_BUSY);
     CHECK(boxrig_wayland_context_get_diagnostic(context, &context_diagnostic) ==
           BOXRIG_UI_OK);
     CHECK(context_diagnostic.active_repeat_count == 1);
@@ -7965,10 +7971,10 @@ static void test_terminal_io_configuration(void)
         const boxrig_key_mapping mapping = {BOXRIG_KEY_UP, 0, mapped, sizeof(mapped)};
         boxrig_terminal_config config = boxrig_terminal_config_default();
         config.encoding = (boxrig_encoding)encoding;
-        config.enter_newline = BOXRIG_NEWLINE_LF;
+        config.input.enter_newline = BOXRIG_NEWLINE_LF;
         config.paste_newline = BOXRIG_NEWLINE_CRLF;
-        config.key_mappings = &mapping;
-        config.key_mapping_count = 1;
+        config.input.key_mappings = &mapping;
+        config.input.key_mapping_count = 1;
         boxrig_terminal *terminal = NULL;
         boxrig_ui_model *model = NULL;
         boxrig_wayland_context *context = NULL;
