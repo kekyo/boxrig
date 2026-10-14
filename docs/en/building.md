@@ -45,6 +45,12 @@ Core bundles utf8proc for Unicode processing and libpng and zlib for PNG images 
 Applications using only core do not need to link X11 or GTK.
 Consult the table above for the system libraries needed to build and run each UI configuration.
 
+Direct fcitx 5 input uses D-Bus through GLib/GIO and does not require fcitx development packages.
+At runtime, install the fcitx 5 daemon and the input engine you use.
+Versions 5.1.7, 5.1.12, and 5.1.19 have been tested.
+For input delegated to GTK, also install the matching GTK IME module.
+See [Input and IME](./input-ime.md) for the supported direct and delegated routes.
+
 Before installing a Linux SDK, prepare the tools that generate license notices.
 
 ```sh
