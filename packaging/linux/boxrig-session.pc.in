@@ -1,0 +1,10 @@
+prefix={{prefix}}
+libdir={{libdir}}
+includedir={{includedir}}
+
+Name: boxrig-session
+Description: Nonblocking terminal transport sessions
+Version: {{version}}
+Requires: boxrig
+Libs: -L${libdir} -lboxrig-session
+Cflags: -I${includedir}

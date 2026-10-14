@@ -237,6 +237,8 @@ int boxrig_term_posix_runtime_start(
         return -1;
     }
     session_config = boxrig_session_config_default();
+    boxrig_tty_erase unavailable = {false, 0};
+    (void)boxrig_terminal_set_tty_erase(runtime->terminal, unavailable);
     if (boxrig_posix_pty_spawn(
             config->child_arguments,
             config->terminal_type,
@@ -293,6 +295,8 @@ int boxrig_term_posix_runtime_record_child_status(
         return -1;
     }
     runtime->child_waited = true;
+    boxrig_tty_erase unavailable = {false, 0};
+    (void)boxrig_terminal_set_tty_erase(runtime->terminal, unavailable);
     if (WIFEXITED(child_status)) {
         result = WEXITSTATUS(child_status);
     } else if (WIFSIGNALED(child_status) && frontend_closed) {
@@ -300,6 +304,30 @@ int boxrig_term_posix_runtime_record_child_status(
     }
     *exit_code_out = result;
     return 0;
+}
+
+void boxrig_term_posix_runtime_prepare_key(
+    boxrig_term_posix_runtime *runtime, const boxrig_key_event *event)
+{
+    if (runtime == NULL || event == NULL || event->action == BOXRIG_KEY_RELEASE ||
+        (event->key != BOXRIG_KEY_BACKSPACE && event->key != BOXRIG_KEY_DELETE &&
+         event->key != BOXRIG_KEY_KP_DELETE)) {
+        return;
+    }
+    boxrig_input_config input;
+    if (boxrig_terminal_get_input_config(runtime->terminal, &input) != BOXRIG_STATUS_OK) {
+        return;
+    }
+    boxrig_erase_binding binding = event->key == BOXRIG_KEY_BACKSPACE
+        ? input.backspace_binding : input.delete_binding;
+    if (binding != BOXRIG_ERASE_TTY) {
+        return;
+    }
+    boxrig_tty_erase erase = {false, 0};
+    if (runtime->pty != NULL && !runtime->child_waited) {
+        (void)boxrig_posix_get_tty_erase(boxrig_posix_pty_descriptor(runtime->pty), &erase);
+    }
+    (void)boxrig_terminal_set_tty_erase(runtime->terminal, erase);
 }
 
 void boxrig_term_posix_runtime_destroy(

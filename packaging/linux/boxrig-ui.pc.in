@@ -1,0 +1,11 @@
+prefix={{prefix}}
+libdir={{libdir}}
+includedir={{includedir}}
+
+Name: boxrig-ui
+Description: Portable terminal view and input interfaces
+Version: {{version}}
+Requires: boxrig
+Libs: -L${libdir} -lboxrig-ui
+Libs.private: -lm
+Cflags: -I${includedir}

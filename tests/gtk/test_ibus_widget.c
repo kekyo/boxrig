@@ -11,6 +11,7 @@
 #define widget_config_default boxrig_gtk3_terminal_widget_config_default
 #define widget_create boxrig_gtk3_terminal_widget_create
 #define widget_ime_state boxrig_gtk3_terminal_widget_get_ime_state
+#define widget_set_input_enabled boxrig_gtk3_terminal_widget_set_input_enabled
 #define widget_diagnostic boxrig_gtk3_terminal_widget_get_diagnostic
 #define widget_width gtk_widget_get_allocated_width
 #define widget_height gtk_widget_get_allocated_height
@@ -26,6 +27,7 @@
 #define widget_config_default boxrig_gtk4_terminal_widget_config_default
 #define widget_create boxrig_gtk4_terminal_widget_create
 #define widget_ime_state boxrig_gtk4_terminal_widget_get_ime_state
+#define widget_set_input_enabled boxrig_gtk4_terminal_widget_set_input_enabled
 #define widget_diagnostic boxrig_gtk4_terminal_widget_get_diagnostic
 #define widget_width gtk_widget_get_width
 #define widget_height gtk_widget_get_height
@@ -506,11 +508,11 @@ static void ordered_surrounding(Widget *widget, boxrig_terminal *terminal, IBusB
 }
 #endif
 
-#ifdef BOXRIG_TEST_IME_X11
 static void client_ready(GObject *source, GAsyncResult *result, gpointer data)
 {
     GError *error = NULL;
     GVariant *reply = g_dbus_connection_call_finish(G_DBUS_CONNECTION(source), result, &error);
+    if (error != NULL) fprintf(stderr, "IBus client readiness: %s\n", error->message);
     CHECK(reply != NULL && error == NULL);
     const char *name;
     g_variant_get(reply, "(&s)", &name);
@@ -524,7 +526,8 @@ static void await_client(Widget *widget, IBusBus *bus)
     bool ready = false;
     /* Both input owners create their proxies asynchronously. Observe the real
      * engine focus instead of delaying for an assumed initialization time. */
-    const char *prefix = direct_ibus ? "boxrig-gtk3" : GTK_MAJOR_VERSION == 3 ? "gtk3-im:" : "gtk4-im:";
+    const char *prefix = direct_ibus ? (GTK_MAJOR_VERSION == 3 ? "boxrig-gtk3" : "boxrig-gtk4-wayland")
+        : GTK_MAJOR_VERSION == 3 ? "gtk3-im:" : "gtk4-im:";
     g_dbus_connection_call(ibus_bus_get_connection(bus), "org.boxrig.IMEProbe", "/org/boxrig/IMEProbe",
         "org.boxrig.IMEProbe", "WaitForClient", g_variant_new("(s)", prefix), G_VARIANT_TYPE("(s)"),
         G_DBUS_CALL_FLAGS_NONE, -1, NULL, client_ready, &ready);
@@ -533,6 +536,7 @@ static void await_client(Widget *widget, IBusBus *bus)
     g_source_remove(timeout);
 }
 
+#ifdef BOXRIG_TEST_IME_X11
 static void cursor_at_key(Widget *widget, IBusBus *bus)
 {
     /* An engine with its own candidate window records the preedit origin
@@ -575,7 +579,9 @@ static void cursor_at_key(Widget *widget, IBusBus *bus)
     CHECK(height == (int)((view.candidate.exclude_height + scale - 1) / scale) * scale);
     boxrig_test_video_hold();
 }
-static void received_commit_survives_focus(Widget *widget, boxrig_terminal *terminal, IBusBus *bus)
+#endif
+
+static void received_commit_crosses_input_boundary(Widget *widget, boxrig_terminal *terminal, IBusBus *bus, unsigned boundary)
 {
     if (!direct_ibus) return;
     guint timeout = g_timeout_add_seconds(60, deadline, "received commit and focus ordering");
@@ -596,11 +602,18 @@ static void received_commit_survives_focus(Widget *widget, boxrig_terminal *term
     g_variant_unref(reply);
     /* Receive the engine's completed notification before the native focus
      * loss, but leave applying it to the normal frame dispatch. */
-    do {
-        iterate();
-        CHECK(widget_diagnostic(widget, &diagnostic) == BOXRIG_UI_OK);
-    } while (diagnostic.native_input_queue_depth == 0);
-    focus(false);
+    if (boundary != 2) {
+        do {
+            iterate();
+            CHECK(widget_diagnostic(widget, &diagnostic) == BOXRIG_UI_OK);
+        } while (diagnostic.native_input_queue_depth == 0);
+    }
+    if (boundary == 0) focus(false);
+    else {
+        CHECK(widget_set_input_enabled(widget, false) == BOXRIG_UI_OK);
+        CHECK(widget_set_input_enabled(widget, true) == BOXRIG_UI_OK);
+        await_client(widget, bus);
+    }
     for (;;) {
         frame(widget);
         CHECK(widget_diagnostic(widget, &diagnostic) == BOXRIG_UI_OK);
@@ -608,15 +621,16 @@ static void received_commit_survives_focus(Widget *widget, boxrig_terminal *term
         iterate();
     }
     const uint8_t *bytes;
-    CHECK(boxrig_terminal_output_peek(terminal, &bytes) == strlen("受信済"));
-    CHECK(memcmp(bytes, "受信済", strlen("受信済")) == 0);
-    CHECK(boxrig_terminal_output_consume(terminal, strlen("受信済")) == BOXRIG_STATUS_OK);
-    focus(true);
+    if (boundary == 0) {
+        CHECK(boxrig_terminal_output_peek(terminal, &bytes) == strlen("受信済"));
+        CHECK(memcmp(bytes, "受信済", strlen("受信済")) == 0);
+        CHECK(boxrig_terminal_output_consume(terminal, strlen("受信済")) == BOXRIG_STATUS_OK);
+        focus(true);
+    } else CHECK(boxrig_terminal_output_peek(terminal, &bytes) == 0);
     await_client(widget, bus);
     g_source_remove(timeout);
-    puts("PASS an already received direct IBus commit survives later native focus loss");
+    printf("PASS direct IBus commit crossing input boundary %u\n", boundary);
 }
-#endif
 
 
 static void background_widget_preserves_input(Widget *focused_widget, const widget_config *config)
@@ -901,9 +915,8 @@ int main(int argc, char **argv)
     CHECK(boxrig_terminal_output_consume(terminal, config.output_capacity) == BOXRIG_STATUS_OK);
     output(widget, terminal, "一二");
     preedit(widget, terminal, "", 0, 0);
-#if defined(BOXRIG_TEST_IME_X11)
-    received_commit_survives_focus(widget, terminal, bus);
-#endif
+    for (unsigned boundary = 0; boundary < 3; boundary++)
+        received_commit_crosses_input_boundary(widget, terminal, bus, boundary);
 #if GTK_MAJOR_VERSION == 4
     ordered_surrounding(widget, terminal, bus, true, false);
     if (direct_ibus) ordered_surrounding(widget, terminal, bus, true, true);

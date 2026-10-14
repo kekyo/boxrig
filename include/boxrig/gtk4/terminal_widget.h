@@ -511,6 +511,45 @@ boxrig_ui_status boxrig_gtk4_terminal_widget_set_frame_request_callback(
     void *context);
 
 /**
+ * Enables or inhibits terminal-directed user input for this widget.
+ * @param widget Live widget on its owning event thread.
+ * @param enabled True to resume, false to discard old keys, IME and incoming paste.
+ * @return OK when complete; BUSY while a started paste awaits output capacity or
+ * when called during input dispatch; INVALID_ARGUMENT, UNAVAILABLE or LIMIT_EXCEEDED.
+ * @remarks Inspect get_input_state(): STOPPING means the stop was accepted and
+ * regular frame dispatch will finish it. Enabling during STOPPING returns BUSY
+ * without changing the request. A BUSY call during input dispatch leaves the
+ * state unchanged. DISABLED means any paste terminator is queued in core; it
+ * does not mean transport output was drained. Queued core output and terminal
+ * responses remain intact. Selection, copy, scrolling, rendering and application
+ * routers remain usable. Late input from an earlier generation is discarded;
+ * keys held across a stop remain suppressed until released. This affects only
+ * this widget, not other views sharing the terminal or direct core send calls.
+ */
+boxrig_ui_status boxrig_gtk4_terminal_widget_set_input_enabled(
+    BoxrigGtk4TerminalWidget *widget, bool enabled);
+
+/**
+ * Reads this widget's input phase and generation without advancing dispatch.
+ * @param widget Live widget to inspect on its owning event thread.
+ * @param state_out Required input state output.
+ * @return OK or INVALID_ARGUMENT.
+ */
+boxrig_ui_status boxrig_gtk4_terminal_widget_get_input_state(
+    BoxrigGtk4TerminalWidget *widget, boxrig_ui_input_state *state_out);
+
+/**
+ * Exchanges input settings when no native key or IME transaction is pending.
+ * @param widget Frontend to configure on its owning event thread.
+ * @param config Complete replacement, copied using the core validation rules.
+ * @return OK, BUSY while a key is held or input/IME/clipboard/paste is pending,
+ *         INVALID_ARGUMENT, LIMIT_EXCEEDED, or OUT_OF_MEMORY.
+ * @remarks BUSY and other failures preserve all old settings and input state.
+ */
+boxrig_ui_status boxrig_gtk4_terminal_widget_set_input_config(
+    BoxrigGtk4TerminalWidget *widget, const boxrig_input_config *config);
+
+/**
  * Installs an application key router at the portable transition boundary.
  *
  * @param widget Widget to configure.

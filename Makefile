@@ -15,9 +15,10 @@ PREFIX ?= /usr/local
 LIBDIR ?= $(PREFIX)/lib
 INCLUDEDIR ?= $(PREFIX)/include
 PKGCONFIGDIR ?= $(LIBDIR)/pkgconfig
+BUILD_DIR ?= build
 
 WARNINGS := -Wall -Wextra -Wpedantic -Werror
-PNG_CONFIG_DIR := build/generated/libpng
+PNG_CONFIG_DIR := $(BUILD_DIR)/generated/libpng
 PNG_CONFIG := $(PNG_CONFIG_DIR)/pnglibconf.h
 DEPENDENCY_CPPFLAGS := -Ideps/zlib -Ideps/libpng -I$(PNG_CONFIG_DIR) -DPNG_STATIC
 # Private static codecs must not interpose GTK or another shared library's codec.
@@ -173,7 +174,6 @@ GTK4_TEST_IM_ENV := BOXRIG_TEST_GTK4_IM_MODULE=$(GTK4_TEST_IM_MODULE) \
 	GTK_IM_MODULE=$(GTK4_TEST_IM_MODULE)
 TEST_FONT_FILE ?= $(shell fc-match -f '%{file}\n' 'DejaVu Sans Mono' | head -n 1)
 
-BUILD_DIR := build
 include tools/codegen/rules.mk
 GTK_RENDER_CONFIG := $(BUILD_DIR)/gtk-render.config
 ifneq ($(shell cat $(GTK_RENDER_CONFIG) 2>/dev/null),$(GTK_OPENGL))
@@ -227,11 +227,11 @@ X11_OBJECTS += $(BUILD_DIR)/notification/freedesktop.o
 X11_HEADERS := include/boxrig/x11.h $(wildcard include/boxrig/x11/*.h)
 GTK4_SOURCES := $(wildcard src/gtk4/*.c)
 GTK4_OBJECTS := $(patsubst src/gtk4/%.c,$(BUILD_DIR)/gtk4/%.o,$(GTK4_SOURCES)) \
-	$(BUILD_DIR)/gtk4/pangocairo_renderer.o
+	$(BUILD_DIR)/gtk4/pangocairo_renderer.o $(BUILD_DIR)/gtk4/accessible_text.o
 GTK4_HEADERS := include/boxrig/gtk4.h $(wildcard include/boxrig/gtk4/*.h) $(wildcard include/boxrig/gtk/*.h)
 GTK3_SOURCES := $(wildcard src/gtk3/*.c)
 GTK3_OBJECTS := $(patsubst src/gtk3/%.c,$(BUILD_DIR)/gtk3/%.o,$(GTK3_SOURCES)) \
-	$(BUILD_DIR)/gtk3/pangocairo_renderer.o
+	$(BUILD_DIR)/gtk3/pangocairo_renderer.o $(BUILD_DIR)/gtk3/accessible_text.o
 GTK3_HEADERS := include/boxrig/gtk3.h $(wildcard include/boxrig/gtk3/*.h) $(wildcard include/boxrig/gtk/*.h)
 PANGO_CANDIDATE_OBJECT := $(BUILD_DIR)/pangocairo/candidates.o
 GTK3_OBJECTS += $(PANGO_CANDIDATE_OBJECT)
@@ -293,7 +293,8 @@ LIBPNG_SOURCES += deps/libpng/arm/arm_init.c \
 	deps/libpng/arm/filter_neon_intrinsics.c deps/libpng/arm/palette_neon_intrinsics.c
 ZLIB_OBJECTS := $(patsubst deps/zlib/%.c,$(BUILD_DIR)/deps/zlib/%.o,$(ZLIB_SOURCES))
 LIBPNG_OBJECTS := $(patsubst deps/libpng/%.c,$(BUILD_DIR)/deps/libpng/%.o,$(LIBPNG_SOURCES))
-CORE_HEADERS := src/core/codec.h src/core/shift_jis_table.h include/boxrig/terminal.h src/core/dcs.h src/core/graphics.h src/core/parser.h src/core/regex.h src/core/terminal_internal.h src/core/unicode.h
+CORE_PUBLIC_HEADERS := include/boxrig/terminal.h include/boxrig/regex.h include/boxrig/status.h
+CORE_HEADERS := src/core/codec.h src/core/shift_jis_table.h $(CORE_PUBLIC_HEADERS) src/core/dcs.h src/core/graphics.h src/core/parser.h src/core/regex.h src/core/terminal_internal.h src/core/unicode.h
 LIBRARY := $(BUILD_DIR)/libboxrig.a
 UI_LIBRARY := $(BUILD_DIR)/libboxrig-ui.a
 SESSION_LIBRARY := $(BUILD_DIR)/libboxrig-session.a
@@ -827,7 +828,7 @@ install-win32-opengl-amd64: win32-opengl-amd64 $(MINGW_AMD64_BUILD_DIR)/libboxri
 	$(INSTALL) -d $(DESTDIR)$(LIBDIR) $(DESTDIR)$(PREFIX)/bin $(DESTDIR)$(PKGCONFIGDIR) $(DESTDIR)$(INCLUDEDIR)/boxrig/ui $(DESTDIR)$(INCLUDEDIR)/boxrig/render $(DESTDIR)$(INCLUDEDIR)/boxrig/win32
 	$(INSTALL) -m 644 $(MINGW_AMD64_WIN32_LIBRARY) $(MINGW_AMD64_UI_LIBRARY) $(MINGW_AMD64_LIBRARY) $(MINGW_AMD64_OGL_LIBRARY) $(MINGW_AMD64_WGL_LIBRARY) $(MINGW_AMD64_BUILD_DIR)/libboxrig-render-ogl.dll.a $(MINGW_AMD64_BUILD_DIR)/libboxrig-win32-ogl.dll.a $(DESTDIR)$(LIBDIR)
 	$(INSTALL) -m 755 $(MINGW_AMD64_OGL_DLL) $(MINGW_AMD64_WGL_DLL) $(DESTDIR)$(PREFIX)/bin
-	$(INSTALL) -m 644 include/boxrig/terminal.h include/boxrig/ui.h $(DESTDIR)$(INCLUDEDIR)/boxrig
+	$(INSTALL) -m 644 $(CORE_PUBLIC_HEADERS) include/boxrig/ui.h $(DESTDIR)$(INCLUDEDIR)/boxrig
 	$(INSTALL) -m 644 $(wildcard include/boxrig/ui/*.h) $(DESTDIR)$(INCLUDEDIR)/boxrig/ui
 	$(INSTALL) -m 644 $(OPENGL_RENDERER_HEADERS) $(DESTDIR)$(INCLUDEDIR)/boxrig/render
 	$(INSTALL) -m 644 $(filter-out include/boxrig/win32/d3d11_component.h,$(wildcard include/boxrig/win32/*.h)) $(DESTDIR)$(INCLUDEDIR)/boxrig/win32
@@ -879,7 +880,7 @@ install-win32-opengl-i686: win32-opengl-i686 $(MINGW_I686_BUILD_DIR)/libboxrig-r
 	$(INSTALL) -d $(DESTDIR)$(LIBDIR) $(DESTDIR)$(PREFIX)/bin $(DESTDIR)$(PKGCONFIGDIR) $(DESTDIR)$(INCLUDEDIR)/boxrig/ui $(DESTDIR)$(INCLUDEDIR)/boxrig/render $(DESTDIR)$(INCLUDEDIR)/boxrig/win32
 	$(INSTALL) -m 644 $(MINGW_I686_WIN32_LIBRARY) $(MINGW_I686_UI_LIBRARY) $(MINGW_I686_LIBRARY) $(MINGW_I686_OGL_LIBRARY) $(MINGW_I686_WGL_LIBRARY) $(MINGW_I686_BUILD_DIR)/libboxrig-render-ogl.dll.a $(MINGW_I686_BUILD_DIR)/libboxrig-win32-ogl.dll.a $(DESTDIR)$(LIBDIR)
 	$(INSTALL) -m 755 $(MINGW_I686_OGL_DLL) $(MINGW_I686_WGL_DLL) $(DESTDIR)$(PREFIX)/bin
-	$(INSTALL) -m 644 include/boxrig/terminal.h include/boxrig/ui.h $(DESTDIR)$(INCLUDEDIR)/boxrig
+	$(INSTALL) -m 644 $(CORE_PUBLIC_HEADERS) include/boxrig/ui.h $(DESTDIR)$(INCLUDEDIR)/boxrig
 	$(INSTALL) -m 644 $(wildcard include/boxrig/ui/*.h) $(DESTDIR)$(INCLUDEDIR)/boxrig/ui
 	$(INSTALL) -m 644 $(OPENGL_RENDERER_HEADERS) $(DESTDIR)$(INCLUDEDIR)/boxrig/render
 	$(INSTALL) -m 644 $(filter-out include/boxrig/win32/d3d11_component.h,$(wildcard include/boxrig/win32/*.h)) $(DESTDIR)$(INCLUDEDIR)/boxrig/win32
@@ -938,7 +939,7 @@ install-gtk4: $(LIBRARY) $(UI_LIBRARY) $(GTK4_LIBRARY) \
 		$(DESTDIR)$(PKGCONFIGDIR)
 	$(INSTALL) -m 644 $(LIBRARY) $(UI_LIBRARY) $(GTK4_LIBRARY) \
 		$(DESTDIR)$(LIBDIR)
-	$(INSTALL) -m 644 include/boxrig/terminal.h include/boxrig/ui.h \
+	$(INSTALL) -m 644 $(CORE_PUBLIC_HEADERS) include/boxrig/ui.h \
 		include/boxrig/gtk4.h $(DESTDIR)$(INCLUDEDIR)/boxrig
 	$(INSTALL) -m 644 include/boxrig/ui/*.h \
 		$(DESTDIR)$(INCLUDEDIR)/boxrig/ui
@@ -959,7 +960,7 @@ install-gtk3: $(LIBRARY) $(UI_LIBRARY) $(GTK3_LIBRARY) \
 		$(DESTDIR)$(PKGCONFIGDIR)
 	$(INSTALL) -m 644 $(LIBRARY) $(UI_LIBRARY) $(GTK3_LIBRARY) \
 		$(DESTDIR)$(LIBDIR)
-	$(INSTALL) -m 644 include/boxrig/terminal.h include/boxrig/ui.h \
+	$(INSTALL) -m 644 $(CORE_PUBLIC_HEADERS) include/boxrig/ui.h \
 		include/boxrig/gtk3.h $(DESTDIR)$(INCLUDEDIR)/boxrig
 	$(INSTALL) -m 644 include/boxrig/ui/*.h \
 		$(DESTDIR)$(INCLUDEDIR)/boxrig/ui
@@ -978,7 +979,7 @@ install-wayland: $(LIBRARY) $(UI_LIBRARY) $(WAYLAND_LIBRARY) \
 		$(DESTDIR)$(PKGCONFIGDIR)
 	$(INSTALL) -m 644 $(LIBRARY) $(UI_LIBRARY) $(WAYLAND_LIBRARY) \
 		$(DESTDIR)$(LIBDIR)
-	$(INSTALL) -m 644 include/boxrig/terminal.h include/boxrig/ui.h \
+	$(INSTALL) -m 644 $(CORE_PUBLIC_HEADERS) include/boxrig/ui.h \
 		include/boxrig/wayland.h $(DESTDIR)$(INCLUDEDIR)/boxrig
 	$(INSTALL) -m 644 include/boxrig/ui/*.h \
 		$(DESTDIR)$(INCLUDEDIR)/boxrig/ui
@@ -997,7 +998,7 @@ install-render-ogl: $(LIBRARY) $(UI_LIBRARY) $(OPENGL_RENDERER_LIBRARY) \
 		$(DESTDIR)$(PKGCONFIGDIR)
 	$(INSTALL) -m 644 $(LIBRARY) $(UI_LIBRARY) $(OPENGL_RENDERER_LIBRARY) \
 		$(DESTDIR)$(LIBDIR)
-	$(INSTALL) -m 644 include/boxrig/terminal.h include/boxrig/ui.h \
+	$(INSTALL) -m 644 $(CORE_PUBLIC_HEADERS) include/boxrig/ui.h \
 		$(DESTDIR)$(INCLUDEDIR)/boxrig
 	$(INSTALL) -m 644 include/boxrig/ui/*.h \
 		$(DESTDIR)$(INCLUDEDIR)/boxrig/ui
@@ -1018,7 +1019,7 @@ install-x11-opengl: $(LIBRARY) $(UI_LIBRARY) $(X11_LIBRARY) \
 	$(INSTALL) -m 644 $(LIBRARY) $(UI_LIBRARY) $(X11_LIBRARY) \
 		$(OPENGL_RENDERER_LIBRARY) $(X11_OPENGL_LIBRARY) \
 		$(DESTDIR)$(LIBDIR)
-	$(INSTALL) -m 644 include/boxrig/terminal.h include/boxrig/ui.h \
+	$(INSTALL) -m 644 $(CORE_PUBLIC_HEADERS) include/boxrig/ui.h \
 		include/boxrig/x11.h $(DESTDIR)$(INCLUDEDIR)/boxrig
 	$(INSTALL) -m 644 include/boxrig/ui/*.h \
 		$(DESTDIR)$(INCLUDEDIR)/boxrig/ui
@@ -1044,7 +1045,7 @@ install-wayland-opengl: $(LIBRARY) $(UI_LIBRARY) $(WAYLAND_LIBRARY) \
 	$(INSTALL) -m 644 $(LIBRARY) $(UI_LIBRARY) $(WAYLAND_LIBRARY) \
 		$(OPENGL_RENDERER_LIBRARY) $(WAYLAND_OPENGL_LIBRARY) \
 		$(DESTDIR)$(LIBDIR)
-	$(INSTALL) -m 644 include/boxrig/terminal.h include/boxrig/ui.h \
+	$(INSTALL) -m 644 $(CORE_PUBLIC_HEADERS) include/boxrig/ui.h \
 		include/boxrig/wayland.h $(DESTDIR)$(INCLUDEDIR)/boxrig
 	$(INSTALL) -m 644 include/boxrig/ui/*.h \
 		$(DESTDIR)$(INCLUDEDIR)/boxrig/ui
@@ -1407,7 +1408,7 @@ test-core-ui-boundary: $(CORE_UI_BOUNDARY_TEST_SOURCE) \
 		$(CORE_UI_BOUNDARY_TEST_ROOT)/usr/include/boxrig/ui
 	$(INSTALL) -m 644 $(LIBRARY) $(UI_LIBRARY) \
 		$(CORE_UI_BOUNDARY_TEST_ROOT)/usr/lib
-	$(INSTALL) -m 644 include/boxrig/terminal.h include/boxrig/ui.h \
+	$(INSTALL) -m 644 $(CORE_PUBLIC_HEADERS) include/boxrig/ui.h \
 		$(CORE_UI_BOUNDARY_TEST_ROOT)/usr/include/boxrig
 	$(INSTALL) -m 644 include/boxrig/ui/*.h \
 		$(CORE_UI_BOUNDARY_TEST_ROOT)/usr/include/boxrig/ui
@@ -1677,6 +1678,11 @@ test-p2-win32: $(P2_WIN32_TEST_PREREQUISITES)
 	cd $(P2_WIN32_TEST_DIR) && npm ci --ignore-scripts && \
 		BOXRIG_P2_WIN32_SOURCE_DIR="$(abspath .)" npm test
 
+test-p2-win32: conpty-runtime-assets \
+	$(MINGW_AMD64_NOTIFICATION_EXAMPLE) $(MINGW_I686_NOTIFICATION_EXAMPLE) \
+	$(MINGW_AMD64_SHUTDOWN_PROBE_EXAMPLE) $(MINGW_I686_SHUTDOWN_PROBE_EXAMPLE) \
+	$(MINGW_AMD64_IME_MOVEMENT_PROBE_EXAMPLE) $(MINGW_I686_IME_MOVEMENT_PROBE_EXAMPLE)
+
 test-gtk3-gestament: $(GTK3_EXAMPLE_BINARY) $(PTY_HELPER_BINARY) \
 		$(GTK3_CLIPBOARD_PEER_BINARY) $(GTK3_GESTAMENT_INSTALL_STAMP)
 	cd $(GTK3_GESTAMENT_TEST_DIR) && \
@@ -1918,6 +1924,16 @@ $(BUILD_DIR)/gtk3/%.o: src/gtk3/%.c | $(BUILD_DIR)/gtk3
 	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(POSIX_CPPFLAGS) \
 		$(GTK3_CPPFLAGS) $(CFLAGS) $(GTK3_PROJECT_CFLAGS) -c $< -o $@
 
+$(BUILD_DIR)/gtk3/accessible_text.o: src/gtk/accessible_text.c src/gtk/accessible_text.h src/ui/accessible.h | $(BUILD_DIR)/gtk3
+	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(GTK3_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/gtk3/accessible.o $(BUILD_DIR)/gtk3/terminal_widget.o: src/gtk3/accessible.h src/gtk/accessible_text.h src/ui/accessible.h
+
+$(BUILD_DIR)/gtk4/accessible_text.o: src/gtk/accessible_text.c src/gtk/accessible_text.h src/ui/accessible.h | $(BUILD_DIR)/gtk4
+	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(GTK4_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/gtk4/accessible.o $(BUILD_DIR)/gtk4/terminal_widget.o: src/gtk4/accessible.h src/gtk/accessible_text.h src/ui/accessible.h
+
 $(BUILD_DIR)/gtk3/gl_%.o: src/gtk/gl_%.c src/gtk/gl_area.h src/gtk/gl_surface.h | $(BUILD_DIR)/gtk3
 	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(POSIX_CPPFLAGS) \
 		$(GTK3_CPPFLAGS) $(CFLAGS) $(GTK3_PROJECT_CFLAGS) -c $< -o $@
@@ -2141,11 +2157,19 @@ $(UI_OBJECTS) $(MINGW_AMD64_UI_OBJECTS) $(MINGW_I686_UI_OBJECTS): \
 	src/ui/color_private.h src/ui/renderer_lifecycle.h src/ui/utf8.h \
 	src/ui/view_private.h src/ui/blink_private.h $(UI_HEADERS) Makefile
 
+$(UI_OBJECTS) $(MINGW_AMD64_UI_OBJECTS) $(MINGW_I686_UI_OBJECTS): src/ui/accessible.h
+
 $(SESSION_OBJECTS) $(MINGW_AMD64_SESSION_OBJECTS) \
 $(MINGW_I686_SESSION_OBJECTS): include/boxrig/session.h \
-	include/boxrig/terminal.h Makefile
+	$(CORE_PUBLIC_HEADERS) Makefile
 
 $(POSIX_OBJECTS): include/boxrig/posix.h Makefile
+
+$(BUILD_DIR)/ui/input.o $(MINGW_AMD64_BUILD_DIR)/ui/input.o \
+$(MINGW_I686_BUILD_DIR)/ui/input.o $(BUILD_DIR)/gtk3/input.o \
+$(BUILD_DIR)/gtk4/input.o $(BUILD_DIR)/x11/input.o $(WAYLAND_OBJECTS) \
+$(MINGW_AMD64_BUILD_DIR)/win32/input.o $(MINGW_I686_BUILD_DIR)/win32/input.o \
+$(MINGW_AMD64_INPUT_TEST) $(MINGW_I686_INPUT_TEST): src/ui/input_control.h
 
 $(X11_OBJECTS): $(X11_HEADERS) $(UI_HEADERS) include/boxrig/terminal.h \
 	src/ui/view_private.h src/ui/color_private.h \
@@ -2161,7 +2185,7 @@ $(X11_OPENGL_OBJECTS): $(X11_HEADERS) $(UI_HEADERS) $(OPENGL_RENDERER_HEADERS) \
 	src/ui/renderer_lifecycle.h Makefile
 
 $(WAYLAND_OPENGL_OBJECTS): $(WAYLAND_HEADERS) $(WAYLAND_OPENGL_HEADERS) \
-	$(UI_HEADERS) $(OPENGL_RENDERER_HEADERS) include/boxrig/terminal.h Makefile
+	$(UI_HEADERS) $(OPENGL_RENDERER_HEADERS) $(CORE_PUBLIC_HEADERS) Makefile
 
 $(GTK4_OBJECTS): $(GTK4_HEADERS) $(UI_HEADERS) include/boxrig/terminal.h \
 	src/pangocairo/renderer.h src/pangocairo/renderer_private.h \
@@ -2334,7 +2358,7 @@ $(FRONTEND_SAMPLE_X11_PROBE_BINARY): $(EXAMPLE_BINARY) \
 		-Wl,--wrap=boxrig_x11_host_adapter_create \
 		-Wl,--wrap=boxrig_x11_host_adapter_destroy \
 		-Wl,--wrap=boxrig_x11_input_adapter_quiesce \
-		-Wl,--wrap=XConvertSelection -Wl,--wrap=XDeleteProperty \
+		-Wl,--wrap=XConvertSelection \
 		-Wl,--wrap=XCloseDisplay $(OPENGL_RENDERER_LIBS) -lutil $(POSIX_URI_LIBS) -o $@
 
 $(FRONTEND_SAMPLE_GTK3_PROBE_BINARY): $(GTK3_EXAMPLE_BINARY) \
@@ -2659,6 +2683,29 @@ $(POSIX_EXAMPLE_COMMON_TEST_BINARY): tests/test_posix_example_common.c \
 		examples/boxrig_term/common/posix_application.c $(POSIX_LIBRARY) \
 		$(SESSION_LIBRARY) $(UI_LIBRARY) $(LIBRARY) -lutil $(SANITIZERS) -o $@
 
+.PHONY: test-tty-erase
+test: test-tty-erase
+test-tty-erase: $(BUILD_DIR)/tests/test_posix_tty_erase
+	$(BUILD_DIR)/tests/test_posix_tty_erase
+
+$(BUILD_DIR)/tests/test_posix_tty_erase: tests/test_posix_tty_erase.c \
+		examples/boxrig_term/common/posix_application.c \
+		examples/boxrig_term/common/posix_application.h $(POSIX_LIBRARY) \
+		$(SESSION_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(POSIX_CPPFLAGS) \
+		-Iexamples/boxrig_term/common $(CFLAGS) $(PROJECT_CFLAGS) \
+		$(SANITIZERS) $< examples/boxrig_term/common/posix_application.c \
+		$(POSIX_LIBRARY) $(SESSION_LIBRARY) $(UI_LIBRARY) $(LIBRARY) \
+		-lutil $(SANITIZERS) -o $@
+
+.PHONY: test-input-control
+test: test-input-control
+test-input-control: $(BUILD_DIR)/tests/test_ui_input_control
+	$(BUILD_DIR)/tests/test_ui_input_control
+
+$(BUILD_DIR)/tests/test_ui_input_control: tests/test_ui_input_control.c $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(UI_LIBRARY) $(LIBRARY) $(SANITIZERS) -o $@
+
 $(EXAMPLE_RUNTIME_INFO_TEST_BINARY): tests/test_example_runtime_info.c \
 		examples/boxrig_term/common/runtime_info.c \
 		examples/boxrig_term/common/runtime_info.h | $(BUILD_DIR)/tests
@@ -2692,8 +2739,8 @@ $(OSC_RECOGNIZER_REGRESSION_TEST_BINARY): \
 		$(SANITIZERS) tests/test_osc_recognizer_regression.c $(LIBRARY) \
 		$(SANITIZERS) -o $@
 
-$(INPUT_SHORTCUT_TEST_BINARY): tests/test_input_shortcuts.c $(UI_LIBRARY) | $(BUILD_DIR)/tests
-	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) tests/test_input_shortcuts.c $(UI_LIBRARY) $(SANITIZERS) -o $@
+$(INPUT_SHORTCUT_TEST_BINARY): tests/test_input_shortcuts.c $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) tests/test_input_shortcuts.c $(UI_LIBRARY) $(LIBRARY) $(SANITIZERS) -o $@
 
 $(NOTIFICATION_POLICY_TEST_BINARY): tests/test_notification_policy.c $(UI_LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) tests/test_notification_policy.c $(UI_LIBRARY) $(SANITIZERS) -o $@
@@ -3451,7 +3498,7 @@ WIN32_SOFTWARE_HEADERS := $(filter-out include/boxrig/win32/d3d11_component.h in
 install-win32-amd64: $(MINGW_AMD64_WIN32_LIBRARY) $(MINGW_AMD64_UI_LIBRARY) $(MINGW_AMD64_LIBRARY) $(MINGW_AMD64_SESSION_LIBRARY) examples/win32/component.c examples/win32/host_opacity.c examples/win32/pty.c packaging/win32/boxrig-win32.pc
 	$(INSTALL) -d $(DESTDIR)$(LIBDIR) $(DESTDIR)$(PKGCONFIGDIR) $(DESTDIR)$(INCLUDEDIR)/boxrig/ui $(DESTDIR)$(INCLUDEDIR)/boxrig/win32 $(DESTDIR)$(PREFIX)/share/boxrig/examples/win32
 	$(INSTALL) -m 644 $(MINGW_AMD64_WIN32_LIBRARY) $(MINGW_AMD64_UI_LIBRARY) $(MINGW_AMD64_LIBRARY) $(MINGW_AMD64_SESSION_LIBRARY) $(DESTDIR)$(LIBDIR)
-	$(INSTALL) -m 644 include/boxrig/terminal.h include/boxrig/ui.h include/boxrig/session.h include/boxrig/win32.h $(DESTDIR)$(INCLUDEDIR)/boxrig
+	$(INSTALL) -m 644 $(CORE_PUBLIC_HEADERS) include/boxrig/ui.h include/boxrig/session.h include/boxrig/win32.h $(DESTDIR)$(INCLUDEDIR)/boxrig
 	$(INSTALL) -m 644 $(wildcard include/boxrig/ui/*.h) $(DESTDIR)$(INCLUDEDIR)/boxrig/ui
 	$(INSTALL) -m 644 $(WIN32_SOFTWARE_HEADERS) $(DESTDIR)$(INCLUDEDIR)/boxrig/win32
 	$(INSTALL) -m 644 packaging/win32/boxrig-win32.pc $(DESTDIR)$(PKGCONFIGDIR)
@@ -3464,7 +3511,7 @@ install-win32-opengl-amd64: install-win32-amd64
 install-win32-i686: $(MINGW_I686_WIN32_LIBRARY) $(MINGW_I686_UI_LIBRARY) $(MINGW_I686_LIBRARY) $(MINGW_I686_SESSION_LIBRARY) examples/win32/component.c examples/win32/host_opacity.c examples/win32/pty.c packaging/win32/boxrig-win32.pc
 	$(INSTALL) -d $(DESTDIR)$(LIBDIR) $(DESTDIR)$(PKGCONFIGDIR) $(DESTDIR)$(INCLUDEDIR)/boxrig/ui $(DESTDIR)$(INCLUDEDIR)/boxrig/win32 $(DESTDIR)$(PREFIX)/share/boxrig/examples/win32
 	$(INSTALL) -m 644 $(MINGW_I686_WIN32_LIBRARY) $(MINGW_I686_UI_LIBRARY) $(MINGW_I686_LIBRARY) $(MINGW_I686_SESSION_LIBRARY) $(DESTDIR)$(LIBDIR)
-	$(INSTALL) -m 644 include/boxrig/terminal.h include/boxrig/ui.h include/boxrig/session.h include/boxrig/win32.h $(DESTDIR)$(INCLUDEDIR)/boxrig
+	$(INSTALL) -m 644 $(CORE_PUBLIC_HEADERS) include/boxrig/ui.h include/boxrig/session.h include/boxrig/win32.h $(DESTDIR)$(INCLUDEDIR)/boxrig
 	$(INSTALL) -m 644 $(wildcard include/boxrig/ui/*.h) $(DESTDIR)$(INCLUDEDIR)/boxrig/ui
 	$(INSTALL) -m 644 $(WIN32_SOFTWARE_HEADERS) $(DESTDIR)$(INCLUDEDIR)/boxrig/win32
 	$(INSTALL) -m 644 packaging/win32/boxrig-win32.pc $(DESTDIR)$(PKGCONFIGDIR)
@@ -3609,7 +3656,7 @@ $(D3D11_AMD64_OBJECTS) $(D3D11_I686_OBJECTS): src/win32/text_state.h
 install-render-d3d11-amd64: render-d3d11-amd64 packaging/win32/boxrig-render-d3d11.pc examples/win32/d3d11_renderer.c
 	$(INSTALL) -d $(DESTDIR)$(LIBDIR) $(DESTDIR)$(PKGCONFIGDIR) $(DESTDIR)$(INCLUDEDIR)/boxrig/ui $(DESTDIR)$(INCLUDEDIR)/boxrig/render
 	$(INSTALL) -m 644 $(D3D11_AMD64_LIBRARY) $(MINGW_AMD64_WIN32_LIBRARY) $(MINGW_AMD64_UI_LIBRARY) $(MINGW_AMD64_LIBRARY) $(DESTDIR)$(LIBDIR)
-	$(INSTALL) -m 644 include/boxrig/terminal.h include/boxrig/ui.h $(DESTDIR)$(INCLUDEDIR)/boxrig
+	$(INSTALL) -m 644 $(CORE_PUBLIC_HEADERS) include/boxrig/ui.h $(DESTDIR)$(INCLUDEDIR)/boxrig
 	$(INSTALL) -m 644 $(wildcard include/boxrig/ui/*.h) $(DESTDIR)$(INCLUDEDIR)/boxrig/ui
 	$(INSTALL) -m 644 include/boxrig/render/d3d11.h $(DESTDIR)$(INCLUDEDIR)/boxrig/render
 	$(INSTALL) -m 644 packaging/win32/boxrig-render-d3d11.pc $(DESTDIR)$(PKGCONFIGDIR)
@@ -3632,7 +3679,7 @@ uninstall-win32-d3d11-amd64:
 install-render-d3d11-i686: render-d3d11-i686 packaging/win32/boxrig-render-d3d11.pc examples/win32/d3d11_renderer.c
 	$(INSTALL) -d $(DESTDIR)$(LIBDIR) $(DESTDIR)$(PKGCONFIGDIR) $(DESTDIR)$(INCLUDEDIR)/boxrig/ui $(DESTDIR)$(INCLUDEDIR)/boxrig/render
 	$(INSTALL) -m 644 $(D3D11_I686_LIBRARY) $(MINGW_I686_WIN32_LIBRARY) $(MINGW_I686_UI_LIBRARY) $(MINGW_I686_LIBRARY) $(DESTDIR)$(LIBDIR)
-	$(INSTALL) -m 644 include/boxrig/terminal.h include/boxrig/ui.h $(DESTDIR)$(INCLUDEDIR)/boxrig
+	$(INSTALL) -m 644 $(CORE_PUBLIC_HEADERS) include/boxrig/ui.h $(DESTDIR)$(INCLUDEDIR)/boxrig
 	$(INSTALL) -m 644 $(wildcard include/boxrig/ui/*.h) $(DESTDIR)$(INCLUDEDIR)/boxrig/ui
 	$(INSTALL) -m 644 include/boxrig/render/d3d11.h $(DESTDIR)$(INCLUDEDIR)/boxrig/render
 	$(INSTALL) -m 644 packaging/win32/boxrig-render-d3d11.pc $(DESTDIR)$(PKGCONFIGDIR)
@@ -3724,6 +3771,7 @@ test-win32-first-frame-fence: $(MINGW_AMD64_FIRST_FRAME_FENCE_TEST) $(MINGW_I686
 
 .PHONY: test-win32-sample-first-frame-fence
 test: test-win32-sample-first-frame-fence
+test-p2-win32: $(MINGW_AMD64_BUILD_DIR)/tests/first_frame_child.exe $(MINGW_I686_BUILD_DIR)/tests/first_frame_child.exe
 $(MINGW_AMD64_BUILD_DIR)/tests/first_frame_child.exe: tests/win32/first_frame_child.c | $(MINGW_AMD64_BUILD_DIR)/tests
 	$(MINGW_AMD64_CC) $(CPPFLAGS) $(MINGW_TERM_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< -o $@
 $(MINGW_I686_BUILD_DIR)/tests/first_frame_child.exe: tests/win32/first_frame_child.c | $(MINGW_I686_BUILD_DIR)/tests
@@ -3804,12 +3852,12 @@ test-p2-win32: $(BUILD_DIR)/boxrig_term/win32/i686/boxrig_term_ime_probe.exe
 install-core-win32-amd64: $(MINGW_AMD64_LIBRARY) packaging/win32/boxrig.pc
 	$(INSTALL) -d $(DESTDIR)$(LIBDIR) $(DESTDIR)$(PKGCONFIGDIR) $(DESTDIR)$(INCLUDEDIR)/boxrig
 	$(INSTALL) -m 644 $(MINGW_AMD64_LIBRARY) $(DESTDIR)$(LIBDIR)
-	$(INSTALL) -m 644 include/boxrig/terminal.h $(DESTDIR)$(INCLUDEDIR)/boxrig
+	$(INSTALL) -m 644 $(CORE_PUBLIC_HEADERS) $(DESTDIR)$(INCLUDEDIR)/boxrig
 	$(INSTALL) -m 644 packaging/win32/boxrig.pc $(DESTDIR)$(PKGCONFIGDIR)
 
 uninstall-core-win32-amd64:
 	# Other installed modules may still contain core codec code and its notices.
-	rm -f $(DESTDIR)$(LIBDIR)/libboxrig.a $(DESTDIR)$(PKGCONFIGDIR)/boxrig.pc $(DESTDIR)$(INCLUDEDIR)/boxrig/terminal.h
+	rm -f $(DESTDIR)$(LIBDIR)/libboxrig.a $(DESTDIR)$(PKGCONFIGDIR)/boxrig.pc $(addprefix $(DESTDIR)$(INCLUDEDIR)/boxrig/,$(notdir $(CORE_PUBLIC_HEADERS)))
 
 # Shared core/UI files remain available for separately installed backends.
 uninstall-win32-amd64:
@@ -3827,12 +3875,12 @@ uninstall-win32-opengl-amd64:
 install-core-win32-i686: $(MINGW_I686_LIBRARY) packaging/win32/boxrig.pc
 	$(INSTALL) -d $(DESTDIR)$(LIBDIR) $(DESTDIR)$(PKGCONFIGDIR) $(DESTDIR)$(INCLUDEDIR)/boxrig
 	$(INSTALL) -m 644 $(MINGW_I686_LIBRARY) $(DESTDIR)$(LIBDIR)
-	$(INSTALL) -m 644 include/boxrig/terminal.h $(DESTDIR)$(INCLUDEDIR)/boxrig
+	$(INSTALL) -m 644 $(CORE_PUBLIC_HEADERS) $(DESTDIR)$(INCLUDEDIR)/boxrig
 	$(INSTALL) -m 644 packaging/win32/boxrig.pc $(DESTDIR)$(PKGCONFIGDIR)
 
 uninstall-core-win32-i686:
 	# Other installed modules may still contain core codec code and its notices.
-	rm -f $(DESTDIR)$(LIBDIR)/libboxrig.a $(DESTDIR)$(PKGCONFIGDIR)/boxrig.pc $(DESTDIR)$(INCLUDEDIR)/boxrig/terminal.h
+	rm -f $(DESTDIR)$(LIBDIR)/libboxrig.a $(DESTDIR)$(PKGCONFIGDIR)/boxrig.pc $(addprefix $(DESTDIR)$(INCLUDEDIR)/boxrig/,$(notdir $(CORE_PUBLIC_HEADERS)))
 
 # Shared core/UI files remain available for separately installed backends.
 uninstall-win32-i686:
@@ -3855,6 +3903,7 @@ $(MINGW_I686_OPACITY_NATIVE_TEST): tests/win32/test_win32_opacity_native.c inclu
 # Exercise new application policies before the remaining complete regression suite.
 # Each sample resolves the console launcher beside its own executable.
 .PHONY: test-win32-opacity-policy
+test-p2-win32: $(MINGW_AMD64_BUILD_DIR)/boxrig-opacity-unavailable.exe $(MINGW_I686_BUILD_DIR)/boxrig-opacity-unavailable.exe
 test-win32-opacity-policy: $(MINGW_AMD64_BUILD_DIR)/boxrig-opacity-unavailable.exe \
 	$(MINGW_AMD64_SAMPLE_TEST) $(MINGW_AMD64_EXAMPLE) $(MINGW_AMD64_PTY_HELPER) \
 	$(MINGW_AMD64_LAUNCHER) $(MINGW_AMD64_TEST_LAUNCHER) \
@@ -4180,6 +4229,14 @@ test-win32-pty-runtime: $(MINGW_AMD64_BUILD_DIR)/tests/test_pty_runtime.exe $(MI
 	$(WINE_RUN) $(abspath $(MINGW_I686_BUILD_DIR)/tests/test_pty_runtime.exe)
 
 test: test-win32-pty-runtime
+
+$(MINGW_AMD64_BUILD_DIR)/tests/test_pty_spawn.exe: tests/win32/test_pty_spawn.cpp $(MINGW_AMD64_WIN32_LIBRARY) deps/cardio/include/cardio.h | $(MINGW_AMD64_BUILD_DIR)/tests
+	$(MINGW_AMD64_CXX) $(PUBLIC_CPPFLAGS) $(MINGW_WIN32_CPPFLAGS) -Ideps/cardio/include $(CFLAGS) -std=c++20 $(WARNINGS) -static -municode $< $(MINGW_AMD64_WIN32_LIBRARY) -lversion -o $@
+
+$(MINGW_I686_BUILD_DIR)/tests/test_pty_spawn.exe: tests/win32/test_pty_spawn.cpp $(MINGW_I686_WIN32_LIBRARY) deps/cardio/include/cardio.h | $(MINGW_I686_BUILD_DIR)/tests
+	$(MINGW_I686_CXX) $(PUBLIC_CPPFLAGS) $(MINGW_WIN32_CPPFLAGS) -Ideps/cardio/include $(CFLAGS) -std=c++20 $(WARNINGS) -static -municode $< $(MINGW_I686_WIN32_LIBRARY) -lversion -o $@
+
+test-p2-win32: $(MINGW_AMD64_BUILD_DIR)/tests/test_pty_spawn.exe $(MINGW_I686_BUILD_DIR)/tests/test_pty_spawn.exe
 
 $(BUILD_DIR)/tests/test_decoration_demo: tests/test_decoration_demo.c examples/boxrig_term/common/decoration_demo.c examples/boxrig_term/common/color_demo.c $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) tests/test_decoration_demo.c examples/boxrig_term/common/decoration_demo.c examples/boxrig_term/common/color_demo.c $(UI_LIBRARY) $(LIBRARY) -o $@
@@ -4571,7 +4628,7 @@ test-terminal-codec-frontends: $(BUILD_DIR)/tests/test_gtk3_codec $(BUILD_DIR)/t
 	xvfb-run -a env GDK_BACKEND=x11 GSK_RENDERER=cairo NO_AT_BRIDGE=1 ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(BUILD_DIR)/tests/test_gtk4_codec
 
 $(BUILD_DIR)/tests/test_gtk3_codec: tests/gtk/test_widget_codec.c $(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK3_HEADERS) $(CORE_HEADERS) | $(BUILD_DIR)/tests
-	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK3_CPPFLAGS) $(CFLAGS) $(GTK3_PROJECT_CFLAGS) $(SANITIZERS) -DBOXRIG_TEST_GTK3 -Wl,--wrap=gtk_im_multicontext_new $< $(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK3_LIBS) -lm -o $@
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK3_CPPFLAGS) $(CFLAGS) $(GTK3_PROJECT_CFLAGS) $(SANITIZERS) -DBOXRIG_TEST_GTK3 -Wl,--wrap=gtk_im_multicontext_new,--wrap=gtk_im_context_filter_keypress $< $(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK3_LIBS) -lm -o $@
 
 $(BUILD_DIR)/tests/test_gtk4_codec: tests/gtk/test_widget_codec.c $(GTK4_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK4_HEADERS) $(CORE_HEADERS) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK4_CPPFLAGS) $(CFLAGS) $(GTK4_PROJECT_CFLAGS) $(SANITIZERS) -Wl,--wrap=gtk_im_multicontext_new,--wrap=gtk_event_controller_key_new,--wrap=gtk_event_controller_focus_new $< $(GTK4_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK4_LIBS) -lm -o $@
@@ -4611,7 +4668,7 @@ test-codegen: codegen-tools
 	npm --prefix tools/codegen test
 
 generate-shift-jis: codegen-tools
-	node build/tools/codegen/generate-shift-jis.mjs .
+	node $(CODEGEN_DIR)/generate-shift-jis.mjs .
 
 install-gtk3 install-gtk4 install-wayland install-render-ogl install-x11-opengl install-wayland-opengl install-core-win32-amd64 install-win32-amd64 install-win32-opengl-amd64 install-render-d3d11-amd64 install-win32-d3d11-amd64 install-core-win32-i686 install-win32-i686 install-win32-opengl-i686 install-render-d3d11-i686 install-win32-d3d11-i686: install-common-licenses
 
@@ -5112,11 +5169,11 @@ test-wayland-candidates-startup: $(WAYLAND_EXAMPLE_BINARY) $(BUILD_DIR)/tests/wa
 
 .PHONY: test-notification-dispatch
 test: test-notification-dispatch
-test-notification-dispatch: build/tests/test_notification_dispatch
+test-notification-dispatch: $(BUILD_DIR)/tests/test_notification_dispatch
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
 
-build/tests/test_notification_dispatch: tests/test_notification_dispatch.c build/libboxrig-ui.a build/libboxrig.a | build/tests
-	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< build/libboxrig-ui.a build/libboxrig.a -Wl,--wrap=boxrig_terminal_complete_host_request -o $@
+$(BUILD_DIR)/tests/test_notification_dispatch: tests/test_notification_dispatch.c $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(UI_LIBRARY) $(LIBRARY) -Wl,--wrap=boxrig_terminal_complete_host_request -o $@
 
 .PHONY: test-win32-notifications
 test-win32-notifications: $(MINGW_AMD64_HOST_TEST) $(MINGW_I686_HOST_TEST) $(MINGW_AMD64_SAMPLE_TEST) $(MINGW_I686_SAMPLE_TEST) $(MINGW_AMD64_NOTIFICATION_EXAMPLE) $(MINGW_I686_NOTIFICATION_EXAMPLE) $(MINGW_AMD64_PTY_HELPER) $(MINGW_I686_PTY_HELPER)
@@ -5154,7 +5211,7 @@ test-notification-samples: $(GTK3_EXAMPLE_BINARY) $(GTK4_EXAMPLE_BINARY) $(WAYLA
 install-notification: $(NOTIFICATION_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(NOTIFICATION_HEADERS) pkgconfig/boxrig-notification.pc install-common-licenses
 	$(INSTALL) -d $(DESTDIR)$(LIBDIR) $(DESTDIR)$(INCLUDEDIR)/boxrig/notification $(DESTDIR)$(INCLUDEDIR)/boxrig/ui $(DESTDIR)$(PKGCONFIGDIR)
 	$(INSTALL) -m 644 $(NOTIFICATION_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(DESTDIR)$(LIBDIR)
-	$(INSTALL) -m 644 include/boxrig/terminal.h include/boxrig/ui.h $(DESTDIR)$(INCLUDEDIR)/boxrig
+	$(INSTALL) -m 644 $(CORE_PUBLIC_HEADERS) include/boxrig/ui.h $(DESTDIR)$(INCLUDEDIR)/boxrig
 	$(INSTALL) -m 644 $(NOTIFICATION_HEADERS) $(DESTDIR)$(INCLUDEDIR)/boxrig/notification
 	$(INSTALL) -m 644 include/boxrig/ui/*.h $(DESTDIR)$(INCLUDEDIR)/boxrig/ui
 	$(INSTALL) -m 644 pkgconfig/boxrig-notification.pc $(DESTDIR)$(PKGCONFIGDIR)
@@ -5288,7 +5345,7 @@ $(BUILD_DIR)/tests/background_effect_wayland: tests/background_effect_probe.c $(
 install-background-wayland: $(BACKGROUND_WAYLAND_LIBRARY) pkgconfig/boxrig-background-wayland.pc
 	$(INSTALL) -d $(DESTDIR)$(LIBDIR) $(DESTDIR)$(INCLUDEDIR)/boxrig/wayland $(DESTDIR)$(INCLUDEDIR)/boxrig/ui $(DESTDIR)$(PKGCONFIGDIR)
 	$(INSTALL) -m 644 $(BACKGROUND_WAYLAND_LIBRARY) $(DESTDIR)$(LIBDIR)
-	$(INSTALL) -m 644 include/boxrig/terminal.h include/boxrig/ui.h $(DESTDIR)$(INCLUDEDIR)/boxrig
+	$(INSTALL) -m 644 $(CORE_PUBLIC_HEADERS) include/boxrig/ui.h $(DESTDIR)$(INCLUDEDIR)/boxrig
 	$(INSTALL) -m 644 include/boxrig/ui/*.h $(DESTDIR)$(INCLUDEDIR)/boxrig/ui
 	$(INSTALL) -m 644 include/boxrig/wayland/background_effect.h $(DESTDIR)$(INCLUDEDIR)/boxrig/wayland
 	$(INSTALL) -m 644 pkgconfig/boxrig-background-wayland.pc $(DESTDIR)$(PKGCONFIGDIR)
@@ -5330,3 +5387,182 @@ test-packages:
 	bash tests/check_packages.sh "$(CC)" "$(MINGW_AMD64_CC)" "$(MINGW_I686_CC)"
 	$(WINE_RUN) $(abspath $(BUILD_DIR)/tests/package-consumers/amd64.exe)
 	$(WINE_RUN) $(abspath $(BUILD_DIR)/tests/package-consumers/i686.exe)
+
+include tests/headers/rules.mk
+include packaging/linux/rules.mk
+
+.PHONY: test-grid-resize test-grid-resize-win32
+.PHONY: test-posix-spawn
+.PHONY: test-async-spawn
+.PHONY: example-pty-spawn example-pty-spawn-win32
+example-pty-spawn: $(BUILD_DIR)/examples/pty_spawn
+example-pty-spawn-win32: $(MINGW_AMD64_BUILD_DIR)/pty_spawn.exe $(MINGW_I686_BUILD_DIR)/pty_spawn.exe
+
+$(BUILD_DIR)/examples/pty_spawn: examples/pty_spawn/main.cpp examples/pty_spawn/operation.cpp examples/pty_spawn/operation.h deps/cardio/include/cardio.h $(POSIX_LIBRARY) $(LIBRARY)
+	mkdir -p $(@D)
+	$(CXX) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK3_CPPFLAGS) -Iexamples/pty_spawn -Ideps/cardio/include -DCARDIO_WITH_GLIB=1 $(CFLAGS) -std=c++20 $(WARNINGS) examples/pty_spawn/main.cpp examples/pty_spawn/operation.cpp $(POSIX_LIBRARY) $(LIBRARY) -lutil $(GTK3_LIBS) -pthread -o $@
+
+$(MINGW_AMD64_BUILD_DIR)/pty_spawn.exe: examples/pty_spawn/main.cpp examples/pty_spawn/operation.cpp examples/pty_spawn/operation.h deps/cardio/include/cardio.h $(MINGW_AMD64_WIN32_LIBRARY)
+	$(MINGW_AMD64_CXX) $(PUBLIC_CPPFLAGS) $(MINGW_WIN32_CPPFLAGS) -Iexamples/pty_spawn -Ideps/cardio/include $(CFLAGS) -std=c++20 $(WARNINGS) -static -municode examples/pty_spawn/main.cpp examples/pty_spawn/operation.cpp $(MINGW_AMD64_WIN32_LIBRARY) -lversion -luser32 -o $@
+
+$(MINGW_I686_BUILD_DIR)/pty_spawn.exe: examples/pty_spawn/main.cpp examples/pty_spawn/operation.cpp examples/pty_spawn/operation.h deps/cardio/include/cardio.h $(MINGW_I686_WIN32_LIBRARY)
+	$(MINGW_I686_CXX) $(PUBLIC_CPPFLAGS) $(MINGW_WIN32_CPPFLAGS) -Iexamples/pty_spawn -Ideps/cardio/include $(CFLAGS) -std=c++20 $(WARNINGS) -static -municode examples/pty_spawn/main.cpp examples/pty_spawn/operation.cpp $(MINGW_I686_WIN32_LIBRARY) -lversion -luser32 -o $@
+
+test: test-async-spawn
+test-async-spawn: $(BUILD_DIR)/tests/test_async_spawn $(BUILD_DIR)/examples/pty_spawn
+	NO_AT_BRIDGE=1 GDK_BACKEND=x11 xvfb-run -a $<
+	sh tests/check_spawn_example.sh $(BUILD_DIR)/examples/pty_spawn
+
+ASYNC_SPAWN_SOURCE := examples/pty_spawn/operation.cpp
+ASYNC_SPAWN_HEADERS := examples/pty_spawn/operation.h deps/cardio/include/cardio.h
+ASYNC_SPAWN_POSIX_WRAP := -Wl,--wrap=boxrig_posix_pty_spawn_with_diagnostic,--wrap=boxrig_posix_pty_destroy
+ASYNC_SPAWN_WIN32_WRAP := -Wl,--wrap=boxrig_win32_pty_spawn_with_config,--wrap=boxrig_win32_pty_close,--wrap=boxrig_win32_pty_destroy
+
+$(BUILD_DIR)/tests/test_async_spawn: tests/test_async_spawn.cpp $(ASYNC_SPAWN_SOURCE) $(ASYNC_SPAWN_HEADERS) $(POSIX_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CXX) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK3_CPPFLAGS) -Iexamples/pty_spawn -Ideps/cardio/include -DCARDIO_WITH_GLIB=1 $(CFLAGS) -std=c++20 $(WARNINGS) tests/test_async_spawn.cpp $(ASYNC_SPAWN_SOURCE) $(POSIX_LIBRARY) $(LIBRARY) -lutil $(GTK3_LIBS) -pthread $(ASYNC_SPAWN_POSIX_WRAP) -o $@
+
+$(MINGW_AMD64_BUILD_DIR)/tests/test_async_spawn.exe: tests/test_async_spawn.cpp $(ASYNC_SPAWN_SOURCE) $(ASYNC_SPAWN_HEADERS) $(MINGW_AMD64_WIN32_LIBRARY) | $(MINGW_AMD64_BUILD_DIR)/tests
+	$(MINGW_AMD64_CXX) $(PUBLIC_CPPFLAGS) $(MINGW_WIN32_CPPFLAGS) -Iexamples/pty_spawn -Ideps/cardio/include $(CFLAGS) -std=c++20 $(WARNINGS) -static tests/test_async_spawn.cpp $(ASYNC_SPAWN_SOURCE) $(MINGW_AMD64_WIN32_LIBRARY) -lversion -luser32 $(ASYNC_SPAWN_WIN32_WRAP) -o $@
+
+$(MINGW_I686_BUILD_DIR)/tests/test_async_spawn.exe: tests/test_async_spawn.cpp $(ASYNC_SPAWN_SOURCE) $(ASYNC_SPAWN_HEADERS) $(MINGW_I686_WIN32_LIBRARY) | $(MINGW_I686_BUILD_DIR)/tests
+	$(MINGW_I686_CXX) $(PUBLIC_CPPFLAGS) $(MINGW_WIN32_CPPFLAGS) -Iexamples/pty_spawn -Ideps/cardio/include $(CFLAGS) -std=c++20 $(WARNINGS) -static tests/test_async_spawn.cpp $(ASYNC_SPAWN_SOURCE) $(MINGW_I686_WIN32_LIBRARY) -lversion -luser32 $(ASYNC_SPAWN_WIN32_WRAP) -o $@
+
+test-p2-win32: $(MINGW_AMD64_BUILD_DIR)/tests/test_async_spawn.exe $(MINGW_I686_BUILD_DIR)/tests/test_async_spawn.exe example-pty-spawn-win32
+
+test: test-posix-spawn
+test-posix-spawn: $(BUILD_DIR)/tests/test_posix_spawn
+	$(BUILD_DIR)/tests/test_posix_spawn
+
+$(BUILD_DIR)/tests/test_posix_spawn: tests/test_posix_spawn.c $(POSIX_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(POSIX_LIBRARY) $(LIBRARY) -lutil -Wl,--wrap=execve,--wrap=setenv,--wrap=setsid,--wrap=calloc,--wrap=malloc,--wrap=strdup,--wrap=openpty,--wrap=pipe2,--wrap=fork -o $@
+
+test: test-grid-resize test-grid-resize-win32
+test-grid-resize: $(BUILD_DIR)/tests/test_grid_resize
+	$(BUILD_DIR)/tests/test_grid_resize
+
+$(BUILD_DIR)/tests/test_grid_resize: tests/test_grid_resize.c $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(UI_LIBRARY) $(LIBRARY) -o $@
+
+test-grid-resize-win32: $(MINGW_AMD64_BUILD_DIR)/tests/test_grid_resize.exe $(MINGW_I686_BUILD_DIR)/tests/test_grid_resize.exe
+	$(WINE_RUN) $(abspath $(MINGW_AMD64_BUILD_DIR)/tests/test_grid_resize.exe)
+	$(WINE_RUN) $(abspath $(MINGW_I686_BUILD_DIR)/tests/test_grid_resize.exe)
+
+$(MINGW_AMD64_BUILD_DIR)/tests/test_grid_resize.exe: tests/test_grid_resize.c $(MINGW_AMD64_UI_LIBRARY) $(MINGW_AMD64_LIBRARY) | $(MINGW_AMD64_BUILD_DIR)/tests
+	$(MINGW_AMD64_CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(MINGW_AMD64_UI_LIBRARY) $(MINGW_AMD64_LIBRARY) -o $@
+
+$(MINGW_I686_BUILD_DIR)/tests/test_grid_resize.exe: tests/test_grid_resize.c $(MINGW_I686_UI_LIBRARY) $(MINGW_I686_LIBRARY) | $(MINGW_I686_BUILD_DIR)/tests
+	$(MINGW_I686_CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(MINGW_I686_UI_LIBRARY) $(MINGW_I686_LIBRARY) -o $@
+
+.PHONY: test-input-config
+test: test-input-config
+test-input-config: $(BUILD_DIR)/tests/test_terminal_input_config
+	$(BUILD_DIR)/tests/test_terminal_input_config
+
+$(BUILD_DIR)/tests/test_terminal_input_config: tests/test_terminal_input_config.c $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(LIBRARY) -Wl,--wrap=malloc -o $@
+
+.PHONY: test-input-config-win32
+test: test-input-config-win32
+test-input-config-win32: $(MINGW_AMD64_BUILD_DIR)/tests/test_terminal_input_config.exe $(MINGW_I686_BUILD_DIR)/tests/test_terminal_input_config.exe
+	$(WINE_RUN) $(abspath $(MINGW_AMD64_BUILD_DIR)/tests/test_terminal_input_config.exe)
+	$(WINE_RUN) $(abspath $(MINGW_I686_BUILD_DIR)/tests/test_terminal_input_config.exe)
+
+$(MINGW_AMD64_BUILD_DIR)/tests/test_terminal_input_config.exe: tests/test_terminal_input_config.c $(MINGW_AMD64_LIBRARY) | $(MINGW_AMD64_BUILD_DIR)/tests
+	$(MINGW_AMD64_CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(MINGW_AMD64_LIBRARY) -Wl,--wrap=malloc -o $@
+
+$(MINGW_I686_BUILD_DIR)/tests/test_terminal_input_config.exe: tests/test_terminal_input_config.c $(MINGW_I686_LIBRARY) | $(MINGW_I686_BUILD_DIR)/tests
+	$(MINGW_I686_CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(MINGW_I686_LIBRARY) -Wl,--wrap=malloc -o $@
+
+.PHONY: test-regex
+test: test-regex
+test-regex: $(BUILD_DIR)/tests/test_regex $(BUILD_DIR)/tests/test_regex_captures $(BUILD_DIR)/boxrig-regex
+	$(BUILD_DIR)/tests/test_regex
+	$(BUILD_DIR)/tests/test_regex_captures
+	sh tests/check_regex_cli.sh $(BUILD_DIR)/boxrig-regex $(BUILD_DIR)/tests/regex-cli
+
+$(BUILD_DIR)/tests/test_regex: tests/test_regex.c $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(LIBRARY) -lm -o $@
+
+$(BUILD_DIR)/tests/test_regex_captures: tests/test_regex_captures.c $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(LIBRARY) -lm -o $@
+
+.PHONY: boxrig-regex
+native: boxrig-regex
+boxrig-regex: $(BUILD_DIR)/boxrig-regex
+
+$(BUILD_DIR)/boxrig-regex: examples/core/regex.c $(LIBRARY) | $(BUILD_DIR)
+	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(LIBRARY) -o $@
+
+$(CORE_OBJECTS) $(UI_OBJECTS) $(SESSION_OBJECTS) $(POSIX_OBJECTS) $(X11_OBJECTS) $(GTK3_OBJECTS) $(GTK4_OBJECTS) $(WAYLAND_OBJECTS): $(CORE_PUBLIC_HEADERS)
+$(MINGW_AMD64_CORE_OBJECTS) $(MINGW_I686_CORE_OBJECTS) $(MINGW_AMD64_UI_OBJECTS) $(MINGW_I686_UI_OBJECTS) $(MINGW_AMD64_SESSION_OBJECTS) $(MINGW_I686_SESSION_OBJECTS) $(MINGW_AMD64_WIN32_OBJECTS) $(MINGW_I686_WIN32_OBJECTS): $(CORE_PUBLIC_HEADERS)
+
+.PHONY: test-regex-win32
+test: test-regex-win32
+test-regex-win32: $(MINGW_AMD64_BUILD_DIR)/tests/test_regex.exe $(MINGW_I686_BUILD_DIR)/tests/test_regex.exe $(MINGW_AMD64_BUILD_DIR)/tests/test_regex_captures.exe $(MINGW_I686_BUILD_DIR)/tests/test_regex_captures.exe
+	$(WINE_RUN) $(abspath $(MINGW_AMD64_BUILD_DIR)/tests/test_regex.exe)
+	$(WINE_RUN) $(abspath $(MINGW_I686_BUILD_DIR)/tests/test_regex.exe)
+	$(WINE_RUN) $(abspath $(MINGW_AMD64_BUILD_DIR)/tests/test_regex_captures.exe)
+	$(WINE_RUN) $(abspath $(MINGW_I686_BUILD_DIR)/tests/test_regex_captures.exe)
+
+$(MINGW_AMD64_BUILD_DIR)/tests/test_regex.exe: tests/test_regex.c $(MINGW_AMD64_LIBRARY) | $(MINGW_AMD64_BUILD_DIR)/tests
+	$(MINGW_AMD64_CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(MINGW_AMD64_LIBRARY) -o $@
+
+$(MINGW_I686_BUILD_DIR)/tests/test_regex.exe: tests/test_regex.c $(MINGW_I686_LIBRARY) | $(MINGW_I686_BUILD_DIR)/tests
+	$(MINGW_I686_CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(MINGW_I686_LIBRARY) -o $@
+
+$(MINGW_AMD64_BUILD_DIR)/tests/test_regex_captures.exe: tests/test_regex_captures.c $(MINGW_AMD64_LIBRARY) | $(MINGW_AMD64_BUILD_DIR)/tests
+	$(MINGW_AMD64_CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(MINGW_AMD64_LIBRARY) -o $@
+
+$(MINGW_I686_BUILD_DIR)/tests/test_regex_captures.exe: tests/test_regex_captures.c $(MINGW_I686_LIBRARY) | $(MINGW_I686_BUILD_DIR)/tests
+	$(MINGW_I686_CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(MINGW_I686_LIBRARY) -o $@
+
+.PHONY: test-accessible-snapshot
+test: test-accessible-snapshot
+test-accessible-snapshot: $(BUILD_DIR)/tests/test_accessible_snapshot
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
+
+$(BUILD_DIR)/tests/test_accessible_snapshot: tests/test_accessible_snapshot.c $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(UI_LIBRARY) $(LIBRARY) -lm -o $@
+
+.PHONY: test-gtk3-accessible
+test: test-gtk3-accessible
+test-gtk3-accessible: $(BUILD_DIR)/tests/test_gtk3_accessible
+	$(XVFB_RUN) -a env GDK_BACKEND=x11 NO_AT_BRIDGE=1 GSETTINGS_BACKEND=memory GIO_USE_VFS=local ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
+
+$(BUILD_DIR)/tests/test_gtk3_accessible: tests/gtk3/test_accessible_text.c $(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK3_CPPFLAGS) $(CFLAGS) $(GTK3_PROJECT_CFLAGS) $(SANITIZERS) $< $(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK3_LIBS) -lm -o $@
+
+.PHONY: test-gtk3-atspi
+test: test-gtk3-atspi
+test-gtk3-atspi: $(BUILD_DIR)/tests/test_atspi_text $(BUILD_DIR)/tests/gtk3_accessibility_driver
+	sh tests/gtk/run_accessibility.sh $(BUILD_DIR)/tests/test_atspi_text $(abspath $(BUILD_DIR)/tests/gtk3_accessibility_driver)
+
+$(BUILD_DIR)/tests/gtk3_accessibility_driver: tests/gtk/accessibility_driver.c $(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK3_CPPFLAGS) $(CFLAGS) $(GTK3_PROJECT_CFLAGS) $(SANITIZERS) $< $(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK3_LIBS) -lm -o $@
+
+$(BUILD_DIR)/tests/test_atspi_text: tests/gtk/test_atspi_text.c | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $$(pkg-config --cflags --libs atspi-2 gobject-2.0) -o $@
+
+.PHONY: test-gtk3-orca
+test: test-gtk3-orca
+test-gtk3-orca: $(BUILD_DIR)/tests/test_atspi_text $(BUILD_DIR)/tests/gtk3_accessibility_driver
+	sh tests/gtk/run_accessibility.sh bash tests/gtk/run_orca.sh $(abspath $(BUILD_DIR)/tests/test_atspi_text) $(abspath $(BUILD_DIR)/tests/gtk3_accessibility_driver) $(abspath $(BUILD_DIR)/test-results/accessibility/gtk3)
+
+.PHONY: test-gtk4-accessible test-gtk4-atspi test-gtk4-orca
+test: test-gtk4-accessible test-gtk4-atspi test-gtk4-orca
+test-gtk4-accessible: $(BUILD_DIR)/tests/test_gtk4_accessible
+	$(XVFB_RUN) -a env GDK_BACKEND=x11 GTK_A11Y=none GSK_RENDERER=cairo GSETTINGS_BACKEND=memory GIO_USE_VFS=local ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
+
+$(BUILD_DIR)/tests/test_gtk4_accessible: tests/gtk4/test_accessible_text.c $(GTK4_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK4_CPPFLAGS) $(CFLAGS) $(GTK4_PROJECT_CFLAGS) $(SANITIZERS) $< $(GTK4_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK4_LIBS) -lm \
+		-Wl,--wrap=gtk_accessible_text_update_contents -Wl,--wrap=gtk_accessible_text_update_caret_position \
+		-Wl,--wrap=gtk_accessible_text_update_selection_bound -o $@
+
+test-gtk4-atspi: $(BUILD_DIR)/tests/test_atspi_text $(BUILD_DIR)/tests/gtk4_accessibility_driver
+	sh tests/gtk/run_accessibility.sh $(BUILD_DIR)/tests/test_atspi_text $(abspath $(BUILD_DIR)/tests/gtk4_accessibility_driver)
+
+$(BUILD_DIR)/tests/gtk4_accessibility_driver: tests/gtk/accessibility_driver.c $(GTK4_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK4_CPPFLAGS) $(CFLAGS) $(GTK4_PROJECT_CFLAGS) $(SANITIZERS) $< $(GTK4_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK4_LIBS) -lm -o $@
+
+test-gtk4-orca: $(BUILD_DIR)/tests/test_atspi_text $(BUILD_DIR)/tests/gtk4_accessibility_driver
+	sh tests/gtk/run_accessibility.sh bash tests/gtk/run_orca.sh $(abspath $(BUILD_DIR)/tests/test_atspi_text) $(abspath $(BUILD_DIR)/tests/gtk4_accessibility_driver) $(abspath $(BUILD_DIR)/test-results/accessibility/gtk4)

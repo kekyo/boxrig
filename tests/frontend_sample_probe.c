@@ -119,7 +119,6 @@ static bool native_pending_clipboard_cancelled;
 static bool native_late_clipboard_ignored;
 /* Request identity only; the late event itself must come from the server. */
 static XSelectionEvent native_clipboard_request;
-static bool native_clipboard_property_deleted;
 #elif defined(_WIN32)
 static boxrig_win32_terminal_component *sample_native_component;
 static boxrig_win32_host_adapter *sample_native_host_adapter;
@@ -576,32 +575,16 @@ int __real_XConvertSelection(
 int __wrap_XConvertSelection(
     Display *display, Atom selection, Atom target, Atom property, Window requestor, Time time)
 {
-    if (display == sample_display && requestor == sample_host_window) {
+    if (display == sample_display && requestor != sample_host_clipboard_window) {
         REQUIRE(!native_component_destroying);
+        REQUIRE(requestor != None && sample_x11_window_exists(requestor));
         native_clipboard_request.selection = selection;
         native_clipboard_request.target = target;
         native_clipboard_request.property = property;
         native_clipboard_request.requestor = requestor;
         native_clipboard_request.time = time;
-        native_clipboard_property_deleted = false;
     }
     return __real_XConvertSelection(display, selection, target, property, requestor, time);
-}
-
-/** @copydoc XDeleteProperty */
-int __real_XDeleteProperty(Display *display, Window window, Atom property);
-/** Observes explicit incoming transaction cancellation before Window cleanup.
- * @copydoc XDeleteProperty
- */
-int __wrap_XDeleteProperty(Display *display, Window window, Atom property)
-{
-    int result = __real_XDeleteProperty(display, window, property);
-    if (display == sample_display && window == sample_host_window &&
-        native_component_destroying && property != None &&
-        property == native_clipboard_request.property) {
-        native_clipboard_property_deleted = true;
-    }
-    return result;
 }
 
 static Bool is_pending_clipboard_reply(Display *display, XEvent *event, XPointer context)
@@ -629,66 +612,62 @@ int __wrap_boxrig_x11_input_adapter_quiesce(boxrig_x11_input_adapter *adapter)
         (strcmp(pending, "1") == 0 || strcmp(pending, "close") == 0);
     Window owner = None;
     XWindowAttributes attributes;
+    XEvent reply;
     int result;
     int saved_errno = errno;
 
     if (observed) {
         REQUIRE(sample_display != NULL && sample_native_component != NULL);
         REQUIRE(!native_component_destroyed && sample_x11_window_exists(sample_host_window));
-        REQUIRE(native_clipboard_request.requestor == sample_host_window);
+        REQUIRE(native_clipboard_request.requestor != None &&
+                sample_x11_window_exists(native_clipboard_request.requestor));
         REQUIRE(native_clipboard_request.selection == XInternAtom(sample_display, "CLIPBOARD", True));
         REQUIRE(native_clipboard_request.target != None &&
                 native_clipboard_request.target != XInternAtom(sample_display, "TARGETS", True));
-        REQUIRE(native_clipboard_request.property != None && !native_clipboard_property_deleted);
+        REQUIRE(native_clipboard_request.property != None);
         owner = XGetSelectionOwner(sample_display, native_clipboard_request.selection);
         REQUIRE(owner != None && owner != sample_host_window);
         REQUIRE(XGetWindowAttributes(sample_display, owner, &attributes) != 0);
         REQUIRE((attributes.your_event_mask & StructureNotifyMask) != 0);
-    }
-    errno = saved_errno;
-    result = __real_boxrig_x11_input_adapter_quiesce(adapter);
-    saved_errno = errno;
-    if (observed) {
+
+        /* Capture a real server reply before cancellation destroys its private
+         * requestor. Dispatch it only after quiescing to exercise a queued late
+         * event without asking the owner to write to a destroyed Window. */
+        fprintf(stderr, "READY sample pending X11 selection before quiesce\n");
+        REQUIRE(fflush(stderr) == 0);
+        XIfEvent(sample_display, &reply, is_pending_clipboard_reply,
+                 (XPointer)&native_clipboard_request);
         Atom type = None;
         int format = 0;
         unsigned long length = 0;
         unsigned long remaining = 0;
         unsigned char *data = NULL;
-        XEvent reply;
-        uint64_t writes = transport_writes;
-        uint64_t keys = native_key_calls;
-        uint64_t mice = native_mouse_calls;
-        uint64_t frames = completed_frames;
-
-        REQUIRE(result == 0 && native_clipboard_property_deleted);
-        REQUIRE(XGetWindowAttributes(sample_display, owner, &attributes) != 0);
-        REQUIRE(attributes.your_event_mask == NoEventMask);
-        REQUIRE(XGetWindowProperty(sample_display, sample_host_window,
-                    native_clipboard_request.property, 0, 4, False, AnyPropertyType,
-                    &type, &format, &length, &remaining, &data) == Success);
-        REQUIRE(type == None && format == 0 && length == 0 && remaining == 0);
-        if (data != NULL) {
-            XFree(data);
-            data = NULL;
-        }
-        native_pending_clipboard_cancelled = true;
-        fprintf(stderr, "READY sample pending X11 selection after quiesce\n");
-        REQUIRE(fflush(stderr) == 0);
-        /* Only this post-quiesce test boundary receives the owner's held reply.
-         * The application's normal loop and the original cleanup stay intact. */
-        XIfEvent(sample_display, &reply, is_pending_clipboard_reply,
-                 (XPointer)&native_clipboard_request);
-        REQUIRE(boxrig_x11_terminal_component_dispatch_event(sample_native_component, &reply) ==
-                BOXRIG_UI_COMPONENT_EVENT_UNRELATED);
-        REQUIRE(transport_writes == writes && native_key_calls == keys &&
-                native_mouse_calls == mice && completed_frames == frames);
-        REQUIRE(XGetWindowProperty(sample_display, sample_host_window,
+        REQUIRE(XGetWindowProperty(sample_display, native_clipboard_request.requestor,
                     native_clipboard_request.property, 0, 4, False, AnyPropertyType,
                     &type, &format, &length, &remaining, &data) == Success);
         REQUIRE(type == native_clipboard_request.target && format == 8 &&
                 length == 10 && remaining == 0 && data != NULL);
         REQUIRE(memcmp(data, "late-paste", 10) == 0);
         XFree(data);
+    }
+    errno = saved_errno;
+    result = __real_boxrig_x11_input_adapter_quiesce(adapter);
+    saved_errno = errno;
+    if (observed) {
+        uint64_t writes = transport_writes;
+        uint64_t keys = native_key_calls;
+        uint64_t mice = native_mouse_calls;
+        uint64_t frames = completed_frames;
+
+        REQUIRE(result == 0 &&
+                !sample_x11_window_exists(native_clipboard_request.requestor));
+        REQUIRE(XGetWindowAttributes(sample_display, owner, &attributes) != 0);
+        REQUIRE(attributes.your_event_mask == NoEventMask);
+        native_pending_clipboard_cancelled = true;
+        REQUIRE(boxrig_x11_terminal_component_dispatch_event(sample_native_component, &reply) ==
+                BOXRIG_UI_COMPONENT_EVENT_UNRELATED);
+        REQUIRE(transport_writes == writes && native_key_calls == keys &&
+                native_mouse_calls == mice && completed_frames == frames);
         native_late_clipboard_ignored = true;
     }
     errno = saved_errno;

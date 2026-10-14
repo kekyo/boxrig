@@ -10,6 +10,10 @@
 #include "boxrig/ui/notification.h"
 #include "boxrig/ui/view.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** Owns pending notifications for one model's host-item consumer. */
 typedef struct boxrig_notification_dispatcher boxrig_notification_dispatcher;
 
@@ -97,5 +101,9 @@ int boxrig_notification_dispatcher_complete(
  */
 void boxrig_notification_dispatcher_destroy(
     boxrig_notification_dispatcher *dispatcher);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

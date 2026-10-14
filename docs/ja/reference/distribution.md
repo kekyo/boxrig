@@ -13,6 +13,8 @@ SDKは、ヘッダー、ライブラリ、pkg-config定義、利用例、ライ�
 
 | 構成 | インストール対象・pkg-config名 |
 | --- | --- |
+| Linux共有版の基礎4ライブラリ | `install-shared-base`。`boxrig`、`boxrig-ui`、`boxrig-session`、`boxrig-posix` |
+| Linux共有版のGTK | `install-shared-gtk3`／`install-shared-gtk4`、両版なら`install-shared`。`boxrig-gtk3`／`boxrig-gtk4`と基礎4ライブラリ |
 | GTK 3／4 | `install-gtk3`／`install-gtk4`、`boxrig-gtk3`／`boxrig-gtk4` |
 | native Wayland | `install-wayland`、`boxrig-wayland` |
 | 共通OpenGL renderer | `install-render-ogl`、`boxrig-render-ogl` |
@@ -21,7 +23,8 @@ SDKは、ヘッダー、ライブラリ、pkg-config定義、利用例、ライ�
 | WindowsのOpenGL | `install-win32-opengl-{amd64,i686}`。`boxrig-render-ogl`、`boxrig-win32-ogl` |
 | WindowsのD3D11 | `install-render-d3d11-{amd64,i686}`、`install-win32-d3d11-{amd64,i686}`。`boxrig-render-d3d11`、`boxrig-win32-d3d11` |
 
-標準は静的ライブラリです。
+従来のinstallターゲットは静的ライブラリを提供します。
+Linuxの共有版ターゲットと配布パッケージには、core・UI・session・POSIX・GTK3・GTK4の`.so.0`も含まれます。
 WindowsのOpenGLにはDLLとimport libraryの構成もあります。
 D3D11の現在のインストールは静的ライブラリです。
 対象ABIごとにprefixを分けてください。
@@ -32,7 +35,7 @@ D3D11の現在のインストールは静的ライブラリです。
 モジュールによって含む利用例が異なります。
 
 `.pc`は自身の位置からprefixを求めるため、ディレクトリごと移動できます。
-現状の`Version`は`0.0.0`です。
+Linux共有版の6つの`.pc`は`BOXRIG_VERSION`で版を指定でき、配布パッケージでは配布版と一致します。その他の`.pc`は`0.0.0`です。
 Windows向けのリンクでは`PKG_CONFIG_LIBDIR`を対象SDKだけに設定し、ホストLinuxの`.pc`を混ぜないでください。
 静的リンクの追加依存は`pkg-config --static --libs`で取得します。
 
@@ -44,7 +47,10 @@ utf8proc、libpng、zlibはcoreへ組み込まれるため、coreだけを配布
 
 ## Linuxで配布する
 
-coreのUnicode、PNG、圧縮の依存は`libboxrig.a`に含まれます。
+coreのUnicode、PNG、圧縮の依存は`libboxrig.a`と`libboxrig.so.0`に含まれ、codecのシンボルは共有版から公開されません。
+共有版を使う場合は、必要なboxrigの`.so.0`を同じディレクトリへ配置してください。
+アプリケーションのRUNPATHや`LD_LIBRARY_PATH`などで、そのディレクトリをライブラリ検索先にします。
+公開ヘッダーにない`BOXRIG_PRIVATE_0`の関数はアプリケーションから使わず、SDK内のライブラリは同じ版で揃えます。
 UIを使うアプリケーションには、選んだX11、GTK、Wayland、Pango、Cairo、IBusなどの共有ライブラリが必要です。
 OpenGLには対象環境のEGL／GLとドライバーも必要です。
 
@@ -101,7 +107,7 @@ GCCのランタイムには[GCC Runtime Library Exception](https://www.gnu.org/l
 
 ## 未提供の配布機能
 
-このガイドの配布物は、ソースからMakefileのinstallターゲットで生成するSDKです。
-リリースアーカイブの自動作成と、公開ABIの互換性を管理する仕組みは提供していません。
+SDKはMakefileのinstallターゲットで作成でき、`build_package.sh`でアーカイブにもできます。
+Linux共有版はSONAMEとシンボルのversionを持ちますが、版をまたぐABI互換性の保証や互換性検査の自動化は提供していません。
 
 [ドキュメント目次](../index.md)

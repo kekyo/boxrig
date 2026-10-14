@@ -247,6 +247,16 @@ try {
         )
           nextY++;
         assert(nextY <= y + state.height && nextY >= state.height);
+        // The PTY can acknowledge new cell metrics before GTK presents them.
+        // Require the next complete row to have that height before deriving
+        // the content origin from the image.
+        let thirdY = nextY + 1;
+        while (
+          thirdY < height &&
+          rowColor(bytes, (thirdY * width + x) * 3) !== firstRow + 2
+        )
+          thirdY++;
+        if (thirdY === height || thirdY - nextY !== state.height) return -1;
         y = nextY - state.height;
       }
       let left = 0;

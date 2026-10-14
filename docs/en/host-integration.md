@@ -37,6 +37,33 @@ boxrig_status discard_host_item(boxrig_terminal *terminal)
 Items that need no completion response, such as titles and bells, have request ID 0.
 Title requests include window/icon targets and save/restore flags.
 
+## Handle grid-size requests
+
+`CSI 8 ; rows ; columns t` produces `BOXRIG_HOST_ITEM_GRID_RESIZE`.
+Its `item.grid_resize` contains a `boxrig_grid_size_request` preserving each axis independently.
+This value can be copied directly for later use.
+
+| Parameter | mode | Host interpretation |
+| --- | --- | --- |
+| Omitted | `BOXRIG_GRID_SIZE_KEEP` | Retain the current dimension when handled |
+| Positive integer | `BOXRIG_GRID_SIZE_EXPLICIT` | Row or column count in `cells` |
+| `0` | `BOXRIG_GRID_SIZE_DISPLAY` | Resolve the row or column count from the display dimension |
+
+For example, `CSI 8 ; ; 132 t` retains the row count and requests 132 columns.
+The distinction between omission and `0` follows [XTerm's specification](https://invisible-island.net/xterm/ctlseqs/ctlseqs.html).
+Explicit values range from `1` to `UINT32_MAX`; receiving a request does not resize the core screen or history.
+The application authorizes the request, checks its resource limits, and determines actual dimensions.
+
+With common UI, pass the authorized grid to `boxrig_ui_view_set_preferred_grid()` on the view holding layout authority.
+Use existing layout actions and revisions to adjust native dimensions, then apply the resulting grid to the core and transport.
+To reject a request, simply consume its host item.
+Its request ID is `0`; no completion API call or terminal reply is required.
+The standard X11 and Win32 host adapters and bundled terminal consume remote size requests without applying them.
+Applications with a custom policy should handle this item when processing the host queue.
+
+A full host queue makes `feed()` return `WOULD_BLOCK`, as for other requests.
+Process queued items and feed the remaining bytes starting at `consumed_out`.
+
 ## Return responses and completion
 
 For requests requiring completion, consume the request and then return a result exactly once for the same ID.

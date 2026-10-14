@@ -282,7 +282,7 @@ describe('GTK 3 terminal sample', () => {
     const environment = await app.environment();
 
     expect(terminalInfo.roleName).toBe('terminal');
-    expect(terminalInfo.interfaces).not.toContain('Text');
+    expect(terminalInfo.interfaces).toContain('Text');
     if (window === undefined || window.kind !== 'window') {
       throw new Error('GTK 3 sample did not expose a top-level window.');
     }

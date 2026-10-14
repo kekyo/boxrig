@@ -8,6 +8,10 @@
 
 #include "boxrig/render/runtime.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** Borrowed WGL context/thread binding, without window or context ownership. */
 typedef struct boxrig_wgl_binding boxrig_wgl_binding;
 
@@ -34,5 +38,9 @@ boxrig_gl_status boxrig_wgl_binding_create(
  * @param binding Binding to release; NULL is accepted.
  */
 void boxrig_wgl_binding_destroy(boxrig_wgl_binding *binding);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

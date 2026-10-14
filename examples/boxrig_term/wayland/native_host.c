@@ -1445,6 +1445,7 @@ static boxrig_input_key_route route_key(
     if (application == NULL || event == NULL) {
         return BOXRIG_INPUT_KEY_ROUTE_ERROR;
     }
+    boxrig_term_posix_runtime_prepare_key(application->runtime, event);
     boxrig_input_key_route scrollbar_route = boxrig_term_scrollbar_demo_route_key(
         &application->scrollbar_demo, event);
     if (scrollbar_route != BOXRIG_INPUT_KEY_ROUTE_TERMINAL) return scrollbar_route;
@@ -2239,6 +2240,8 @@ int boxrig_term_wayland_native_host_process_items(
                 return -1;
             }
             continue;
+        } else if (item.type == BOXRIG_HOST_ITEM_GRID_RESIZE) {
+            /* The sample keeps remote sizing separate from user layout. */
         } else if (item.type != BOXRIG_HOST_ITEM_BELL &&
                    item.type != BOXRIG_HOST_ITEM_WORKING_DIRECTORY) {
             return -1;

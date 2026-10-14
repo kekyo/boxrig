@@ -26,6 +26,17 @@
 
 #define BOXRIG_WAYLAND_SEAT_VERSION 9U
 
+static bool input_enabled(const boxrig_wayland_terminal_component *component)
+{
+    return component->input_control.state.phase == BOXRIG_UI_INPUT_ENABLED;
+}
+
+static bool accepts_item(const boxrig_wayland_terminal_component *component,
+    const boxrig_wayland_input_item *item)
+{
+    return boxrig_ui_input_control_accepts(&component->input_control, item->input_generation);
+}
+
 static uint32_t supported_version(uint32_t advertised, uint32_t supported)
 {
     return advertised < supported ? advertised : supported;
@@ -87,7 +98,7 @@ void boxrig_wayland_input_free_item(boxrig_wayland_input_item *item)
     memset(item, 0, sizeof(*item));
 }
 
-bool boxrig_wayland_input_enqueue(
+static bool enqueue_input(
     boxrig_wayland_terminal_component *component,
     boxrig_wayland_input_item *item)
 {
@@ -97,6 +108,11 @@ bool boxrig_wayland_input_enqueue(
         component->failure_reason != BOXRIG_WAYLAND_FAILURE_NONE) {
         boxrig_wayland_input_free_item(item);
         return false;
+    }
+    if (!input_enabled(component) && item->type != BOXRIG_WAYLAND_INPUT_KEY &&
+        item->type != BOXRIG_WAYLAND_INPUT_MOUSE && item->type != BOXRIG_WAYLAND_INPUT_FOCUS) {
+        boxrig_wayland_input_free_item(item);
+        return true;
     }
     if (component->input_queue_depth ==
         component->config.maximum_input_events) {
@@ -118,6 +134,7 @@ bool boxrig_wayland_input_enqueue(
     }
     index = (component->input_queue_head + component->input_queue_depth) %
             component->config.maximum_input_events;
+    item->input_generation = component->input_control.state.generation;
     component->input_items[index] = *item;
     memset(item, 0, sizeof(*item));
     component->input_queue_depth++;
@@ -125,6 +142,17 @@ bool boxrig_wayland_input_enqueue(
         component->input_queue_high_water = component->input_queue_depth;
     }
     return true;
+}
+
+bool boxrig_wayland_input_enqueue(boxrig_wayland_terminal_component *component,
+    boxrig_wayland_input_item *item)
+{
+    if (component == NULL) return enqueue_input(component, item);
+    bool processing = component->processing_input;
+    component->processing_input = true;
+    bool accepted = enqueue_input(component, item);
+    component->processing_input = processing;
+    return accepted;
 }
 
 static bool queue_focus(
@@ -548,6 +576,7 @@ static void clear_seat_keys(boxrig_wayland_seat *seat)
     for (key = 0; key < 256; key++) {
         clear_key_state(seat, key);
     }
+    memset(seat->native_pressed, 0, sizeof(seat->native_pressed));
     if (seat->compose_state != NULL) {
         xkb_compose_state_reset(seat->compose_state);
     }
@@ -790,11 +819,17 @@ static void keyboard_key(
     item.type = BOXRIG_WAYLAND_INPUT_KEY;
     item.seat = seat;
     item.native_code = native_code;
+    item.inhibited_key = !input_enabled(component) || seat->inhibited_key[native_code];
+    seat->native_pressed[native_code] = state == WL_KEYBOARD_KEY_STATE_PRESSED;
+    if (state == WL_KEYBOARD_KEY_STATE_PRESSED && !input_enabled(component))
+        seat->inhibited_key[native_code] = true;
+    if (state == WL_KEYBOARD_KEY_STATE_RELEASED) seat->inhibited_key[native_code] = false;
     symbol = xkb_state_key_get_one_sym(seat->xkb_state, keycode);
     item.keysym = symbol;
     item.ime_modifiers = boxrig_wayland_ibus_modifiers(seat, symbol, state == WL_KEYBOARD_KEY_STATE_RELEASED);
     item.ime_generation = seat->ime_generation;
-    item.compose_pending = boxrig_wayland_ibus_selected(seat->context) && state == WL_KEYBOARD_KEY_STATE_PRESSED;
+    item.compose_pending = !item.inhibited_key && boxrig_wayland_ibus_selected(seat->context) &&
+        state == WL_KEYBOARD_KEY_STATE_PRESSED;
     item.value.key.action = state == WL_KEYBOARD_KEY_STATE_PRESSED
                                 ? BOXRIG_KEY_PRESS
                                 : BOXRIG_KEY_RELEASE;
@@ -844,7 +879,7 @@ static void keyboard_key(
                 seat,
                 keycode,
                 symbol,
-                !boxrig_wayland_ibus_selected(seat->context),
+                !item.inhibited_key && !boxrig_wayland_ibus_selected(seat->context),
                 &item.text,
                 &item.value.key.text_length)) {
             component->input_error_count++;
@@ -1775,7 +1810,7 @@ static void commit_text_input_state(
     int32_t x, y, width, height;
     bool rectangle_changed = false;
 
-    if (!seat->text_enabled || seat->text_input == NULL || component == NULL) {
+    if (!seat->text_enabled || seat->text_input == NULL || component == NULL || !input_enabled(component)) {
         return;
     }
     boxrig_ui_editable_document *document = boxrig_ui_view_editable_document(component->view);
@@ -1898,7 +1933,7 @@ static void text_input_enter(
     seat->text_component = component;
     seat->text_focus_surface = surface;
     seat->text_component_generation = component->input_generation;
-    seat->text_enabled = !boxrig_wayland_ibus_selected(seat->context);
+    seat->text_enabled = input_enabled(component) && !boxrig_wayland_ibus_selected(seat->context);
     seat->text_cursor_valid = false;
     commit_text_input_state(seat, true, false);
 }
@@ -2593,6 +2628,7 @@ boxrig_ui_status boxrig_wayland_input_initialize_component(
 {
     boxrig_composition_limits limits = boxrig_composition_limits_default();
 
+    boxrig_ui_input_control_initialize(&component->input_control);
     component->input_items = calloc(
         component->config.maximum_input_events,
         sizeof(*component->input_items));
@@ -2608,6 +2644,94 @@ boxrig_ui_status boxrig_wayland_input_initialize_component(
         component->input_items = NULL;
         return BOXRIG_UI_OUT_OF_MEMORY;
     }
+    return BOXRIG_UI_OK;
+}
+
+boxrig_ui_status boxrig_wayland_terminal_component_set_input_enabled(
+    boxrig_wayland_terminal_component *component, bool enabled)
+{
+    if (component == NULL || !component->running) return BOXRIG_UI_INVALID_ARGUMENT;
+    if (component->processing_input) return BOXRIG_UI_BUSY;
+    if (enabled && component->input_control.state.phase == BOXRIG_UI_INPUT_STOPPING) return BOXRIG_UI_BUSY;
+    bool was_enabled = input_enabled(component);
+    bool started = boxrig_wayland_clipboard_paste_started(component);
+    boxrig_ui_status status = boxrig_ui_input_control_request(&component->input_control, enabled, started);
+    if (status != BOXRIG_UI_OK && status != BOXRIG_UI_BUSY) return status;
+    if (was_enabled != input_enabled(component)) {
+        component->processing_input = true;
+        if (!enabled) {
+            boxrig_wayland_ibus_forget_component(component);
+            component->ime_waiting = false;
+            boxrig_wayland_clipboard_cancel_input(component);
+            size_t retained = 0;
+            for (size_t index = 0; index < component->input_queue_depth; index++) {
+                size_t source = (component->input_queue_head + index) % component->config.maximum_input_events;
+                boxrig_wayland_input_item *item = &component->input_items[source];
+                if (item->type == BOXRIG_WAYLAND_INPUT_MOUSE || item->type == BOXRIG_WAYLAND_INPUT_FOCUS) {
+                    size_t destination = (component->input_queue_head + retained++) % component->config.maximum_input_events;
+                    if (source != destination) {
+                        component->input_items[destination] = *item;
+                        memset(item, 0, sizeof(*item));
+                    }
+                } else boxrig_wayland_input_free_item(item);
+            }
+            component->input_queue_depth = retained;
+            (void)boxrig_composition_cancel_pending_commit(component->composition);
+            boxrig_composition_event cancel = {.type = BOXRIG_COMPOSITION_CANCEL};
+            (void)boxrig_composition_apply_event(component->composition, &cancel);
+            boxrig_ui_view_clear_candidates(component->view);
+        }
+        boxrig_ui_status document = boxrig_ui_editable_document_invalidate_input(
+            boxrig_ui_view_editable_document(component->view));
+        if (document != BOXRIG_UI_OK) status = document;
+        for (boxrig_wayland_seat *seat = component->context->seats; seat != NULL; seat = seat->next) {
+            if (seat->pointer_component == component) {
+                /* A frame or fractional detent may span the host's request.
+                 * Do not restamp that older motion with the next generation. */
+                clear_pointer_axis(seat);
+                memset(seat->axis_value120_remainder, 0, sizeof(seat->axis_value120_remainder));
+            }
+            if (seat->keyboard_component == component) {
+                if (!enabled) {
+                    for (size_t key = 0; key < 256; key++) {
+                        if (seat->native_pressed[key]) seat->inhibited_key[key] = true;
+                        else if (seat->keys[key].component == component) clear_key_state(seat, (uint32_t)key);
+                    }
+                    if (seat->compose_state != NULL) xkb_compose_state_reset(seat->compose_state);
+                } else boxrig_wayland_ibus_focus(seat, component, false);
+            }
+            if (seat->text_component != component || seat->text_input == NULL) continue;
+            if (seat->text_enabled) {
+                zwp_text_input_v3_disable(seat->text_input);
+                zwp_text_input_v3_commit(seat->text_input);
+                seat->text_commit_serial++;
+                component->context->flush_required = true;
+            }
+            seat->text_enabled = enabled && !boxrig_wayland_ibus_selected(component->context);
+            seat->text_cursor_valid = false;
+            seat->text_epoch++;
+            reset_text_batch(seat);
+            commit_text_input_state(seat, true, false);
+        }
+        size_t rows, columns;
+        boxrig_terminal_size(component->terminal, &rows, &columns);
+        boxrig_ui_dirty dirty = {0, rows, 0, columns};
+        if (boxrig_ui_view_set_composition_active(component->view, false) != BOXRIG_UI_OK ||
+            boxrig_ui_view_invalidate(component->view, BOXRIG_UI_DIRTY_OVERLAY, dirty) != BOXRIG_UI_OK)
+            status = BOXRIG_UI_UNAVAILABLE;
+        component->processing_input = false;
+    }
+    if (status != BOXRIG_UI_OK && status != BOXRIG_UI_BUSY) return status;
+    status = boxrig_ui_input_control_service(&component->input_control, component->terminal);
+    component->input_blocked = component->input_control.state.phase == BOXRIG_UI_INPUT_STOPPING;
+    return status;
+}
+
+boxrig_ui_status boxrig_wayland_terminal_component_get_input_state(
+    const boxrig_wayland_terminal_component *component, boxrig_ui_input_state *state_out)
+{
+    if (component == NULL || !component->running || state_out == NULL) return BOXRIG_UI_INVALID_ARGUMENT;
+    *state_out = component->input_control.state;
     return BOXRIG_UI_OK;
 }
 
@@ -2776,6 +2900,7 @@ static boxrig_ui_status process_key_item(
     bool *blocked_out)
 {
     if (item->ime_forwarded) {
+        if (!accepts_item(component, item)) return BOXRIG_UI_OK;
         boxrig_status forwarded = boxrig_terminal_send_key(component->terminal, &item->value.key);
         *blocked_out = forwarded == BOXRIG_STATUS_WOULD_BLOCK;
         return forwarded == BOXRIG_STATUS_OK || *blocked_out ? BOXRIG_UI_OK : BOXRIG_UI_UNAVAILABLE;
@@ -2825,14 +2950,15 @@ static boxrig_ui_status process_key_item(
         }
     }
     bool handled = false;
-    if (!item->application_route) {
+    bool inhibited = item->inhibited_key || !accepts_item(component, item);
+    if (!item->application_route && !inhibited) {
         boxrig_ui_status filtered = boxrig_wayland_ibus_filter_key(component, item, blocked_out, &handled);
         if (filtered != BOXRIG_UI_OK || *blocked_out) return filtered;
         if (item->value.key.action == BOXRIG_KEY_PRESS) pressed->ime_consumed = handled;
         if (item->value.key.action == BOXRIG_KEY_RELEASE && pressed->ime_consumed) handled = true;
         if (!handled && item->compose_pending && !apply_deferred_compose(item)) return BOXRIG_UI_OUT_OF_MEMORY;
     }
-    if (!item->application_route && !handled) {
+    if (!item->application_route && !handled && !inhibited) {
         status = boxrig_terminal_send_key(component->terminal, &item->value.key);
         if (status == BOXRIG_STATUS_WOULD_BLOCK) {
             *blocked_out = true;
@@ -2862,7 +2988,8 @@ static bool queue_due_repeat(boxrig_wayland_context *context)
         if (!seat->repeat_active ||
             seat->repeat_deadline > context->monotonic_milliseconds ||
             seat->repeat_component == NULL ||
-            seat->repeat_component->input_blocked || seat->repeat_component->ime_waiting ||
+            (input_enabled(seat->repeat_component) && seat->repeat_component->input_blocked) ||
+            seat->repeat_component->ime_waiting ||
             seat->repeat_component->failure_reason !=
                 BOXRIG_WAYLAND_FAILURE_NONE) {
             continue;
@@ -2877,6 +3004,7 @@ static bool queue_due_repeat(boxrig_wayland_context *context)
         item.type = BOXRIG_WAYLAND_INPUT_KEY;
         item.seat = seat;
         item.native_code = seat->repeat_key;
+        item.inhibited_key = seat->inhibited_key[seat->repeat_key];
         item.keysym = pressed->keysym;
         item.ime_modifiers = pressed->ime_modifiers;
         item.ime_generation = seat->ime_generation;
@@ -2915,7 +3043,7 @@ static boxrig_ui_status process_focus_item(
     boxrig_wayland_input_item *item,
     bool *blocked_out)
 {
-    boxrig_status status = boxrig_terminal_send_focus(
+    boxrig_status status = !accepts_item(component, item) ? BOXRIG_STATUS_OK : boxrig_terminal_send_focus(
         component->terminal,
         &item->value.focus);
 
@@ -3036,7 +3164,7 @@ static boxrig_ui_status process_mouse_item(
             seat->pointer_application_buttons |= mask;
         }
     }
-    if (!item->application_route) {
+    if (!item->application_route && accepts_item(component, item)) {
         status = boxrig_terminal_send_mouse(
             component->terminal,
             &item->value.mouse);
@@ -3175,7 +3303,7 @@ static boxrig_ui_status process_composition_item(
     return BOXRIG_UI_OK;
 }
 
-boxrig_ui_status boxrig_wayland_input_apply_item(
+static boxrig_ui_status apply_input_item(
     boxrig_wayland_terminal_component *component,
     boxrig_wayland_input_item *item,
     bool *blocked_out,
@@ -3183,6 +3311,8 @@ boxrig_ui_status boxrig_wayland_input_apply_item(
 {
     *blocked_out = false;
     *consumed_out = true;
+    if (item->type != BOXRIG_WAYLAND_INPUT_KEY && item->type != BOXRIG_WAYLAND_INPUT_FOCUS &&
+        item->type != BOXRIG_WAYLAND_INPUT_MOUSE && !accepts_item(component, item)) return BOXRIG_UI_OK;
     if (item->type == BOXRIG_WAYLAND_INPUT_IME_REPLY)
         return boxrig_wayland_ibus_apply_reply(component, item, blocked_out, consumed_out);
     if (item->type == BOXRIG_WAYLAND_INPUT_DOCUMENT_BATCH)
@@ -3224,6 +3354,16 @@ boxrig_ui_status boxrig_wayland_input_apply_item(
     return BOXRIG_UI_OK;
 }
 
+boxrig_ui_status boxrig_wayland_input_apply_item(boxrig_wayland_terminal_component *component,
+    boxrig_wayland_input_item *item, bool *blocked_out, bool *consumed_out)
+{
+    bool processing = component->processing_input;
+    component->processing_input = true;
+    boxrig_ui_status result = apply_input_item(component, item, blocked_out, consumed_out);
+    component->processing_input = processing;
+    return result;
+}
+
 size_t boxrig_wayland_input_dispatch(
     boxrig_wayland_context *context,
     size_t maximum_items,
@@ -3242,8 +3382,16 @@ size_t boxrig_wayland_input_dispatch(
         for (component = context->components;
              component != NULL;
              component = component->next) {
+            boxrig_ui_status stop = boxrig_ui_input_control_service(&component->input_control, component->terminal);
+            if (stop != BOXRIG_UI_OK && stop != BOXRIG_UI_BUSY) {
+                component->failure_reason = BOXRIG_WAYLAND_FAILURE_INPUT;
+                continue;
+            }
+            bool processing = component->processing_input;
+            component->processing_input = true;
             boxrig_composition_status retry_status =
                 boxrig_composition_retry_commit(component->composition);
+            component->processing_input = processing;
 
             if (retry_status == BOXRIG_COMPOSITION_WOULD_BLOCK) {
                 component->input_blocked = true;
@@ -3256,7 +3404,7 @@ size_t boxrig_wayland_input_dispatch(
                         : BOXRIG_WAYLAND_FAILURE_INPUT;
                 continue;
             }
-            component->input_blocked = false;
+            component->input_blocked = component->input_control.state.phase == BOXRIG_UI_INPUT_STOPPING;
             while (processed < maximum_items &&
                    component->input_queue_depth != 0 &&
                    component->failure_reason ==
@@ -3278,7 +3426,8 @@ size_t boxrig_wayland_input_dispatch(
                             : BOXRIG_WAYLAND_FAILURE_INPUT;
                     break;
                 }
-                component->input_blocked = blocked && !component->ime_waiting;
+                component->input_blocked = component->input_control.state.phase == BOXRIG_UI_INPUT_STOPPING ||
+                    (blocked && !component->ime_waiting);
                 if (consumed) {
                     boxrig_wayland_input_free_item(item);
                     component->input_queue_head =
@@ -3292,7 +3441,7 @@ size_t boxrig_wayland_input_dispatch(
                 }
             }
             if (component->input_queue_depth != 0 &&
-                !component->input_blocked && !component->ime_waiting &&
+                (!input_enabled(component) || !component->input_blocked) && !component->ime_waiting &&
                 component->failure_reason == BOXRIG_WAYLAND_FAILURE_NONE) {
                 ready = true;
             }
@@ -3306,7 +3455,8 @@ size_t boxrig_wayland_input_dispatch(
 
         for (seat = context->seats; seat != NULL; seat = seat->next) {
             if (seat->repeat_active && seat->repeat_component != NULL &&
-                !seat->repeat_component->input_blocked && !seat->repeat_component->ime_waiting &&
+                (!input_enabled(seat->repeat_component) || !seat->repeat_component->input_blocked) &&
+                !seat->repeat_component->ime_waiting &&
                 seat->repeat_deadline <= context->monotonic_milliseconds) {
                 ready = true;
                 break;
@@ -3329,7 +3479,8 @@ bool boxrig_wayland_input_repeat_deadline(
 
     for (seat = context->seats; seat != NULL; seat = seat->next) {
         if (seat->repeat_active && seat->repeat_component != NULL &&
-            !seat->repeat_component->input_blocked && !seat->repeat_component->ime_waiting &&
+            (!input_enabled(seat->repeat_component) || !seat->repeat_component->input_blocked) &&
+            !seat->repeat_component->ime_waiting &&
             seat->repeat_deadline < deadline) {
             deadline = seat->repeat_deadline;
             found = true;
@@ -3372,7 +3523,7 @@ void boxrig_wayland_input_use_ibus(boxrig_wayland_context *context, bool enabled
             reset_text_batch(seat);
             queue_composition_cancel(seat, seat->text_component);
             context->flush_required = true;
-        } else if (!enabled && !seat->text_enabled) {
+        } else if (!enabled && !seat->text_enabled && input_enabled(seat->text_component)) {
             seat->text_enabled = true;
             commit_text_input_state(seat, true, false);
         }

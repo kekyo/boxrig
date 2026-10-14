@@ -46,15 +46,17 @@ git -C "$source_root" add .
 git -C "$source_root" commit --quiet -m 'Pinned protocol definitions'
 pinned_revision=$(git -C "$source_root" rev-parse HEAD)
 
-mkdir -p "$project_root/packaging/licenses"
-cp Makefile "$project_root/Makefile"
-cp packaging/licenses/licenses.mk "$project_root/packaging/licenses/licenses.mk"
+for path in Makefile tools/codegen/rules.mk packaging/licenses/licenses.mk \
+    tests/headers/rules.mk packaging/linux/rules.mk; do
+    mkdir -p "$project_root/$(dirname "$path")"
+    cp "$path" "$project_root/$path"
+done
 git init --quiet "$project_root"
 git -C "$project_root" config user.name 'Boxrig test'
 git -C "$project_root" config user.email 'test@boxrig.invalid'
 git -C "$project_root" config commit.gpgsign false
 git -C "$project_root" submodule add --quiet "file://$source_root" deps/wayland-protocols
-git -C "$project_root" add Makefile packaging/licenses/licenses.mk
+git -C "$project_root" add Makefile tools tests packaging
 git -C "$project_root" commit --quiet -m 'Pin protocol submodule'
 
 # Upstream can advance without changing the definitions pinned by the project.

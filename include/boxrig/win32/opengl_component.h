@@ -8,6 +8,10 @@
 #include "component.h"
 #include "wgl.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** Bounded diagnostics for the last OpenGL component operation. */
 typedef struct boxrig_win32_opengl_diagnostics {
     /** Most recent successful context probe, retained after recreation failure. */
@@ -82,4 +86,8 @@ boxrig_ui_status boxrig_win32_opengl_terminal_component_create_on_target(
     boxrig_ui_model *model,
     const boxrig_win32_terminal_component_config *config,
     boxrig_win32_terminal_component **component_out);
+#ifdef __cplusplus
+}
+#endif
+
 #endif

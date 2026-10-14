@@ -1,0 +1,12 @@
+prefix={{prefix}}
+libdir={{libdir}}
+includedir={{includedir}}
+
+Name: boxrig-gtk4
+Description: GTK 4 retained terminal widget for boxrig
+Version: {{version}}
+Requires: boxrig-ui, gtk4 >= 4.14
+Requires.private: wayland-client >= 1.22, ibus-1.0 >= 1.5.29, pango >= 1.50, pangocairo, pangoft2, cairo >= 1.18, fontconfig{{epoxy}}
+Libs: -L${libdir} -lboxrig-gtk4
+Libs.private: -lm -lpthread
+Cflags: -I${includedir}

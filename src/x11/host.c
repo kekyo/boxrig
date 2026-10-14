@@ -737,6 +737,8 @@ int boxrig_x11_host_adapter_process_items(boxrig_x11_host_adapter *adapter)
             }
         } else if (item.type == BOXRIG_HOST_ITEM_WORKING_DIRECTORY) {
             /* The untrusted URI remains metadata and causes no host action. */
+        } else if (item.type == BOXRIG_HOST_ITEM_GRID_RESIZE) {
+            /* This adapter does not authorize remote window resizing. */
         } else if (item.type == BOXRIG_HOST_ITEM_CLIPBOARD_WRITE) {
             boxrig_host_request_result result = write_clipboard(adapter, &item);
 

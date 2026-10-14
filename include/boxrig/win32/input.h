@@ -19,6 +19,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** Opaque Win32-to-logical-input adapter used by the Win32 sample. */
 typedef struct boxrig_win32_input_adapter boxrig_win32_input_adapter;
 
@@ -70,6 +74,45 @@ int boxrig_win32_input_adapter_create(
 int boxrig_win32_input_adapter_set_editable_document(
     boxrig_win32_input_adapter *adapter,
     boxrig_ui_editable_document *document);
+
+/**
+ * Requests input inhibition or resumption on the owning event thread.
+ * @param adapter Frontend whose terminal input is controlled.
+ * @param enabled True to resume, false to cancel unsubmitted input.
+ * @return OK when complete, BUSY while a paste terminator awaits capacity or
+ * during an input callback, INVALID_ARGUMENT, LIMIT_EXCEEDED, or UNAVAILABLE.
+ * @remarks A disable request accepted as STOPPING advances the generation and
+ * immediately rejects new terminal input. retry() completes the required paste
+ * terminator. DISABLED means it entered core, not that transport output drained.
+ * Reentrant BUSY preserves the old state. Local routing, selection, copy, and
+ * terminal protocol replies remain available. Held keys stay inhibited through
+ * release. The borrowed IMM context is detached until resume or destruction;
+ * the host must keep it alive and leave its association unchanged meanwhile.
+ * Caller-retained native messages and direct composition callbacks must be
+ * discarded when their saved generation differs from get_input_state().
+ */
+boxrig_ui_status boxrig_win32_input_adapter_set_input_enabled(
+    boxrig_win32_input_adapter *adapter, bool enabled);
+
+/**
+ * Reads the input phase and generation without advancing pending work.
+ * @param adapter Adapter on its owning event thread.
+ * @param state_out Required state output.
+ * @return OK or INVALID_ARGUMENT.
+ */
+boxrig_ui_status boxrig_win32_input_adapter_get_input_state(
+    const boxrig_win32_input_adapter *adapter, boxrig_ui_input_state *state_out);
+
+/**
+ * Exchanges input settings when no native key or IME transaction is pending.
+ * @param adapter Frontend to configure on its owning event thread.
+ * @param config Complete replacement, copied using the core validation rules.
+ * @return OK, BUSY while a key is held or input/IME/clipboard/paste is pending,
+ *         INVALID_ARGUMENT, LIMIT_EXCEEDED, or OUT_OF_MEMORY.
+ * @remarks BUSY and other failures preserve all old settings and input state.
+ */
+boxrig_ui_status boxrig_win32_input_adapter_set_input_config(
+    boxrig_win32_input_adapter *adapter, const boxrig_input_config *config);
 
 /**
  * Installs an application key router used before terminal input encoding.
@@ -337,5 +380,9 @@ bool boxrig_win32_input_adapter_blocked(
  * @param adapter Adapter to destroy, or NULL.
  */
 void boxrig_win32_input_adapter_destroy(boxrig_win32_input_adapter *adapter);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

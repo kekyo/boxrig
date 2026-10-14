@@ -81,6 +81,10 @@ static size_t clipboard_empty_calls;
 static size_t clipboard_set_calls;
 static size_t clipboard_global_free_calls;
 static bool key_translation_overridden;
+static boxrig_win32_input_adapter *clipboard_reentrant_adapter;
+static boxrig_ui_status clipboard_reentrant_status;
+static boxrig_win32_input_adapter *imm_reentrant_adapter;
+static boxrig_ui_status imm_reentrant_status;
 static UINT overridden_virtual_key;
 static WCHAR overridden_unshifted_character;
 static WCHAR overridden_shifted_character;
@@ -144,6 +148,8 @@ WINBOOL WINAPI boxrig_test_OpenClipboard(HWND window)
     } procedure;
 
     clipboard_open_calls++;
+    if (clipboard_reentrant_adapter != NULL)
+        clipboard_reentrant_status = boxrig_win32_input_adapter_set_input_enabled(clipboard_reentrant_adapter, false);
     if (clipboard_open_rejected) {
         return FALSE;
     }
@@ -434,6 +440,11 @@ WINBOOL WINAPI boxrig_test_ImmNotifyIME(
     (void)index;
     (void)value;
     mock_notify_ime_calls++;
+    if (imm_reentrant_adapter != NULL) {
+        boxrig_win32_input_adapter *adapter = imm_reentrant_adapter;
+        imm_reentrant_adapter = NULL;
+        imm_reentrant_status = boxrig_win32_input_adapter_set_input_enabled(adapter, false);
+    }
     return TRUE;
 }
 
@@ -551,6 +562,8 @@ static bool test_application_key_routing_captures_the_key_series(void)
               adapter,
               route_control_shortcut,
               &trace) == 0);
+    boxrig_input_config replacement = boxrig_input_config_default();
+    CHECK(boxrig_win32_input_adapter_set_input_config(adapter, &replacement) == BOXRIG_UI_OK);
     CHECK(boxrig_terminal_feed(
               terminal,
               mode,
@@ -562,6 +575,7 @@ static bool test_application_key_routing_captures_the_key_series(void)
               VK_CONTROL,
               key_parameter(VK_CONTROL, false, false),
               &message_result) == 1);
+    CHECK(boxrig_win32_input_adapter_set_input_config(adapter, &replacement) == BOXRIG_UI_BUSY);
     output_length = boxrig_terminal_output_peek(terminal, &output);
     CHECK(boxrig_terminal_output_consume(terminal, output_length) ==
           BOXRIG_STATUS_OK);
@@ -970,6 +984,7 @@ static bool test_application_mouse_routing_captures_the_drag_series(void)
               route_left_drag,
               &trace) == 0);
     CHECK(boxrig_win32_input_adapter_set_viewport_origin(adapter, 7, 11) == 0);
+    CHECK(boxrig_win32_input_adapter_set_input_enabled(adapter, false) == BOXRIG_UI_OK);
     CHECK(boxrig_terminal_feed(
               terminal,
               modes,
@@ -1034,6 +1049,7 @@ static bool test_application_mouse_routing_captures_the_drag_series(void)
     CHECK(trace.events[3].action == BOXRIG_MOUSE_PRESS);
     CHECK(trace.events[3].click_count == 2);
 
+    CHECK(boxrig_win32_input_adapter_set_input_enabled(adapter, true) == BOXRIG_UI_OK);
     CHECK(boxrig_win32_input_adapter_process_message(
               adapter,
               WM_RBUTTONDOWN,
@@ -1541,10 +1557,14 @@ static bool test_unicode_clipboard_paste(void)
     action.kind = BOXRIG_UI_VIEW_ACTION_PASTE;
     action.clipboard_target = BOXRIG_UI_CLIPBOARD_TARGET_CLIPBOARD;
     CHECK(boxrig_ui_view_action_supported(&capabilities, &action));
+    clipboard_reentrant_adapter = adapter;
+    clipboard_reentrant_status = BOXRIG_UI_OK;
     CHECK(boxrig_win32_input_adapter_apply_view_action(
               adapter,
               NULL,
               &action) == BOXRIG_UI_OK);
+    clipboard_reentrant_adapter = NULL;
+    CHECK(clipboard_reentrant_status == BOXRIG_UI_BUSY);
     action.clipboard_target =
         BOXRIG_UI_CLIPBOARD_TARGET_PRIMARY_SELECTION;
     CHECK(!boxrig_ui_view_action_supported(&capabilities, &action));
@@ -1686,6 +1706,7 @@ static bool test_clipboard_copy_failure_boundaries(void)
               1024,
               config.output_capacity,
               &adapter) == 0);
+    CHECK(boxrig_win32_input_adapter_set_input_enabled(adapter, false) == BOXRIG_UI_OK);
 
     allocation = GlobalAlloc(GMEM_MOVEABLE, sizeof(original));
     CHECK(allocation != NULL);
@@ -3537,6 +3558,11 @@ static bool test_application_reconversion_routes_one_replacement(void)
     CHECK(boxrig_win32_input_adapter_set_editable_document(
               adapter,
               document) == 0);
+    CHECK(boxrig_win32_input_adapter_set_input_enabled(adapter, false) == BOXRIG_UI_OK);
+    CHECK(boxrig_win32_input_adapter_set_input_enabled(adapter, true) == BOXRIG_UI_OK);
+    CHECK(boxrig_win32_input_adapter_process_message(adapter, WM_IME_REQUEST,
+        IMR_DOCUMENTFEED, 0, &message_result) == 1);
+    CHECK(message_result > 0);
 
     mock_imm_active = true;
     mock_reconversion_supported = true;
@@ -3774,9 +3800,12 @@ static bool test_reconversion_cancellation_discards_late_results(void)
     process_key_message.message = WM_KEYDOWN;
     process_key_message.wParam = VK_PROCESSKEY;
     mock_imm_virtual_key = VK_ESCAPE;
+    imm_reentrant_adapter = adapter;
+    imm_reentrant_status = BOXRIG_UI_OK;
     CHECK(boxrig_win32_input_adapter_pretranslate_message(
               adapter,
               &process_key_message) == 1);
+    CHECK(imm_reentrant_status == BOXRIG_UI_BUSY);
     CHECK(boxrig_ui_editable_document_reconversion_state(document) ==
           BOXRIG_UI_EDITABLE_RECONVERSION_NONE);
     CHECK(!boxrig_ui_editable_document_take_replacement(
@@ -4132,10 +4161,10 @@ static bool test_terminal_io_configuration(void)
         const boxrig_key_mapping mapping = {BOXRIG_KEY_UP, 0, mapped, sizeof(mapped)};
         boxrig_terminal_config config = boxrig_terminal_config_default();
         config.encoding = (boxrig_encoding)encoding;
-        config.enter_newline = BOXRIG_NEWLINE_LF;
+        config.input.enter_newline = BOXRIG_NEWLINE_LF;
         config.paste_newline = BOXRIG_NEWLINE_CRLF;
-        config.key_mappings = &mapping;
-        config.key_mapping_count = 1;
+        config.input.key_mappings = &mapping;
+        config.input.key_mapping_count = 1;
         boxrig_terminal *terminal = NULL;
         CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
 
@@ -4170,6 +4199,129 @@ static bool test_terminal_io_configuration(void)
     return true;
 }
 
+static bool test_input_inhibition(void)
+{
+    HWND window = CreateWindowExW(0, L"STATIC", L"boxrig input inhibition",
+        WS_OVERLAPPED, 0, 0, 80, 60, NULL, NULL, GetModuleHandleW(NULL), NULL);
+    CHECK(window != NULL);
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    config.output_capacity = 6;
+    boxrig_terminal *terminal = NULL;
+    boxrig_win32_input_adapter *adapter = NULL;
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_win32_input_adapter_create(window, terminal, 10, 20, 1024, 1, &adapter) == 0);
+    boxrig_ui_input_state state;
+    CHECK(boxrig_win32_input_adapter_get_input_state(adapter, &state) == BOXRIG_UI_OK);
+    CHECK(state.phase == BOXRIG_UI_INPUT_ENABLED && state.generation != 0);
+    uint64_t generation = state.generation;
+    const uint8_t *output;
+    LRESULT result;
+
+    CHECK(boxrig_terminal_send_text(terminal, "filled", 6) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_win32_input_adapter_queue_paste(adapter, (const uint8_t *)"old", 3) == 0);
+    CHECK(boxrig_win32_input_adapter_composition_start(adapter) == 0);
+    CHECK(boxrig_win32_input_adapter_composition_commit_utf16(adapter, L"old", 3) == 0);
+    CHECK(boxrig_win32_input_adapter_set_input_enabled(adapter, false) == BOXRIG_UI_OK);
+    CHECK(boxrig_win32_input_adapter_get_input_state(adapter, &state) == BOXRIG_UI_OK);
+    CHECK(state.phase == BOXRIG_UI_INPUT_DISABLED && state.generation > generation);
+    CHECK(boxrig_win32_input_adapter_queue_paste(adapter, (const uint8_t *)"new", 3) == -1);
+    CHECK(boxrig_win32_input_adapter_view_action_capabilities(adapter).paste_targets == 0);
+    CHECK(boxrig_win32_input_adapter_view_action_capabilities(adapter).copy_targets != 0);
+    CHECK(boxrig_win32_input_adapter_composition_start(adapter) == 0);
+    CHECK(boxrig_win32_input_adapter_composition_commit_utf16(adapter, L"late", 4) == 0);
+    boxrig_composition_view composition;
+    CHECK(boxrig_composition_get_view(boxrig_win32_input_adapter_composition(adapter), &composition) == BOXRIG_COMPOSITION_OK);
+    CHECK(!composition.active && !composition.commit_pending);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 6 && memcmp(output, "filled", 6) == 0);
+    CHECK(boxrig_terminal_output_consume(terminal, 6) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_win32_input_adapter_retry(adapter) == 0);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 0);
+    CHECK(boxrig_win32_input_adapter_set_input_enabled(adapter, true) == BOXRIG_UI_OK);
+
+    /* A physical key and its translated character straddle the boundary. */
+    CHECK(boxrig_win32_input_adapter_process_message(adapter, WM_KEYDOWN, 'A', key_parameter('A', false, false), &result) == 1);
+    CHECK(boxrig_win32_input_adapter_set_input_enabled(adapter, false) == BOXRIG_UI_OK);
+    CHECK(boxrig_win32_input_adapter_set_input_enabled(adapter, true) == BOXRIG_UI_OK);
+    CHECK(boxrig_win32_input_adapter_process_message(adapter, WM_CHAR, L'a', key_parameter('A', false, false), &result) == 1);
+    CHECK(boxrig_win32_input_adapter_process_message(adapter, WM_KEYDOWN, 'A', key_parameter('A', true, false), &result) == 1);
+    CHECK(boxrig_win32_input_adapter_process_message(adapter, WM_CHAR, L'a', key_parameter('A', true, false), &result) == 1);
+    CHECK(boxrig_win32_input_adapter_process_message(adapter, WM_KEYUP, 'A', key_parameter('A', false, true), &result) == 1);
+    CHECK(boxrig_win32_input_adapter_process_message(adapter, WM_CHAR, L'a', key_parameter('A', false, false), &result) == 1);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 0);
+    CHECK(boxrig_win32_input_adapter_process_message(adapter, WM_KEYDOWN, 'B', key_parameter('B', false, false), &result) == 1);
+    CHECK(boxrig_win32_input_adapter_process_message(adapter, WM_CHAR, L'b', key_parameter('B', false, false), &result) == 1);
+    CHECK(boxrig_win32_input_adapter_process_message(adapter, WM_KEYUP, 'B', key_parameter('B', false, true), &result) == 1);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 1 && output[0] == 'b');
+    CHECK(boxrig_terminal_output_consume(terminal, 1) == BOXRIG_STATUS_OK);
+
+    CHECK(boxrig_terminal_send_text(terminal, "filled", 6) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_win32_input_adapter_process_message(adapter, WM_KEYDOWN, VK_RETURN, key_parameter(VK_RETURN, false, false), &result) == 1);
+    CHECK(boxrig_win32_input_adapter_blocked(adapter));
+    CHECK(boxrig_win32_input_adapter_set_input_enabled(adapter, false) == BOXRIG_UI_OK);
+    CHECK(boxrig_win32_input_adapter_set_input_enabled(adapter, true) == BOXRIG_UI_OK);
+    CHECK(boxrig_terminal_output_consume(terminal, 6) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_win32_input_adapter_retry(adapter) == 0);
+    CHECK(boxrig_win32_input_adapter_process_message(adapter, WM_KEYUP, VK_RETURN, key_parameter(VK_RETURN, false, true), &result) == 1);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 0);
+
+    /* Native completion may arrive after END and after focus has returned. */
+    CHECK(boxrig_win32_input_adapter_process_message(adapter, WM_IME_ENDCOMPOSITION, 0, 0, &result) == 1);
+    CHECK(boxrig_win32_input_adapter_process_message(adapter, WM_SETFOCUS, 0, 0, &result) == 1);
+    CHECK(boxrig_win32_input_adapter_process_message(adapter, WM_IME_CHAR, L'x', 0, &result) == 1);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 0);
+    CHECK(boxrig_win32_input_adapter_process_message(adapter, WM_IME_STARTCOMPOSITION, 0, 0, &result) == 1);
+    CHECK(boxrig_win32_input_adapter_process_message(adapter, WM_IME_CHAR, L'z', 0, &result) == 1);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 1 && output[0] == 'z');
+    CHECK(boxrig_terminal_output_consume(terminal, 1) == BOXRIG_STATUS_OK);
+
+    /* Both halves of an IMM result-plus-preedit snapshot must be canceled. */
+    CHECK(boxrig_terminal_send_text(terminal, "filled", 6) == BOXRIG_STATUS_OK);
+    mock_imm_active = true;
+    memset(&mock_imm, 0, sizeof(mock_imm));
+    mock_imm.result_text = L"old";
+    mock_imm.result_count = 3;
+    mock_imm.preedit_text = L"wait";
+    mock_imm.preedit_count = 4;
+    CHECK(boxrig_win32_input_adapter_process_message(adapter, WM_IME_STARTCOMPOSITION, 0, 0, &result) == 1);
+    CHECK(boxrig_win32_input_adapter_process_message(adapter, WM_IME_COMPOSITION, 0, GCS_RESULTSTR | GCS_COMPSTR, &result) == 1);
+    CHECK(boxrig_composition_get_view(boxrig_win32_input_adapter_composition(adapter), &composition) == BOXRIG_COMPOSITION_OK);
+    CHECK(composition.commit_pending);
+    size_t cancellations = mock_notify_ime_calls;
+    CHECK(boxrig_win32_input_adapter_set_input_enabled(adapter, false) == BOXRIG_UI_OK);
+    CHECK(mock_notify_ime_calls == cancellations + 1);
+    CHECK(boxrig_win32_input_adapter_set_input_enabled(adapter, true) == BOXRIG_UI_OK);
+    CHECK(boxrig_terminal_output_consume(terminal, 6) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_win32_input_adapter_retry(adapter) == 0);
+    CHECK(boxrig_win32_input_adapter_process_message(adapter, WM_IME_COMPOSITION, 0, GCS_RESULTSTR | GCS_COMPSTR, &result) == 1);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 0);
+    CHECK(boxrig_composition_get_view(boxrig_win32_input_adapter_composition(adapter), &composition) == BOXRIG_COMPOSITION_OK);
+    CHECK(!composition.active && !composition.commit_pending);
+    mock_imm_active = false;
+
+    size_t consumed;
+    CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)"\033[?2004h", 8, &consumed) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_win32_input_adapter_queue_paste(adapter, (const uint8_t *)"discard", 7) == 0);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 6 && memcmp(output, "\033[200~", 6) == 0);
+    CHECK(boxrig_win32_input_adapter_set_input_enabled(adapter, false) == BOXRIG_UI_BUSY);
+    CHECK(boxrig_win32_input_adapter_get_input_state(adapter, &state) == BOXRIG_UI_OK && state.phase == BOXRIG_UI_INPUT_STOPPING);
+    CHECK(boxrig_win32_input_adapter_set_input_enabled(adapter, true) == BOXRIG_UI_BUSY);
+    CHECK(boxrig_win32_input_adapter_set_input_config(adapter, &config.input) == BOXRIG_UI_BUSY);
+    CHECK(boxrig_win32_input_adapter_process_message(adapter, WM_PASTE, 0, 0, &result) == 1);
+    CHECK(boxrig_terminal_output_consume(terminal, 6) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)"\033[5n", 4, &consumed) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_win32_input_adapter_retry(adapter) == 0);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 4 && memcmp(output, "\033[0n", 4) == 0);
+    CHECK(boxrig_terminal_output_consume(terminal, 4) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_win32_input_adapter_retry(adapter) == 0);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 6 && memcmp(output, "\033[201~", 6) == 0);
+    CHECK(boxrig_win32_input_adapter_get_input_state(adapter, &state) == BOXRIG_UI_OK && state.phase == BOXRIG_UI_INPUT_DISABLED);
+    CHECK(boxrig_win32_input_adapter_set_input_enabled(adapter, true) == BOXRIG_UI_OK);
+    boxrig_win32_input_adapter_destroy(adapter);
+    boxrig_terminal_destroy(terminal);
+    CHECK(DestroyWindow(window));
+    return true;
+}
+
 int wmain(int argc, wchar_t **argv)
 {
     if (argc == 2 && wcscmp(argv[1], L"--terminal-io-only") == 0) {
@@ -4181,6 +4333,7 @@ int wmain(int argc, wchar_t **argv)
         const char *name;
         bool (*run)(void);
     } tests[] = {
+        {"input inhibition cancels native generations and completes paste", test_input_inhibition},
         {"terminal UTF-8/Shift_JIS IME, key and paste settings", test_terminal_io_configuration},
         {"application key routing captures the key series",
          test_application_key_routing_captures_the_key_series},

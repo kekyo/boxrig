@@ -78,11 +78,50 @@ After the widget is realized and its first frame completes, check the actual bac
 Continue processing frames and GTK events until a switch's `pending` state clears.
 A failed switch may preserve the previous usable rendering backend.
 
+## Read terminal text through assistive technology
+
+The GTK 3 widget implements `AtkText`, and the GTK 4 widget implements `GtkAccessibleText`.
+AT-SPI exposes the visible text, a caret corresponding to the terminal cursor, per-view selections, and character attributes.
+Offsets count Unicode scalars. Wide-character continuation cells do not add characters, while combining characters count their individual scalars.
+Character extents exposed by GTK 3 cover the cells occupied by the grapheme.
+
+Contents include visible rows, rather than the entire scrollback history.
+They follow history navigation, alternate-screen switches, and reflow after width changes.
+Soft wraps do not add newlines; hard breaks and empty rows contribute LF.
+Unwritten trailing cells are omitted, while explicitly printed spaces and indentation are retained.
+IME preedit text is excluded.
+
+Processing `frame()` publishes text, caret, and selection changes.
+Synchronized output retains the previous contents, and blinking alone does not repeat text notifications.
+Removal callbacks can read the old contents; insertion callbacks can read the new contents.
+A cursor outside the viewport maps to the end of the text.
+Assistive-technology requests to move the caret or change selections are unsupported and do not generate child-process input.
+
+Each published snapshot of text and position information is limited to 16 MiB.
+Exceeding that limit makes `frame()` return `BOXRIG_UI_LIMIT_EXCEEDED` and preserves the previous contents.
+See [AtkText](https://docs.gtk.org/atk/iface.Text.html) and [GtkAccessibleText](https://docs.gtk.org/gtk4/iface.AccessibleText.html) for the retrieval API contracts.
+
+GTK 4 supports the text, caret, selection, attribute, and change-notification contracts available in the minimum version, 4.14.
+Geometry queries introduced in 4.16 and caret/selection mutation introduced in 4.22 are not provided.
+AT-SPI text retrieval and Orca speech-text generation have been verified on GTK 4.14.
+Attribute-only changes are available through queries, but GTK 4.14 has no public notification API dedicated to attributes.
+See the [versioned GtkAccessibleText API](https://docs.gtk.org/gtk4/iface.AccessibleText.html) for available operations and notifications.
+
 ## Input and destruction considerations
 
 IME selection is independent of the rendering backend.
 Set preferences with `ime_policy` and `candidate_policy`, then use `get_ime_state()` to check the actual input route and candidate display.
 Ordinary terminal input and input to an application-owned editable document use separate connections.
+
+Use `set_input_enabled(widget, false)` to inhibit user input temporarily.
+It stops this widget's keys, IME commits, paste, and terminal mouse reports while selection, copy, history navigation, rendering, and terminal replies remain available.
+Request resumption with `true`. Old IME and clipboard replies are discarded, and keys held across a stop remain suppressed until release.
+
+If a started paste cannot enqueue its closing sequence because output is full, the stop is accepted and returns `BUSY`.
+Keep dispatching regular frames while `get_input_state()` reports `STOPPING`, and wait for `DISABLED` before resuming.
+Requests made from a callback during input processing also return `BUSY`, but leave the state unchanged.
+`DISABLED` means the closing sequence has been queued in core, not delivered to the communication peer.
+Already queued core output and input from other widgets sharing the terminal are outside this API's scope.
 
 During destruction, remove scheduled frames and communication-side references, call `quiesce()` to stop new work, then destroy the widget.
 Do not release the model and terminal first.

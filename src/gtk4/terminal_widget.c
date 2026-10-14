@@ -9,6 +9,7 @@
 
 #include "boxrig/ui/lifecycle.h"
 #include "input.h"
+#include "accessible.h"
 #include "../gtk/animation.h"
 #include "../ui/view_private.h"
 #include "../pangocairo/renderer.h"
@@ -125,6 +126,7 @@ struct _BoxrigGtk4TerminalWidget {
     bool surface_candidate_committed;
     bool grid_resize_frame_boundary_ready;
     bool disposed;
+    boxrig_gtk_accessible_state accessible;
 };
 
 static void boxrig_gtk4_terminal_widget_scrollable_init(
@@ -136,7 +138,13 @@ G_DEFINE_FINAL_TYPE_WITH_CODE(
     GTK_TYPE_WIDGET,
     G_IMPLEMENT_INTERFACE(
         GTK_TYPE_SCROLLABLE,
-        boxrig_gtk4_terminal_widget_scrollable_init))
+        boxrig_gtk4_terminal_widget_scrollable_init)
+    G_IMPLEMENT_INTERFACE(GTK_TYPE_ACCESSIBLE_TEXT, boxrig_gtk4_accessible_text_init))
+
+boxrig_gtk_accessible_state *boxrig_gtk4_accessible_state(BoxrigGtk4TerminalWidget *widget)
+{
+    return &widget->accessible;
+}
 
 static bool valid_attachment(boxrig_ui_component_attachment attachment)
 {
@@ -852,15 +860,23 @@ static gboolean render_gl_frame(GtkGLArea *area, GdkGLContext *context, gpointer
         boxrig_gtk4_input_update_candidate(widget->input, widget->output_scale);
         if (notify) request_application_frame(widget);
     }
+    /* GTK rendering can consume a newer model and row mapping than the
+     * frame() that queued it. Publish that presented viewport as well. */
+    if (changed && accepts_calls(widget) &&
+        !boxrig_terminal_synchronized_output(boxrig_ui_model_terminal(widget->model)) &&
+        boxrig_gtk4_accessible_update(widget) != BOXRIG_UI_OK)
+        request_application_frame(widget);
     return TRUE;
 }
 static gboolean gl_render(GtkGLArea *area, GdkGLContext *context, gpointer data)
 {
     BoxrigGtk4TerminalWidget *widget = data;
     if (widget->in_frame || widget->in_gl_render) return TRUE;
+    g_object_ref(widget);
     widget->in_gl_render = true;
     gboolean result = render_gl_frame(area, context, data);
     widget->in_gl_render = false;
+    g_object_unref(widget);
     return result;
 }
 
@@ -1802,6 +1818,7 @@ static void boxrig_gtk4_terminal_widget_dispose(GObject *object)
         }
         cancel_grid_resize_frame_boundary(widget);
         widget->disposed = true;
+        boxrig_gtk_accessible_detach(&widget->accessible);
         (void)boxrig_ui_lifecycle_begin_shutdown(&widget->lifecycle);
         widget->frame_request_callback = NULL;
         widget->frame_request_context = NULL;
@@ -2765,6 +2782,27 @@ boxrig_ui_status boxrig_gtk4_terminal_widget_set_frame_request_callback(
     return status;
 }
 
+boxrig_ui_status boxrig_gtk4_terminal_widget_set_input_enabled(
+    BoxrigGtk4TerminalWidget *widget, bool enabled)
+{
+    if (!accepts_calls(widget)) return BOXRIG_UI_INVALID_ARGUMENT;
+    return boxrig_gtk4_input_set_enabled(widget->input, enabled);
+}
+
+boxrig_ui_status boxrig_gtk4_terminal_widget_get_input_state(
+    BoxrigGtk4TerminalWidget *widget, boxrig_ui_input_state *state_out)
+{
+    if (!accepts_calls(widget)) return BOXRIG_UI_INVALID_ARGUMENT;
+    return boxrig_gtk4_input_get_state(widget->input, state_out);
+}
+
+boxrig_ui_status boxrig_gtk4_terminal_widget_set_input_config(
+    BoxrigGtk4TerminalWidget *widget, const boxrig_input_config *config)
+{
+    if (!accepts_calls(widget)) return BOXRIG_UI_INVALID_ARGUMENT;
+    return boxrig_gtk4_input_set_config(widget->input, config);
+}
+
 boxrig_ui_status boxrig_gtk4_terminal_widget_set_key_router(
     BoxrigGtk4TerminalWidget *widget,
     boxrig_input_key_router router,
@@ -3198,7 +3236,15 @@ presentation_complete:
         result_out->animation_deadline_milliseconds = blink_deadline;
     }
 
-    return BOXRIG_UI_OK;
+    if (boxrig_terminal_synchronized_output(terminal)) return BOXRIG_UI_OK;
+    /* Public accessibility notifications may synchronously release the
+     * application's last reference or attempt another frame. */
+    g_object_ref(widget);
+    widget->in_frame = true;
+    status = boxrig_gtk4_accessible_update(widget);
+    widget->in_frame = false;
+    g_object_unref(widget);
+    return status;
 }
 
 bool boxrig_gtk4_terminal_widget_has_presentation(

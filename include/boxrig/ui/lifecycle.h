@@ -9,6 +9,10 @@
 
 #include <stdbool.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** Ordered phases of a platform UI shutdown. */
 typedef enum boxrig_ui_lifecycle_state {
     /** Native callbacks may reach live frontend resources. */
@@ -83,5 +87,9 @@ int boxrig_ui_lifecycle_mark_detached(boxrig_ui_lifecycle *lifecycle);
  * @return Zero on success, or -1 for NULL or a skipped phase.
  */
 int boxrig_ui_lifecycle_mark_stopped(boxrig_ui_lifecycle *lifecycle);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

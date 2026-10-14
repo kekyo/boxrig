@@ -9,6 +9,10 @@
 
 #include "boxrig/x11/component.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** Configuration for the optional EGL/OpenGL or OpenGL ES X11 component factory. */
 typedef struct boxrig_x11_opengl_component_config {
     /** Requested EGL swap interval. Zero and one are accepted. */
@@ -125,5 +129,9 @@ boxrig_ui_status boxrig_x11_opengl_terminal_component_create_on_target(
     const boxrig_x11_terminal_component_config *config,
     const boxrig_x11_opengl_component_config *opengl_config,
     boxrig_x11_terminal_component **component_out);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

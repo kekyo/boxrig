@@ -13,6 +13,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** Monotonic millisecond clock used by notification policy. */
 typedef uint64_t (*boxrig_notification_policy_clock)(void *context);
 
@@ -125,5 +129,9 @@ int boxrig_notification_policy_record_success(
  */
 void boxrig_notification_policy_destroy(
     boxrig_notification_policy_state *state);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

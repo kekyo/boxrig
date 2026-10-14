@@ -763,6 +763,8 @@ boxrig_wayland_terminal_component_view_action_capabilities(
         capabilities.paste_targets |=
             BOXRIG_UI_CLIPBOARD_TARGET_PRIMARY_SELECTION;
     }
+    if (component->input_control.state.phase != BOXRIG_UI_INPUT_ENABLED)
+        capabilities.paste_targets = 0;
     return capabilities;
 }
 
@@ -1226,6 +1228,23 @@ void boxrig_wayland_clipboard_quiesce_component(
             component,
             NULL);
     }
+}
+
+bool boxrig_wayland_clipboard_paste_started(
+    const boxrig_wayland_terminal_component *component)
+{
+    for (const boxrig_wayland_clipboard_transfer *transfer = component->context->clipboard_transfers;
+         transfer != NULL; transfer = transfer->next) {
+        if (transfer->kind == BOXRIG_WAYLAND_TRANSFER_INCOMING && transfer->component == component &&
+            (transfer->paste_state == BOXRIG_WAYLAND_PASTE_CHUNK ||
+             transfer->paste_state == BOXRIG_WAYLAND_PASTE_END)) return true;
+    }
+    return false;
+}
+
+void boxrig_wayland_clipboard_cancel_input(boxrig_wayland_terminal_component *component)
+{
+    destroy_incoming_transfers(component->context, NULL, component, NULL);
 }
 
 static void destroy_data_device(boxrig_wayland_seat *seat)
@@ -1850,4 +1869,18 @@ void boxrig_wayland_clipboard_get_component_diagnostic(
             return;
         }
     }
+}
+
+bool boxrig_wayland_clipboard_input_pending(
+    const boxrig_wayland_terminal_component *component)
+{
+    for (const boxrig_wayland_clipboard_transfer *transfer =
+             component->context->clipboard_transfers;
+         transfer != NULL; transfer = transfer->next) {
+        if (transfer->kind == BOXRIG_WAYLAND_TRANSFER_INCOMING &&
+            transfer->component == component) {
+            return true;
+        }
+    }
+    return false;
 }

@@ -2948,6 +2948,7 @@ static bool test_widget_clipboard_actions(void)
     CHECK(boxrig_gtk4_terminal_widget_get_effective_metrics(
               widget,
               &metrics) == BOXRIG_FONT_CATALOG_OK);
+    CHECK(boxrig_gtk4_terminal_widget_set_input_enabled(widget, false) == BOXRIG_UI_OK);
     CHECK(boxrig_gtk4_terminal_widget_hit_test(
               widget,
               (boxrig_ui_fixed)metrics.cell_width * BOXRIG_UI_FIXED_ONE / 2,
@@ -2969,7 +2970,8 @@ static bool test_widget_clipboard_actions(void)
     CHECK(capabilities.copy_targets ==
           (BOXRIG_UI_CLIPBOARD_TARGET_PRIMARY_SELECTION |
            BOXRIG_UI_CLIPBOARD_TARGET_CLIPBOARD));
-    CHECK(capabilities.paste_targets == capabilities.copy_targets);
+    capabilities = boxrig_gtk4_terminal_widget_view_action_capabilities(widget);
+    CHECK(capabilities.paste_targets == 0 && !capabilities.reconversion);
 
     action.kind = BOXRIG_UI_VIEW_ACTION_COPY;
     action.clipboard_target = BOXRIG_UI_CLIPBOARD_TARGET_PRIMARY_SELECTION;
@@ -3007,6 +3009,7 @@ static bool test_widget_clipboard_actions(void)
     CHECK(strcmp(read_result.text, "copy\n") == 0);
     g_free(read_result.text);
 
+    CHECK(boxrig_gtk4_terminal_widget_set_input_enabled(widget, true) == BOXRIG_UI_OK);
     gdk_clipboard_set_text(primary, "P\r\n");
     gdk_clipboard_set_text(clipboard, "P\r\n");
     CHECK(boxrig_gtk4_terminal_widget_get_diagnostic(widget, &diagnostic) ==
@@ -3039,6 +3042,21 @@ static bool test_widget_clipboard_actions(void)
     CHECK(memcmp(output, "P\nP\n", output_length) == 0);
     CHECK(boxrig_terminal_output_consume(terminal, output_length) ==
           BOXRIG_STATUS_OK);
+
+    /* Complete an old asynchronous read only after a stop/resume boundary. */
+    gdk_clipboard_set_text(clipboard, "late");
+    CHECK(boxrig_gtk4_terminal_widget_apply_view_action(widget, &action) == BOXRIG_UI_OK);
+    CHECK(boxrig_gtk4_terminal_widget_get_diagnostic(widget, &diagnostic) == BOXRIG_UI_OK);
+    CHECK(diagnostic.active_clipboard_transfers == 1);
+    CHECK(boxrig_gtk4_terminal_widget_set_input_enabled(widget, false) == BOXRIG_UI_OK);
+    CHECK(boxrig_gtk4_terminal_widget_apply_view_action(widget, &action) == BOXRIG_UI_UNAVAILABLE);
+    CHECK(boxrig_gtk4_terminal_widget_set_input_enabled(widget, true) == BOXRIG_UI_OK);
+    while (diagnostic.active_clipboard_transfers != 0) {
+        (void)g_main_context_iteration(NULL, true);
+        CHECK(boxrig_gtk4_terminal_widget_get_diagnostic(widget, &diagnostic) == BOXRIG_UI_OK);
+    }
+    CHECK(boxrig_gtk4_terminal_widget_frame(widget, &frame_result) == BOXRIG_UI_OK);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 0);
 
     gdk_clipboard_set_text(clipboard, "drop");
     CHECK(boxrig_gtk4_terminal_widget_apply_view_action(widget, &action) ==

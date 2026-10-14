@@ -5,6 +5,10 @@
 #include "boxrig/ui/notification_dispatch.h"
 #include <poll.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** A freedesktop notification provider and dispatcher for one consumer. */
 typedef struct boxrig_freedesktop_notifications boxrig_freedesktop_notifications;
 
@@ -75,5 +79,9 @@ int boxrig_freedesktop_notifications_dispatch_poll(
  */
 void boxrig_freedesktop_notifications_destroy(
     boxrig_freedesktop_notifications *notifications);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

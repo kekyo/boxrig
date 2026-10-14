@@ -5109,6 +5109,44 @@ size_t boxrig_ui_view_selection_visual_ranges(
         range_capacity);
 }
 
+void boxrig_ui_view_accessible_row(const boxrig_ui_view *view, size_t row,
+    boxrig_ui_accessible_row_state *state)
+{
+    memset(state, 0, sizeof(*state));
+    if (view == NULL || row >= view->row_count) return;
+    state->layout = view->row_layouts[row].layout;
+    if (view->layout_configured) {
+        state->cell_width = view->allocation_input.cell_width;
+        state->cell_height = view->allocation_input.cell_height;
+    }
+    if (!view->selection_active) return;
+    if (view->selection.shape == BOXRIG_UI_SELECTION_RECTANGULAR) {
+        const boxrig_ui_selection_row_slice *slice =
+            rectangular_selection_row(view, row, NULL);
+        if (slice != NULL) {
+            state->ranges = view->selection_ranges + slice->range_offset;
+            state->range_count = slice->range_count;
+            state->logical_column_offset = slice->fragment_logical_column_offset;
+        }
+        return;
+    }
+    (void)selected_logical_interval(view, row,
+        &state->selection_start, &state->selection_count);
+    boxrig_text_screen screen;
+    size_t index;
+    boxrig_text_position end;
+    int from_start, to_end;
+    if (view_fragment_index(view, row, &screen, &index) &&
+        boxrig_terminal_get_text_position(view->model->terminal,
+            screen, index, view->column_count, &end) == BOXRIG_STATUS_OK &&
+        compare_text_positions(view->model->terminal,
+            &view->selection.range.start, &end, &from_start) &&
+        compare_text_positions(view->model->terminal,
+            &end, &view->selection.range.end, &to_end)) {
+        state->newline_selected = from_start <= 0 && to_end < 0;
+    }
+}
+
 boxrig_ui_status boxrig_ui_view_begin_search(
     boxrig_ui_view *view,
     const boxrig_text_search_options *options)

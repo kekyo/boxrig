@@ -4,6 +4,10 @@
 
 #include "boxrig/ui/animation.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** One UI-loop adapter for poll-style event waits, without periodic wakeups. */
 typedef struct boxrig_ui_animation_poll boxrig_ui_animation_poll;
 
@@ -67,5 +71,9 @@ boxrig_ui_status boxrig_ui_animation_poll_prepare_wait(
  */
 boxrig_ui_status boxrig_ui_animation_poll_dispatch(
     boxrig_ui_animation_poll *adapter);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

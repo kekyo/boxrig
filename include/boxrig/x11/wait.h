@@ -11,6 +11,10 @@
 
 #include <poll.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /**
  * Waits for activity in the Xlib event queue or the supplied descriptors.
  *
@@ -26,5 +30,9 @@ int boxrig_x11_wait_for_activity(
     struct pollfd *descriptors,
     nfds_t descriptor_count,
     int timeout);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

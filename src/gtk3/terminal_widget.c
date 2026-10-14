@@ -9,6 +9,7 @@
 
 #include "boxrig/ui/lifecycle.h"
 #include "input.h"
+#include "accessible.h"
 #include "../gtk/animation.h"
 #include "../ui/view_private.h"
 #include "../pangocairo/renderer.h"
@@ -53,28 +54,6 @@ typedef struct boxrig_gtk3_font_specification_storage {
     boxrig_font_feature *features;
     boxrig_font_variation *variations;
 } boxrig_gtk3_font_specification_storage;
-
-typedef struct BoxrigGtk3TerminalAccessible {
-    GtkContainerAccessible parent_instance;
-} BoxrigGtk3TerminalAccessible;
-
-typedef struct BoxrigGtk3TerminalAccessibleClass {
-    GtkContainerAccessibleClass parent_class;
-} BoxrigGtk3TerminalAccessibleClass;
-
-static AtkStateSet *boxrig_gtk3_terminal_accessible_ref_state_set(
-    AtkObject *accessible);
-
-static void boxrig_gtk3_terminal_accessible_class_init(
-    BoxrigGtk3TerminalAccessibleClass *accessible_class);
-
-static void boxrig_gtk3_terminal_accessible_init(
-    BoxrigGtk3TerminalAccessible *accessible);
-
-G_DEFINE_TYPE(
-    BoxrigGtk3TerminalAccessible,
-    boxrig_gtk3_terminal_accessible,
-    GTK_TYPE_CONTAINER_ACCESSIBLE)
 
 struct _BoxrigGtk3TerminalWidget {
     GtkContainer parent_instance;
@@ -167,37 +146,6 @@ G_DEFINE_FINAL_TYPE_WITH_CODE(
     G_IMPLEMENT_INTERFACE(
         GTK_TYPE_SCROLLABLE,
         boxrig_gtk3_terminal_widget_scrollable_init))
-
-static AtkStateSet *boxrig_gtk3_terminal_accessible_ref_state_set(
-    AtkObject *accessible)
-{
-    AtkObjectClass *parent_class = ATK_OBJECT_CLASS(
-        boxrig_gtk3_terminal_accessible_parent_class);
-    AtkStateSet *states = parent_class->ref_state_set(accessible);
-    GtkWidget *gtk_widget = gtk_accessible_get_widget(
-        GTK_ACCESSIBLE(accessible));
-
-    if (states != NULL && BOXRIG_GTK3_IS_TERMINAL_WIDGET(gtk_widget) &&
-        BOXRIG_GTK3_TERMINAL_WIDGET(gtk_widget)->accessibility_busy) {
-        atk_state_set_add_state(states, ATK_STATE_BUSY);
-    }
-    return states;
-}
-
-static void boxrig_gtk3_terminal_accessible_class_init(
-    BoxrigGtk3TerminalAccessibleClass *accessible_class)
-{
-    AtkObjectClass *atk_object_class = ATK_OBJECT_CLASS(accessible_class);
-
-    atk_object_class->ref_state_set =
-        boxrig_gtk3_terminal_accessible_ref_state_set;
-}
-
-static void boxrig_gtk3_terminal_accessible_init(
-    BoxrigGtk3TerminalAccessible *accessible)
-{
-    (void)accessible;
-}
 
 static bool valid_attachment(boxrig_ui_component_attachment attachment)
 {
@@ -335,19 +283,11 @@ static void set_accessibility_busy(
     BoxrigGtk3TerminalWidget *widget,
     bool busy)
 {
-    AtkObject *accessible;
-
     if (widget == NULL || widget->accessibility_busy == busy) {
         return;
     }
     widget->accessibility_busy = busy;
-    accessible = gtk_widget_get_accessible(GTK_WIDGET(widget));
-    if (accessible != NULL) {
-        atk_object_notify_state_change(
-            accessible,
-            ATK_STATE_BUSY,
-            busy);
-    }
+    boxrig_gtk3_accessible_set_busy(widget, busy);
 }
 
 static boxrig_ui_status status_from_font_catalog(
@@ -887,15 +827,23 @@ static gboolean render_gl_frame(GtkGLArea *area, GdkGLContext *context, gpointer
             boxrig_gtk3_input_update_candidate(widget->input, widget->output_scale);
         if (notify) request_application_frame(widget);
     }
+    /* GTK rendering can consume a newer model and row mapping than the
+     * frame() that queued it. Publish that presented viewport as well. */
+    if (changed && accepts_calls(widget) &&
+        !boxrig_terminal_synchronized_output(boxrig_ui_model_terminal(widget->model)) &&
+        boxrig_gtk3_accessible_update(widget) != BOXRIG_UI_OK)
+        request_application_frame(widget);
     return TRUE;
 }
 static gboolean gl_render(GtkGLArea *area, GdkGLContext *context, gpointer data)
 {
     BoxrigGtk3TerminalWidget *widget = data;
     if (widget->in_frame || widget->in_gl_render) return TRUE;
+    g_object_ref(widget);
     widget->in_gl_render = true;
     gboolean result = render_gl_frame(area, context, data);
     widget->in_gl_render = false;
+    g_object_unref(widget);
     return result;
 }
 
@@ -1983,6 +1931,7 @@ static void boxrig_gtk3_terminal_widget_dispose(GObject *object)
         set_accessibility_busy(widget, false);
         gtk_widget_set_sensitive(GTK_WIDGET(widget), false);
         widget->disposed = true;
+        boxrig_gtk3_accessible_detach(widget);
         (void)boxrig_ui_lifecycle_begin_shutdown(&widget->lifecycle);
         widget->frame_request_callback = NULL;
         widget->frame_request_context = NULL;
@@ -2988,6 +2937,27 @@ boxrig_ui_status boxrig_gtk3_terminal_widget_set_frame_request_callback(
     return status;
 }
 
+boxrig_ui_status boxrig_gtk3_terminal_widget_set_input_enabled(
+    BoxrigGtk3TerminalWidget *widget, bool enabled)
+{
+    if (!accepts_calls(widget)) return BOXRIG_UI_INVALID_ARGUMENT;
+    return boxrig_gtk3_input_set_enabled(widget->input, enabled);
+}
+
+boxrig_ui_status boxrig_gtk3_terminal_widget_get_input_state(
+    BoxrigGtk3TerminalWidget *widget, boxrig_ui_input_state *state_out)
+{
+    if (!accepts_calls(widget)) return BOXRIG_UI_INVALID_ARGUMENT;
+    return boxrig_gtk3_input_get_state(widget->input, state_out);
+}
+
+boxrig_ui_status boxrig_gtk3_terminal_widget_set_input_config(
+    BoxrigGtk3TerminalWidget *widget, const boxrig_input_config *config)
+{
+    if (!accepts_calls(widget)) return BOXRIG_UI_INVALID_ARGUMENT;
+    return boxrig_gtk3_input_set_config(widget->input, config);
+}
+
 boxrig_ui_status boxrig_gtk3_terminal_widget_set_key_router(
     BoxrigGtk3TerminalWidget *widget,
     boxrig_input_key_router router,
@@ -3480,8 +3450,16 @@ presentation_complete:
         result_out->has_animation_deadline = true;
         result_out->animation_deadline_milliseconds = blink_deadline;
     }
-
-    return BOXRIG_UI_OK;
+    if (boxrig_terminal_synchronized_output(terminal)) return BOXRIG_UI_OK;
+    /* Text signals run application and assistive-technology callbacks. Keep
+     * the object alive and reject a nested frame even if a callback destroys
+     * the widget while the old snapshot is being read for a removal. */
+    g_object_ref(widget);
+    widget->in_frame = true;
+    status = boxrig_gtk3_accessible_update(widget);
+    widget->in_frame = false;
+    g_object_unref(widget);
+    return status;
 }
 
 bool boxrig_gtk3_terminal_widget_has_presentation(

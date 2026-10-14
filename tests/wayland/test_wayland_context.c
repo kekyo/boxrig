@@ -3541,6 +3541,10 @@ static void test_copy_uses_focused_seat_serial_and_immutable_sources(void)
               BOXRIG_WAYLAND_SERIAL_KEYBOARD_KEY,
               &keyboard_key_serial) == BOXRIG_UI_OK);
     CHECK(keyboard_key_serial.value == 102);
+    CHECK(boxrig_wayland_terminal_component_set_input_enabled(component, false) == BOXRIG_UI_OK);
+    capabilities = boxrig_wayland_terminal_component_view_action_capabilities(component, seat_name);
+    CHECK(capabilities.copy_targets == (BOXRIG_UI_CLIPBOARD_TARGET_PRIMARY_SELECTION | BOXRIG_UI_CLIPBOARD_TARGET_CLIPBOARD));
+    CHECK(capabilities.paste_targets == 0);
     action.kind = BOXRIG_UI_VIEW_ACTION_COPY;
     action.clipboard_target = BOXRIG_UI_CLIPBOARD_TARGET_CLIPBOARD;
     invalid_serial = keyboard_key_serial;
@@ -5493,6 +5497,7 @@ static void test_missing_argb_policy(void)
 typedef struct key_route_capture {
     boxrig_key_event events[32];
     size_t count;
+    boxrig_wayland_terminal_component *inhibition_probe;
 } key_route_capture;
 
 typedef struct mouse_route_capture {
@@ -5509,6 +5514,13 @@ static boxrig_input_key_route capture_key_route(
 
     CHECK(capture->count < 32);
     capture->events[capture->count++] = *event;
+    if (capture->inhibition_probe != NULL) {
+        boxrig_ui_input_state before, after;
+        CHECK(boxrig_wayland_terminal_component_get_input_state(capture->inhibition_probe, &before) == BOXRIG_UI_OK);
+        CHECK(boxrig_wayland_terminal_component_set_input_enabled(capture->inhibition_probe, false) == BOXRIG_UI_BUSY);
+        CHECK(boxrig_wayland_terminal_component_get_input_state(capture->inhibition_probe, &after) == BOXRIG_UI_OK);
+        CHECK(before.phase == after.phase && before.generation == after.generation);
+    }
     return event->codepoint == '1' ? BOXRIG_INPUT_KEY_ROUTE_APPLICATION
                                   : BOXRIG_INPUT_KEY_ROUTE_TERMINAL;
 }
@@ -5594,6 +5606,8 @@ static void test_seat_keyboard_routing_and_removal(void)
               component,
               capture_key_route,
               &capture) == BOXRIG_UI_OK);
+    boxrig_input_config replacement = boxrig_input_config_default();
+    CHECK(boxrig_wayland_terminal_component_set_input_config(component, &replacement) == BOXRIG_UI_OK);
     pump(&server);
     send_keymap(&server, 0);
     wl_array_init(&keys);
@@ -5624,6 +5638,8 @@ static void test_seat_keyboard_routing_and_removal(void)
         11,
         30,
         WL_KEYBOARD_KEY_STATE_PRESSED);
+    pump(&server);
+    CHECK(boxrig_wayland_terminal_component_set_input_config(component, &replacement) == BOXRIG_UI_BUSY);
     wl_keyboard_send_key(
         server.keyboard_resources[0],
         45,
@@ -5645,6 +5661,7 @@ static void test_seat_keyboard_routing_and_removal(void)
     pump(&server);
     dispatch_context(context);
     CHECK(capture.count == 4);
+    CHECK(boxrig_wayland_terminal_component_set_input_config(component, &replacement) == BOXRIG_UI_OK);
     CHECK(capture.events[0].action == BOXRIG_KEY_PRESS);
     CHECK(capture.events[0].codepoint == 'a');
     CHECK(capture.events[0].shifted_codepoint == 'A');
@@ -5689,6 +5706,7 @@ static void test_seat_keyboard_routing_and_removal(void)
               &dispatch_result) == BOXRIG_UI_OK);
     CHECK(dispatch_result.has_repeat_deadline);
     CHECK(dispatch_result.repeat_deadline_milliseconds == 1400);
+    CHECK(boxrig_wayland_terminal_component_set_input_config(component, &replacement) == BOXRIG_UI_BUSY);
     CHECK(boxrig_wayland_context_get_diagnostic(context, &context_diagnostic) ==
           BOXRIG_UI_OK);
     CHECK(context_diagnostic.active_repeat_count == 1);
@@ -5947,6 +5965,7 @@ static void test_pointer_scale_batch_and_click_wrap(void)
               component,
               capture_mouse_route,
               &capture) == BOXRIG_UI_OK);
+    CHECK(boxrig_wayland_terminal_component_set_input_enabled(component, false) == BOXRIG_UI_OK);
     pump(&server);
     send_keymap(&server, 0);
     wl_keyboard_send_modifiers(
@@ -6092,6 +6111,7 @@ static void test_pointer_scale_batch_and_click_wrap(void)
     CHECK(capture.count == 12);
     CHECK(capture.events[11].x == -1 && capture.events[11].y == -2);
     CHECK(!capture.hits[11].inside_grid && capture.hits[11].x < 0);
+    CHECK(boxrig_wayland_terminal_component_set_input_enabled(component, true) == BOXRIG_UI_OK);
     CHECK(boxrig_wayland_terminal_component_set_mouse_router(component, NULL, NULL) == BOXRIG_UI_OK);
     const char pixel_mode[] = "\033[?1003;1016h";
     size_t consumed = 0;
@@ -6107,6 +6127,42 @@ static void test_pointer_scale_batch_and_click_wrap(void)
     CHECK(boxrig_terminal_output_peek(terminal, &output) == sizeof(pixels) - 1);
     CHECK(memcmp(output, pixels, sizeof(pixels) - 1) == 0);
     CHECK(boxrig_terminal_output_consume(terminal, sizeof(pixels) - 1) == BOXRIG_STATUS_OK);
+
+    /* Neither an unfinished native frame nor its fractional wheel remainder
+     * may become terminal input in the next enabled generation. */
+    for (unsigned int boundary = 0; boundary < 2; boundary++) {
+        if (boundary != 0)
+            CHECK(boxrig_wayland_terminal_component_set_input_enabled(component, false) == BOXRIG_UI_OK);
+        wl_pointer_send_axis_value120(server.pointer_resources[0], WL_POINTER_AXIS_VERTICAL_SCROLL, 120);
+        pump(&server);
+        if (boundary == 0)
+            CHECK(boxrig_wayland_terminal_component_set_input_enabled(component, false) == BOXRIG_UI_OK);
+        CHECK(boxrig_wayland_terminal_component_set_input_enabled(component, true) == BOXRIG_UI_OK);
+        wl_pointer_send_frame(server.pointer_resources[0]);
+        pump(&server);
+        dispatch_context(context);
+        CHECK(boxrig_terminal_output_peek(terminal, &output) == 0);
+    }
+    wl_pointer_send_axis_value120(server.pointer_resources[0], WL_POINTER_AXIS_VERTICAL_SCROLL, 60);
+    wl_pointer_send_frame(server.pointer_resources[0]);
+    pump(&server);
+    dispatch_context(context);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 0);
+    CHECK(boxrig_wayland_terminal_component_set_input_enabled(component, false) == BOXRIG_UI_OK);
+    CHECK(boxrig_wayland_terminal_component_set_input_enabled(component, true) == BOXRIG_UI_OK);
+    wl_pointer_send_axis_value120(server.pointer_resources[0], WL_POINTER_AXIS_VERTICAL_SCROLL, 60);
+    wl_pointer_send_frame(server.pointer_resources[0]);
+    pump(&server);
+    dispatch_context(context);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 0);
+    wl_pointer_send_axis_value120(server.pointer_resources[0], WL_POINTER_AXIS_VERTICAL_SCROLL, 60);
+    wl_pointer_send_frame(server.pointer_resources[0]);
+    pump(&server);
+    dispatch_context(context);
+    const char wheel[] = "\033[<65;6;9M";
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == sizeof(wheel) - 1);
+    CHECK(memcmp(output, wheel, sizeof(wheel) - 1) == 0);
+    CHECK(boxrig_terminal_output_consume(terminal, sizeof(wheel) - 1) == BOXRIG_STATUS_OK);
 
     wl_pointer_send_leave(
         server.pointer_resources[0],
@@ -7956,6 +8012,174 @@ static void test_keyboard_resets_cursor_blink(void)
 }
 
 
+static void test_input_inhibition(void)
+{
+    fake_server server;
+    host_registry_state host;
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    config.output_capacity = 6;
+    boxrig_wayland_terminal_component_config component_config = boxrig_wayland_terminal_component_config_default();
+    component_config.paste_chunk_size = 1;
+    boxrig_terminal *terminal = NULL;
+    boxrig_ui_model *model = NULL;
+    boxrig_wayland_context *context = NULL;
+    boxrig_wayland_terminal_component *component = NULL;
+    create_server(&server, true, false, true);
+    struct wl_registry *registry = create_host_registry(&server, &host);
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
+    CHECK(boxrig_wayland_context_create(server.client_display, server.client_queue, NULL, &context) == BOXRIG_UI_OK);
+    pump(&server); pump(&server); pump(&server);
+    struct wl_surface *parent = wl_compositor_create_surface(host.compositor);
+    CHECK(parent != NULL);
+    wl_proxy_set_queue((struct wl_proxy *)parent, server.client_queue);
+    CHECK(create_steady_component(context, parent, model, &component_config, &component) == BOXRIG_UI_OK);
+    pump(&server);
+    send_keymap(&server, 0);
+    struct wl_array keys;
+    wl_array_init(&keys);
+    wl_keyboard_send_enter(server.keyboard_resources[0], 61, server.child_resource, &keys);
+    zwp_text_input_v3_send_enter(server.text_input_resources[0], server.child_resource);
+    pump(&server);
+    dispatch_context(context);
+    pump(&server);
+    boxrig_ui_input_state state;
+    CHECK(boxrig_wayland_terminal_component_get_input_state(component, &state) == BOXRIG_UI_OK);
+    CHECK(state.phase == BOXRIG_UI_INPUT_ENABLED && state.generation != 0);
+    uint64_t generation = state.generation;
+    uint32_t old_serial = server.text_input_commit_serials[0];
+    const uint8_t *output;
+
+    CHECK(boxrig_terminal_send_text(terminal, "filled", 6) == BOXRIG_STATUS_OK);
+    wl_keyboard_send_key(server.keyboard_resources[0], 62, 10, KEY_A, WL_KEYBOARD_KEY_STATE_PRESSED);
+    zwp_text_input_v3_send_commit_string(server.text_input_resources[0], "old");
+    zwp_text_input_v3_send_done(server.text_input_resources[0], old_serial);
+    pump(&server);
+    dispatch_context(context);
+    CHECK(boxrig_wayland_terminal_component_set_input_enabled(component, false) == BOXRIG_UI_OK);
+    CHECK(boxrig_wayland_terminal_component_get_input_state(component, &state) == BOXRIG_UI_OK);
+    CHECK(state.phase == BOXRIG_UI_INPUT_DISABLED && state.generation > generation);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 6 && memcmp(output, "filled", 6) == 0);
+    CHECK(boxrig_wayland_terminal_component_set_input_enabled(component, true) == BOXRIG_UI_OK);
+    CHECK(boxrig_terminal_output_consume(terminal, 6) == BOXRIG_STATUS_OK);
+    zwp_text_input_v3_send_commit_string(server.text_input_resources[0], "late");
+    zwp_text_input_v3_send_done(server.text_input_resources[0], old_serial);
+    wl_keyboard_send_key(server.keyboard_resources[0], 63, 11, KEY_A, WL_KEYBOARD_KEY_STATE_RELEASED);
+    pump(&server);
+    dispatch_context(context);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 0);
+    wl_keyboard_send_key(server.keyboard_resources[0], 64, 12, KEY_E, WL_KEYBOARD_KEY_STATE_PRESSED);
+    wl_keyboard_send_key(server.keyboard_resources[0], 65, 13, KEY_E, WL_KEYBOARD_KEY_STATE_RELEASED);
+    pump(&server);
+    dispatch_context(context);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 1 && output[0] == 'e');
+    CHECK(boxrig_terminal_output_consume(terminal, 1) == BOXRIG_STATUS_OK);
+    pump(&server);
+    zwp_text_input_v3_send_commit_string(server.text_input_resources[0], "z");
+    zwp_text_input_v3_send_done(server.text_input_resources[0], server.text_input_commit_serials[0]);
+    pump(&server);
+    dispatch_context(context);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 1 && output[0] == 'z');
+    CHECK(boxrig_terminal_output_consume(terminal, 1) == BOXRIG_STATUS_OK);
+
+    key_route_capture routed = {.inhibition_probe = component};
+    CHECK(boxrig_wayland_terminal_component_set_key_router(component, capture_key_route, &routed) == BOXRIG_UI_OK);
+    /* Native receipt and FIFO dispatch are separate boundaries. A held key
+     * remains inhibited whether its press arrived before or during the stop. */
+    for (unsigned int boundary = 0; boundary < 2; boundary++) {
+        if (boundary != 0)
+            CHECK(boxrig_wayland_terminal_component_set_input_enabled(component, false) == BOXRIG_UI_OK);
+        wl_keyboard_send_key(server.keyboard_resources[0], 66, 14, KEY_A, WL_KEYBOARD_KEY_STATE_PRESSED);
+        pump(&server);
+        if (boundary == 0)
+            CHECK(boxrig_wayland_terminal_component_set_input_enabled(component, false) == BOXRIG_UI_OK);
+        else dispatch_context(context);
+        CHECK(boxrig_wayland_terminal_component_set_input_enabled(component, true) == BOXRIG_UI_OK);
+        wl_keyboard_send_key(server.keyboard_resources[0], 67, 15, KEY_A, WL_KEYBOARD_KEY_STATE_RELEASED);
+        pump(&server);
+        dispatch_context(context);
+        CHECK(boxrig_terminal_output_peek(terminal, &output) == 0);
+        wl_keyboard_send_key(server.keyboard_resources[0], 68, 16, KEY_E, WL_KEYBOARD_KEY_STATE_PRESSED);
+        wl_keyboard_send_key(server.keyboard_resources[0], 69, 17, KEY_E, WL_KEYBOARD_KEY_STATE_RELEASED);
+        pump(&server);
+        dispatch_context(context);
+        CHECK(boxrig_terminal_output_peek(terminal, &output) == 1 && output[0] == 'e');
+        CHECK(boxrig_terminal_output_consume(terminal, 1) == BOXRIG_STATUS_OK);
+        CHECK(boxrig_wayland_terminal_component_set_input_config(component, &config.input) == BOXRIG_UI_OK);
+    }
+    CHECK(routed.count != 0);
+    CHECK(boxrig_wayland_terminal_component_set_key_router(component, NULL, NULL) == BOXRIG_UI_OK);
+
+    const char *mimes[] = {"text/plain;charset=utf-8"};
+    send_selection_offer(&server, 0, false, mimes, 1);
+    pump(&server);
+    boxrig_ui_view_action action = {BOXRIG_UI_VIEW_ACTION_PASTE, BOXRIG_UI_CLIPBOARD_TARGET_CLIPBOARD};
+    uint32_t seat = wl_global_get_name(server.seats[0], server.server_client);
+    CHECK(boxrig_wayland_terminal_component_apply_view_action(component, seat, NULL, &action) == BOXRIG_UI_OK);
+    pump(&server);
+    boxrig_wayland_wait_source sources[2];
+    size_t count;
+    CHECK(boxrig_wayland_context_prepare_wait_sources(context, sources, 2, &count) == BOXRIG_UI_OK && count == 1);
+    CHECK(write(server.offer_receive_descriptors[0], "old", 3) == 3);
+    close(server.offer_receive_descriptors[0]);
+    CHECK(boxrig_wayland_terminal_component_set_input_enabled(component, false) == BOXRIG_UI_OK);
+    CHECK(boxrig_wayland_terminal_component_apply_view_action(component, seat, NULL, &action) == BOXRIG_UI_UNAVAILABLE);
+    CHECK(boxrig_wayland_terminal_component_set_input_enabled(component, true) == BOXRIG_UI_OK);
+    sources[0].readiness = BOXRIG_WAYLAND_WAIT_READABLE;
+    boxrig_wayland_transfer_dispatch_result transfer;
+    CHECK(boxrig_wayland_context_dispatch_wait_sources(context, sources, count, 1, &transfer) == BOXRIG_UI_OK);
+    dispatch_context(context);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 0);
+
+    size_t consumed;
+    CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)"\033[?2004h", 8, &consumed) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_wayland_terminal_component_apply_view_action(component, seat, NULL, &action) == BOXRIG_UI_OK);
+    pump(&server);
+    CHECK(write(server.offer_receive_descriptors[1], "discard", 7) == 7);
+    close(server.offer_receive_descriptors[1]);
+    for (unsigned attempt = 0; attempt < 16; attempt++) {
+        CHECK(boxrig_wayland_context_prepare_wait_sources(context, sources, 2, &count) == BOXRIG_UI_OK);
+        for (size_t index = 0; index < count; index++) sources[index].readiness = BOXRIG_WAYLAND_WAIT_READABLE;
+        CHECK(boxrig_wayland_context_dispatch_wait_sources(context, sources, count, 1, &transfer) == BOXRIG_UI_OK);
+        dispatch_context(context);
+        if (boxrig_terminal_output_peek(terminal, &output) == 6) break;
+    }
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 6 && memcmp(output, "\033[200~", 6) == 0);
+    CHECK(boxrig_wayland_terminal_component_set_input_enabled(component, false) == BOXRIG_UI_BUSY);
+    CHECK(boxrig_wayland_terminal_component_get_input_state(component, &state) == BOXRIG_UI_OK && state.phase == BOXRIG_UI_INPUT_STOPPING);
+    CHECK(boxrig_wayland_terminal_component_set_input_enabled(component, true) == BOXRIG_UI_BUSY);
+    CHECK(boxrig_wayland_terminal_component_set_input_config(component, &config.input) == BOXRIG_UI_BUSY);
+    routed.count = 0;
+    CHECK(boxrig_wayland_terminal_component_set_key_router(component, capture_key_route, &routed) == BOXRIG_UI_OK);
+    wl_keyboard_send_key(server.keyboard_resources[0], 70, 18, KEY_E, WL_KEYBOARD_KEY_STATE_PRESSED);
+    wl_keyboard_send_key(server.keyboard_resources[0], 71, 19, KEY_E, WL_KEYBOARD_KEY_STATE_RELEASED);
+    pump(&server);
+    dispatch_context(context);
+    CHECK(routed.count == 2);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 6 && memcmp(output, "\033[200~", 6) == 0);
+    CHECK(boxrig_terminal_output_consume(terminal, 6) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)"\033[5n", 4, &consumed) == BOXRIG_STATUS_OK);
+    dispatch_context(context);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 4 && memcmp(output, "\033[0n", 4) == 0);
+    CHECK(boxrig_terminal_output_consume(terminal, 4) == BOXRIG_STATUS_OK);
+    dispatch_context(context);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 6 && memcmp(output, "\033[201~", 6) == 0);
+    CHECK(boxrig_wayland_terminal_component_get_input_state(component, &state) == BOXRIG_UI_OK && state.phase == BOXRIG_UI_INPUT_DISABLED);
+    CHECK(boxrig_wayland_terminal_component_set_input_enabled(component, true) == BOXRIG_UI_OK);
+
+    wl_array_release(&keys);
+    boxrig_wayland_terminal_component_destroy(component);
+    wl_surface_destroy(parent);
+    wl_compositor_destroy(host.compositor);
+    wl_registry_destroy(registry);
+    pump(&server);
+    boxrig_wayland_context_destroy(context);
+    boxrig_ui_model_destroy(model);
+    boxrig_terminal_destroy(terminal);
+    destroy_server(&server);
+    puts("PASS Wayland input inhibition across native generations");
+}
+
 static void test_terminal_io_configuration(void)
 {
     for (unsigned encoding = 0; encoding < 2; encoding++) {
@@ -7965,10 +8189,10 @@ static void test_terminal_io_configuration(void)
         const boxrig_key_mapping mapping = {BOXRIG_KEY_UP, 0, mapped, sizeof(mapped)};
         boxrig_terminal_config config = boxrig_terminal_config_default();
         config.encoding = (boxrig_encoding)encoding;
-        config.enter_newline = BOXRIG_NEWLINE_LF;
+        config.input.enter_newline = BOXRIG_NEWLINE_LF;
         config.paste_newline = BOXRIG_NEWLINE_CRLF;
-        config.key_mappings = &mapping;
-        config.key_mapping_count = 1;
+        config.input.key_mappings = &mapping;
+        config.input.key_mapping_count = 1;
         boxrig_terminal *terminal = NULL;
         boxrig_ui_model *model = NULL;
         boxrig_wayland_context *context = NULL;
@@ -8827,6 +9051,43 @@ static void test_ibus_native_preedit(void)
     ibus_test_drain(&server, context, component);
     check_ibus_output(terminal, "a");
 
+    /* Drop both already received and still undispatched engine commits when
+     * input is stopped; the next context must accept its own fresh preedit. */
+    for (unsigned int boundary = 0; boundary < 2; boundary++) {
+        GVariant *commit_reply = g_dbus_connection_call_sync(probe, "org.boxrig.IMEProbe",
+            "/org/boxrig/IMEProbe", "org.boxrig.IMEProbe", "CommitText", g_variant_new("(s)", "old"),
+            G_VARIANT_TYPE("()"), G_DBUS_CALL_FLAGS_NONE, 60000, NULL, &error);
+        CHECK(commit_reply != NULL && error == NULL);
+        g_variant_unref(commit_reply);
+        if (boundary == 0) {
+            boxrig_wayland_component_diagnostic input;
+            do {
+                ibus_test_poll(context);
+                CHECK(boxrig_wayland_terminal_component_get_diagnostic(component, &input) == BOXRIG_UI_OK);
+            } while (input.input_queue_depth == 0);
+        }
+        CHECK(boxrig_wayland_terminal_component_set_input_enabled(component, false) == BOXRIG_UI_OK);
+        check_ibus_inactive(component);
+        CHECK(boxrig_wayland_terminal_component_set_input_enabled(component, true) == BOXRIG_UI_OK);
+        ibus_test_key(&server, KEY_F2);
+        ibus_test_drain(&server, context, component);
+        check_ibus_preedit(component, "A記者の🙂汽車がZ", 14, 23, true);
+        check_ibus_output(terminal, "");
+    }
+    ibus_test_key(&server, KEY_F9);
+    ibus_test_drain(&server, context, component);
+    CHECK(kill(stopped_engine, SIGSTOP) == 0);
+    ibus_test_key(&server, KEY_ENTER);
+    pump(&server); dispatch_context(context);
+    CHECK(boxrig_wayland_terminal_component_set_input_enabled(component, false) == BOXRIG_UI_OK);
+    CHECK(boxrig_wayland_terminal_component_set_input_enabled(component, true) == BOXRIG_UI_OK);
+    ibus_test_key(&server, KEY_F2);
+    pump(&server); dispatch_context(context);
+    CHECK(kill(stopped_engine, SIGCONT) == 0);
+    ibus_test_drain(&server, context, component);
+    check_ibus_preedit(component, "A記者の🙂汽車がZ", 14, 23, true);
+    check_ibus_output(terminal, "");
+
     pid_t daemon_pid = (pid_t)strtol(getenv("BOXRIG_TEST_IBUS_DAEMON_PID"), NULL, 10);
     pid_t engine_pid = (pid_t)strtol(getenv("BOXRIG_TEST_IBUS_ENGINE_PID"), NULL, 10);
     CHECK(daemon_pid > 1 && kill(daemon_pid, SIGTERM) == 0);
@@ -9165,6 +9426,7 @@ int main(int argc, char **argv)
     test_native_candidate_pointer();
     test_native_candidate_scale();
     test_standard_scrollbar_visibility();
+    test_input_inhibition();
     test_terminal_io_configuration();
     test_ready_and_required_removal();
     test_missing_required_global();

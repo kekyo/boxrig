@@ -57,6 +57,36 @@ int connect_shell(boxrig_terminal *terminal,
 ビルドにはcore、UIを使う場合はUI、session、POSIXの各ライブラリとPTYのリンク依存が必要です。
 [ビルドガイド](./building.md)と[POSIXの利用例](../../examples/boxrig_term/common/posix_application.c)で実際の接続を確認できます。
 
+## POSIXの起動結果と終了結果を分ける
+
+`boxrig_posix_pty_spawn()`が`0`を返した時点で確定するのは、子プロセスを生成できたことです。
+`boxrig_posix_pty_get_spawn_result()`で、端末の準備と`exec`の結果を取得してください。
+この取得は待機せず、子プロセスも回収しません。
+
+| 起動状態 | アプリの処理 |
+| --- | --- |
+| `PENDING` | `boxrig_posix_pty_spawn_descriptor()`の読み取り可能・切断を待ち、再取得 |
+| `SUCCEEDED` | 起動診断の監視を終了。以後の稼働・終了は別に監視 |
+| `FAILED` | `stage`と`error_number`で失敗を処理し、子の回収を完了 |
+
+診断FDはPTYが所有し、破棄まで同じFDを保持します。
+直接の読み取り、close、フラグ変更は行わず、状態が確定したら待機登録を解除してください。
+成功判定には、[close-on-execを指定したpipe](https://www.man7.org/linux/man-pages/man2/pipe.2.html)の終了を使います。
+起動成功はアプリケーションの準備完了や、その後も動作していることを保証しません。
+
+親側の準備失敗も構造体で受け取りたい場合は、`boxrig_posix_pty_spawn_with_diagnostic()`を使います。
+戻り値が`-1`なら`errno`と呼び出し元の診断へ原因を残し、PTYと子プロセスは返しません。
+`0`なら初期診断は`PENDING`で、返されたPTYから続きの結果を取得できます。
+親側の準備は同期処理です。
+環境変数とPATH探索に必要な領域も、fork前に準備します。
+子のTERMは親のTERMを変更せずに設定され、PATH探索とshebangなしの実行可能スクリプトの扱いは`execvp()`相当です。
+プロセスの環境変数を別のスレッドで変更する場合は、この起動呼び出しと変更処理を直列化してください。
+
+不存在のコマンドは`FAILED`・`EXEC`・`ENOENT`、起動後に127で終了するコマンドは`SUCCEEDED`です。
+どちらも子の終了値が127になるため、終了値だけでは区別できません。
+子の回収は`boxrig_posix_pty_wait()`かアプリの`waitpid()`のどちらか一方へ集約します。
+最終診断は子の回収後も取得でき、PTYの破棄ではmasterと診断FDを閉じます。
+
 ## Win32 PTYにつなぐ
 
 Windowsでは[PTY API](../../include/boxrig/win32/pty.h)で疑似コンソールを作り、`boxrig_win32_pty_session_create()`へ渡します。
@@ -69,6 +99,51 @@ Win32セッションには専用の`boxrig_win32_pty_session_dispatch()`があ�
 OS付属と同梱版のConPTYの選択はPTYの設定です。
 診断には選択した方式、試行段階、失敗理由が残ります。
 生成に成功したかどうかを、Windowsのバージョンだけで推測しないでください。
+
+起動診断と終了結果は別々に保持します。
+`boxrig_win32_pty_spawn_with_config()`が返す診断には、失敗段階、Win32エラー、ConPTYが返したHRESULT、fallbackの経過が含まれます。
+成功が示すのは`CreateProcessW()`の成功までで、アプリケーションが利用可能になったことや、その後も実行中であることは保証しません。
+[Microsoftの生成結果の契約](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-createprocessw)も参照してください。
+
+終了の監視には、`boxrig_win32_pty_process_handle()`で取得した借用HANDLEを使います。
+Cardioの`from_win32_handle()`などでsignaledを確認してから、`GetExitCodeProcess()`の終了値を取得してください。
+通常終了127は起動失敗ではありません。終了値259も、signaledであれば実際の終了結果です。
+259を`STILL_ACTIVE`と比較するだけでは、終了後も待ち続けることがあります。
+[Microsoftの終了値の説明](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-getexitcodeprocess)にある注意点です。
+待機を完了または取り消してからPTYを破棄し、借用HANDLEを直接閉じないでください。
+
+起動と終了を分けて確認するドライバーは、[POSIX](../../tests/test_posix_spawn.c)と[Win32](../../tests/win32/test_pty_spawn.cpp)にあります。
+これらのC APIでは、起動と失敗時の後始末は同期処理です。
+
+## GUIから起動と中止を行う
+
+[C++20の起動ドライバー](../../examples/pty_spawn/main.cpp)は、StartとCancelで子プロセスを操作する実行例です。
+起動失敗、子の終了、中止後の資源回収を個別に確認できます。
+子の出力は読み取ってバイト数を表示し、端末画面や対話入力は提供しません。
+
+```sh
+make example-pty-spawn
+build/examples/pty_spawn /bin/sh -c 'read value'
+# 1回実行し、終了結果を表示して閉じる
+build/examples/pty_spawn --once /bin/sh -c 'exit 127'
+```
+
+Linux版はGTK3を使い、子の終了を[pidfd](https://man7.org/linux/man-pages/man2/pidfd_open.2.html)で待ちます。Linux 5.3以降と、`sys/pidfd.h`を提供するlibcが必要です。
+MinGWのamd64/i686版は`make example-pty-spawn-win32`で生成します。
+Windowsではコマンドライン全体を1引数として渡します。
+例えば`pty_spawn.exe --once "cmd.exe /d /c exit 259"`です。このGUIはシステム版ConPTYを使います。
+
+[操作の所有者](../../examples/pty_spawn/operation.h)は同時に1件だけ起動を受け付け、資源回収中の次の要求を拒否します。
+Cancelは取消要求であり、停止完了ではありません。
+開始済みの同期OS関数が戻るのを待ち、必要なら生成された子を終了させ、I/OとPTYの資源を回収してから`finished`を通知します。
+取消前の遅い`ready`通知は世代の照合で除外されます。
+ウィンドウを閉じても、dispatcherを終了できるのは回収完了後です。
+
+同期処理には[Cardioの`promises::start_new()`](../../deps/cardio/README_ja.md)を使います。
+Win32で出力を回収する場合は、別の読み取り操作が同期pipeを読み続ける間にConPTYを閉じます。
+出力を破棄する場合は、PTYのdestroyが出力pipeを先に閉じる順序です。
+この区別は、古いWindowsで`ClosePseudoConsole()`が出力の排出を待つ場合にも必要です。
+[Microsoftの終了処理の説明](https://learn.microsoft.com/en-us/windows/console/closepseudoconsole)を参照してください。
 
 ## 独自の通信路につなぐ
 

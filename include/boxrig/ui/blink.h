@@ -5,6 +5,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** Positive durations for one displayed/hidden cycle, in milliseconds. */
 typedef struct boxrig_ui_blink_interval {
     /** Time for which the target is visible in each cycle. */
@@ -34,5 +38,9 @@ typedef struct boxrig_ui_blink_config {
  * uint64_t. Disabling blinking does not alter terminal rendition attributes.
  */
 boxrig_ui_blink_config boxrig_ui_blink_config_default(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -12,6 +12,10 @@
 
 #include <windows.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** Opaque UI-thread bridge to synchronous ConPTY input and output pipes. */
 typedef struct boxrig_win32_pty_session boxrig_win32_pty_session;
 
@@ -96,5 +100,9 @@ boxrig_session_status boxrig_win32_pty_session_resize(
     boxrig_win32_pty_session *session,
     size_t rows,
     size_t columns);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

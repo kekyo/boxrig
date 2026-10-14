@@ -13,11 +13,11 @@ int main(void)
         config.rows = 2;
         config.columns = 6;
         config.encoding = (boxrig_encoding)encoding;
-        config.enter_newline = BOXRIG_NEWLINE_LF;
+        config.input.enter_newline = BOXRIG_NEWLINE_LF;
         config.paste_newline = BOXRIG_NEWLINE_CRLF;
         config.receive_newline = BOXRIG_RECEIVE_NEWLINE_CRLF;
-        config.key_mappings = &mapping;
-        config.key_mapping_count = 1;
+        config.input.key_mappings = &mapping;
+        config.input.key_mapping_count = 1;
         boxrig_terminal *terminal = NULL;
         boxrig_ui_model *model = NULL;
         boxrig_ui_view *views[2] = {NULL, NULL};

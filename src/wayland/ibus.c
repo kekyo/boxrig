@@ -64,8 +64,13 @@ static bool forward_key(void *data, void *seat, uint32_t symbol, uint32_t code,
 static boxrig_ui_status apply_effect(void *data, boxrig_ibus_effect *effect,
     bool *blocked, bool *accepted)
 {
+    boxrig_wayland_terminal_component *component = data;
+    if (component->input_control.state.phase != BOXRIG_UI_INPUT_ENABLED) {
+        *blocked = false;
+        *accepted = true;
+        return BOXRIG_UI_OK;
+    }
     if (effect->type == BOXRIG_IBUS_CANDIDATES) {
-        boxrig_wayland_terminal_component *component = data;
         const boxrig_ibus_candidates *source = &effect->value.candidates;
         boxrig_ui_candidate_snapshot snapshot = {
             .count = source->count, .page_size = source->page_size, .cursor = source->cursor,
@@ -80,7 +85,8 @@ static boxrig_ui_status apply_effect(void *data, boxrig_ibus_effect *effect,
         *accepted = true;
         return boxrig_ui_view_set_candidates(component->view, &snapshot);
     }
-    boxrig_wayland_input_item item = {.text = effect->text, .segments = effect->segments};
+    boxrig_wayland_input_item item = {.text = effect->text, .segments = effect->segments,
+        .input_generation = component->input_control.state.generation};
     if (effect->type == BOXRIG_IBUS_KEY) {
         item.type = BOXRIG_WAYLAND_INPUT_KEY;
         item.ime_forwarded = true;
@@ -146,6 +152,8 @@ void boxrig_wayland_ibus_focus(boxrig_wayland_seat *seat,
     boxrig_wayland_terminal_component *component, bool commit)
 {
     if (seat->context->ibus == NULL) return;
+    if (component != NULL && component->input_control.state.phase != BOXRIG_UI_INPUT_ENABLED)
+        component = NULL;
     initialize_target(component);
     if (seat->ibus == NULL) {
         if (component == NULL) return;

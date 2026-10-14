@@ -11,6 +11,10 @@
 
 #include <X11/Xlib.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** Opaque Xlib child-window scrollbar owned by a terminal frontend. */
 typedef struct boxrig_x11_scrollbar boxrig_x11_scrollbar;
 
@@ -91,5 +95,9 @@ int boxrig_x11_scrollbar_synchronize(boxrig_x11_scrollbar *scrollbar);
 int boxrig_x11_scrollbar_process_event(
     boxrig_x11_scrollbar *scrollbar,
     const XEvent *event);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

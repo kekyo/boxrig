@@ -282,6 +282,24 @@ static boxrig_status append_pixel_geometry_report(
         (size_t)length);
 }
 
+static boxrig_status request_grid_resize(
+    boxrig_terminal *terminal,
+    const boxrig_parser_parameter *parameters,
+    size_t parameter_count)
+{
+    if (parameter_count > 3) return BOXRIG_STATUS_OK;
+    boxrig_grid_size_request request = {0};
+    boxrig_grid_size_axis *axes[] = {&request.rows, &request.columns};
+    for (size_t index = 1; index < parameter_count; index++) {
+        if (parameters[index].subparameter) return BOXRIG_STATUS_OK;
+        if (!parameters[index].has_value) continue;
+        axes[index - 1]->mode = parameters[index].value == 0
+            ? BOXRIG_GRID_SIZE_DISPLAY : BOXRIG_GRID_SIZE_EXPLICIT;
+        axes[index - 1]->cells = parameters[index].value;
+    }
+    return boxrig_terminal_push_grid_resize(terminal, &request);
+}
+
 static boxrig_status interpreter_dispatch_csi(
     void *context,
     uint8_t private_marker,
@@ -313,6 +331,11 @@ static boxrig_status interpreter_dispatch_csi(
             terminal,
             response,
             sizeof(response) - 1);
+    }
+    if (private_marker == 0 && intermediate_count == 0 &&
+        final_byte == (uint8_t)'t' &&
+        first_parameter(parameters, parameter_count, 0) == 8) {
+        return request_grid_resize(terminal, parameters, parameter_count);
     }
     if (private_marker == 0 && intermediate_count == 0 &&
         final_byte == (uint8_t)'t' && parameter_count >= 1 &&

@@ -46,6 +46,7 @@ With `create_on_target()`, which attaches to an application-owned target, the ap
 
 Call `pretranslate_message()` from the message loop and check whether it handled the message.
 If directly forwarded input returns `BLOCKED`, retain it and retry after capacity is restored.
+Save its input generation too, and discard it if the generation from `get_input_state()` changes.
 Handle parent and sibling window messages normally in the application.
 
 Advance the session, synchronize the model, and call the component's `frame()`, in that order.
@@ -55,6 +56,25 @@ Depending on the rendering backend, `activity_handle()` may return a handle.
 Call `dispatch_activity()` only after a wait receives a notification for that handle.
 It is not an API for advancing rendering without waiting for a notification.
 See the [component example](../../../examples/win32/component.c) for the complete integration.
+
+## Temporarily inhibit input
+
+Call `boxrig_win32_terminal_component_set_input_enabled(component, false)` to inhibit input.
+It cancels keys, IME commits, and clipboard paste not yet submitted to the terminal.
+Selection, copy, history navigation, rendering, and application input routers remain available.
+
+`get_input_state()` returns `ENABLED`, `STOPPING`, or `DISABLED`, plus the input generation.
+If an active paste terminator cannot enter the output buffer, the disable request returns `BUSY` and enters `STOPPING`.
+Retry through `frame()`, then resume with `true` once the phase is `DISABLED`.
+A request made from an input callback also returns `BUSY`, preserving the old state.
+Previously submitted core bytes remain queued, and terminal queries still receive replies.
+The application is responsible for checking transport drain completion.
+
+Keys held across inhibition remain suppressed through release.
+Old `WM_CHAR` messages are discarded until a fresh key press after resumption; IME commits require a new composition or reconversion session.
+Apply the saved input generation to application-retained native messages and directly invoked composition callbacks too.
+The window's borrowed IMM context is temporarily detached, then restored on resumption or destruction.
+Keep that context alive and leave its association unchanged meanwhile, following the [ImmAssociateContext lifetime contract](https://learn.microsoft.com/en-us/windows/win32/api/imm/nf-imm-immassociatecontext).
 
 ## DPI and resizing
 

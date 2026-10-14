@@ -56,6 +56,9 @@ msvcrt.dll realloc
 msvcrt.dll remove
 msvcrt.dll signal
 msvcrt.dll strchr
+# C runtime string comparison used by named regex captures.
+# https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/strcmp-wcscmp-mbscmp
+msvcrt.dll strcmp
 msvcrt.dll strerror
 msvcrt.dll strlen
 msvcrt.dll strncmp

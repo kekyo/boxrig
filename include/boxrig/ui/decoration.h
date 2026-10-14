@@ -4,6 +4,10 @@
 
 #include "boxrig/terminal.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** How a view selects the insertion-cursor shape. */
 typedef enum boxrig_ui_cursor_shape_policy {
     /** Follow the terminal's DECSCUSR shape. */
@@ -122,5 +126,9 @@ typedef struct boxrig_ui_selection_style {
  * colors never reveal concealed glyphs or change snapshots and clipboard data.
  */
 boxrig_ui_selection_style boxrig_ui_selection_style_default(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

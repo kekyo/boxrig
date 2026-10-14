@@ -4,6 +4,10 @@
 #include "boxrig/notification/freedesktop.h"
 #include <glib.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /**
  * Creates an unattached source for the notification provider's private loop.
  * @param notifications Borrowed service, kept alive until source destruction.
@@ -16,4 +20,8 @@
 GSource *boxrig_freedesktop_notifications_source_new(
     boxrig_freedesktop_notifications *notifications, void (*failed)(void *),
     void *context);
+#ifdef __cplusplus
+}
+#endif
+
 #endif

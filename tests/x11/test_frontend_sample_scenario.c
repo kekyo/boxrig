@@ -1034,7 +1034,7 @@ static bool wait_for_exit_with_display(
             (strstr(process->diagnostics,
                     "READY sample pending GTK3 clipboard callback after teardown\n") != NULL ||
              strstr(process->diagnostics,
-                    "READY sample pending X11 selection after quiesce\n") != NULL ||
+                    "READY sample pending X11 selection before quiesce\n") != NULL ||
              (held_clipboard_may_cancel && strstr(process->diagnostics,
                     "READY sample pending GTK4 clipboard callback after teardown\n") != NULL))) {
             if (!reply_to_held_clipboard_request(display, &held_clipboard_request, true)) {

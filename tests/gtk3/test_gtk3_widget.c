@@ -2265,7 +2265,7 @@ static bool test_layout_frame_and_geometry_hints(void)
     CHECK(accessible_has_state(accessible, ATK_STATE_ENABLED));
     CHECK(accessible_has_state(accessible, ATK_STATE_SENSITIVE));
     CHECK(!accessible_has_state(accessible, ATK_STATE_BUSY));
-    CHECK(!ATK_IS_TEXT(accessible));
+    CHECK(ATK_IS_TEXT(accessible));
     CHECK(layout.rows == terminal_config.rows);
     CHECK(layout.columns == terminal_config.columns);
     CHECK(layout.excess_right >= 0 && layout.excess_bottom >= 0);
@@ -2520,6 +2520,7 @@ static bool test_clipboard_actions(void)
     CHECK(boxrig_gtk3_terminal_widget_get_effective_metrics(
               widget,
               &metrics) == BOXRIG_FONT_CATALOG_OK);
+    CHECK(boxrig_gtk3_terminal_widget_set_input_enabled(widget, false) == BOXRIG_UI_OK);
     CHECK(boxrig_gtk3_terminal_widget_hit_test(
               widget,
               (boxrig_ui_fixed)metrics.cell_width * BOXRIG_UI_FIXED_ONE / 2,
@@ -2539,7 +2540,8 @@ static bool test_clipboard_actions(void)
     CHECK(capabilities.copy_targets ==
           (BOXRIG_UI_CLIPBOARD_TARGET_PRIMARY_SELECTION |
            BOXRIG_UI_CLIPBOARD_TARGET_CLIPBOARD));
-    CHECK(capabilities.paste_targets == capabilities.copy_targets);
+    capabilities = boxrig_gtk3_terminal_widget_view_action_capabilities(widget);
+    CHECK(capabilities.paste_targets == 0 && !capabilities.reconversion);
 
     action.kind = BOXRIG_UI_VIEW_ACTION_COPY;
     action.clipboard_target = BOXRIG_UI_CLIPBOARD_TARGET_PRIMARY_SELECTION;
@@ -2567,6 +2569,7 @@ static bool test_clipboard_actions(void)
     CHECK(read_result.text != NULL && strcmp(read_result.text, "copy\n") == 0);
     g_free(read_result.text);
 
+    CHECK(boxrig_gtk3_terminal_widget_set_input_enabled(widget, true) == BOXRIG_UI_OK);
     gtk_clipboard_set_text(primary, "P\r\n", -1);
     gtk_clipboard_set_text(clipboard, "P\r\n", -1);
     CHECK(boxrig_gtk3_terminal_widget_get_diagnostic(widget, &diagnostic) ==
@@ -2654,7 +2657,7 @@ static bool test_clipboard_actions(void)
     return true;
 }
 
-static bool test_dispose_during_clipboard_callback(void)
+static bool test_delayed_clipboard_callback(bool dispose)
 {
     static const unsigned char delayed_text[] = "late";
     boxrig_terminal_config terminal_config = boxrig_terminal_config_default();
@@ -2744,11 +2747,17 @@ static bool test_dispose_during_clipboard_callback(void)
           BOXRIG_UI_OK);
     CHECK(diagnostic.active_clipboard_transfers == 1);
 
-    CHECK(boxrig_gtk3_terminal_widget_quiesce(widget) == BOXRIG_UI_OK);
-    gtk_container_remove(GTK_CONTAINER(window), GTK_WIDGET(widget));
-    gtk_widget_destroy(GTK_WIDGET(window));
-    g_object_unref(window);
-    g_object_unref(widget);
+    if (dispose) {
+        CHECK(boxrig_gtk3_terminal_widget_quiesce(widget) == BOXRIG_UI_OK);
+        gtk_container_remove(GTK_CONTAINER(window), GTK_WIDGET(widget));
+        gtk_widget_destroy(GTK_WIDGET(window));
+        g_object_unref(window);
+        g_object_unref(widget);
+    } else {
+        CHECK(boxrig_gtk3_terminal_widget_set_input_enabled(widget, false) == BOXRIG_UI_OK);
+        CHECK(boxrig_gtk3_terminal_widget_apply_view_action(widget, &action) == BOXRIG_UI_UNAVAILABLE);
+        CHECK(boxrig_gtk3_terminal_widget_set_input_enabled(widget, true) == BOXRIG_UI_OK);
+    }
 
     XChangeProperty(
         selection_display,
@@ -2778,6 +2787,22 @@ static bool test_dispose_during_clipboard_callback(void)
     (void)g_main_context_iteration(NULL, true);
     while (g_main_context_pending(NULL)) {
         (void)g_main_context_iteration(NULL, false);
+    }
+    if (!dispose) {
+        do {
+            CHECK(boxrig_gtk3_terminal_widget_get_diagnostic(widget, &diagnostic) == BOXRIG_UI_OK);
+            if (diagnostic.active_clipboard_transfers == 0) break;
+            (void)g_main_context_iteration(NULL, true);
+        } while (true);
+        boxrig_ui_component_frame_result frame;
+        const uint8_t *output;
+        CHECK(boxrig_gtk3_terminal_widget_frame(widget, &frame) == BOXRIG_UI_OK);
+        CHECK(boxrig_terminal_output_peek(terminal, &output) == 0);
+        CHECK(boxrig_gtk3_terminal_widget_quiesce(widget) == BOXRIG_UI_OK);
+        gtk_container_remove(GTK_CONTAINER(window), GTK_WIDGET(widget));
+        gtk_widget_destroy(GTK_WIDGET(window));
+        g_object_unref(window);
+        g_object_unref(widget);
     }
     XDestroyWindow(selection_display, selection_owner);
     XCloseDisplay(selection_display);
@@ -3210,7 +3235,7 @@ int main(int argc, char **argv)
                   test_grid_resize_tracks_runtime_output_scale() &&
                   test_layout_frame_and_geometry_hints() &&
                   test_clipboard_actions() &&
-                  test_dispose_during_clipboard_callback();
+                  test_delayed_clipboard_callback(false) && test_delayed_clipboard_callback(true);
 
     while (g_main_context_pending(NULL)) {
         (void)g_main_context_iteration(NULL, false);

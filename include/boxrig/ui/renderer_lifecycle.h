@@ -12,6 +12,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** Result of a renderer lifecycle operation. */
 typedef enum boxrig_renderer_status {
     /** The operation completed. */
@@ -348,5 +352,9 @@ void boxrig_renderer_lifecycle_fail_next(
 boxrig_renderer_status boxrig_renderer_lifecycle_get_counters(
     const boxrig_renderer_lifecycle *lifecycle,
     boxrig_renderer_counters *counters_out);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

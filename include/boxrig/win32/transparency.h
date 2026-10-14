@@ -14,6 +14,10 @@
 
 #include <stdbool.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** Opaque Win32 transparency negotiation and auxiliary-surface context. */
 typedef struct boxrig_win32_transparency_context
     boxrig_win32_transparency_context;
@@ -325,5 +329,9 @@ boxrig_win32_transparency_context_present_opaque(
     HDC source_context,
     SIZE size,
     const RECT *dirty);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -11,6 +11,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** Opaque identifier for one renderer-owned font resource. */
 typedef uint64_t boxrig_font_resource_id;
 
@@ -781,5 +785,9 @@ bool boxrig_font_visual_step_sequence_peek_reset(
  */
 bool boxrig_font_visual_step_sequence_reset(
     boxrig_font_visual_step_sequence *sequence);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

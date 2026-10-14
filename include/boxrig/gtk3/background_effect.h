@@ -3,6 +3,10 @@
 #define BOXRIG_GTK3_BACKGROUND_EFFECT_H
 #include "boxrig/ui/background_effect.h"
 #include <gtk/gtk.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 /** Optional toplevel adapter; link libboxrig-background-gtk3.a explicitly. */
 typedef struct boxrig_gtk_background_effect boxrig_gtk3_background_effect;
 /**
@@ -48,4 +52,8 @@ boxrig_ui_background_effect_state boxrig_gtk3_background_effect_get_state(const 
  * @param effect Adapter or NULL. A window already disposed by GTK is allowed.
  */
 void boxrig_gtk3_background_effect_destroy(boxrig_gtk3_background_effect *effect);
+#ifdef __cplusplus
+}
+#endif
+
 #endif

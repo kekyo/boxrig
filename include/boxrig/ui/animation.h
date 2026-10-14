@@ -4,6 +4,10 @@
 
 #include "boxrig/ui/view.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** Shared animation clock and deadline aggregation for one owning UI loop. */
 typedef struct boxrig_ui_animation_runtime boxrig_ui_animation_runtime;
 
@@ -95,5 +99,9 @@ boxrig_ui_status boxrig_ui_animation_runtime_dispatch(
  */
 boxrig_ui_status boxrig_ui_animation_runtime_status(
     const boxrig_ui_animation_runtime *runtime);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

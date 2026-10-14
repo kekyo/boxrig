@@ -10,6 +10,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /**
  * Validates and normalizes untrusted UTF-8 clipboard text.
  *
@@ -40,5 +44,9 @@ int boxrig_input_text_normalize_utf8(
  * @remarks Input must already be validated. A scalar never exceeds four bytes.
  */
 size_t boxrig_input_text_chunk_length(const char *text, size_t length, size_t preferred);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

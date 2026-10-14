@@ -34,9 +34,9 @@ static bool modes_modifiers_and_actions(void)
     for (unsigned index = 0; index < 4; index++)
         mappings[index] = (boxrig_key_mapping){keys[index], 0, bytes[index], 2};
     boxrig_terminal_config config = boxrig_terminal_config_default();
-    CHECK(config.key_mappings == NULL && config.key_mapping_count == 0);
-    config.key_mappings = mappings;
-    config.key_mapping_count = 4;
+    CHECK(config.input.key_mappings == NULL && config.input.key_mapping_count == 0);
+    config.input.key_mappings = mappings;
+    config.input.key_mapping_count = 4;
     CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
     for (unsigned mode = 0; mode < 2; mode++) {
         CHECK(feed(terminal, mode ? "\033[?1h" : "\033[?1l"));
@@ -75,7 +75,7 @@ static bool complete_bytes_empty_and_exact_modifiers(void)
         {BOXRIG_KEY_DOWN, 0, NULL, 0}
     };
     boxrig_terminal_config config = boxrig_terminal_config_default();
-    config.key_mappings = mappings; config.key_mapping_count = 2;
+    config.input.key_mappings = mappings; config.input.key_mapping_count = 2;
     CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
     boxrig_key_event key = {.key = BOXRIG_KEY_UP, .modifiers = modifiers};
     CHECK(boxrig_terminal_send_key(terminal, &key) == BOXRIG_STATUS_OK);
@@ -102,7 +102,7 @@ static bool kitty_precedence(void)
     boxrig_terminal *terminal = NULL;
     const boxrig_key_mapping mapping = {BOXRIG_KEY_UP, 0, (const uint8_t *)"U", 1};
     boxrig_terminal_config config = boxrig_terminal_config_default();
-    config.key_mappings = &mapping; config.key_mapping_count = 1;
+    config.input.key_mappings = &mapping; config.input.key_mapping_count = 1;
     CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
     /* The protocol encodes arrows as CSI finals, with event subparameters
      * only when report-events is enabled. Other flags alone leave them legacy. */
@@ -144,8 +144,8 @@ static bool ownership_reset_and_isolation(void)
     uint8_t bytes[] = {'A', 0, 'B'};
     boxrig_key_mapping mapping = {BOXRIG_KEY_UP, 0, bytes, sizeof(bytes)};
     boxrig_terminal_config config = boxrig_terminal_config_default();
-    config.key_mappings = &mapping; config.key_mapping_count = 1;
-    config.enter_newline = BOXRIG_NEWLINE_LF;
+    config.input.key_mappings = &mapping; config.input.key_mapping_count = 1;
+    config.input.enter_newline = BOXRIG_NEWLINE_LF;
     CHECK(boxrig_terminal_create(&config, &first) == BOXRIG_STATUS_OK);
     memset(bytes, 'Z', sizeof(bytes));
     mapping.key = BOXRIG_KEY_DOWN;
@@ -179,45 +179,45 @@ static bool invalid_settings_and_limits(void)
     boxrig_key_mapping mappings[65];
     uint8_t bytes[4097] = {0};
     boxrig_terminal_config config = boxrig_terminal_config_default();
-    config.key_mappings = mappings;
+    config.input.key_mappings = mappings;
     for (unsigned i = 0; i < 65; i++)
         mappings[i] = (boxrig_key_mapping){BOXRIG_KEY_UP, i, bytes, 0};
-    config.key_mapping_count = 64;
+    config.input.key_mapping_count = 64;
     CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
     boxrig_terminal_destroy(terminal); terminal = NULL;
-    config.key_mapping_count = 65;
+    config.input.key_mapping_count = 65;
     CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_LIMIT_EXCEEDED);
     CHECK(terminal == NULL);
-    config.key_mapping_count = SIZE_MAX;
+    config.input.key_mapping_count = SIZE_MAX;
     CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_LIMIT_EXCEEDED);
-    config.key_mapping_count = 1;
+    config.input.key_mapping_count = 1;
     for (unsigned test = 0; test < 7; test++) {
         mappings[0] = (boxrig_key_mapping){BOXRIG_KEY_UP, 0, bytes, 1};
-        config.key_mappings = mappings;
+        config.input.key_mappings = mappings;
         if (test == 0) mappings[0].key = BOXRIG_KEY_ENTER;
         if (test == 1) mappings[0].key = BOXRIG_KEY_NONE;
         if (test == 2) mappings[0].key = BOXRIG_KEY_KP_UP;
         if (test == 3) mappings[0].modifiers = BOXRIG_MODIFIER_CAPS_LOCK;
         if (test == 4) mappings[0].modifiers = 1u << 20;
         if (test == 5) mappings[0].bytes = NULL;
-        if (test == 6) config.key_mappings = NULL;
+        if (test == 6) config.input.key_mappings = NULL;
         CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_INVALID_ARGUMENT);
         CHECK(terminal == NULL);
     }
-    config.key_mappings = mappings;
+    config.input.key_mappings = mappings;
     mappings[0] = (boxrig_key_mapping){BOXRIG_KEY_UP, 0, bytes, 4097};
     CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_LIMIT_EXCEEDED);
     mappings[0].length = SIZE_MAX;
     CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_LIMIT_EXCEEDED);
     mappings[0].length = 1;
-    mappings[1] = mappings[0]; config.key_mapping_count = 2;
+    mappings[1] = mappings[0]; config.input.key_mapping_count = 2;
     CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_INVALID_ARGUMENT);
     for (unsigned i = 0; i < 17; i++)
         mappings[i] = (boxrig_key_mapping){BOXRIG_KEY_UP, i, bytes, 4096};
-    config.key_mapping_count = 16;
+    config.input.key_mapping_count = 16;
     CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
     boxrig_terminal_destroy(terminal); terminal = NULL;
-    config.key_mapping_count = 17;
+    config.input.key_mapping_count = 17;
     CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_LIMIT_EXCEEDED);
     CHECK(terminal == NULL);
     return true;
@@ -230,7 +230,7 @@ static bool retry_preserves_atomic_bytes(void)
     boxrig_terminal *terminal = NULL;
     const boxrig_key_mapping mapping = {BOXRIG_KEY_UP, 0, (const uint8_t *)"A\0B", 3};
     boxrig_terminal_config config = boxrig_terminal_config_default();
-    config.key_mappings = &mapping; config.key_mapping_count = 1;
+    config.input.key_mappings = &mapping; config.input.key_mapping_count = 1;
     config.output_capacity = 4;
     CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
     CHECK(boxrig_terminal_send_text(terminal, "xy", 2) == BOXRIG_STATUS_OK);
@@ -260,8 +260,8 @@ static bool barriers_and_other_output(void)
     boxrig_terminal *terminal = NULL;
     const boxrig_key_mapping mapping = {BOXRIG_KEY_UP, 0, (const uint8_t *)"U\0", 2};
     boxrig_terminal_config config = boxrig_terminal_config_default();
-    config.key_mappings = &mapping; config.key_mapping_count = 1;
-    config.enter_newline = BOXRIG_NEWLINE_LF;
+    config.input.key_mappings = &mapping; config.input.key_mapping_count = 1;
+    config.input.enter_newline = BOXRIG_NEWLINE_LF;
     CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
     CHECK(feed(terminal, "\033]52;c;?\007"));
     boxrig_host_item item;

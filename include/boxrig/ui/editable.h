@@ -13,6 +13,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** Default maximum UTF-8 bytes copied into one editable context. */
 #define BOXRIG_UI_EDITABLE_CONTEXT_CAPACITY_DEFAULT ((size_t)(64u * 1024u))
 
@@ -441,5 +445,9 @@ boxrig_ui_status boxrig_ui_editable_document_complete_replacement(
 boxrig_ui_editable_reconversion_state
 boxrig_ui_editable_document_reconversion_state(
     const boxrig_ui_editable_document *document);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
