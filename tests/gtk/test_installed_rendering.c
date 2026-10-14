@@ -14,6 +14,9 @@ typedef boxrig_gtk4_terminal_widget_config widget_config;
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#if defined(BOXRIG_TEST_SHARED)
+#include <dlfcn.h>
+#endif
 
 #define CHECK(condition) do { if (!(condition)) { \
     fprintf(stderr, "FAIL GTK %d installed rendering line %d: %s\n", GTK_MAJOR_VERSION, __LINE__, #condition); \
@@ -39,9 +42,19 @@ static GdkGLContext *creating_context(GtkGLArea *area, gpointer data)
 /** @copydoc gtk_gl_area_new */
 GtkWidget *__real_gtk_gl_area_new(void);
 /** Observes context creation through GTK's public signal. */
+#if defined(BOXRIG_TEST_SHARED)
+GtkWidget *gtk_gl_area_new(void)
+{
+    GtkWidget *(*create_area)(void);
+    void *address = dlsym(RTLD_NEXT, "gtk_gl_area_new");
+    CHECK(address != NULL && sizeof(create_area) == sizeof(address));
+    memcpy(&create_area, &address, sizeof(create_area));
+    GtkWidget *area = create_area();
+#else
 GtkWidget *__wrap_gtk_gl_area_new(void)
 {
     GtkWidget *area = __real_gtk_gl_area_new();
+#endif
     g_signal_connect(area, "create-context", G_CALLBACK(creating_context), NULL);
     return area;
 }

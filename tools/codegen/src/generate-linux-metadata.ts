@@ -26,6 +26,7 @@ for (const path of [prefix, libdir, includedir, pcdir]) {
 }
 const variables = {
   version,
+  epoxy: process.env.BOXRIG_GTK_OPENGL === '0' ? '' : ', epoxy',
   prefix: '${pcfiledir}/' + (relative(pcdir, prefix) || '.'),
   libdir: '${prefix}/' + (relative(prefix, libdir) || '.'),
   includedir: '${prefix}/' + (relative(prefix, includedir) || '.'),

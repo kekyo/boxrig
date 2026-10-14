@@ -76,7 +76,7 @@ git submodule update --init
 if [ "$target" != win32 ]; then
     package_require "$make_command" npm node
     npm ci --prefix tools/codegen
-    "$make_command" -f tools/codegen/rules.mk package-codegen
+    "$make_command" -f tools/codegen/rules.mk package-codegen BOXRIG_VERSION="$version"
 fi
 
 packages="$repository/artifacts"
@@ -95,7 +95,7 @@ if [ -n "$selected" ]; then
     tar -cf "$snapshot" --exclude='./build' --exclude='./artifacts' \
         --exclude='.git' --exclude='node_modules' -C "$repository" .
     tar -rf "$snapshot" -C "$repository" build/tools/codegen \
-        build/generated/licenses/Wayland-protocols-NOTICES.md
+        build/generated/licenses/Wayland-protocols-NOTICES.md build/generated/pkgconfig
     while read -r distro release arch platform; do
         image=$(package_image "$distro" "$release" "$arch")
         name="boxrig-$version-linux-$distro-$release-$arch"

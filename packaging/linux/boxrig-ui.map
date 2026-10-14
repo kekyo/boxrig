@@ -235,3 +235,31 @@ BOXRIG_0 {
         boxrig_ui_zoom_shortcut_match;
     local: *;
 };
+
+# Intra-SDK implementation interfaces; not an application API.
+BOXRIG_PRIVATE_0 {
+    global:
+        boxrig_ui_candidates_place;
+        boxrig_ui_cursor_contrast_color;
+        boxrig_ui_input_control_accepts;
+        boxrig_ui_input_control_initialize;
+        boxrig_ui_input_control_request;
+        boxrig_ui_input_control_service;
+        boxrig_ui_scrollbar_visibility_cancel;
+        boxrig_ui_scrollbar_visibility_commit;
+        boxrig_ui_scrollbar_visibility_initialize;
+        boxrig_ui_scrollbar_visibility_prepare;
+        boxrig_ui_utf8_decode_scalar;
+        boxrig_ui_view_animation_status;
+        boxrig_ui_view_apply_color_state;
+        boxrig_ui_view_apply_cursor_style;
+        boxrig_ui_view_cursor_base_color;
+        boxrig_ui_view_cursor_filled;
+        boxrig_ui_view_cursor_stroke_pixels;
+        boxrig_ui_view_require_animation_runtime;
+        boxrig_ui_view_resolve_cell_paint;
+        boxrig_ui_view_resolve_paint_colors;
+        boxrig_ui_view_selection_stroke_pixels;
+        boxrig_ui_view_selection_uses_cell_colors;
+        boxrig_ui_view_store_candidate_layout;
+} BOXRIG_0;

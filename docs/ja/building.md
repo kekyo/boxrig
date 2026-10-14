@@ -101,6 +101,12 @@ pkg-config --cflags --libs boxrig-ui boxrig-posix
 公開APIはインストールしたヘッダーに宣言された関数です。`BOXRIG_PRIVATE_0`のシンボルはアプリケーションから使用しません。
 同梱のlibpng・zlib・utf8procは公開されず、アプリケーションやGTKが使うcodecと独立しています。
 
+GTKも共有版にする場合は`make shared`、インストールには`make install-shared`を使います。
+GTK3だけなら`shared-gtk3`と`install-shared-gtk3`、GTK4だけなら末尾を`gtk4`に置き換えます。
+いずれも基礎4ライブラリを含みます。`GTK_OPENGL=0`でCairoだけの構成も選択できます。
+配布パッケージのLinux SDKには、この6つの共有ライブラリと静的ライブラリが含まれます。
+生成される6つの`.pc`の版は`BOXRIG_VERSION`で指定でき、配布パッケージでは`screw-up`が取得した版になります。
+
 ## Windows向けにクロスビルドする
 
 ```sh

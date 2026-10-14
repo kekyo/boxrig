@@ -22,7 +22,7 @@ case "$family" in
             package_fail "Invalid Linux package target: $linux_target"
         package_require gcc g++ tar gzip wayland-scanner
         names=("boxrig-$version-linux-$linux_target")
-        "$make_command" -j"$jobs" native
+        "$make_command" -j"$jobs" native shared BOXRIG_VERSION="$version"
         ;;
     win32)
         package_require zip x86_64-w64-mingw32-gcc x86_64-w64-mingw32-g++ \
@@ -44,7 +44,7 @@ for name in "${names[@]}"; do
     if [ "$family" = linux ]; then
         targets=(install-gtk3 install-gtk4 install-wayland install-render-ogl \
             install-x11-opengl install-wayland-opengl install-notification \
-            install-background-gtk3 install-background-gtk4)
+            install-background-gtk3 install-background-gtk4 install-shared)
     else
         arch=${name##*-}
         targets=("install-core-win32-$arch" "install-win32-opengl-$arch" \
@@ -52,16 +52,14 @@ for name in "${names[@]}"; do
     fi
     # Install targets share files, so staging runs serially after the build.
     "$make_command" -j1 "${targets[@]}" DESTDIR="$stage" PREFIX="/$name" \
-        LIBDIR="/$name/lib" INCLUDEDIR="/$name/include" PKGCONFIGDIR="/$name/lib/pkgconfig"
+        LIBDIR="/$name/lib" INCLUDEDIR="/$name/include" PKGCONFIGDIR="/$name/lib/pkgconfig" \
+        BOXRIG_VERSION="$version"
     install -m 644 README_pack.md "$sdk/README.md"
     install -m 644 LICENSE "$sdk/LICENSE"
     rm "$sdk/share/licenses/boxrig/README_ja.md"
     rm -rf "$sdk/share/boxrig/examples"
     install -d "$sdk/bin"
     if [ "$family" = linux ]; then
-        # Session and POSIX libraries have no standalone install targets.
-        install -m 644 build/libboxrig-session.a build/libboxrig-posix.a "$sdk/lib"
-        install -m 644 include/boxrig/session.h include/boxrig/posix.h "$sdk/include/boxrig"
         for frontend in x11 gtk3 gtk4 wayland; do
             install -m 755 "build/boxrig_term/$frontend/boxrig_term" "$sdk/bin/boxrig_term_$frontend"
         done

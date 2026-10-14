@@ -100,6 +100,12 @@ When shared libraries are present in the same search path, selecting static link
 Public APIs are the functions declared in installed headers. Applications must not use symbols in `BOXRIG_PRIVATE_0`.
 Bundled libpng, zlib, and utf8proc symbols are not exported and remain independent of the codecs used by the application or GTK.
 
+Use `make shared` and `make install-shared` to include shared GTK libraries.
+For GTK3 alone, use `shared-gtk3` and `install-shared-gtk3`; replace the suffix with `gtk4` for GTK4 alone.
+Each includes the four base libraries. `GTK_OPENGL=0` selects a Cairo-only build.
+Linux distribution SDKs include these six shared libraries alongside static archives.
+Set `BOXRIG_VERSION` to control the version of the six generated `.pc` files; distribution packages use the version obtained from `screw-up`.
+
 ## Cross-build for Windows
 
 ```sh
