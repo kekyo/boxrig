@@ -2734,8 +2734,8 @@ $(OSC_RECOGNIZER_REGRESSION_TEST_BINARY): \
 		$(SANITIZERS) tests/test_osc_recognizer_regression.c $(LIBRARY) \
 		$(SANITIZERS) -o $@
 
-$(INPUT_SHORTCUT_TEST_BINARY): tests/test_input_shortcuts.c $(UI_LIBRARY) | $(BUILD_DIR)/tests
-	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) tests/test_input_shortcuts.c $(UI_LIBRARY) $(SANITIZERS) -o $@
+$(INPUT_SHORTCUT_TEST_BINARY): tests/test_input_shortcuts.c $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) tests/test_input_shortcuts.c $(UI_LIBRARY) $(LIBRARY) $(SANITIZERS) -o $@
 
 $(NOTIFICATION_POLICY_TEST_BINARY): tests/test_notification_policy.c $(UI_LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) tests/test_notification_policy.c $(UI_LIBRARY) $(SANITIZERS) -o $@
