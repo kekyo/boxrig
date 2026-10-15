@@ -1656,6 +1656,30 @@ size_t boxrig_regex_program_group_count(const boxrig_regex_program *program)
     return program == NULL ? 0u : program->group_count;
 }
 
+boxrig_status boxrig_regex_program_find_named_group(
+    const boxrig_regex_program *program, const char *name,
+    bool *found_out, size_t *group_out)
+{
+    if (found_out != NULL) {
+        *found_out = false;
+    }
+    if (group_out != NULL) {
+        *group_out = 0;
+    }
+    if (program == NULL || name == NULL || found_out == NULL || group_out == NULL) {
+        return BOXRIG_STATUS_INVALID_ARGUMENT;
+    }
+    for (size_t i = 1u; i <= program->group_count; i++) {
+        const char *candidate = program->group_names[i];
+        if (candidate != NULL && strcmp(candidate, name) == 0) {
+            *found_out = true;
+            *group_out = i;
+            break;
+        }
+    }
+    return BOXRIG_STATUS_OK;
+}
+
 size_t boxrig_regex_program_pattern_length(const boxrig_regex_program *program)
 {
     return program->pattern_length;
@@ -2229,17 +2253,17 @@ boxrig_status boxrig_regex_result_get_named_capture(
         return BOXRIG_STATUS_INVALID_ARGUMENT;
     }
     memset(capture_out, 0, sizeof(*capture_out));
-    if (result == NULL || name == NULL) {
+    if (result == NULL) {
         return BOXRIG_STATUS_INVALID_ARGUMENT;
     }
-    for (size_t i = 1u; i <= result->program->group_count; i++) {
-        const char *candidate = result->program->group_names[i];
-        if (candidate != NULL && strcmp(candidate, name) == 0) {
-            *capture_out = result->captures[i];
-            return BOXRIG_STATUS_OK;
-        }
+    bool found;
+    size_t group;
+    if (boxrig_regex_program_find_named_group(result->program, name,
+            &found, &group) != BOXRIG_STATUS_OK || !found) {
+        return BOXRIG_STATUS_INVALID_ARGUMENT;
     }
-    return BOXRIG_STATUS_INVALID_ARGUMENT;
+    *capture_out = result->captures[group];
+    return BOXRIG_STATUS_OK;
 }
 
 boxrig_status boxrig_regex_result_retain(boxrig_regex_result *result)

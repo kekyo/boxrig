@@ -16,6 +16,7 @@ Header comments at each link specify the individual API contracts.
 | --- | --- | --- |
 | Terminal creation, parsing, cells, history, output, and host requests | [terminal.h](../../../include/boxrig/terminal.h) | [Core step-by-step](../step-by-step/step-by-step-core.md) |
 | Text, selection, search, monitoring, recognition, images, and time | [terminal.h](../../../include/boxrig/terminal.h) | [Text](../text.md), [Graphics specification](./graphics.md) |
+| Regular expressions, captures, and name validation before matching | [regex.h](../../../include/boxrig/regex.h) | [Regular expressions (Japanese)](../../ja/regex.md) |
 | Nonblocking communication sessions | [session.h](../../../include/boxrig/session.h) | [Sessions](../sessions.md) |
 | POSIX file descriptors and PTYs | [posix.h](../../../include/boxrig/posix.h) | [Sessions](../sessions.md) |
 | Win32 communication and PTYs | [session.h](../../../include/boxrig/win32/session.h), [pty.h](../../../include/boxrig/win32/pty.h) | [Win32](../platforms/win32.md) |

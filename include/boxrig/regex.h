@@ -182,6 +182,24 @@ size_t boxrig_regex_program_state_count(const boxrig_regex_program *program);
 size_t boxrig_regex_program_group_count(const boxrig_regex_program *program);
 
 /**
+ * Finds a named group's number without matching any input.
+ * @param program Borrowed immutable compiled program.
+ * @param name NUL-terminated name, matched exactly and case-sensitively.
+ * @param found_out Required output; true if the name is defined, false otherwise.
+ * @param group_out Required output; the one-based group number, or zero if absent.
+ * @return OK for both defined and unknown names, or INVALID_ARGUMENT if any
+ *         argument is NULL. Every non-NULL output is cleared on failure.
+ * @remarks Optional groups and groups repeated zero times remain defined.
+ * Empty names and strings outside the identifier grammar are unknown names.
+ * No matcher, input, terminal, allocation, or recompilation is needed. The
+ * program and its reference count are unchanged; existing serialization rules
+ * for shared program use still apply. Group zero has no name.
+ */
+boxrig_status boxrig_regex_program_find_named_group(
+    const boxrig_regex_program *program, const char *name,
+    bool *found_out, size_t *group_out);
+
+/**
  * Copies and validates UTF-8 input for one leftmost-longest search.
  * @param program Borrowed program; retained on success.
  * @param input UTF-8 bytes, including NUL; NULL only for an empty input.

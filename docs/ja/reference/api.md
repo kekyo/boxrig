@@ -16,6 +16,7 @@
 | --- | --- | --- |
 | 端末生成、解析、セル、履歴、送信、ホスト要求 | [terminal.h](../../../include/boxrig/terminal.h) | [core step-by-step](../step-by-step/step-by-step-core.md) |
 | 文字列、選択、検索、監視、認識、画像、時計 | [terminal.h](../../../include/boxrig/terminal.h) | [文字列](../text.md)、[画像仕様](./graphics.md) |
+| 任意文字列の正規表現、キャプチャ、照合前の名前検証 | [regex.h](../../../include/boxrig/regex.h) | [正規表現](../regex.md) |
 | 非ブロッキングの通信セッション | [session.h](../../../include/boxrig/session.h) | [セッション](../sessions.md) |
 | POSIXのfdとPTY | [posix.h](../../../include/boxrig/posix.h) | [セッション](../sessions.md) |
 | Win32の通信とPTY | [session.h](../../../include/boxrig/win32/session.h)、[pty.h](../../../include/boxrig/win32/pty.h) | [Win32](../platforms/win32.md) |

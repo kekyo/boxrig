@@ -94,9 +94,15 @@ int main(void)
     boxrig_regex_limits limits = boxrig_regex_limits_default();
     boxrig_regex_program *program = NULL;
     boxrig_text_regex_diagnostic diagnostic;
+    const uint8_t pattern[] = "(?<value>a)";
     const uint8_t text[] = {'a'};
-    assert(boxrig_regex_compile(text, sizeof(text), &limits, &diagnostic,
+    assert(boxrig_regex_compile(pattern, sizeof(pattern) - 1, &limits, &diagnostic,
                                 &program) == BOXRIG_STATUS_OK);
+    bool found;
+    size_t group;
+    assert(boxrig_regex_program_find_named_group(program, "value", &found, &group) ==
+           BOXRIG_STATUS_OK);
+    assert(found && group == 1);
     boxrig_regex_matcher *matcher = NULL;
     size_t offset, used;
     assert(boxrig_regex_matcher_create(program, text, sizeof(text), 0,

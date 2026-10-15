@@ -1,7 +1,8 @@
 # 任意文字列の正規表現照合
 
 `boxrig/regex.h`は、端末やGUIを生成せずにUTF-8の文字列を照合するAPIです。
-`libboxrig.a`へリンクして使います。画面の文字列認識器と同じ文法・一致規則で照合できます。
+`libboxrig.a`または共有ライブラリ`libboxrig.so`へリンクして使います。
+画面の文字列認識器と同じ文法・一致規則で照合できます。
 
 ## CLIで試す
 
@@ -97,6 +98,30 @@ CLIでは、先頭に`--captures`を指定すると番号別の範囲と未参�
 ```sh
 printf 'zb' | build/boxrig-regex --captures '(?<missing>a)?(a*)b' 0 1
 ```
+
+## 設定保存前に名前を検証する
+
+コンパイル済みのプログラムへ`boxrig_regex_program_find_named_group()`を呼ぶと、名前の存在と番号を取得できます。
+入力や照合器、端末を用意する必要はありません。
+例えば、テンプレートの`${path}`を設定保存時に検証するには、名前の`path`を渡してください。
+
+```c
+bool found;
+size_t group;
+boxrig_status status = boxrig_regex_program_find_named_group(
+    program, "path", &found, &group);
+```
+
+名前が定義されていれば、`status`は`BOXRIG_STATUS_OK`、`found`はtrue、`group`は1以上の番号です。
+未定義なら`OK`のまま`found`がfalse、`group`が0です。アプリ側では、この結果を使って未定義の参照を拒否してください。
+大文字と小文字を区別し、空文字や名前の文法に合わない文字列も未定義として扱います。
+引数にNULLがある場合は`INVALID_ARGUMENT`を返し、NULL以外の出力先をfalse・0に戻します。
+
+`(?<path>a)?b`の`path`は、照合で参加しなくても定義済みです。
+`{0}`で反復回数を0にしたグループも検索できます。
+番号による参照は、0から`boxrig_regex_program_group_count()`までが有効です。番号0は一致全体で、名前を持ちません。
+検索ではメモリの確保や再コンパイルを行わず、プログラムの内容や参照数も変更しません。
+同じプログラムを共有する場合の直列化は、他のAPIと同様に必要です。
 
 ## 画面認識器と共有する
 

@@ -47,6 +47,103 @@ static boxrig_regex_result *match(
     return result;
 }
 
+static void named_group_metadata(void)
+{
+    char pattern[] = "(?<outer>(a)(?:b)(?<inner>c)?)(?<gone>d){0}|(?<_other2>e)";
+    boxrig_regex_limits limits = boxrig_regex_limits_default();
+    boxrig_text_regex_diagnostic diagnostic;
+    boxrig_regex_program *program;
+    assert(boxrig_regex_compile((const uint8_t *)pattern, strlen(pattern),
+               &limits, &diagnostic, &program) == BOXRIG_STATUS_OK);
+    memset(pattern, '!', sizeof(pattern));
+    assert(boxrig_regex_program_group_count(program) == 5);
+    const struct { const char *name; size_t group; } cases[] = {
+        {"outer", 1}, {"inner", 3}, {"gone", 4}, {"_other2", 5},
+        {"missing", 0}, {"Outer", 0}, {"out", 0}, {"", 0},
+        {"0", 0}, {"2", 0}, {"bad-name", 0}, {"名前", 0},
+    };
+    /* Metadata is available before any matcher or terminal exists. */
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        bool found = false;
+        size_t group = SIZE_MAX;
+        assert(boxrig_regex_program_find_named_group(program, cases[i].name,
+                   &found, &group) == BOXRIG_STATUS_OK);
+        assert(found == (cases[i].group != 0));
+        assert(group == cases[i].group);
+    }
+
+    bool found = true;
+    size_t group = SIZE_MAX;
+    assert(boxrig_regex_program_find_named_group(NULL, "outer", &found, &group) ==
+           BOXRIG_STATUS_INVALID_ARGUMENT);
+    assert(!found && group == 0);
+    found = true;
+    group = SIZE_MAX;
+    assert(boxrig_regex_program_find_named_group(program, NULL, &found, &group) ==
+           BOXRIG_STATUS_INVALID_ARGUMENT);
+    assert(!found && group == 0);
+    group = SIZE_MAX;
+    assert(boxrig_regex_program_find_named_group(program, "outer", NULL, &group) ==
+           BOXRIG_STATUS_INVALID_ARGUMENT);
+    assert(group == 0);
+    found = true;
+    assert(boxrig_regex_program_find_named_group(program, "outer", &found, NULL) ==
+           BOXRIG_STATUS_INVALID_ARGUMENT);
+    assert(!found);
+    assert(boxrig_regex_program_find_named_group(NULL, NULL, NULL, NULL) ==
+           BOXRIG_STATUS_INVALID_ARGUMENT);
+
+    /* A defined optional group may be absent from a successful match. */
+    boxrig_regex_result *result = match(program, "ab", 1);
+    assert(boxrig_regex_program_find_named_group(program, "inner", &found, &group) ==
+           BOXRIG_STATUS_OK);
+    assert(found && group == 3);
+    check_capture(result, group, NULL, 0, 0);
+    boxrig_regex_capture capture = {true, SIZE_MAX, SIZE_MAX};
+    assert(boxrig_regex_result_get_named_capture(result, "inner", &capture) ==
+           BOXRIG_STATUS_OK);
+    assert(!capture.participated && capture.start == 0 && capture.end == 0);
+    assert(boxrig_regex_result_get_named_capture(result, "missing", &capture) ==
+           BOXRIG_STATUS_INVALID_ARGUMENT);
+    assert(!capture.participated && capture.start == 0 && capture.end == 0);
+    assert(boxrig_regex_result_get_named_capture(result, NULL, &capture) ==
+           BOXRIG_STATUS_INVALID_ARGUMENT);
+    assert(boxrig_regex_result_get_named_capture(NULL, "inner", &capture) ==
+           BOXRIG_STATUS_INVALID_ARGUMENT);
+    assert(boxrig_regex_result_get_named_capture(result, "inner", NULL) ==
+           BOXRIG_STATUS_INVALID_ARGUMENT);
+    boxrig_regex_result_destroy(result);
+    boxrig_regex_program_destroy(program);
+
+    assert(boxrig_regex_compile((const uint8_t *)"a", 1, &limits, &diagnostic,
+                               &program) == BOXRIG_STATUS_OK);
+    found = true;
+    group = SIZE_MAX;
+    assert(boxrig_regex_program_group_count(program) == 0);
+    assert(boxrig_regex_program_find_named_group(program, "path", &found, &group) ==
+           BOXRIG_STATUS_OK);
+    assert(!found && group == 0);
+    boxrig_regex_program_destroy(program);
+
+    char many[BOXRIG_REGEX_CAPTURE_CAPACITY_MAX * 3 + 32];
+    size_t length = 0;
+    for (size_t i = 1; i < BOXRIG_REGEX_CAPTURE_CAPACITY_MAX; i++) {
+        memcpy(many + length, "(a)", 3);
+        length += 3;
+    }
+    memcpy(many + length, "(?<last>a)", sizeof("(?<last>a)"));
+    limits.capture_capacity = BOXRIG_REGEX_CAPTURE_CAPACITY_MAX;
+    limits.capture_byte_capacity = BOXRIG_REGEX_CAPTURE_BYTE_CAPACITY_MAX;
+    assert(boxrig_regex_compile((const uint8_t *)many, strlen(many), &limits,
+                               &diagnostic, &program) == BOXRIG_STATUS_OK);
+    assert(boxrig_regex_program_group_count(program) ==
+           BOXRIG_REGEX_CAPTURE_CAPACITY_MAX);
+    assert(boxrig_regex_program_find_named_group(program, "last", &found, &group) ==
+           BOXRIG_STATUS_OK);
+    assert(found && group == BOXRIG_REGEX_CAPTURE_CAPACITY_MAX);
+    boxrig_regex_program_destroy(program);
+}
+
 static void semantics(void)
 {
     const struct {
@@ -474,6 +571,7 @@ static void reflow_and_rescan(void)
 
 int main(void)
 {
+    named_group_metadata();
     semantics();
     diagnostics_and_bounds();
     binary_capture();

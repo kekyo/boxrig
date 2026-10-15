@@ -519,7 +519,7 @@ BOXRIG_FRONTEND_CONFORMANCE_CASE(
     VALUE_REGEX_CAPTURES,
     "value.regex-captures",
     CORE_UI_VALUE,
-    "Standalone matching, owned captures and shared screen recognizers",
+    "Standalone matching, named group metadata, owned captures and shared screen recognizers",
     COMMON, "test-regex",
     COMMON, "test-regex-win32",
     COMMON, "test-regex",

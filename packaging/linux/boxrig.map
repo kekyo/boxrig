@@ -10,6 +10,7 @@ BOXRIG_0 {
         boxrig_regex_matcher_result;
         boxrig_regex_matcher_resume;
         boxrig_regex_program_destroy;
+        boxrig_regex_program_find_named_group;
         boxrig_regex_program_group_count;
         boxrig_regex_program_retain;
         boxrig_regex_program_state_count;

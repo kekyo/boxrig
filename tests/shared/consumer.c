@@ -1,5 +1,6 @@
 /* Exercise only installed public interfaces, in both C99 and C++20. */
 #include <boxrig/terminal.h>
+#include <boxrig/regex.h>
 #include <boxrig/ui.h>
 #include <boxrig/session.h>
 #include <boxrig/posix.h>
@@ -13,6 +14,22 @@
 
 int main(void)
 {
+    const uint8_t pattern[] = "(?<path>a)?b";
+    boxrig_regex_limits limits = boxrig_regex_limits_default();
+    boxrig_text_regex_diagnostic regex_diagnostic;
+    boxrig_regex_program *program = NULL;
+    assert(boxrig_regex_compile(pattern, sizeof(pattern) - 1, &limits,
+               &regex_diagnostic, &program) == BOXRIG_STATUS_OK);
+    bool found = false;
+    size_t group = 0;
+    assert(boxrig_regex_program_find_named_group(program, "path", &found, &group) ==
+           BOXRIG_STATUS_OK);
+    assert(found && group == 1);
+    assert(boxrig_regex_program_find_named_group(program, "missing", &found, &group) ==
+           BOXRIG_STATUS_OK);
+    assert(!found && group == 0);
+    boxrig_regex_program_destroy(program);
+
     boxrig_terminal_config config = boxrig_terminal_config_default();
     boxrig_terminal *terminal = NULL;
     assert(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
