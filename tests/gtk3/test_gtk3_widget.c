@@ -3146,6 +3146,97 @@ static bool test_preedit_clause_attributes(void)
     return true;
 }
 
+typedef struct printable_router_observation {
+    boxrig_key_action actions[4];
+    size_t captured_count;
+    size_t terminal_count;
+} printable_router_observation;
+
+static boxrig_input_key_route route_printable_key(
+    const boxrig_key_event *event, void *context)
+{
+    printable_router_observation *observation = context;
+    if (event->shifted_codepoint == '+' && event->modifiers == BOXRIG_MODIFIER_SHIFT) {
+        if (observation->captured_count < 4)
+            observation->actions[observation->captured_count] = event->action;
+        observation->captured_count++;
+        /* Captured repeats/releases must stay captured even if this changes. */
+        return event->action == BOXRIG_KEY_PRESS
+            ? BOXRIG_INPUT_KEY_ROUTE_APPLICATION : BOXRIG_INPUT_KEY_ROUTE_TERMINAL;
+    }
+    observation->terminal_count++;
+    return BOXRIG_INPUT_KEY_ROUTE_TERMINAL;
+}
+
+static bool test_printable_key_router_precedes_native_ime(void)
+{
+    boxrig_terminal_config terminal_config = boxrig_terminal_config_default();
+    boxrig_gtk3_terminal_widget_config config = boxrig_gtk3_terminal_widget_config_default();
+    boxrig_terminal *terminal = NULL;
+    boxrig_ui_model *model = NULL;
+    BoxrigGtk3TerminalWidget *widget = NULL;
+    printable_router_observation observation = {0};
+    boxrig_ui_component_frame_result frame_result;
+    config.ime_policy = BOXRIG_GTK_IME_GTK;
+    CHECK(boxrig_terminal_create(&terminal_config, &terminal) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
+    CHECK(boxrig_gtk3_terminal_widget_create(model, &config, &widget) == BOXRIG_UI_OK);
+    g_object_ref_sink(widget);
+    GtkWidget *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    gtk_container_add(GTK_CONTAINER(window), GTK_WIDGET(widget));
+    gtk_widget_show_all(window);
+    CHECK(boxrig_gtk3_terminal_widget_set_key_router(widget, route_printable_key, &observation) == BOXRIG_UI_OK);
+    GdkEventFocus focus = {0};
+    focus.type = GDK_FOCUS_CHANGE;
+    focus.window = gtk_widget_get_window(GTK_WIDGET(widget));
+    focus.in = TRUE;
+    gboolean handled = FALSE;
+    g_signal_emit_by_name(widget, "focus-in-event", &focus, &handled);
+    CHECK(boxrig_gtk3_terminal_widget_frame(widget, &frame_result) == BOXRIG_UI_OK);
+    const guint symbols[] = {GDK_KEY_plus, GDK_KEY_a, GDK_KEY_b};
+    for (size_t index = 0; index < 3; index++) {
+        GdkKeymapKey *keys = NULL;
+        gint count = 0;
+        CHECK(gdk_keymap_get_entries_for_keyval(
+            gdk_keymap_get_for_display(gtk_widget_get_display(GTK_WIDGET(widget))),
+            symbols[index], &keys, &count));
+        CHECK(count > 0);
+        GdkEvent *event = gdk_event_new(GDK_KEY_PRESS);
+        event->key.window = g_object_ref(focus.window);
+        event->key.keyval = symbols[index];
+        event->key.hardware_keycode = keys[0].keycode;
+        event->key.group = keys[0].group;
+        event->key.state = index == 0 ? GDK_SHIFT_MASK : 0;
+        g_free(keys);
+        g_signal_emit_by_name(widget, "key-press-event", event, &handled);
+        CHECK(handled);
+        if (index < 2) {
+            g_signal_emit_by_name(widget, "key-press-event", event, &handled);
+            CHECK(handled);
+        }
+        event->type = GDK_KEY_RELEASE;
+        g_signal_emit_by_name(widget, "key-release-event", event, &handled);
+        CHECK(handled);
+        gdk_event_free(event);
+    }
+    CHECK(boxrig_gtk3_terminal_widget_frame(widget, &frame_result) == BOXRIG_UI_OK);
+    CHECK(observation.captured_count == 3);
+    CHECK(observation.actions[0] == BOXRIG_KEY_PRESS);
+    CHECK(observation.actions[1] == BOXRIG_KEY_REPEAT);
+    CHECK(observation.actions[2] == BOXRIG_KEY_RELEASE);
+    CHECK(observation.terminal_count == 2);
+    const uint8_t *output = NULL;
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 3);
+    CHECK(memcmp(output, "aab", 3) == 0);
+    CHECK(boxrig_gtk3_terminal_widget_set_key_router(widget, NULL, NULL) == BOXRIG_UI_OK);
+    gtk_widget_destroy(window);
+    g_object_unref(widget);
+    boxrig_ui_model_destroy(model);
+    boxrig_terminal_destroy(terminal);
+    printf("PASS GTK 3 printable routing captures press/repeat/release before native IME\n");
+    return true;
+}
+
 int main(int argc, char **argv)
 {
     const boxrig_test_frontend_component_operations operations = {
@@ -3223,7 +3314,7 @@ int main(int argc, char **argv)
         FcFini();
         return passed ? 0 : 1;
     }
-    bool passed = getenv("BOXRIG_TEST_RENDER_OPENGL") != NULL
+    bool passed = test_printable_key_router_precedes_native_ime() && (getenv("BOXRIG_TEST_RENDER_OPENGL") != NULL
         ? boxrig_test_run_frontend_component_fixture(&operations) &&
           test_grid_resize_tracks_runtime_output_scale()
         : test_standard_scrollbar_visibility() && test_scrollbar_visibility_during_scale_change() &&
@@ -3235,7 +3326,7 @@ int main(int argc, char **argv)
                   test_grid_resize_tracks_runtime_output_scale() &&
                   test_layout_frame_and_geometry_hints() &&
                   test_clipboard_actions() &&
-                  test_delayed_clipboard_callback(false) && test_delayed_clipboard_callback(true);
+                  test_delayed_clipboard_callback(false) && test_delayed_clipboard_callback(true));
 
     while (g_main_context_pending(NULL)) {
         (void)g_main_context_iteration(NULL, false);

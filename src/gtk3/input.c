@@ -741,7 +741,8 @@ static void retain_ime_key(boxrig_gtk3_input *input, key_item *item, GdkEventKey
     item->ime_generation = input->ibus_generation;
     item->focus_epoch = input->focus_epoch;
     item->deferred = input->ime_pending;
-    if (input->ibus_selected || input->ime_pending) item->native_event = gdk_event_copy((GdkEvent *)event);
+    /* Application routing must precede native IME commits, including printable keys. */
+    if (input->ibus_selected || input->ime_pending || input->key_router != NULL) item->native_event = gdk_event_copy((GdkEvent *)event);
 }
 
 static gboolean filter_native_key(boxrig_gtk3_input *input, GdkEventKey *event)
@@ -780,7 +781,7 @@ static gboolean key_pressed(
     }
     if (!input_enabled(input)) physical->inhibited = true;
     if (input_enabled(input) && !physical->inhibited && !input->reset_native_input &&
-        !input->ibus_selected && !input->ime_pending && filter_native_key(input, event)) {
+        !input->ibus_selected && !input->ime_pending && input->key_router == NULL && filter_native_key(input, event)) {
         /* IME-owned presses still prevent changing settings before release. */
         physical->native_pressed = true;
         return TRUE;
@@ -839,7 +840,7 @@ static gboolean key_released(
         return TRUE;
     }
     if (input_enabled(input) && !physical->inhibited && !input->reset_native_input &&
-        !input->ibus_selected && !input->ime_pending) (void)filter_native_key(input, event);
+        !input->ibus_selected && !input->ime_pending && input->key_router == NULL) (void)filter_native_key(input, event);
     item = queue_tail(input);
     if (item == NULL) {
         return TRUE;
