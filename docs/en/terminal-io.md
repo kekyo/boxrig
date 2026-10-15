@@ -74,7 +74,7 @@ It bypasses a PTY, letting you observe the behavior separately from OS newline c
 ## Change key sequences
 
 `input.key_mappings` specifies length-delimited byte sequences for arrow keys and modifiers.
-The table and bytes are copied at creation.
+The table and bytes are copied at creation and when settings are replaced.
 A zero length suppresses the key, and sequences containing NUL are valid.
 
 Mappings require an exact match of the applicable modifier combination, excluding Caps Lock and Num Lock.
@@ -86,16 +86,7 @@ No Alt ESC prefix or character encoding conversion is added to the completed seq
 Events selected for Kitty key reporting retain Kitty format.
 Build the [key mapping example](../../examples/core/key_mapping.c) with `make example-key-mapping` to compare the default Up sequence with a mapping to `55 00`.
 
-## Backspace, Delete, and runtime settings
-
-`boxrig_terminal_config.input` uses `boxrig_input_config`, also accepted by
-`boxrig_terminal_set_input_config()`. Start with `boxrig_input_config_default()`
-and replace Enter, erase bindings, and arrow mappings together. The terminal
-validates and copies everything before exchanging settings. Invalid values,
-capacity errors, and allocation failures preserve the previous configuration.
-Screen content, history, selection, protocol modes, and queued output survive
-successful exchanges. Enter, erase bindings, and arrow mappings can change at
-runtime; codec and paste/receive newline policies remain construction settings.
+## Backspace and Delete
 
 `input.backspace_binding` and `input.delete_binding` are independent choices:
 
@@ -112,22 +103,42 @@ sequence carries modifiers as `CSI 3 ; modifier ~` without an extra Alt prefix.
 Keypad Delete follows Delete. Legacy press and repeat send bytes; release does
 not. Kitty reports and application-keypad encoding retain protocol priority.
 
+## Change settings at runtime
+
+`boxrig_terminal_config.input` uses `boxrig_input_config`, also accepted by
+`boxrig_terminal_set_input_config()`. Start with `boxrig_input_config_default()`
+and replace Enter, erase bindings, and arrow mappings together.
+
+```c
+boxrig_input_config input = boxrig_input_config_default();
+input.enter_newline = BOXRIG_NEWLINE_LF;
+input.backspace_binding = BOXRIG_ERASE_ASCII_BACKSPACE;
+input.delete_binding = BOXRIG_ERASE_DELETE_SEQUENCE;
+boxrig_status status = boxrig_terminal_set_input_config(terminal, &input);
+```
+
+The terminal validates and copies everything before exchanging settings.
+Invalid values, capacity errors, and allocation failures preserve the previous configuration.
+Screen content, history, selection, protocol modes, and queued output survive successful exchanges.
+Enter, erase bindings, and arrow mappings can change at runtime; codec and paste/receive newline policies remain construction settings.
+
 `boxrig_terminal_get_input_config()` returns current settings and a borrowed
 mapping table, valid until the next successful exchange or terminal destruction.
 That value can safely be passed back to the setter, which copies before releasing
 the previous table. These operations require external serialization.
 
-Use the frontend's `set_input_config()` on its owning event thread: GTK3/GTK4
-widgets and X11/Wayland/Win32 components provide this operation, as do X11 and
-Win32 input adapters. It returns `BOXRIG_UI_BUSY` while the addressed component
+Use the frontend's `set_input_config()` on its owning event thread.
+GTK3/GTK4 widgets use `boxrig_gtkN_terminal_widget_set_input_config()`, and
+X11/Wayland/Win32 components use `boxrig_PLATFORM_terminal_component_set_input_config()`.
+X11 and Win32 input adapters provide the same settings API.
+It returns `BOXRIG_UI_BUSY` while the addressed component
 has a held key, queued input, IME, clipboard, or paste transaction. Continue normal
 event processing and retry after the series ends. When multiple components share
 a terminal, the host must ensure that all their input series have ended.
 
 The [key-mapping example](../../examples/core/key_mapping.c), built with
 `make example-key-mapping`, also prints bytes after changing arrows, Enter,
-Backspace, and Delete at runtime. The [Japanese original](../ja/terminal-io.md)
-includes a configuration example.
+Backspace, and Delete at runtime.
 
 ## Using the TTY erase byte
 
