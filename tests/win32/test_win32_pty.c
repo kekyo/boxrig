@@ -203,8 +203,10 @@ static bool terminal_contains(
     return false;
 }
 
-static bool terminal_contains_red_csi(boxrig_terminal *terminal)
+static bool terminal_contains_indexed_text(boxrig_terminal *terminal,
+    const char *expected, uint8_t color)
 {
+    size_t length = strlen(expected);
     size_t rows = 0;
     size_t columns = 0;
     size_t row;
@@ -213,12 +215,11 @@ static bool terminal_contains_red_csi(boxrig_terminal *terminal)
     for (row = 0; row < rows; row++) {
         size_t column;
 
-        for (column = 0; column + 2 < columns; column++) {
-            static const char expected[] = "CSI";
+        for (column = 0; column < columns && length <= columns - column; column++) {
             size_t offset;
             bool match = true;
 
-            for (offset = 0; offset < sizeof(expected) - 1; offset++) {
+            for (offset = 0; offset < length; offset++) {
                 boxrig_cell_view cell;
 
                 if (boxrig_terminal_get_cell(
@@ -229,7 +230,7 @@ static bool terminal_contains_red_csi(boxrig_terminal *terminal)
                     cell.text_length != 1 ||
                     cell.text[0] != expected[offset] ||
                     cell.foreground.kind != BOXRIG_COLOR_INDEXED ||
-                    cell.foreground.index != 1) {
+                    cell.foreground.index != color) {
                     match = false;
                     break;
                 }
@@ -289,7 +290,7 @@ static bool normalized_transport_has_expected_meaning(
         terminal,
         c0_result,
         sizeof(c0_result) - 1);
-    has_red_csi = terminal_contains_red_csi(terminal);
+    has_red_csi = terminal_contains_indexed_text(terminal, "CSI", 1);
     has_utf8_label = terminal_contains(
         terminal,
         utf8_label,
@@ -1272,6 +1273,21 @@ cleanup:
     return passed;
 }
 
+static bool completion_has_expected_meaning(const char *bytes, size_t length,
+    bool resized)
+{
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    config.rows = resized ? 40 : 24;
+    config.columns = resized ? 100 : 80;
+    boxrig_terminal *terminal = NULL;
+    size_t consumed = 0;
+    bool passed = boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK &&
+        boxrig_terminal_feed(terminal, (const uint8_t *)bytes, length, &consumed) == BOXRIG_STATUS_OK &&
+        consumed == length && terminal_contains_indexed_text(terminal, "DONE", 2);
+    boxrig_terminal_destroy(terminal);
+    return passed;
+}
+
 int wmain(int argument_count, wchar_t **arguments)
 {
     boxrig_win32_pty *pty = NULL;
@@ -1353,13 +1369,16 @@ int wmain(int argument_count, wchar_t **arguments)
         fprintf(stderr, "child did not observe resized grid; output: %s\n", received);
         goto cleanup;
     }
+    /* ConPTY can omit a trailing SGR reset that affects no visible cell.
+     * Verify the green completion text after interpreting its output. */
     if (!write_byte(input, 'q') ||
         !read_until(
             output,
             received,
             sizeof(received),
             &received_length,
-            "\033[32mDONE\033[0m") ||
+            "DONE") ||
+        !completion_has_expected_meaning(received, received_length, resize_supported) ||
         WaitForSingleObject(process, 10000) != WAIT_OBJECT_0 ||
         !GetExitCodeProcess(process, &exit_code) || exit_code != 0) {
         fprintf(stderr, "pseudoconsole I/O or child exit failed; output: %s\n", received);

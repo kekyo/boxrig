@@ -121,7 +121,44 @@ int main(void)
     CHECK(boxrig_ogl_renderer_draw_view(renderer, view) == 0);
     unsigned char *cleared = capture(framebuffer);
     CHECK(differences(before, cleared) == 0);
-    free(cleared); free(shown); free(before);
+    free(cleared);
+    CHECK(boxrig_ui_view_set_focused(view, true) == BOXRIG_UI_OK);
+    snapshot = (boxrig_ui_candidate_snapshot){.format = BOXRIG_UI_CANDIDATE_PAGE,
+        .auxiliary_above = "候補なしの補助情報", .auxiliary_above_visible = true};
+    CHECK(boxrig_ui_view_set_candidates(view, &snapshot) == BOXRIG_UI_OK);
+    CHECK(boxrig_ogl_renderer_draw_view(renderer, view) == 0);
+    unsigned char *panel = capture(framebuffer);
+    CHECK(differences(before, panel) > 128);
+    CHECK(boxrig_ui_view_get_candidates(view, &actual) == BOXRIG_UI_OK);
+    CHECK(actual.layout.count == 0 && actual.layout.auxiliary_above.height > 0);
+    CHECK(actual.layout.bounds.x > 0 && actual.layout.bounds.y > 0);
+    CHECK(boxrig_ui_view_set_focused(view, false) == BOXRIG_UI_OK);
+    CHECK(boxrig_ogl_renderer_draw_view(renderer, view) == 0);
+    cleared = capture(framebuffer);
+    CHECK(differences(before, cleared) == 0);
+    free(cleared); free(panel);
+    CHECK(boxrig_ui_view_set_focused(view, true) == BOXRIG_UI_OK);
+    snapshot = (boxrig_ui_candidate_snapshot){.format = BOXRIG_UI_CANDIDATE_STRING_PANEL,
+        .visible = true, .panel_text = "1. 汽車 2号 2. 記者 🙂",
+        .panel_preedit = "きしゃ", .panel_cursor = 3};
+    CHECK(boxrig_ui_view_set_candidates(view, &snapshot) == BOXRIG_UI_OK);
+    CHECK(boxrig_ogl_renderer_draw_view(renderer, view) == 0);
+    panel = capture(framebuffer);
+    CHECK(differences(before, panel) > 128);
+    CHECK(boxrig_ui_view_get_candidates(view, &actual) == BOXRIG_UI_OK);
+    CHECK(actual.layout.count == 0 && actual.layout.panel_text.height > 0);
+    CHECK(actual.layout.panel_preedit.height > 0 && actual.layout.panel_caret.height > 0);
+    CHECK(actual.layout.bounds.x > 0 && actual.layout.bounds.y > 0);
+    snapshot.panel_text = "1. 次ページ 2. 候補";
+    CHECK(boxrig_ui_view_set_candidates(view, &snapshot) == BOXRIG_UI_OK);
+    CHECK(boxrig_ogl_renderer_draw_view(renderer, view) == 0);
+    unsigned char *next = capture(framebuffer);
+    CHECK(differences(panel, next) > 128);
+    CHECK(boxrig_ui_view_set_focused(view, false) == BOXRIG_UI_OK);
+    CHECK(boxrig_ogl_renderer_draw_view(renderer, view) == 0);
+    cleared = capture(framebuffer);
+    CHECK(differences(before, cleared) == 0);
+    free(cleared); free(panel); free(next); free(shown); free(before);
     CHECK(boxrig_ogl_renderer_destroy(&renderer, 1, NULL) == BOXRIG_GL_OK);
     boxrig_ui_view_destroy(view);
     boxrig_ui_model_destroy(model);

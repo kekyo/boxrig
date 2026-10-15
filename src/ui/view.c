@@ -2490,7 +2490,8 @@ boxrig_ui_status boxrig_ui_view_set_candidates(boxrig_ui_view *view,
 void boxrig_ui_view_clear_candidates(boxrig_ui_view *view)
 {
     if (view == NULL || (view->candidates.value.snapshot.count == 0 &&
-            view->candidates.auxiliary == NULL)) return;
+            view->candidates.auxiliary == NULL && view->candidates.auxiliary_above == NULL &&
+            view->candidates.panel_text == NULL && view->candidates.panel_preedit == NULL)) return;
     uint64_t revision = next_revision(view->candidates.value.revision);
     boxrig_ui_candidates_dispose(&view->candidates);
     view->candidates.value.revision = revision;

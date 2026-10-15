@@ -10,10 +10,10 @@
 #include "boxrig/ui/input_text.h"
 #include "boxrig/ui/editable.h"
 
-#include "../ibus/client.h"
+#include "../ime/client.h"
 #include "../gtk/ime_probe.h"
 #include "../gtk/ime_cursor.h"
-#include "../ibus/source.h"
+#include "../ime/source.h"
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
 #pragma GCC diagnostic ignored "-Wvariadic-macros"
@@ -48,12 +48,12 @@ typedef struct key_item {
     boxrig_key_event event;
     guint physical_keycode;
     guint symbol;
-    uint32_t ime_modifiers;
+    uint32_t ime_modifiers, ime_time;
     uint64_t ime_generation;
     uint64_t focus_epoch;
     bool deferred;
     GdkEvent *native_event;
-    boxrig_ibus_request *ime_request;
+    boxrig_ime_request *ime_request;
     bool fallback_processed, fallback_handled;
     char *text;
     bool routed;
@@ -98,7 +98,7 @@ typedef struct input_item {
         mouse_item mouse;
         composition_item composition;
         paste_item paste;
-        boxrig_ibus_request *ime_reply;
+        boxrig_ime_request *ime_reply;
     } value;
 } input_item;
 
@@ -134,12 +134,12 @@ struct boxrig_gtk3_input {
     uint32_t candidate_buttons;
     uint64_t focus_epoch;
     bool ime_pending;
-    boxrig_ibus_client *ibus;
-    boxrig_ibus_session *ibus_session;
-    boxrig_ibus_target ibus_target;
+    boxrig_ime_client *ibus;
+    boxrig_ime_session *ibus_session;
+    boxrig_ime_target ibus_target;
     GSource *ibus_source;
     uint64_t ibus_generation;
-    size_t ibus_errors;
+    size_t ibus_adapter_errors;
     bool ibus_requested, ibus_selected, ibus_switch_pending, ime_waiting;
     unsigned int candidate_scale;
     GtkWidget *candidate_toplevel; /* Weak; detached before this input is freed. */
@@ -332,9 +332,9 @@ static void destroy_input_item(input_item *item)
     if (item->kind == INPUT_ITEM_KEY) {
         free(item->value.key.text);
         if (item->value.key.native_event != NULL) gdk_event_free(item->value.key.native_event);
-        boxrig_ibus_release_request(item->value.key.ime_request);
+        boxrig_ime_release_request(item->value.key.ime_request);
     } else if (item->kind == INPUT_ITEM_IME_REPLY) {
-        boxrig_ibus_release_request(item->value.ime_reply);
+        boxrig_ime_release_request(item->value.ime_reply);
     } else if (item->kind == INPUT_ITEM_COMPOSITION) {
         free(item->value.composition.segments);
         free(item->value.composition.text);
@@ -736,6 +736,7 @@ static uint32_t ibus_modifiers(guint symbol, GdkModifierType state, bool release
 static void retain_ime_key(boxrig_gtk3_input *input, key_item *item, GdkEventKey *event)
 {
     item->symbol = event->keyval;
+    item->ime_time = event->time;
     item->ime_modifiers = ibus_modifiers(event->keyval, event->state, event->type == GDK_KEY_RELEASE);
     item->ime_generation = input->ibus_generation;
     item->focus_epoch = input->focus_epoch;
@@ -917,6 +918,10 @@ static gboolean focus_left(
 
     (void)widget;
     (void)event;
+    /* Invalidate old document replies before the direct provider creates an
+     * authorized finish transaction. Fcitx 4 replies to FocusOut later. */
+    bool direct = input->ibus_selected;
+    if (direct) (void)boxrig_ui_editable_document_invalidate_input(input->document);
     focus_ibus(input, false, true);
     /* A standard context may synchronously commit its preedit on focus-out.
      * Accept that notification for the old input owner before invalidating
@@ -926,7 +931,7 @@ static gboolean focus_left(
     }
     input->focus_epoch++;
     input->im_focused = false;
-    (void)boxrig_ui_editable_document_invalidate_input(input->document);
+    if (!direct) (void)boxrig_ui_editable_document_invalidate_input(input->document);
     reject_surrounding(input);
     for (index = 0; index < BOXRIG_GTK3_PHYSICAL_KEY_STATES; index++) {
         input->physical_keys[index].native_pressed = false;
@@ -1618,7 +1623,7 @@ static bool refresh_im_context(boxrig_gtk3_input *input)
 {
     if (!resolve_ime(input)) return false;
     if (input->ime_pending) return true;
-    if (input->ibus_switch_pending && boxrig_ibus_selected(input->ibus))
+    if (input->ibus_switch_pending && boxrig_ime_selected(input->ibus))
         ibus_selection_changed(input, true);
     uint64_t generation = boxrig_ui_editable_document_input_generation(input->document);
     if (!input->accepting || (!input->reset_native_input && !input->im_blocked &&
@@ -1627,7 +1632,7 @@ static bool refresh_im_context(boxrig_gtk3_input *input)
     if (input->ibus_selected && !input->reset_native_input) {
         input->surrounding_generation = generation;
         input->im_blocked = false;
-        boxrig_ibus_refresh(input->ibus);
+        boxrig_ime_refresh(input->ibus);
         return input->accepting;
     }
     /* Direct IBus owns native focus. Preserve its local fallback on reset;
@@ -1637,8 +1642,8 @@ static bool refresh_im_context(boxrig_gtk3_input *input)
         gtk_im_multicontext_set_context_id(GTK_IM_MULTICONTEXT(next), "wayland");
     else if (GTK_IS_IM_MULTICONTEXT(next) && input->ime_state.reason == BOXRIG_GTK_IME_REASON_NON_WAYLAND &&
             input->ime_state.requested_policy == BOXRIG_GTK_IME_AUTO &&
-            strcmp(input->ime_state.gtk_module, "ibus") == 0)
-        gtk_im_multicontext_set_context_id(GTK_IM_MULTICONTEXT(next), "ibus");
+            (strcmp(input->ime_state.gtk_module, "ibus") == 0 || strcmp(input->ime_state.gtk_module, "fcitx") == 0))
+        gtk_im_multicontext_set_context_id(GTK_IM_MULTICONTEXT(next), input->ime_state.gtk_module);
 
     if (next == NULL) {
         fail_input(input, BOXRIG_UI_COMPONENT_FAILURE_INPUT_METHOD);
@@ -1676,7 +1681,7 @@ static void ibus_wake(void *data, bool waiting)
 static void ibus_error(void *data, bool resource)
 {
     boxrig_gtk3_input *input = data;
-    input->ibus_errors++;
+    input->ibus_adapter_errors++;
     if (resource) fail_input(input, BOXRIG_UI_COMPONENT_FAILURE_INPUT_METHOD);
 }
 
@@ -1685,19 +1690,19 @@ static void ibus_source_failed(void *data)
     ibus_error(data, true);
 }
 
-static void enqueue_ibus_reply(void *data, void *seat, boxrig_ibus_request *request)
+static void enqueue_ibus_reply(void *data, void *seat, boxrig_ime_request *request)
 {
     (void)seat;
     boxrig_gtk3_input *input = data;
     input_item *item = input->accepting ? queue_tail(input) : NULL;
-    if (item == NULL) { boxrig_ibus_release_request(request); return; }
+    if (item == NULL) { boxrig_ime_release_request(request); return; }
     item->kind = INPUT_ITEM_IME_REPLY;
     item->value.ime_reply = request;
     notify_activity(input);
 }
 
 static bool ibus_forward_key(void *data, void *seat, uint32_t symbol,
-    uint32_t code, uint32_t modifiers, boxrig_ibus_effect *effect)
+    uint32_t code, uint32_t modifiers, boxrig_ime_effect *effect)
 {
     (void)seat; (void)code;
     boxrig_gtk3_input *input = data;
@@ -1708,31 +1713,34 @@ static bool ibus_forward_key(void *data, void *seat, uint32_t symbol,
     key.event.modifiers = translate_modifiers((GdkModifierType)modifiers);
     key.event.codepoint = keyval_codepoint(symbol);
     if (key.event.action == BOXRIG_KEY_PRESS && !copy_key_text(symbol, &key)) return false;
-    *effect = (boxrig_ibus_effect){.type = BOXRIG_IBUS_KEY, .value.key = key.event, .text = key.text};
+    *effect = (boxrig_ime_effect){.type = BOXRIG_IME_KEY, .value.key = key.event, .text = key.text};
     return true;
 }
 
-static boxrig_ui_status apply_ibus_effect(void *data, boxrig_ibus_effect *effect,
+static boxrig_ui_status apply_ibus_effect(void *data, boxrig_ime_effect *effect,
     bool *blocked, bool *accepted)
 {
     boxrig_gtk3_input *input = data;
     *blocked = false;
     *accepted = true;
     if (!input_enabled(input)) return BOXRIG_UI_OK;
-    if (effect->type == BOXRIG_IBUS_CANDIDATES) {
-        const boxrig_ibus_candidates *source = &effect->value.candidates;
+    if (effect->type == BOXRIG_IME_CANDIDATES) {
+        const boxrig_ime_candidates *source = &effect->value.candidates;
         boxrig_ui_candidate_snapshot snapshot = {
+            .format = source->format,
             .count = source->count, .page_size = source->page_size, .cursor = source->cursor,
-            .orientation = source->orientation == IBUS_ORIENTATION_HORIZONTAL ? BOXRIG_UI_CANDIDATE_HORIZONTAL :
-                source->orientation == IBUS_ORIENTATION_VERTICAL ? BOXRIG_UI_CANDIDATE_VERTICAL :
-                BOXRIG_UI_CANDIDATE_SYSTEM_ORIENTATION,
+            .orientation = source->orientation,
             .visible = source->visible, .cursor_visible = source->cursor_visible,
             .auxiliary_visible = source->auxiliary_visible,
+            .auxiliary_above_visible = source->auxiliary_above_visible,
+            .has_previous_page = source->has_previous_page, .has_next_page = source->has_next_page,
             .items = (const char *const *)source->items, .labels = (const char *const *)source->labels,
-            .auxiliary = source->auxiliary};
+            .auxiliary = source->auxiliary, .auxiliary_above = source->auxiliary_above,
+            .panel_text = source->panel_text, .panel_preedit = source->panel_preedit,
+            .panel_cursor = source->panel_cursor};
         return boxrig_ui_view_set_candidates(input->view, &snapshot);
     }
-    if (effect->type == BOXRIG_IBUS_KEY) {
+    if (effect->type == BOXRIG_IME_KEY) {
         boxrig_status status = boxrig_terminal_send_key(input->terminal, &effect->value.key);
         *blocked = status == BOXRIG_STATUS_WOULD_BLOCK;
         *accepted = !*blocked;
@@ -1756,11 +1764,11 @@ static void ibus_cursor(void *data)
 static void focus_ibus(boxrig_gtk3_input *input, bool focused, bool commit)
 {
     if (input->ibus_session == NULL) return;
-    boxrig_ibus_target *target = focused && input->ibus_selected && input_enabled(input)
+    boxrig_ime_target *target = focused && input->ibus_selected && input_enabled(input)
         ? &input->ibus_target : NULL;
-    if (!boxrig_ibus_is_focused(input->ibus_session, target)) {
+    if (!boxrig_ime_is_focused(input->ibus_session, target)) {
         input->ime_state.candidate_valid = false;
-        boxrig_ibus_focus(input->ibus_session, target, commit && input_enabled(input), ++input->ibus_generation);
+        boxrig_ime_focus(input->ibus_session, target, commit && input_enabled(input), ++input->ibus_generation);
     }
 }
 
@@ -1810,17 +1818,22 @@ static void clear_ibus_candidates(void *data)
 
 static bool initialize_ibus(boxrig_gtk3_input *input, bool client_candidates)
 {
-    input->ibus_target = (boxrig_ibus_target){.view = input->view, .data = input,
+    input->ibus_target = (boxrig_ime_target){.view = input->view, .data = input,
         .maximum_events = input->queue_capacity,
         .maximum_bytes = boxrig_composition_limits_default().maximum_text_bytes,
         .wake = ibus_wake, .error = ibus_error, .enqueue = enqueue_ibus_reply,
         .forward = ibus_forward_key, .apply = apply_ibus_effect, .cursor = ibus_cursor,
         .clear_candidates = client_candidates ? clear_ibus_candidates : NULL};
-    input->ibus = boxrig_ibus_create(1, "boxrig-gtk3", ibus_selection_changed, input);
+    input->ibus = input->ime_state.requested_policy == BOXRIG_GTK_IME_AUTO ?
+        boxrig_ime_create_auto(strcmp(input->ime_state.display_type, "GdkWaylandDisplay") == 0, 1,
+            "boxrig-gtk3", input->ime_state.gtk_module, ibus_selection_changed, input) :
+        boxrig_ime_create(input->ime_state.requested_policy == BOXRIG_GTK_IME_FCITX5 ?
+        BOXRIG_IME_BACKEND_FCITX5 : input->ime_state.requested_policy == BOXRIG_GTK_IME_FCITX4 ?
+        BOXRIG_IME_BACKEND_FCITX4 : BOXRIG_IME_BACKEND_IBUS, strcmp(input->ime_state.display_type, "GdkWaylandDisplay") == 0, 1, "boxrig-gtk3", ibus_selection_changed, input);
     if (input->ibus == NULL) return false;
-    input->ibus_session = boxrig_ibus_add_session(input->ibus, input);
+    input->ibus_session = boxrig_ime_add_session(input->ibus, input);
     if (input->ibus_session == NULL) return false;
-    input->ibus_source = boxrig_ibus_source_new(input->ibus, ibus_source_failed, input);
+    input->ibus_source = boxrig_ime_source_new(input->ibus, ibus_source_failed, input);
     if (input->ibus_source == NULL) return false;
     g_source_attach(input->ibus_source, g_main_context_get_thread_default());
     /* create() can select synchronously before the new session exists. */
@@ -1852,7 +1865,7 @@ static bool resolve_ime(boxrig_gtk3_input *input)
         }
     } else {
         input->ibus_target.clear_candidates = client_candidates ? clear_ibus_candidates : NULL;
-        ibus_selection_changed(input, direct && boxrig_ibus_selected(input->ibus));
+        ibus_selection_changed(input, direct && boxrig_ime_selected(input->ibus));
     }
     input->ime_pending = false;
     if (input->im_focused) {
@@ -1958,9 +1971,12 @@ static boxrig_ui_status process_key_item(
     if (input->ibus_selected || item->ime_request != NULL || item->native_event != NULL) {
         bool blocked = false, handled = false;
         boxrig_ui_status filtered = BOXRIG_UI_OK;
-        if (input->ibus_selected || item->ime_request != NULL) filtered = boxrig_ibus_filter_key(input->ibus_session, &input->ibus_target,
-            item->ime_generation, item->symbol, item->physical_keycode >= 8 ? item->physical_keycode - 8 : 0,
-            item->ime_modifiers, &item->ime_request, &blocked, &handled);
+        if (input->ibus_selected || item->ime_request != NULL) filtered = boxrig_ime_filter_key(input->ibus_session, &input->ibus_target,
+            item->ime_generation, &(boxrig_ime_key){.symbol = item->symbol,
+                .code = item->physical_keycode >= 8 ? item->physical_keycode - 8 : 0,
+                .modifiers = item->ime_modifiers & ~IBUS_RELEASE_MASK, .time = item->ime_time,
+                .release = (item->ime_modifiers & IBUS_RELEASE_MASK) != 0,
+                .repeat = item->event.action == BOXRIG_KEY_REPEAT}, &item->ime_request, &blocked, &handled);
         if (blocked) {
             if (!input->ime_waiting) input->terminal_blocked = true;
             return filtered;
@@ -2599,7 +2615,7 @@ boxrig_ui_status boxrig_gtk3_input_create(
         config->maximum_events == 0 ||
         config->maximum_clipboard_transfers == 0 ||
         config->maximum_clipboard_bytes == 0 || input_out == NULL ||
-        config->ime_policy < BOXRIG_GTK_IME_AUTO || config->ime_policy > BOXRIG_GTK_IME_IBUS ||
+        config->ime_policy < BOXRIG_GTK_IME_AUTO || config->ime_policy > BOXRIG_GTK_IME_FCITX4 ||
         config->candidate_policy < BOXRIG_UI_CANDIDATE_AUTO || config->candidate_policy > BOXRIG_UI_CANDIDATE_CLIENT ||
         ((config->activity_callback == NULL) !=
          (config->activity_context == NULL))) {
@@ -2846,8 +2862,8 @@ void boxrig_gtk3_input_destroy(boxrig_gtk3_input *input)
         g_source_destroy(input->ibus_source);
         g_source_unref(input->ibus_source);
     }
-    boxrig_ibus_remove_session(input->ibus_session);
-    boxrig_ibus_destroy(input->ibus);
+    boxrig_ime_remove_session(input->ibus_session);
+    boxrig_ime_destroy(input->ibus);
     input->ibus = NULL;
     if (input->composition != NULL) {
         (void)boxrig_composition_terminate(input->composition);
@@ -3141,7 +3157,7 @@ static boxrig_ui_status process_input_frame(
             status = process_key_item(input, &item->value.key, allow_terminal, &finished);
         } else if (item->kind == INPUT_ITEM_IME_REPLY) {
             bool blocked;
-            status = boxrig_ibus_apply_reply(&input->ibus_target, item->value.ime_reply, &blocked, &finished);
+            status = boxrig_ime_apply_reply(&input->ibus_target, item->value.ime_reply, &blocked, &finished);
             if (blocked && !input->ime_waiting) input->terminal_blocked = true;
         } else if (item->kind == INPUT_ITEM_FOCUS) {
             status = process_focus_item(input, &item->value.focus, allow_terminal, &finished);
@@ -3194,14 +3210,14 @@ boxrig_ui_status boxrig_gtk3_input_frame(
     if (input == NULL) return BOXRIG_UI_INVALID_ARGUMENT;
     if (input->processing) return BOXRIG_UI_BUSY;
     input->processing = true;
-    boxrig_ibus_refresh(input->ibus);
+    boxrig_ime_refresh(input->ibus);
     if (!refresh_im_context(input)) {
         input->processing = false;
         return BOXRIG_UI_UNAVAILABLE;
     }
     boxrig_ui_status status = process_input_frame(input, maximum_items, geometry_ready,
         input_blocked_out, additional_dispatch_out);
-    if (input->ibus_switch_pending && boxrig_ibus_selected(input->ibus))
+    if (input->ibus_switch_pending && boxrig_ime_selected(input->ibus))
         ibus_selection_changed(input, true);
     input->processing = false;
     return status;
@@ -3262,10 +3278,10 @@ void boxrig_gtk3_input_update_candidate(
                 candidate[index] = (int32_t)root[index];
             }
         }
-        boxrig_ibus_cursor(input->ibus, &input->ibus_target, candidate, relative);
-        boxrig_ibus_diagnostic diagnostic;
-        boxrig_ibus_get_diagnostic(input->ibus, &diagnostic);
-        if (diagnostic.contexts != 0 && boxrig_ibus_is_focused(input->ibus_session, &input->ibus_target)) {
+        boxrig_ime_cursor(input->ibus, &input->ibus_target, candidate, relative, output_scale);
+        boxrig_ime_diagnostic diagnostic;
+        boxrig_ime_get_diagnostic(input->ibus, &diagnostic);
+        if (diagnostic.contexts != 0 && boxrig_ime_is_focused(input->ibus_session, &input->ibus_target)) {
             input->ime_state.candidate_valid = true;
             input->ime_state.candidate_surface_relative = relative;
             memcpy(input->ime_state.candidate, candidate, sizeof(candidate));
@@ -3297,25 +3313,26 @@ void boxrig_gtk3_input_get_diagnostic(
 void boxrig_gtk3_input_get_ime_state(const boxrig_gtk3_input *input, boxrig_gtk_ime_state *state)
 {
     *state = input->ime_state;
-    boxrig_ibus_diagnostic diagnostic;
-    boxrig_ibus_get_diagnostic(input->ibus, &diagnostic);
+    boxrig_ime_diagnostic diagnostic;
+    boxrig_ime_get_diagnostic(input->ibus, &diagnostic);
     state->gtk_major = gtk_get_major_version();
     state->gtk_minor = gtk_get_minor_version();
     state->gtk_micro = gtk_get_micro_version();
     state->active_route = input->ime_probe == NULL || input->ime_pending ? BOXRIG_GTK_IME_ROUTE_PENDING :
-        input->ibus_selected ? BOXRIG_GTK_IME_ROUTE_IBUS : BOXRIG_GTK_IME_ROUTE_GTK;
-    state->ibus_state = (boxrig_gtk_ibus_state)diagnostic.state;
-    state->ibus_pending = diagnostic.pending;
-    state->ibus_contexts = diagnostic.contexts;
-    state->ibus_errors = diagnostic.errors + input->ibus_errors;
+        input->ibus_selected ? (diagnostic.backend == BOXRIG_IME_BACKEND_NONE ? BOXRIG_GTK_IME_ROUTE_PENDING :
+            diagnostic.backend == BOXRIG_IME_BACKEND_FCITX5 ?
+            BOXRIG_GTK_IME_ROUTE_FCITX5 : diagnostic.backend == BOXRIG_IME_BACKEND_FCITX4 ?
+            BOXRIG_GTK_IME_ROUTE_FCITX4 : BOXRIG_GTK_IME_ROUTE_IBUS) : BOXRIG_GTK_IME_ROUTE_GTK;
+    state->direct = diagnostic;
+    state->direct.errors += input->ibus_adapter_errors;
     state->candidate_policy = input->candidate_policy;
     state->candidate_owner = state->active_route == BOXRIG_GTK_IME_ROUTE_PENDING
-        ? BOXRIG_UI_CANDIDATE_OWNER_NONE : input->ibus_selected &&
-          input->ibus_target.clear_candidates != NULL ? BOXRIG_UI_CANDIDATE_OWNER_CLIENT :
-          BOXRIG_UI_CANDIDATE_OWNER_SYSTEM;
+        ? BOXRIG_UI_CANDIDATE_OWNER_NONE : input->ibus_selected ?
+          boxrig_ime_candidate_owner(input->ibus, &input->ibus_target) : BOXRIG_UI_CANDIDATE_OWNER_SYSTEM;
     state->candidate_reason = state->active_route == BOXRIG_GTK_IME_ROUTE_PENDING ? BOXRIG_UI_CANDIDATE_PENDING :
         input->candidate_policy == BOXRIG_UI_CANDIDATE_SYSTEM ? BOXRIG_UI_CANDIDATE_SYSTEM_REQUEST :
-        input->ibus_requested && diagnostic.state == BOXRIG_IBUS_UNAVAILABLE ? BOXRIG_UI_CANDIDATE_IBUS_UNAVAILABLE :
+        input->ibus_requested && diagnostic.state == BOXRIG_IME_UNAVAILABLE ? BOXRIG_UI_CANDIDATE_IME_UNAVAILABLE :
+        state->candidate_owner == BOXRIG_UI_CANDIDATE_OWNER_NONE ? BOXRIG_UI_CANDIDATE_UNCONFIRMED :
         state->candidate_owner == BOXRIG_UI_CANDIDATE_OWNER_SYSTEM ? BOXRIG_UI_CANDIDATE_STANDARD_INPUT :
         BOXRIG_UI_CANDIDATE_READY;
     boxrig_ui_candidate_view candidates;
@@ -3324,9 +3341,9 @@ void boxrig_gtk3_input_get_ime_state(const boxrig_gtk3_input *input, boxrig_gtk_
     state->candidate_count = candidates.snapshot.count;
     state->candidate_cursor = candidates.snapshot.cursor;
     state->candidate_visible = candidates.snapshot.visible;
-    state->auxiliary_visible = candidates.snapshot.auxiliary_visible;
-    if (input->ibus_requested && diagnostic.state == BOXRIG_IBUS_UNAVAILABLE)
-        state->reason = BOXRIG_GTK_IME_REASON_IBUS_UNAVAILABLE;
+    state->auxiliary_visible = candidates.snapshot.auxiliary_visible || candidates.snapshot.auxiliary_above_visible;
+    if (input->ibus_requested && diagnostic.state == BOXRIG_IME_UNAVAILABLE)
+        state->reason = BOXRIG_GTK_IME_REASON_DIRECT_UNAVAILABLE;
     if (input->ime_probe != NULL && !input->ime_pending && !input->ibus_selected &&
         GTK_IS_IM_MULTICONTEXT(input->im_context)) {
         const char *module = gtk_im_multicontext_get_context_id(GTK_IM_MULTICONTEXT(input->im_context));

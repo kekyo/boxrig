@@ -74,14 +74,15 @@ The bundled demo uses libdecor where available, but libdecor is not required to 
 
 ## Input and the clipboard
 
-The default input route uses text-input through the compositor.
-A direct IBus configuration is also available.
+The default AUTO policy prefers compositor input when text-input-v3 version 2 is available and the candidate policy is not CLIENT.
+Otherwise, it discovers IBus and fcitx 5/4.
+Applications can also explicitly select an input route.
 Check context and component diagnostics for surrounding text, candidate display, and the selected input route.
 
 Retrieve clipboard transfer FDs with `prepare_wait_sources()` and pass their readiness to `dispatch_wait_sources()`.
 The FDs are borrowed; do not close them.
 Refresh the wait sources after Wayland or transfer dispatch.
-Direct IBus connections also use `prepare_ime_poll()` and `dispatch_ime_poll()`.
+Direct IME connections also use `prepare_ime_poll()` and `dispatch_ime_poll()`.
 
 Call `boxrig_wayland_terminal_component_set_input_enabled(component, false)` to inhibit input from that component to the terminal.
 Inhibition and resumption each advance the input generation, invalidating pending keys, IME commits, incoming clipboard transfers, and unstarted pastes.

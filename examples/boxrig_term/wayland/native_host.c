@@ -48,20 +48,32 @@ static void report_ime_state(boxrig_term_wayland_application *application)
     const boxrig_wayland_component_diagnostic *previous = &application->reported_candidate_state;
     if (application->candidate_state_reported && previous->candidate_owner == state.candidate_owner &&
         previous->candidate_reason == state.candidate_reason && previous->candidate_revision == state.candidate_revision &&
-        application->reported_input_method == context.input_method && application->reported_ibus_state == context.ibus_state) return;
+        application->reported_input_method == context.input_method && application->reported_direct.state == context.direct.state &&
+        application->reported_direct.backend == context.direct.backend &&
+        application->reported_direct.selection_reason == context.direct.selection_reason &&
+        application->reported_direct.ambiguous == context.direct.ambiguous &&
+        application->reported_direct.conflicting_hints == context.direct.conflicting_hints &&
+        application->reported_direct.compatibility_alias == context.direct.compatibility_alias &&
+        application->reported_direct.contexts == context.direct.contexts &&
+        application->reported_direct.errors == context.direct.errors) return;
+    static const char *const backends[] = {"none", "ibus", "fcitx5", "fcitx4"};
+    static const char *const selections[] = {"explicit", "discovery", "module", "xmodifiers", "address", "single", "priority", "retained"};
     static const char *const policies[] = {"auto", "system", "client"};
     static const char *const owners[] = {"none", "system", "client"};
     static const char *const reasons[] = {"pending", "ready", "system-request",
-        "standard-input", "no-renderer", "ibus-unavailable"};
+        "standard-input", "no-renderer", "ime-unavailable", "unconfirmed"};
     application->reported_candidate_state = state;
     application->reported_input_method = context.input_method;
-    application->reported_ibus_state = context.ibus_state;
+    application->reported_direct = context.direct;
     application->candidate_state_reported = true;
-    fprintf(stdout, "boxrig_term: ime-route=%s text-input-version=%u ibus=%d contexts=%zu errors=%zu candidate-policy=%s candidate-owner=%s candidate-reason=%s candidate-revision=%" PRIu64 " candidate-count=%zu candidate-cursor=%zu candidate-visible=%d auxiliary-visible=%d\n",
-        state.candidate_owner == BOXRIG_UI_CANDIDATE_OWNER_NONE ? "pending" :
+    fprintf(stdout, "boxrig_term: ime-route=%s text-input-version=%u direct-state=%d direct-backend=%s direct-selection=%s ambiguous=%d conflicting-hints=%d compatibility-alias=%d contexts=%zu errors=%zu candidate-policy=%s candidate-owner=%s candidate-reason=%s candidate-revision=%" PRIu64 " candidate-count=%zu candidate-cursor=%zu candidate-visible=%d auxiliary-visible=%d\n",
+        context.input_method == BOXRIG_WAYLAND_IME_AUTO ? "pending" :
+            context.input_method == BOXRIG_WAYLAND_IME_FCITX5 ? "fcitx5" :
+            context.input_method == BOXRIG_WAYLAND_IME_FCITX4 ? "fcitx4" :
             context.input_method == BOXRIG_WAYLAND_IME_IBUS ? "ibus" : "wayland",
-        context.text_input_version, context.ibus_state, context.active_ibus_context_count,
-        context.ibus_error_count, policies[state.candidate_policy], owners[state.candidate_owner],
+        context.text_input_version, context.direct.state, backends[context.direct.backend], selections[context.direct.selection_reason],
+        context.direct.ambiguous, context.direct.conflicting_hints, context.direct.compatibility_alias, context.direct.contexts,
+        context.direct.errors, policies[state.candidate_policy], owners[state.candidate_owner],
         reasons[state.candidate_reason], state.candidate_revision, state.candidate_count,
         state.candidate_cursor, state.candidate_visible, state.auxiliary_visible);
     fflush(stdout);
@@ -1847,8 +1859,10 @@ int boxrig_term_wayland_native_host_create(
     if (ime != NULL) {
         if (strcmp(ime, "wayland") == 0) context_config.input_method = BOXRIG_WAYLAND_IME_WAYLAND;
         else if (strcmp(ime, "ibus") == 0) context_config.input_method = BOXRIG_WAYLAND_IME_IBUS;
+        else if (strcmp(ime, "fcitx5") == 0) context_config.input_method = BOXRIG_WAYLAND_IME_FCITX5;
+        else if (strcmp(ime, "fcitx4") == 0) context_config.input_method = BOXRIG_WAYLAND_IME_FCITX4;
         else if (strcmp(ime, "auto") != 0) {
-            fprintf(stderr, "boxrig_term: BOXRIG_WAYLAND_IME must be auto, wayland, or ibus.\n");
+            fprintf(stderr, "boxrig_term: BOXRIG_WAYLAND_IME must be auto, wayland, ibus, fcitx5, or fcitx4.\n");
             return -1;
         }
     }

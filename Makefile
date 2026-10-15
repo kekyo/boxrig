@@ -228,20 +228,20 @@ X11_HEADERS := include/boxrig/x11.h $(wildcard include/boxrig/x11/*.h)
 GTK4_SOURCES := $(wildcard src/gtk4/*.c)
 GTK4_OBJECTS := $(patsubst src/gtk4/%.c,$(BUILD_DIR)/gtk4/%.o,$(GTK4_SOURCES)) \
 	$(BUILD_DIR)/gtk4/pangocairo_renderer.o $(BUILD_DIR)/gtk4/accessible_text.o
-GTK4_HEADERS := include/boxrig/gtk4.h $(wildcard include/boxrig/gtk4/*.h) $(wildcard include/boxrig/gtk/*.h)
+GTK4_HEADERS := include/boxrig/gtk4.h include/boxrig/ime.h $(wildcard include/boxrig/gtk4/*.h) $(wildcard include/boxrig/gtk/*.h)
 GTK3_SOURCES := $(wildcard src/gtk3/*.c)
 GTK3_OBJECTS := $(patsubst src/gtk3/%.c,$(BUILD_DIR)/gtk3/%.o,$(GTK3_SOURCES)) \
 	$(BUILD_DIR)/gtk3/pangocairo_renderer.o $(BUILD_DIR)/gtk3/accessible_text.o
-GTK3_HEADERS := include/boxrig/gtk3.h $(wildcard include/boxrig/gtk3/*.h) $(wildcard include/boxrig/gtk/*.h)
+GTK3_HEADERS := include/boxrig/gtk3.h include/boxrig/ime.h $(wildcard include/boxrig/gtk3/*.h) $(wildcard include/boxrig/gtk/*.h)
 PANGO_CANDIDATE_OBJECT := $(BUILD_DIR)/pangocairo/candidates.o
 GTK3_OBJECTS += $(PANGO_CANDIDATE_OBJECT)
 GTK4_OBJECTS += $(PANGO_CANDIDATE_OBJECT)
-IBUS_SOURCES := src/ibus/client.c src/ibus/source.c src/ime/preedit.c
-IBUS_HEADERS := src/ibus/client.h src/ibus/source.h src/ime/preedit.h
-IBUS_OBJECTS := $(BUILD_DIR)/ibus/ibus_client.o $(BUILD_DIR)/ibus/ibus_source.o $(BUILD_DIR)/ibus/ime_preedit.o
-GTK3_OBJECTS += $(IBUS_OBJECTS) $(BUILD_DIR)/gtk3/ime_probe.o
-GTK4_OBJECTS += $(IBUS_OBJECTS) $(BUILD_DIR)/gtk4/ime_probe.o
-WAYLAND_HEADERS := include/boxrig/wayland.h
+IME_SOURCES := src/ime/client.c src/ime/detect.c src/ibus/client.c src/fcitx5/client.c src/fcitx4/client.c src/fcitx4/connection.c src/ime/source.c src/ime/preedit.c
+IME_HEADERS := src/fcitx4/connection.h include/boxrig/ime.h src/ime/client.h src/ime/client_private.h src/ime/source.h src/ime/preedit.h
+IME_OBJECTS := $(BUILD_DIR)/ime/client.o $(BUILD_DIR)/ime/detect.o $(BUILD_DIR)/ime/ibus.o $(BUILD_DIR)/ime/fcitx5.o $(BUILD_DIR)/ime/fcitx4.o $(BUILD_DIR)/ime/fcitx4_connection.o $(BUILD_DIR)/ime/source.o $(BUILD_DIR)/ime/preedit.o
+GTK3_OBJECTS += $(IME_OBJECTS) $(BUILD_DIR)/gtk3/ime_probe.o
+GTK4_OBJECTS += $(IME_OBJECTS) $(BUILD_DIR)/gtk4/ime_probe.o
+WAYLAND_HEADERS := include/boxrig/wayland.h include/boxrig/ime.h
 OPENGL_RENDERER_HEADERS := include/boxrig/render/opengl.h include/boxrig/render/runtime.h
 WAYLAND_OPENGL_HEADERS := $(wildcard include/boxrig/wayland/*.h)
 WAYLAND_PROTOCOL_DIR := $(BUILD_DIR)/generated/wayland
@@ -273,7 +273,7 @@ WAYLAND_OBJECTS := $(patsubst src/wayland/%.c,$(BUILD_DIR)/wayland/%.o,$(WAYLAND
 	$(BUILD_DIR)/wayland/fractional-scale-v1-protocol.o \
 	$(BUILD_DIR)/wayland/text-input-v3-protocol.o \
 	$(BUILD_DIR)/wayland/primary-selection-v1-protocol.o
-WAYLAND_OBJECTS += $(IBUS_OBJECTS) $(PANGO_CANDIDATE_OBJECT)
+WAYLAND_OBJECTS += $(IME_OBJECTS) $(PANGO_CANDIDATE_OBJECT)
 WAYLAND_OBJECTS += $(BUILD_DIR)/background_effect/wayland.o $(BUILD_DIR)/background_effect/protocol.o
 UTF8PROC_SOURCE := deps/utf8proc/utf8proc.c
 UTF8PROC_OBJECT := $(BUILD_DIR)/core/utf8proc.o
@@ -308,8 +308,9 @@ OPENGL_RENDERER_OBJECTS := $(patsubst src/opengl/%.c,$(BUILD_DIR)/opengl/%.o,$(O
 OPENGL_RENDERER_OBJECTS += $(PANGO_CANDIDATE_OBJECT)
 OPENGL_RENDERER_LIBRARY := $(BUILD_DIR)/libboxrig-render-ogl.a
 ifeq ($(GTK_OPENGL),1)
-GTK3_OBJECTS += $(BUILD_DIR)/gtk3/gl_area.o $(BUILD_DIR)/gtk3/gl_surface.o $(OPENGL_RENDERER_OBJECTS)
-GTK4_OBJECTS += $(BUILD_DIR)/gtk4/gl_area.o $(BUILD_DIR)/gtk4/gl_surface.o $(OPENGL_RENDERER_OBJECTS)
+# The candidate painter is already included for the Cairo backend.
+GTK3_OBJECTS += $(BUILD_DIR)/gtk3/gl_area.o $(BUILD_DIR)/gtk3/gl_surface.o $(filter-out $(PANGO_CANDIDATE_OBJECT),$(OPENGL_RENDERER_OBJECTS))
+GTK4_OBJECTS += $(BUILD_DIR)/gtk4/gl_area.o $(BUILD_DIR)/gtk4/gl_surface.o $(filter-out $(PANGO_CANDIDATE_OBJECT),$(OPENGL_RENDERER_OBJECTS))
 endif
 X11_OPENGL_SOURCES := $(wildcard src/x11_opengl/*.c)
 X11_OPENGL_OBJECTS := $(patsubst src/x11_opengl/%.c,$(BUILD_DIR)/x11_opengl/%.o,$(X11_OPENGL_SOURCES))
@@ -940,7 +941,7 @@ install-gtk4: $(LIBRARY) $(UI_LIBRARY) $(GTK4_LIBRARY) \
 	$(INSTALL) -m 644 $(LIBRARY) $(UI_LIBRARY) $(GTK4_LIBRARY) \
 		$(DESTDIR)$(LIBDIR)
 	$(INSTALL) -m 644 $(CORE_PUBLIC_HEADERS) include/boxrig/ui.h \
-		include/boxrig/gtk4.h $(DESTDIR)$(INCLUDEDIR)/boxrig
+		include/boxrig/gtk4.h include/boxrig/ime.h $(DESTDIR)$(INCLUDEDIR)/boxrig
 	$(INSTALL) -m 644 include/boxrig/ui/*.h \
 		$(DESTDIR)$(INCLUDEDIR)/boxrig/ui
 	$(INSTALL) -m 644 include/boxrig/gtk4/*.h \
@@ -961,7 +962,7 @@ install-gtk3: $(LIBRARY) $(UI_LIBRARY) $(GTK3_LIBRARY) \
 	$(INSTALL) -m 644 $(LIBRARY) $(UI_LIBRARY) $(GTK3_LIBRARY) \
 		$(DESTDIR)$(LIBDIR)
 	$(INSTALL) -m 644 $(CORE_PUBLIC_HEADERS) include/boxrig/ui.h \
-		include/boxrig/gtk3.h $(DESTDIR)$(INCLUDEDIR)/boxrig
+		include/boxrig/gtk3.h include/boxrig/ime.h $(DESTDIR)$(INCLUDEDIR)/boxrig
 	$(INSTALL) -m 644 include/boxrig/ui/*.h \
 		$(DESTDIR)$(INCLUDEDIR)/boxrig/ui
 	$(INSTALL) -m 644 include/boxrig/gtk3/*.h \
@@ -980,7 +981,7 @@ install-wayland: $(LIBRARY) $(UI_LIBRARY) $(WAYLAND_LIBRARY) \
 	$(INSTALL) -m 644 $(LIBRARY) $(UI_LIBRARY) $(WAYLAND_LIBRARY) \
 		$(DESTDIR)$(LIBDIR)
 	$(INSTALL) -m 644 $(CORE_PUBLIC_HEADERS) include/boxrig/ui.h \
-		include/boxrig/wayland.h $(DESTDIR)$(INCLUDEDIR)/boxrig
+		include/boxrig/wayland.h include/boxrig/ime.h $(DESTDIR)$(INCLUDEDIR)/boxrig
 	$(INSTALL) -m 644 include/boxrig/ui/*.h \
 		$(DESTDIR)$(INCLUDEDIR)/boxrig/ui
 	$(INSTALL) -m 644 $(WAYLAND_PKG_CONFIG) \
@@ -1046,7 +1047,7 @@ install-wayland-opengl: $(LIBRARY) $(UI_LIBRARY) $(WAYLAND_LIBRARY) \
 		$(OPENGL_RENDERER_LIBRARY) $(WAYLAND_OPENGL_LIBRARY) \
 		$(DESTDIR)$(LIBDIR)
 	$(INSTALL) -m 644 $(CORE_PUBLIC_HEADERS) include/boxrig/ui.h \
-		include/boxrig/wayland.h $(DESTDIR)$(INCLUDEDIR)/boxrig
+		include/boxrig/wayland.h include/boxrig/ime.h $(DESTDIR)$(INCLUDEDIR)/boxrig
 	$(INSTALL) -m 644 include/boxrig/ui/*.h \
 		$(DESTDIR)$(INCLUDEDIR)/boxrig/ui
 	$(INSTALL) -m 644 $(WAYLAND_OPENGL_HEADERS) \
@@ -2587,7 +2588,7 @@ $(GTK3_WAYLAND_SAMPLE_CHILD_BINARY): \
 		$(SANITIZERS) $< $(SANITIZERS) -o $@
 
 $(WAYLAND_CONTEXT_TEST_BINARY): tests/wayland/test_wayland_context.c tests/editable_fixture.h $(UI_LIBRARY) $(LIBRARY) \
-        src/wayland/input.c src/wayland/ibus.c $(IBUS_SOURCES) $(IBUS_HEADERS) $(WAYLAND_PRIVATE_HEADERS) \
+        src/wayland/input.c src/wayland/ibus.c $(IME_SOURCES) $(IME_HEADERS) $(WAYLAND_PRIVATE_HEADERS) \
 		$(FRONTEND_COMPONENT_FIXTURE_SOURCES) \
 		$(FRONTEND_COMPONENT_FIXTURE_HEADER) \
 		$(WAYLAND_HEADERS) $(WAYLAND_LIBRARY) $(WAYLAND_VIEWPORTER_SERVER_HEADER) \
@@ -2595,7 +2596,7 @@ $(WAYLAND_CONTEXT_TEST_BINARY): tests/wayland/test_wayland_context.c tests/edita
 		$(WAYLAND_PRIMARY_SELECTION_SERVER_HEADER) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) \
 		-I$(WAYLAND_PROTOCOL_DIR) $(WAYLAND_CPPFLAGS) $(PANGO_CAIRO_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) \
-		-Isrc/ui tests/wayland/test_wayland_context.c src/wayland/input.c src/wayland/ibus.c $(IBUS_SOURCES) \
+		-Isrc/ui tests/wayland/test_wayland_context.c src/wayland/input.c src/wayland/ibus.c $(IME_SOURCES) \
 		$(FRONTEND_COMPONENT_FIXTURE_SOURCES) \
 		$(WAYLAND_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(WAYLAND_LIBS) \
 		$(PANGO_CAIRO_LIBS) $(SANITIZERS) -Wl,--wrap=boxrig_ui_editable_document_apply_edit,--wrap=boxrig_composition_apply_event -o $@
@@ -2888,11 +2889,12 @@ $(MINGW_AMD64_HOST_TRANSPARENCY_TEST): tests/win32/test_win32_host_transparency.
 $(MINGW_I686_HOST_TRANSPARENCY_TEST): tests/win32/test_win32_host_transparency.c include/boxrig/win32/host_transparency.h $(MINGW_I686_WIN32_LIBRARY) $(MINGW_I686_UI_LIBRARY) $(MINGW_I686_LIBRARY) | $(MINGW_I686_BUILD_DIR)/tests
 	$(MINGW_I686_CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(MINGW_WIN32_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(MINGW_I686_WIN32_LIBRARY) $(MINGW_I686_UI_LIBRARY) $(MINGW_I686_LIBRARY) $(WIN32_TRANSPARENCY_LIBS) -o $@
 
-$(MINGW_AMD64_TRANSPARENCY_TEST): tests/win32/test_win32_transparency.c src/win32/transparency_private.h $(MINGW_AMD64_WIN32_LIBRARY) $(MINGW_AMD64_UI_LIBRARY) $(MINGW_AMD64_LIBRARY) | $(MINGW_AMD64_BUILD_DIR)/tests
-	$(MINGW_AMD64_CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(MINGW_WIN32_CPPFLAGS) -Isrc/win32 $(CFLAGS) $(PROJECT_CFLAGS) tests/win32/test_win32_transparency.c $(MINGW_AMD64_WIN32_LIBRARY) $(MINGW_AMD64_UI_LIBRARY) $(MINGW_AMD64_LIBRARY) $(WIN32_TRANSPARENCY_LIBS) -o $@
+# Layered child windows require the Windows 8 compatibility manifest on Windows.
+$(MINGW_AMD64_TRANSPARENCY_TEST): tests/win32/test_win32_transparency.c src/win32/transparency_private.h $(MINGW_AMD64_BUILD_DIR)/tests/basic_ui_manifest.o Makefile $(MINGW_AMD64_WIN32_LIBRARY) $(MINGW_AMD64_UI_LIBRARY) $(MINGW_AMD64_LIBRARY) | $(MINGW_AMD64_BUILD_DIR)/tests
+	$(MINGW_AMD64_CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(MINGW_WIN32_CPPFLAGS) -Isrc/win32 $(CFLAGS) $(PROJECT_CFLAGS) tests/win32/test_win32_transparency.c $(MINGW_AMD64_BUILD_DIR)/tests/basic_ui_manifest.o $(MINGW_AMD64_WIN32_LIBRARY) $(MINGW_AMD64_UI_LIBRARY) $(MINGW_AMD64_LIBRARY) $(WIN32_TRANSPARENCY_LIBS) -o $@
 
-$(MINGW_I686_TRANSPARENCY_TEST): tests/win32/test_win32_transparency.c src/win32/transparency_private.h $(MINGW_I686_WIN32_LIBRARY) $(MINGW_I686_UI_LIBRARY) $(MINGW_I686_LIBRARY) | $(MINGW_I686_BUILD_DIR)/tests
-	$(MINGW_I686_CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(MINGW_WIN32_CPPFLAGS) -Isrc/win32 $(CFLAGS) $(PROJECT_CFLAGS) tests/win32/test_win32_transparency.c $(MINGW_I686_WIN32_LIBRARY) $(MINGW_I686_UI_LIBRARY) $(MINGW_I686_LIBRARY) $(WIN32_TRANSPARENCY_LIBS) -o $@
+$(MINGW_I686_TRANSPARENCY_TEST): tests/win32/test_win32_transparency.c src/win32/transparency_private.h $(MINGW_I686_BUILD_DIR)/tests/basic_ui_manifest.o Makefile $(MINGW_I686_WIN32_LIBRARY) $(MINGW_I686_UI_LIBRARY) $(MINGW_I686_LIBRARY) | $(MINGW_I686_BUILD_DIR)/tests
+	$(MINGW_I686_CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(MINGW_WIN32_CPPFLAGS) -Isrc/win32 $(CFLAGS) $(PROJECT_CFLAGS) tests/win32/test_win32_transparency.c $(MINGW_I686_BUILD_DIR)/tests/basic_ui_manifest.o $(MINGW_I686_WIN32_LIBRARY) $(MINGW_I686_UI_LIBRARY) $(MINGW_I686_LIBRARY) $(WIN32_TRANSPARENCY_LIBS) -o $@
 
 $(MINGW_AMD64_EVENT_LOOP_TEST): tests/win32/test_win32_event_loop.c $(MINGW_AMD64_WIN32_LIBRARY) $(MINGW_AMD64_SESSION_LIBRARY) $(MINGW_AMD64_UI_LIBRARY) $(MINGW_AMD64_LIBRARY) | $(MINGW_AMD64_BUILD_DIR)/tests
 	$(MINGW_AMD64_CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(MINGW_TERM_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) tests/win32/test_win32_event_loop.c $(MINGW_AMD64_WIN32_LIBRARY) $(MINGW_AMD64_SESSION_LIBRARY) $(MINGW_AMD64_UI_LIBRARY) $(MINGW_AMD64_LIBRARY) $(WIN32_RENDERER_LIBS) $(WIN32_HOST_LIBS) $(WIN32_TRANSPARENCY_LIBS) -ladvapi32 -o $@
@@ -3894,11 +3896,12 @@ uninstall-win32-opengl-i686:
 	rm -f $(DESTDIR)$(INCLUDEDIR)/boxrig/win32/opengl.h $(DESTDIR)$(INCLUDEDIR)/boxrig/win32/opengl_component.h $(DESTDIR)$(INCLUDEDIR)/boxrig/win32/wgl.h $(addprefix $(DESTDIR)$(INCLUDEDIR)/boxrig/render/,$(notdir $(OPENGL_RENDERER_HEADERS)))
 	rm -f $(DESTDIR)$(PREFIX)/share/boxrig/examples/win32/renderer.c
 
-$(MINGW_AMD64_OPACITY_NATIVE_TEST): tests/win32/test_win32_opacity_native.c include/boxrig/win32/opacity_native.h src/win32/opacity_native_private.h $(MINGW_AMD64_WIN32_LIBRARY) $(MINGW_AMD64_UI_LIBRARY) $(MINGW_AMD64_LIBRARY) | $(MINGW_AMD64_BUILD_DIR)/tests
-	$(MINGW_AMD64_CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(MINGW_WIN32_CPPFLAGS) -Isrc/win32 $(CFLAGS) $(PROJECT_CFLAGS) $< $(MINGW_AMD64_WIN32_LIBRARY) $(MINGW_AMD64_UI_LIBRARY) $(MINGW_AMD64_LIBRARY) $(WIN32_TRANSPARENCY_LIBS) -o $@
+# Layered child windows require the Windows 8 compatibility manifest on Windows.
+$(MINGW_AMD64_OPACITY_NATIVE_TEST): tests/win32/test_win32_opacity_native.c include/boxrig/win32/opacity_native.h src/win32/opacity_native_private.h $(MINGW_AMD64_BUILD_DIR)/tests/basic_ui_manifest.o Makefile $(MINGW_AMD64_WIN32_LIBRARY) $(MINGW_AMD64_UI_LIBRARY) $(MINGW_AMD64_LIBRARY) | $(MINGW_AMD64_BUILD_DIR)/tests
+	$(MINGW_AMD64_CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(MINGW_WIN32_CPPFLAGS) -Isrc/win32 $(CFLAGS) $(PROJECT_CFLAGS) $< $(MINGW_AMD64_BUILD_DIR)/tests/basic_ui_manifest.o $(MINGW_AMD64_WIN32_LIBRARY) $(MINGW_AMD64_UI_LIBRARY) $(MINGW_AMD64_LIBRARY) $(WIN32_TRANSPARENCY_LIBS) -o $@
 
-$(MINGW_I686_OPACITY_NATIVE_TEST): tests/win32/test_win32_opacity_native.c include/boxrig/win32/opacity_native.h src/win32/opacity_native_private.h $(MINGW_I686_WIN32_LIBRARY) $(MINGW_I686_UI_LIBRARY) $(MINGW_I686_LIBRARY) | $(MINGW_I686_BUILD_DIR)/tests
-	$(MINGW_I686_CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(MINGW_WIN32_CPPFLAGS) -Isrc/win32 $(CFLAGS) $(PROJECT_CFLAGS) $< $(MINGW_I686_WIN32_LIBRARY) $(MINGW_I686_UI_LIBRARY) $(MINGW_I686_LIBRARY) $(WIN32_TRANSPARENCY_LIBS) -o $@
+$(MINGW_I686_OPACITY_NATIVE_TEST): tests/win32/test_win32_opacity_native.c include/boxrig/win32/opacity_native.h src/win32/opacity_native_private.h $(MINGW_I686_BUILD_DIR)/tests/basic_ui_manifest.o Makefile $(MINGW_I686_WIN32_LIBRARY) $(MINGW_I686_UI_LIBRARY) $(MINGW_I686_LIBRARY) | $(MINGW_I686_BUILD_DIR)/tests
+	$(MINGW_I686_CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(MINGW_WIN32_CPPFLAGS) -Isrc/win32 $(CFLAGS) $(PROJECT_CFLAGS) $< $(MINGW_I686_BUILD_DIR)/tests/basic_ui_manifest.o $(MINGW_I686_WIN32_LIBRARY) $(MINGW_I686_UI_LIBRARY) $(MINGW_I686_LIBRARY) $(WIN32_TRANSPARENCY_LIBS) -o $@
 
 # Exercise new application policies before the remaining complete regression suite.
 # Each sample resolves the console launcher beside its own executable.
@@ -5034,35 +5037,50 @@ test-ime-clause: $(GTK3_WIDGET_TEST_BINARY) $(GTK4_WIDGET_TEST_BINARY) $(POSIX_E
 
 # Direct IBus uses a private daemon and engine, never the desktop input method.
 .PHONY: test-gtk-ibus-direct
-$(BUILD_DIR)/tests/test_gtk4_ibus: tests/gtk/test_ibus_widget.c include/boxrig/gtk/input.h $(IBUS_SOURCES) $(IBUS_HEADERS) $(GTK4_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
-	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK4_CPPFLAGS) $(IBUS_CPPFLAGS) $(CFLAGS) $(GTK4_PROJECT_CFLAGS) $(SANITIZERS) $< $(IBUS_SOURCES) $(GTK4_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK4_LIBS) $(IBUS_LIBS) $(SANITIZERS) -Wl,--wrap=gtk_im_multicontext_new,--wrap=gtk_event_controller_key_new,--wrap=gtk_event_controller_focus_new -o $@
+$(BUILD_DIR)/tests/test_gtk4_ibus: tests/gtk/test_ibus_widget.c include/boxrig/gtk/input.h $(IME_SOURCES) $(IME_HEADERS) $(GTK4_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK4_CPPFLAGS) $(IBUS_CPPFLAGS) $(CFLAGS) $(GTK4_PROJECT_CFLAGS) $(SANITIZERS) $< $(IME_SOURCES) $(GTK4_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK4_LIBS) $(IBUS_LIBS) $(SANITIZERS) -Wl,--wrap=gtk_im_multicontext_new,--wrap=gtk_event_controller_key_new,--wrap=gtk_event_controller_focus_new -o $@
 
-$(BUILD_DIR)/tests/test_gtk3_ibus: tests/gtk/test_ibus_widget.c include/boxrig/gtk/input.h $(IBUS_SOURCES) $(IBUS_HEADERS) $(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
-	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK3_CPPFLAGS) $(IBUS_CPPFLAGS) $(CFLAGS) $(GTK3_PROJECT_CFLAGS) $(SANITIZERS) -DBOXRIG_TEST_GTK3=1 $< $(IBUS_SOURCES) $(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK3_LIBS) $(IBUS_LIBS) $(SANITIZERS) -o $@
+$(BUILD_DIR)/tests/test_gtk3_ibus: tests/gtk/test_ibus_widget.c include/boxrig/gtk/input.h $(IME_SOURCES) $(IME_HEADERS) $(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK3_CPPFLAGS) $(IBUS_CPPFLAGS) $(CFLAGS) $(GTK3_PROJECT_CFLAGS) $(SANITIZERS) -DBOXRIG_TEST_GTK3=1 $< $(IME_SOURCES) $(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK3_LIBS) $(IBUS_LIBS) $(SANITIZERS) -o $@
 
 test-gtk-ibus-direct: $(BUILD_DIR)/tests/test_gtk3_ibus $(BUILD_DIR)/tests/test_gtk4_ibus $(BUILD_DIR)/tests/wayland_ibus_engine
 	@for gtk in 3 4; do for scale in 1 2; do for renderer in cairo opengl; do \
-		env GDK_SCALE=$$scale BOXRIG_TEST_DELAY_ESCAPE_RELEASE=1 BOXRIG_TEST_IBUS_WAYLAND=1 dbus-run-session -- bash tests/gtk/run_gl_wayland.sh node tests/wayland/run_ibus_context.mjs "$(BUILD_DIR)/tests/test_gtk$${gtk}_ibus" "$(TEST_FONT_FILE)" "$(BUILD_DIR)/tests/wayland_ibus_engine" "$(BUILD_DIR)/test-results/gtk$${gtk}-ibus/$$scale-$$renderer" $$renderer || exit $$?; \
+		$(XVFB_RUN) -a env BOXRIG_TEST_WESTON_BACKEND=x11 GDK_SCALE=$$scale BOXRIG_TEST_DELAY_ESCAPE_RELEASE=1 BOXRIG_TEST_IBUS_WAYLAND=1 GIO_USE_VFS=local GTK_A11Y=none dbus-run-session --config-file=tests/ime/session.conf -- bash tests/gtk/run_gl_wayland.sh node tests/wayland/run_ibus_context.mjs "$(BUILD_DIR)/tests/test_gtk$${gtk}_ibus" "$(TEST_FONT_FILE)" "$(BUILD_DIR)/tests/wayland_ibus_engine" "$(BUILD_DIR)/test-results/gtk$${gtk}-ibus/$$scale-$$renderer" $$renderer || exit $$?; \
 	done; done; done
 
-$(BUILD_DIR)/ibus:
+$(BUILD_DIR)/ime:
 	mkdir -p $@
 
-$(BUILD_DIR)/ibus/ibus_client.o: src/ibus/client.c $(IBUS_HEADERS) | $(BUILD_DIR)/ibus
+$(BUILD_DIR)/ime/client.o: src/ime/client.c $(IME_HEADERS) | $(BUILD_DIR)/ime
 	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(IBUS_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) -c $< -o $@
 
-$(BUILD_DIR)/ibus/ibus_source.o: src/ibus/source.c $(IBUS_HEADERS) | $(BUILD_DIR)/ibus
+$(BUILD_DIR)/ime/detect.o: src/ime/detect.c $(IME_HEADERS) | $(BUILD_DIR)/ime
 	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(IBUS_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) -c $< -o $@
 
-$(BUILD_DIR)/ibus/ime_preedit.o: src/ime/preedit.c $(IBUS_HEADERS) | $(BUILD_DIR)/ibus
+$(BUILD_DIR)/ime/fcitx5.o: src/fcitx5/client.c $(IME_HEADERS) | $(BUILD_DIR)/ime
+	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(IBUS_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/ime/fcitx4.o: src/fcitx4/client.c $(IME_HEADERS) | $(BUILD_DIR)/ime
+	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(IBUS_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/ime/fcitx4_connection.o: src/fcitx4/connection.c $(IME_HEADERS) | $(BUILD_DIR)/ime
+	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(POSIX_CPPFLAGS) $(IBUS_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/ime/ibus.o: src/ibus/client.c $(IME_HEADERS) | $(BUILD_DIR)/ime
+	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(IBUS_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/ime/source.o: src/ime/source.c $(IME_HEADERS) | $(BUILD_DIR)/ime
+	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(IBUS_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/ime/preedit.o: src/ime/preedit.c $(IME_HEADERS) | $(BUILD_DIR)/ime
 	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) -c $< -o $@
 
-$(GTK3_OBJECTS) $(GTK4_OBJECTS) $(WAYLAND_OBJECTS): $(IBUS_HEADERS)
+$(GTK3_OBJECTS) $(GTK4_OBJECTS) $(WAYLAND_OBJECTS): $(IME_HEADERS)
 
 .PHONY: test-gtk-ibus-auto
 test-gtk-ibus-auto: $(BUILD_DIR)/tests/test_gtk3_ibus $(BUILD_DIR)/tests/test_gtk4_ibus $(BUILD_DIR)/tests/wayland_ibus_engine
 	@for gtk in 3 4; do \
-		env GDK_SCALE=1 BOXRIG_TEST_IBUS_WAYLAND=1 dbus-run-session -- bash tests/gtk/run_gl_wayland.sh node tests/wayland/run_ibus_context.mjs "$(BUILD_DIR)/tests/test_gtk$${gtk}_ibus" "$(TEST_FONT_FILE)" "$(BUILD_DIR)/tests/wayland_ibus_engine" "$(BUILD_DIR)/test-results/gtk$${gtk}-ibus/auto" cairo auto || exit $$?; \
+		$(XVFB_RUN) -a env BOXRIG_TEST_WESTON_BACKEND=x11 GDK_SCALE=1 BOXRIG_TEST_IBUS_WAYLAND=1 GIO_USE_VFS=local GTK_A11Y=none dbus-run-session --config-file=tests/ime/session.conf -- bash tests/gtk/run_gl_wayland.sh node tests/wayland/run_ibus_context.mjs "$(BUILD_DIR)/tests/test_gtk$${gtk}_ibus" "$(TEST_FONT_FILE)" "$(BUILD_DIR)/tests/wayland_ibus_engine" "$(BUILD_DIR)/test-results/gtk$${gtk}-ibus/auto" cairo auto || exit $$?; \
 	done
 
 .PHONY: test-gtk-ime-startup
@@ -5095,8 +5113,8 @@ test-gtk-ime-routing: $(BUILD_DIR)/tests/test_gtk3_ime_protocol $(BUILD_DIR)/tes
 
 # X11 uses GTK IBus, including AUTO without GTK_IM_MODULE.
 
-$(BUILD_DIR)/tests/test_ibus_candidates: tests/wayland/test_ibus_candidates.c $(IBUS_SOURCES) $(IBUS_HEADERS) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
-	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(POSIX_CPPFLAGS) $(IBUS_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< src/ibus/client.c src/ime/preedit.c $(UI_LIBRARY) $(LIBRARY) $(IBUS_LIBS) $(SANITIZERS) -Wl,--wrap=ibus_input_context_new_async_finish -o $@
+$(BUILD_DIR)/tests/test_ibus_candidates: tests/wayland/test_ibus_candidates.c $(IME_SOURCES) $(IME_HEADERS) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(POSIX_CPPFLAGS) $(IBUS_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(IME_SOURCES) $(UI_LIBRARY) $(LIBRARY) $(IBUS_LIBS) $(SANITIZERS) -Wl,--wrap=ibus_input_context_new_async_finish -o $@
 
 .PHONY: test-ibus-candidates
 test-ibus-candidates: $(BUILD_DIR)/tests/test_ibus_candidates $(BUILD_DIR)/tests/wayland_ibus_engine
@@ -5165,7 +5183,7 @@ test-gtk4-candidates: $(BUILD_DIR)/tests/test_gtk4_candidates $(BUILD_DIR)/tests
 
 .PHONY: test-wayland-candidates-startup
 test-wayland-candidates-startup: $(WAYLAND_EXAMPLE_BINARY) $(BUILD_DIR)/tests/wayland_ibus_engine
-	env BOXRIG_TEST_IBUS_WAYLAND=1 dbus-run-session -- bash tests/gtk/run_gl_wayland.sh node tests/wayland/run_ibus_context.mjs "$(shell command -v node)" tests/wayland/test_sample_candidates.mjs "$(BUILD_DIR)/tests/wayland_ibus_engine" "$(BUILD_DIR)/test-results/wayland-candidates-startup" "$(WAYLAND_EXAMPLE_BINARY)"
+	$(XVFB_RUN) -a env BOXRIG_TEST_WESTON_BACKEND=x11 BOXRIG_TEST_IBUS_WAYLAND=1 GIO_USE_VFS=local GTK_A11Y=none dbus-run-session --config-file=tests/ime/session.conf -- bash tests/gtk/run_gl_wayland.sh node tests/wayland/run_ibus_context.mjs "$(shell command -v node)" tests/wayland/test_sample_candidates.mjs "$(BUILD_DIR)/tests/wayland_ibus_engine" "$(BUILD_DIR)/test-results/wayland-candidates-startup" "$(WAYLAND_EXAMPLE_BINARY)"
 
 .PHONY: test-notification-dispatch
 test: test-notification-dispatch
@@ -5566,3 +5584,247 @@ $(BUILD_DIR)/tests/gtk4_accessibility_driver: tests/gtk/accessibility_driver.c $
 
 test-gtk4-orca: $(BUILD_DIR)/tests/test_atspi_text $(BUILD_DIR)/tests/gtk4_accessibility_driver
 	sh tests/gtk/run_accessibility.sh bash tests/gtk/run_orca.sh $(abspath $(BUILD_DIR)/tests/test_atspi_text) $(abspath $(BUILD_DIR)/tests/gtk4_accessibility_driver) $(abspath $(BUILD_DIR)/test-results/accessibility/gtk4)
+
+$(BUILD_DIR)/tests/fcitx5_server: tests/ime/fcitx5_server.c | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(IBUS_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(IBUS_LIBS) -o $@
+
+$(BUILD_DIR)/tests/test_fcitx5: tests/ime/test_fcitx5.c $(IME_SOURCES) $(IME_HEADERS) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(IBUS_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(IME_SOURCES) $(UI_LIBRARY) $(LIBRARY) $(IBUS_LIBS) $(SANITIZERS) -o $@
+
+.PHONY: test-fcitx5
+test-fcitx5: $(BUILD_DIR)/tests/fcitx5_server $(BUILD_DIR)/tests/test_fcitx5
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx5.sh $(BUILD_DIR)/tests/fcitx5_server $(BUILD_DIR)/tests/test_fcitx5
+
+test: test-fcitx5
+
+$(BUILD_DIR)/tests/fcitx4_server: tests/ime/fcitx4_server.c | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(IBUS_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(IBUS_LIBS) -o $@
+
+$(BUILD_DIR)/tests/test_fcitx4: tests/ime/test_fcitx4.c $(IME_SOURCES) $(IME_HEADERS) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(IBUS_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(IME_SOURCES) $(UI_LIBRARY) $(LIBRARY) $(IBUS_LIBS) $(SANITIZERS) -o $@
+
+.PHONY: test-fcitx4
+test-fcitx4: $(BUILD_DIR)/tests/fcitx4_server $(BUILD_DIR)/tests/test_fcitx4
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4.sh $(BUILD_DIR)/tests/fcitx4_server $(BUILD_DIR)/tests/test_fcitx4
+
+test: test-fcitx4
+
+.PHONY: test-fcitx4-panels-core
+test-fcitx4-panels-core: $(BUILD_DIR)/tests/fcitx4_server $(BUILD_DIR)/tests/test_fcitx4
+	BOXRIG_TEST_FCITX4_PANELS=1 ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4.sh $(BUILD_DIR)/tests/fcitx4_server $(BUILD_DIR)/tests/test_fcitx4
+
+test: test-fcitx4-panels-core
+
+$(BUILD_DIR)/tests/test_fcitx4_focus: tests/ime/test_fcitx4_focus.c $(IME_SOURCES) $(IME_HEADERS) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(IBUS_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(IME_SOURCES) $(UI_LIBRARY) $(LIBRARY) $(IBUS_LIBS) $(SANITIZERS) -o $@
+
+.PHONY: test-fcitx4-focus
+test-fcitx4-focus: $(BUILD_DIR)/tests/fcitx4_server $(BUILD_DIR)/tests/test_fcitx4_focus
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4.sh $(BUILD_DIR)/tests/fcitx4_server $(BUILD_DIR)/tests/test_fcitx4_focus
+
+test: test-fcitx4-focus
+
+$(BUILD_DIR)/tests/test_fcitx4_address: tests/ime/test_fcitx4_address.c $(IME_SOURCES) $(IME_HEADERS) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(POSIX_CPPFLAGS) $(IBUS_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(IME_SOURCES) $(UI_LIBRARY) $(LIBRARY) $(IBUS_LIBS) $(SANITIZERS) -o $@
+
+.PHONY: test-fcitx4-address
+test-fcitx4-address: $(BUILD_DIR)/tests/fcitx4_server $(BUILD_DIR)/tests/test_fcitx4_address
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4_address.sh $(BUILD_DIR)/tests/fcitx4_server $(BUILD_DIR)/tests/test_fcitx4_address
+	BOXRIG_TEST_FCITX4_DISPLAY_NUMBER=0 ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4_address.sh $(BUILD_DIR)/tests/fcitx4_server $(BUILD_DIR)/tests/test_fcitx4_address no-display
+
+test: test-fcitx4-address
+
+$(BUILD_DIR)/tests/test_gtk3_fcitx4: tests/gtk/test_fcitx4_widget.c $(IME_SOURCES) $(IME_HEADERS) $(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK3_CPPFLAGS) $(CFLAGS) $(GTK3_PROJECT_CFLAGS) $(SANITIZERS) -DBOXRIG_TEST_GTK3=1 $< $(IME_SOURCES) $(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK3_LIBS) $(SANITIZERS) -o $@
+
+$(BUILD_DIR)/tests/test_gtk4_fcitx4: tests/gtk/test_fcitx4_widget.c $(IME_SOURCES) $(IME_HEADERS) $(GTK4_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK4_CPPFLAGS) $(CFLAGS) $(GTK4_PROJECT_CFLAGS) $(SANITIZERS) $< $(IME_SOURCES) $(GTK4_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK4_LIBS) $(SANITIZERS) -Wl,--wrap=gtk_event_controller_key_new,--wrap=gtk_event_controller_focus_new -o $@
+
+.PHONY: test-fcitx4-panels-gtk
+test-fcitx4-panels-gtk: $(BUILD_DIR)/tests/test_gtk3_fcitx4 $(BUILD_DIR)/tests/test_gtk4_fcitx4 $(BUILD_DIR)/tests/fcitx4_server
+	$(XVFB_RUN) -a env BOXRIG_TEST_FCITX4_PANELS=1 GDK_BACKEND=x11 GTK_IM_MODULE=gtk-im-context-simple GTK_A11Y=none NO_AT_BRIDGE=1 GIO_USE_VFS=local ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4.sh --display $(BUILD_DIR)/tests/fcitx4_server $(BUILD_DIR)/tests/test_gtk3_fcitx4
+	@for gtk in 3 4; do \
+		$(XVFB_RUN) -a env BOXRIG_TEST_FCITX4_PANELS=1 BOXRIG_TEST_WESTON_BACKEND=x11 GTK_IM_MODULE=gtk-im-context-simple GTK_A11Y=none GIO_USE_VFS=local LIBGL_ALWAYS_SOFTWARE=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/gtk/run_gl_wayland.sh bash tests/ime/run_fcitx4.sh --display $(BUILD_DIR)/tests/fcitx4_server $(BUILD_DIR)/tests/test_gtk$${gtk}_fcitx4 || exit $$?; \
+	done
+
+test: test-fcitx4-panels-gtk
+
+.PHONY: test-fcitx4-scale
+test-fcitx4-scale:
+	GDK_SCALE=2 $(MAKE) test-fcitx4-panels-gtk
+
+test: test-fcitx4-scale
+
+.PHONY: test-fcitx4-compat-real
+test-fcitx4-compat-real: $(BUILD_DIR)/tests/test_gtk3_fcitx4
+	$(XVFB_RUN) -a env -u FCITX_DBUS_ADDRESS GDK_BACKEND=x11 GTK_IM_MODULE=gtk-im-context-simple GTK_A11Y=none NO_AT_BRIDGE=1 GIO_USE_VFS=local BOXRIG_TEST_FCITX4_COMPAT=1 BOXRIG_TEST_FCITX4_PANELS=1 ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx5_real.sh --display $<
+	$(XVFB_RUN) -a env -u FCITX_DBUS_ADDRESS -u GTK_IM_MODULE GDK_BACKEND=x11 GTK_A11Y=none NO_AT_BRIDGE=1 GIO_USE_VFS=local IBUS_ADDRESS= XMODIFIERS= FCITX_X11_USE_CLIENT_SIDE_UI=True BOXRIG_TEST_IME_AUTO=1 BOXRIG_TEST_FCITX4_COMPAT=1 BOXRIG_TEST_FCITX4_PANELS=1 ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx5_real.sh --display $<
+
+test: test-fcitx4-compat-real
+
+.PHONY: test-fcitx4-panels-real
+test-fcitx4-panels-real: $(BUILD_DIR)/tests/test_gtk3_fcitx4 $(BUILD_DIR)/tests/test_gtk4_fcitx4 $(WAYLAND_CONTEXT_TEST_BINARY)
+	$(XVFB_RUN) -a env IBUS_ADDRESS= XMODIFIERS= BOXRIG_TEST_FCITX4=1 BOXRIG_TEST_FCITX4_PANELS=1 GDK_BACKEND=x11 GIO_USE_VFS=local ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4_real.sh $(WAYLAND_CONTEXT_TEST_BINARY) "$(TEST_FONT_FILE)"
+	$(XVFB_RUN) -a env IBUS_ADDRESS= XMODIFIERS= BOXRIG_TEST_IME_AUTO=1 BOXRIG_TEST_FCITX4=1 BOXRIG_TEST_FCITX4_PANELS=1 GDK_BACKEND=x11 GIO_USE_VFS=local ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4_real.sh $(WAYLAND_CONTEXT_TEST_BINARY) "$(TEST_FONT_FILE)"
+	$(XVFB_RUN) -a env BOXRIG_TEST_FCITX4_PANELS=1 GDK_BACKEND=x11 GTK_IM_MODULE=gtk-im-context-simple GTK_A11Y=none NO_AT_BRIDGE=1 GIO_USE_VFS=local ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4_real.sh $(BUILD_DIR)/tests/test_gtk3_fcitx4
+	@for gtk in 3 4; do \
+		$(XVFB_RUN) -a env BOXRIG_TEST_FCITX4_PANELS=1 BOXRIG_TEST_WESTON_BACKEND=x11 GTK_IM_MODULE=gtk-im-context-simple GTK_A11Y=none GIO_USE_VFS=local LIBGL_ALWAYS_SOFTWARE=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/gtk/run_gl_wayland.sh bash tests/ime/run_fcitx4_real.sh $(BUILD_DIR)/tests/test_gtk$${gtk}_fcitx4 || exit $$?; \
+	done
+
+.PHONY: test-gtk-fcitx4
+test-gtk-fcitx4: $(BUILD_DIR)/tests/fcitx4_server $(BUILD_DIR)/tests/test_gtk3_fcitx4
+	$(XVFB_RUN) -a env GDK_BACKEND=x11 GTK_IM_MODULE=gtk-im-context-simple GTK_A11Y=none NO_AT_BRIDGE=1 GIO_USE_VFS=local ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4.sh --display $(BUILD_DIR)/tests/fcitx4_server $(BUILD_DIR)/tests/test_gtk3_fcitx4
+
+test: test-gtk-fcitx4
+
+.PHONY: test-fcitx4-real
+test-fcitx4-real: $(BUILD_DIR)/tests/test_gtk3_fcitx4
+	$(XVFB_RUN) -a env GDK_BACKEND=x11 GTK_IM_MODULE=gtk-im-context-simple GTK_A11Y=none NO_AT_BRIDGE=1 GIO_USE_VFS=local ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4_real.sh $(BUILD_DIR)/tests/test_gtk3_fcitx4
+	$(XVFB_RUN) -a env BOXRIG_TEST_FCITX4_NO_FOCUS_COMMIT=1 GDK_BACKEND=x11 GTK_IM_MODULE=gtk-im-context-simple GTK_A11Y=none NO_AT_BRIDGE=1 GIO_USE_VFS=local ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4_real.sh $(BUILD_DIR)/tests/test_gtk3_fcitx4
+	$(XVFB_RUN) -a env BOXRIG_TEST_FCITX4_EXPLICIT_ADDRESS=1 GDK_BACKEND=x11 GTK_IM_MODULE=gtk-im-context-simple GTK_A11Y=none NO_AT_BRIDGE=1 GIO_USE_VFS=local ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4_real.sh $(BUILD_DIR)/tests/test_gtk3_fcitx4
+
+$(BUILD_DIR)/tests/test_gtk3_fcitx: tests/gtk/test_fcitx_widget.c $(IME_HEADERS) $(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK3_CPPFLAGS) $(CFLAGS) $(GTK3_PROJECT_CFLAGS) $(SANITIZERS) -DBOXRIG_TEST_GTK3=1 $< $(IME_SOURCES) $(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK3_LIBS) $(SANITIZERS) -o $@
+
+$(BUILD_DIR)/tests/test_gtk4_fcitx: tests/gtk/test_fcitx_widget.c $(IME_HEADERS) $(GTK4_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK4_CPPFLAGS) $(CFLAGS) $(GTK4_PROJECT_CFLAGS) $(SANITIZERS) $< $(IME_SOURCES) $(GTK4_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK4_LIBS) $(SANITIZERS) -Wl,--wrap=gtk_event_controller_key_new,--wrap=gtk_event_controller_focus_new -o $@
+
+.PHONY: test-gtk-fcitx5
+test-gtk-fcitx5: $(BUILD_DIR)/tests/fcitx5_server $(BUILD_DIR)/tests/test_gtk3_fcitx $(BUILD_DIR)/tests/test_gtk4_fcitx
+	@for gtk in 3 4; do \
+		$(XVFB_RUN) -a env GDK_BACKEND=x11 GTK_IM_MODULE=gtk-im-context-simple GTK_A11Y=none NO_AT_BRIDGE=1 GIO_USE_VFS=local LIBGL_ALWAYS_SOFTWARE=1 ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx5.sh $(BUILD_DIR)/tests/fcitx5_server $(BUILD_DIR)/tests/test_gtk$${gtk}_fcitx || exit $$?; \
+	done
+	@for gtk in 3 4; do \
+		$(XVFB_RUN) -a env BOXRIG_TEST_WESTON_BACKEND=x11 GTK_IM_MODULE=gtk-im-context-simple GTK_A11Y=none GIO_USE_VFS=local LIBGL_ALWAYS_SOFTWARE=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/gtk/run_gl_wayland.sh bash tests/ime/run_fcitx5.sh $(BUILD_DIR)/tests/fcitx5_server $(BUILD_DIR)/tests/test_gtk$${gtk}_fcitx || exit $$?; \
+	done
+
+test: test-gtk-fcitx5
+
+.PHONY: test-wayland-fcitx5 test-fcitx5-real
+test-wayland-fcitx5: $(WAYLAND_CONTEXT_TEST_BINARY) $(BUILD_DIR)/tests/fcitx5_server
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 BOXRIG_TEST_FCITX5=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx5.sh $(BUILD_DIR)/tests/fcitx5_server $(WAYLAND_CONTEXT_TEST_BINARY) "$(TEST_FONT_FILE)"
+
+test-fcitx5-real: $(WAYLAND_CONTEXT_TEST_BINARY) $(BUILD_DIR)/tests/test_gtk3_fcitx $(BUILD_DIR)/tests/test_gtk4_fcitx
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 BOXRIG_TEST_FCITX5=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx5_real.sh $(WAYLAND_CONTEXT_TEST_BINARY) "$(TEST_FONT_FILE)"
+	$(XVFB_RUN) -a env GDK_BACKEND=x11 GTK_IM_MODULE=gtk-im-context-simple GTK_A11Y=none NO_AT_BRIDGE=1 GIO_USE_VFS=local ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx5_real.sh --display $(BUILD_DIR)/tests/test_gtk3_fcitx
+	@for gtk in 3 4; do \
+		$(XVFB_RUN) -a env BOXRIG_TEST_WESTON_BACKEND=x11 GTK_IM_MODULE=gtk-im-context-simple GTK_A11Y=none GIO_USE_VFS=local LIBGL_ALWAYS_SOFTWARE=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/gtk/run_gl_wayland.sh bash tests/ime/run_fcitx5_real.sh --display $(BUILD_DIR)/tests/test_gtk$${gtk}_fcitx || exit $$?; \
+	done
+
+test: test-wayland-fcitx5 test-fcitx5-real
+
+.PHONY: test-fcitx5-panels
+test-fcitx5-panels: $(BUILD_DIR)/tests/fcitx5_server $(WAYLAND_CONTEXT_TEST_BINARY) $(BUILD_DIR)/tests/test_gtk3_fcitx $(BUILD_DIR)/tests/test_gtk4_fcitx
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 BOXRIG_TEST_FCITX5=1 BOXRIG_TEST_FCITX_CANDIDATES=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx5.sh $(BUILD_DIR)/tests/fcitx5_server $(WAYLAND_CONTEXT_TEST_BINARY) "$(TEST_FONT_FILE)"
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 BOXRIG_TEST_FCITX5=1 BOXRIG_TEST_FCITX_CANDIDATES=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx5_real.sh $(WAYLAND_CONTEXT_TEST_BINARY) "$(TEST_FONT_FILE)"
+	$(XVFB_RUN) -a env GDK_BACKEND=x11 GTK_IM_MODULE=gtk-im-context-simple GTK_A11Y=none NO_AT_BRIDGE=1 GIO_USE_VFS=local BOXRIG_TEST_FCITX_CANDIDATES=1 ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx5.sh $(BUILD_DIR)/tests/fcitx5_server $(BUILD_DIR)/tests/test_gtk3_fcitx
+	$(XVFB_RUN) -a env GDK_BACKEND=x11 GTK_IM_MODULE=gtk-im-context-simple GTK_A11Y=none NO_AT_BRIDGE=1 GIO_USE_VFS=local BOXRIG_TEST_FCITX_CANDIDATES=1 FCITX_X11_USE_CLIENT_SIDE_UI=True ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx5_real.sh --display $(BUILD_DIR)/tests/test_gtk3_fcitx
+	$(XVFB_RUN) -a env -u FCITX_X11_USE_CLIENT_SIDE_UI GDK_BACKEND=x11 GTK_IM_MODULE=gtk-im-context-simple GTK_A11Y=none NO_AT_BRIDGE=1 GIO_USE_VFS=local BOXRIG_TEST_FCITX_CANDIDATES=1 BOXRIG_TEST_FCITX_SUPPRESSED=1 ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx5_real.sh --display $(BUILD_DIR)/tests/test_gtk3_fcitx
+	@for gtk in 3 4; do \
+		$(XVFB_RUN) -a env BOXRIG_TEST_WESTON_BACKEND=x11 GTK_IM_MODULE=gtk-im-context-simple GTK_A11Y=none GIO_USE_VFS=local LIBGL_ALWAYS_SOFTWARE=1 BOXRIG_TEST_FCITX_CANDIDATES=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/gtk/run_gl_wayland.sh bash tests/ime/run_fcitx5.sh $(BUILD_DIR)/tests/fcitx5_server $(BUILD_DIR)/tests/test_gtk$${gtk}_fcitx || exit $$?; \
+		$(XVFB_RUN) -a env BOXRIG_TEST_WESTON_BACKEND=x11 GTK_IM_MODULE=gtk-im-context-simple GTK_A11Y=none GIO_USE_VFS=local LIBGL_ALWAYS_SOFTWARE=1 BOXRIG_TEST_FCITX_CANDIDATES=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/gtk/run_gl_wayland.sh bash tests/ime/run_fcitx5_real.sh --display $(BUILD_DIR)/tests/test_gtk$${gtk}_fcitx || exit $$?; \
+	done
+
+test: test-fcitx5-panels
+
+.PHONY: test-fcitx5-scale
+test-fcitx5-scale: $(BUILD_DIR)/tests/fcitx5_server $(BUILD_DIR)/tests/test_gtk3_fcitx $(BUILD_DIR)/tests/test_gtk4_fcitx
+	$(XVFB_RUN) -a env GDK_BACKEND=x11 GDK_SCALE=2 GTK_IM_MODULE=gtk-im-context-simple GTK_A11Y=none NO_AT_BRIDGE=1 GIO_USE_VFS=local ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx5.sh $(BUILD_DIR)/tests/fcitx5_server $(BUILD_DIR)/tests/test_gtk3_fcitx
+	@for gtk in 3 4; do \
+		$(XVFB_RUN) -a env BOXRIG_TEST_WESTON_BACKEND=x11 GDK_SCALE=2 GTK_IM_MODULE=gtk-im-context-simple GTK_A11Y=none GIO_USE_VFS=local LIBGL_ALWAYS_SOFTWARE=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/gtk/run_gl_wayland.sh bash tests/ime/run_fcitx5.sh $(BUILD_DIR)/tests/fcitx5_server $(BUILD_DIR)/tests/test_gtk$${gtk}_fcitx || exit $$?; \
+	done
+
+test: test-fcitx5-scale
+
+$(BUILD_DIR)/tests/test_ime_discovery: tests/ime/test_discovery.c $(IME_SOURCES) $(IME_HEADERS) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(FRONTEND_CPPFLAGS) $(IBUS_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(IME_SOURCES) $(UI_LIBRARY) $(LIBRARY) $(IBUS_LIBS) $(SANITIZERS) -o $@
+
+.PHONY: test-ime-discovery
+test-ime-discovery: $(BUILD_DIR)/tests/test_ime_discovery $(BUILD_DIR)/tests/fcitx5_server $(BUILD_DIR)/tests/wayland_ibus_engine
+	GIO_USE_VFS=local ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- $<
+	GIO_USE_VFS=local ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 BOXRIG_TEST_FCITX5=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx5.sh $(BUILD_DIR)/tests/fcitx5_server $<
+	GIO_USE_VFS=local ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 BOXRIG_TEST_FCITX5=1 BOXRIG_TEST_IME_BOTH=1 dbus-run-session --config-file=tests/ime/session.conf -- node tests/wayland/run_ibus_context.mjs tests/ime/run_discovery_with_fcitx.sh "$(TEST_FONT_FILE)" "$(BUILD_DIR)/tests/wayland_ibus_engine" "$(BUILD_DIR)/test-results/ime-discovery" "$(BUILD_DIR)/tests/fcitx5_server" "$(BUILD_DIR)/tests/test_ime_discovery"
+
+test: test-ime-discovery
+
+.PHONY: test-fcitx4-discovery
+test-fcitx4-discovery: $(BUILD_DIR)/tests/test_ime_discovery $(BUILD_DIR)/tests/fcitx4_server $(BUILD_DIR)/tests/fcitx5_server $(BUILD_DIR)/tests/wayland_ibus_engine
+	GIO_USE_VFS=local BOXRIG_TEST_FCITX4=1 ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4.sh $(BUILD_DIR)/tests/fcitx4_server $<
+	GIO_USE_VFS=local BOXRIG_TEST_FCITX4=1 BOXRIG_TEST_FCITX5=1 ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4.sh $(BUILD_DIR)/tests/fcitx4_server bash tests/ime/run_fcitx5.sh $(BUILD_DIR)/tests/fcitx5_server $<
+	GIO_USE_VFS=local BOXRIG_TEST_FCITX4=1 BOXRIG_TEST_IME_BOTH=1 ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- node tests/wayland/run_ibus_context.mjs tests/ime/run_discovery_with_fcitx4.sh "$(TEST_FONT_FILE)" "$(BUILD_DIR)/tests/wayland_ibus_engine" "$(BUILD_DIR)/test-results/fcitx4/discovery-ibus" "$(BUILD_DIR)/tests/fcitx4_server" "$(BUILD_DIR)/tests/test_ime_discovery"
+	GIO_USE_VFS=local BOXRIG_TEST_FCITX4=1 BOXRIG_TEST_FCITX5=1 BOXRIG_TEST_IME_BOTH=1 ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- node tests/wayland/run_ibus_context.mjs tests/ime/run_discovery_with_fcitx.sh "$(TEST_FONT_FILE)" "$(BUILD_DIR)/tests/wayland_ibus_engine" "$(BUILD_DIR)/test-results/fcitx4/discovery-all" "$(BUILD_DIR)/tests/fcitx5_server" /bin/bash tests/ime/run_fcitx4.sh "$(BUILD_DIR)/tests/fcitx4_server" "$(BUILD_DIR)/tests/test_ime_discovery"
+test: test-fcitx4-discovery
+
+.PHONY: test-fcitx4-auto
+test-fcitx4-auto: $(BUILD_DIR)/tests/test_fcitx4 $(BUILD_DIR)/tests/test_gtk3_fcitx4 $(BUILD_DIR)/tests/fcitx4_server
+	IBUS_ADDRESS= XMODIFIERS= BOXRIG_TEST_IME_AUTO=1 ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4.sh $(BUILD_DIR)/tests/fcitx4_server $(BUILD_DIR)/tests/test_fcitx4
+	$(XVFB_RUN) -a env -u GTK_IM_MODULE IBUS_ADDRESS= XMODIFIERS= BOXRIG_TEST_IME_AUTO=1 GDK_BACKEND=x11 GTK_A11Y=none NO_AT_BRIDGE=1 ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4.sh --display $(BUILD_DIR)/tests/fcitx4_server $(BUILD_DIR)/tests/test_gtk3_fcitx4
+
+test: test-fcitx4-auto
+
+.PHONY: test-fcitx4-auto-real
+test-fcitx4-auto-real: $(BUILD_DIR)/tests/test_gtk3_fcitx4
+	$(XVFB_RUN) -a env -u GTK_IM_MODULE IBUS_ADDRESS= XMODIFIERS= BOXRIG_TEST_IME_AUTO=1 GDK_BACKEND=x11 GTK_A11Y=none NO_AT_BRIDGE=1 GIO_USE_VFS=local ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4_real.sh $<
+
+.PHONY: test-fcitx4-native
+test-fcitx4-native: $(WAYLAND_CONTEXT_TEST_BINARY) $(BUILD_DIR)/tests/fcitx4_server
+	IBUS_ADDRESS= XMODIFIERS= BOXRIG_TEST_FCITX4=1 ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4.sh $(BUILD_DIR)/tests/fcitx4_server $< "$(TEST_FONT_FILE)"
+	IBUS_ADDRESS= XMODIFIERS= BOXRIG_TEST_FCITX4=1 BOXRIG_TEST_IME_AUTO=1 ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4.sh $(BUILD_DIR)/tests/fcitx4_server $< "$(TEST_FONT_FILE)"
+
+test: test-fcitx4-native
+
+.PHONY: test-fcitx4-panels-native
+test-fcitx4-panels-native: $(WAYLAND_CONTEXT_TEST_BINARY) $(BUILD_DIR)/tests/fcitx4_server
+	IBUS_ADDRESS= XMODIFIERS= BOXRIG_TEST_FCITX4_PANELS=1 BOXRIG_TEST_FCITX4=1 ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4.sh $(BUILD_DIR)/tests/fcitx4_server $(WAYLAND_CONTEXT_TEST_BINARY) "$(TEST_FONT_FILE)"
+	IBUS_ADDRESS= XMODIFIERS= BOXRIG_TEST_IME_AUTO=1 BOXRIG_TEST_FCITX4_PANELS=1 BOXRIG_TEST_FCITX4=1 ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4.sh $(BUILD_DIR)/tests/fcitx4_server $(WAYLAND_CONTEXT_TEST_BINARY) "$(TEST_FONT_FILE)"
+
+test: test-fcitx4-panels-native
+
+.PHONY: test-fcitx5-auto-core
+test-fcitx5-auto-core: $(BUILD_DIR)/tests/test_fcitx5 $(BUILD_DIR)/tests/fcitx5_server
+	GIO_USE_VFS=local IBUS_ADDRESS= XMODIFIERS= BOXRIG_TEST_IME_AUTO=1 ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx5.sh $(BUILD_DIR)/tests/fcitx5_server $<
+
+test: test-fcitx5-auto-core
+
+.PHONY: test-fcitx5-auto
+test-fcitx5-auto: $(BUILD_DIR)/tests/fcitx5_server $(WAYLAND_CONTEXT_TEST_BINARY) $(BUILD_DIR)/tests/test_gtk3_fcitx $(BUILD_DIR)/tests/test_gtk4_fcitx
+	GIO_USE_VFS=local IBUS_ADDRESS= XMODIFIERS= BOXRIG_TEST_IME_AUTO=1 BOXRIG_TEST_FCITX5=1 BOXRIG_TEST_FCITX_CANDIDATES=1 ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx5.sh $(BUILD_DIR)/tests/fcitx5_server $(WAYLAND_CONTEXT_TEST_BINARY) "$(TEST_FONT_FILE)"
+	$(XVFB_RUN) -a env -u GTK_IM_MODULE GDK_BACKEND=x11 GIO_USE_VFS=local GTK_A11Y=none NO_AT_BRIDGE=1 IBUS_ADDRESS= XMODIFIERS= BOXRIG_TEST_IME_AUTO=1 BOXRIG_TEST_FCITX_CANDIDATES=1 ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx5.sh $(BUILD_DIR)/tests/fcitx5_server $(BUILD_DIR)/tests/test_gtk3_fcitx
+	@for gtk in 3 4; do \
+		$(XVFB_RUN) -a env -u GTK_IM_MODULE BOXRIG_TEST_WESTON_BACKEND=x11 GTK_A11Y=none GIO_USE_VFS=local LIBGL_ALWAYS_SOFTWARE=1 IBUS_ADDRESS= XMODIFIERS= BOXRIG_TEST_IME_AUTO=1 BOXRIG_TEST_FCITX_CANDIDATES=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/gtk/run_gl_wayland.sh bash tests/ime/run_fcitx5.sh $(BUILD_DIR)/tests/fcitx5_server $(BUILD_DIR)/tests/test_gtk$${gtk}_fcitx || exit $$?; \
+	done
+	@for gtk in 3 4; do for module in gtk-im-context-simple fcitx; do \
+		$(XVFB_RUN) -a env BOXRIG_TEST_WESTON_BACKEND=x11 GTK_IM_MODULE=$$module GTK_A11Y=none GIO_USE_VFS=local LIBGL_ALWAYS_SOFTWARE=1 IBUS_ADDRESS= XMODIFIERS=@im=fcitx BOXRIG_TEST_IME_AUTO=1 BOXRIG_TEST_FCITX_CANDIDATES=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/gtk/run_gl_wayland.sh bash tests/ime/run_fcitx5.sh $(BUILD_DIR)/tests/fcitx5_server $(BUILD_DIR)/tests/test_gtk$${gtk}_fcitx || exit $$?; \
+	done; done
+	@for gtk in 3 4; do \
+		$(XVFB_RUN) -a env -u GTK_IM_MODULE BOXRIG_TEST_WESTON_BACKEND=x11 BOXRIG_TEST_GTK_MODULE=fcitx GTK_A11Y=none GIO_USE_VFS=local LIBGL_ALWAYS_SOFTWARE=1 IBUS_ADDRESS= XMODIFIERS=@im=ibus BOXRIG_TEST_IME_AUTO=1 BOXRIG_TEST_FCITX_CANDIDATES=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/gtk/run_gl_wayland.sh bash tests/ime/run_fcitx5.sh $(BUILD_DIR)/tests/fcitx5_server $(BUILD_DIR)/tests/test_gtk$${gtk}_fcitx || exit $$?; \
+	done
+
+test: test-fcitx5-auto
+
+.PHONY: test-fcitx5-auto-real
+test-fcitx5-auto-real: $(WAYLAND_CONTEXT_TEST_BINARY) $(BUILD_DIR)/tests/test_gtk3_fcitx $(BUILD_DIR)/tests/test_gtk4_fcitx
+	GIO_USE_VFS=local IBUS_ADDRESS= XMODIFIERS= BOXRIG_TEST_IME_AUTO=1 BOXRIG_TEST_FCITX5=1 BOXRIG_TEST_FCITX_CANDIDATES=1 ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx5_real.sh $(WAYLAND_CONTEXT_TEST_BINARY) "$(TEST_FONT_FILE)"
+	$(XVFB_RUN) -a env -u GTK_IM_MODULE GDK_BACKEND=x11 GTK_A11Y=none NO_AT_BRIDGE=1 GIO_USE_VFS=local IBUS_ADDRESS= XMODIFIERS= BOXRIG_TEST_IME_AUTO=1 BOXRIG_TEST_FCITX_CANDIDATES=1 FCITX_X11_USE_CLIENT_SIDE_UI=True ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx5_real.sh --display $(BUILD_DIR)/tests/test_gtk3_fcitx
+	@for gtk in 3 4; do \
+		$(XVFB_RUN) -a env -u GTK_IM_MODULE BOXRIG_TEST_WESTON_BACKEND=x11 GTK_A11Y=none GIO_USE_VFS=local LIBGL_ALWAYS_SOFTWARE=1 IBUS_ADDRESS= XMODIFIERS= BOXRIG_TEST_IME_AUTO=1 BOXRIG_TEST_FCITX_CANDIDATES=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/gtk/run_gl_wayland.sh bash tests/ime/run_fcitx5_real.sh --display $(BUILD_DIR)/tests/test_gtk$${gtk}_fcitx || exit $$?; \
+	done
+
+test: test-fcitx5-auto-real
+
+.PHONY: test-fcitx5-display
+test-fcitx5-display: $(GTK3_EXAMPLE_BINARY) $(WAYLAND_EXAMPLE_BINARY)
+	@for renderer in wayland opengl; do \
+		$(XVFB_RUN) -a -s '-screen 0 1280x800x24' env BOXRIG_TEST_WESTON_BACKEND=x11 BOXRIG_TEST_WESTON_DEBUG=1 GTK_IM_MODULE=gtk-im-context-simple GTK_A11Y=none GIO_USE_VFS=local LIBGL_ALWAYS_SOFTWARE=1 IBUS_ADDRESS= XMODIFIERS=@im=fcitx dbus-run-session --config-file=tests/ime/session.conf -- bash tests/gtk/run_gl_wayland.sh bash tests/ime/run_fcitx5_real.sh --display node tests/ime/test_display.mjs $(WAYLAND_EXAMPLE_BINARY) wayland $$renderer $(BUILD_DIR)/test-results/fcitx5-display/wayland-$$renderer || exit $$?; \
+	done
+	$(XVFB_RUN) -a -s '-screen 0 1280x800x24' env GDK_BACKEND=x11 GTK_IM_MODULE=gtk-im-context-simple GTK_A11Y=none NO_AT_BRIDGE=1 GIO_USE_VFS=local LIBGL_ALWAYS_SOFTWARE=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx5_real.sh --display node tests/ime/test_display.mjs $(GTK3_EXAMPLE_BINARY) gtk3 cairo $(BUILD_DIR)/test-results/fcitx5-display/gtk3-system
+
+test: test-fcitx5-display
+
+.PHONY: test-fcitx4-display
+test-fcitx4-display: $(GTK3_EXAMPLE_BINARY) $(WAYLAND_EXAMPLE_BINARY)
+	@for renderer in wayland opengl; do \
+		$(XVFB_RUN) -a -s '-screen 0 1280x800x24' env BOXRIG_TEST_FCITX4_DISPLAY=1 BOXRIG_TEST_WESTON_BACKEND=x11 BOXRIG_TEST_WESTON_DEBUG=1 GTK_IM_MODULE=gtk-im-context-simple GTK_A11Y=none GIO_USE_VFS=local LIBGL_ALWAYS_SOFTWARE=1 IBUS_ADDRESS= XMODIFIERS=@im=fcitx dbus-run-session --config-file=tests/ime/session.conf -- bash tests/gtk/run_gl_wayland.sh bash tests/ime/run_fcitx4_real.sh node tests/ime/test_display.mjs $(WAYLAND_EXAMPLE_BINARY) wayland $$renderer $(BUILD_DIR)/test-results/fcitx4-display/wayland-$$renderer || exit $$?; \
+	done
+	$(XVFB_RUN) -a -s '-screen 0 1280x800x24' env BOXRIG_TEST_FCITX4_DISPLAY=1 GDK_BACKEND=x11 GTK_IM_MODULE=gtk-im-context-simple GTK_A11Y=none NO_AT_BRIDGE=1 GIO_USE_VFS=local LIBGL_ALWAYS_SOFTWARE=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4_real.sh node tests/ime/test_display.mjs $(GTK3_EXAMPLE_BINARY) gtk3 cairo $(BUILD_DIR)/test-results/fcitx4-display/gtk3-system
+	$(XVFB_RUN) -a -s '-screen 0 1280x800x24' env BOXRIG_TEST_FCITX4_DISPLAY=1 BOXRIG_TEST_FCITX4_CLIENT=1 GDK_BACKEND=x11 GTK_IM_MODULE=gtk-im-context-simple GTK_A11Y=none NO_AT_BRIDGE=1 GIO_USE_VFS=local LIBGL_ALWAYS_SOFTWARE=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4_real.sh node tests/ime/test_display.mjs $(GTK3_EXAMPLE_BINARY) gtk3 cairo $(BUILD_DIR)/test-results/fcitx4-display/gtk3-client

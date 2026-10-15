@@ -9,6 +9,79 @@
     fprintf(stderr, "FAIL Pango candidates %s:%d: %s\n", __FILE__, __LINE__, #value); \
     abort(); } } while (0)
 
+static void string_panel(PangoContext *context, PangoFontDescription *font, const char *path)
+{
+    boxrig_ui_candidate_view candidates = {.revision = 4, .snapshot = {
+        .format = BOXRIG_UI_CANDIDATE_STRING_PANEL, .visible = true,
+        .panel_preedit = "きしゃ🙂", .panel_cursor = 6,
+        .panel_text = "1. 汽車 2号 2. 記者 🙂 3. 帰社 4. 貴社 5. 喜捨",
+        .auxiliary_above = "読み", .auxiliary_above_visible = true,
+        .auxiliary = "候補はキーで選択", .auxiliary_visible = true}};
+    boxrig_ui_candidate_measurement m = {.width = 230, .height = 320,
+        .cell_width = 10, .line_height = 23, .anchor = {220, 280, 10, 23}};
+    boxrig_pango_candidate_frame frame;
+    CHECK(boxrig_pango_candidates_prepare(context, font, NULL, BOXRIG_FONT_FALLBACK_SYSTEM,
+        &candidates, m, &frame) == 0);
+    CHECK(frame.layout.count == 0 && frame.layout.bounds.height > 0);
+    CHECK(frame.layout.panel_text.height > m.line_height * 2);
+    CHECK(frame.layout.panel_preedit.height >= m.line_height);
+    CHECK(!frame.layout.has_previous_page && !frame.layout.has_next_page);
+    boxrig_ui_candidate_rectangle caret = frame.layout.panel_caret;
+    CHECK(caret.width == 1 && caret.height > 0);
+    CHECK(caret.x > frame.layout.panel_preedit.x + frame.padding);
+    cairo_surface_t *surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, m.width, m.height);
+    cairo_t *cr = cairo_create(surface);
+    cairo_set_source_rgb(cr, 0.25, 0.5, 0.75);
+    cairo_paint(cr);
+    CHECK(boxrig_pango_candidates_draw(cr, &frame, 0xffffff, 0x101010) == 0);
+    cairo_surface_flush(surface);
+    const unsigned char *data = cairo_image_surface_get_data(surface);
+    int stride = cairo_image_surface_get_stride(surface);
+    const boxrig_ui_candidate_rectangle sections[] = {frame.layout.panel_text,
+        frame.layout.panel_preedit, frame.layout.auxiliary_above, frame.layout.auxiliary};
+    for (size_t i = 0; i < 4; i++) {
+        size_t pixels = 0;
+        boxrig_ui_candidate_rectangle r = sections[i];
+        for (int y = r.y; y < r.y + r.height; y++) for (int x = r.x; x < r.x + r.width; x++) {
+            uint32_t pixel;
+            memcpy(&pixel, data + y * stride + x * 4, sizeof(pixel));
+            if (pixel != 0xff101010) pixels++;
+        }
+        CHECK(pixels > 50);
+    }
+    for (int y = caret.y; y < caret.y + caret.height; y++) {
+        uint32_t pixel;
+        memcpy(&pixel, data + y * stride + caret.x * 4, sizeof(pixel));
+        CHECK(pixel == 0xffffffff);
+    }
+    CHECK(cairo_surface_write_to_png(surface, path) == CAIRO_STATUS_SUCCESS);
+    boxrig_pango_candidates_dispose(&frame);
+    candidates.snapshot.panel_cursor = 0;
+    CHECK(boxrig_pango_candidates_prepare(context, font, NULL, BOXRIG_FONT_FALLBACK_SYSTEM,
+        &candidates, m, &frame) == 0);
+    CHECK(frame.layout.panel_caret.x < caret.x);
+    boxrig_pango_candidates_dispose(&frame);
+    candidates.snapshot.panel_preedit = "とても長い未確定文字列でもカーソルを画面に保つ🙂";
+    candidates.snapshot.panel_cursor = strlen(candidates.snapshot.panel_preedit);
+    m.width = 70; m.height = 80;
+    CHECK(boxrig_pango_candidates_prepare(context, font, NULL, BOXRIG_FONT_FALLBACK_SYSTEM,
+        &candidates, m, &frame) == 0);
+    caret = frame.layout.panel_caret;
+    CHECK(caret.width == 1 && caret.height > 0 && caret.x + caret.width <= m.width);
+    CHECK(caret.y + caret.height <= m.height);
+    CHECK(frame.layout.bounds.height <= m.height && frame.layout.panel_preedit.height > 0);
+    boxrig_pango_candidates_dispose(&frame);
+    candidates.snapshot.panel_text = candidates.snapshot.panel_preedit = NULL;
+    candidates.snapshot.panel_cursor = 0;
+    candidates.snapshot.auxiliary_above_visible = candidates.snapshot.auxiliary_visible = false;
+    CHECK(boxrig_pango_candidates_prepare(context, font, NULL, BOXRIG_FONT_FALLBACK_SYSTEM,
+        &candidates, m, &frame) == 0);
+    CHECK(frame.layout.bounds.height == 0 && frame.layout.panel_caret.height == 0);
+    boxrig_pango_candidates_dispose(&frame);
+    cairo_destroy(cr);
+    cairo_surface_destroy(surface);
+}
+
 int main(int argc, char **argv)
 {
     CHECK(argc == 2);
@@ -70,8 +143,51 @@ int main(int argc, char **argv)
     CHECK(frame.layout.hidden_before && frame.layout.hidden_after);
     CHECK(frame.layout.auxiliary.height == 0 && frame.layout.bounds.height <= m.height);
     boxrig_pango_candidates_dispose(&frame);
+    candidates.snapshot.format = BOXRIG_UI_CANDIDATE_PAGE;
+    candidates.snapshot.count = 3;
+    candidates.snapshot.auxiliary_above = "読み\nもう一行";
+    candidates.snapshot.auxiliary_above_visible = true;
+    candidates.snapshot.has_next_page = true;
+    m.height = 400;
+    m.anchor.y = 376;
     cairo_destroy(cr);
     cairo_surface_destroy(surface);
+    surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, m.width, m.height);
+    cr = cairo_create(surface);
+    CHECK(boxrig_pango_candidates_prepare(context, font, NULL, BOXRIG_FONT_FALLBACK_SYSTEM,
+        &candidates, m, &frame) == 0);
+    CHECK(frame.layout.count == 3 && frame.layout.has_next_page);
+    CHECK(frame.auxiliary_above != NULL && pango_layout_get_line_count(frame.auxiliary_above) == 2);
+    CHECK(frame.layout.auxiliary_above.y < frame.layout.items[0].y);
+    CHECK(boxrig_pango_candidates_draw(cr, &frame, 0xffffff, 0x101010) == 0);
+    boxrig_pango_candidates_dispose(&frame);
+    candidates.snapshot.count = candidates.snapshot.page_size = candidates.snapshot.cursor = 0;
+    candidates.snapshot.visible = false;
+    CHECK(boxrig_pango_candidates_prepare(context, font, NULL, BOXRIG_FONT_FALLBACK_SYSTEM,
+        &candidates, m, &frame) == 0);
+    CHECK(frame.layout.count == 0 && frame.layout.bounds.height > 0);
+    CHECK(frame.auxiliary_above != NULL && frame.auxiliary != NULL);
+    cairo_set_source_rgb(cr, 0.25, 0.5, 0.75);
+    cairo_paint(cr);
+    CHECK(boxrig_pango_candidates_draw(cr, &frame, 0xffffff, 0x101010) == 0);
+    cairo_surface_flush(surface);
+    data = cairo_image_surface_get_data(surface);
+    stride = cairo_image_surface_get_stride(surface);
+    for (size_t section = 0; section < 2; section++) {
+        boxrig_ui_candidate_rectangle r = section == 0 ? frame.layout.auxiliary_above : frame.layout.auxiliary;
+        text_pixels = 0;
+        for (int y = r.y; y < r.y + r.height; y++) for (int x = r.x; x < r.x + r.width; x++) {
+            uint32_t pixel;
+            memcpy(&pixel, data + y * stride + x * 4, sizeof(pixel));
+            if (pixel != 0xff101010) text_pixels++;
+        }
+        CHECK(text_pixels > 100);
+    }
+    CHECK(cairo_surface_write_to_png(surface, argv[1]) == CAIRO_STATUS_SUCCESS);
+    boxrig_pango_candidates_dispose(&frame);
+    cairo_destroy(cr);
+    cairo_surface_destroy(surface);
+    string_panel(context, font, argv[1]);
     pango_font_description_free(font);
     g_object_unref(context);
     g_object_unref(map);

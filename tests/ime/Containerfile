@@ -1,0 +1,23 @@
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+
+ENV DEBIAN_FRONTEND=noninteractive
+ARG IME_PACKAGES="fcitx5 fcitx5-mozc fcitx5-frontend-gtk3 fcitx5-frontend-gtk4"
+# Each image runs its distribution's packaged daemon, without sharing the
+# desktop session bus, display, configuration, or user dictionary with the host.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    bash build-essential ca-certificates pkg-config nodejs \
+    libx11-dev libxcomposite-dev libxrender-dev libxfixes-dev libxext-dev \
+    libxtst-dev libxdamage-dev libdbus-1-dev libglib2.0-dev \
+    libpango1.0-dev libcairo2-dev libfontconfig-dev libgtk-3-dev libgtk-4-dev \
+    libibus-1.0-dev libwayland-dev libwayland-bin libxkbcommon-dev libdecor-0-dev \
+    libepoxy-dev libgl-dev libegl-dev \
+    dbus-daemon dbus-x11 ibus xvfb xauth weston xdotool ffmpeg \
+    ${IME_PACKAGES} \
+    fonts-dejavu-core fonts-noto-cjk && \
+    rm -rf /var/lib/apt/lists/*
+# Mozc rejects privileged server execution, including container root:
+# https://github.com/google/mozc/blob/2.29.5160.102/src/server/mozc_server.cc
+RUN useradd --uid 2000 --create-home ime && mkdir -p /work && chown ime:ime /work
+USER ime
+WORKDIR /work

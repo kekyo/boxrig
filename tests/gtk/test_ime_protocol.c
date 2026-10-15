@@ -47,6 +47,7 @@ static boxrig_terminal *terminal;
 static int channel;
 static unsigned int last_frames;
 static bool painted, dispatch_requested;
+static char *probe_address;
 
 static void request_frame(void *data)
 {
@@ -67,8 +68,8 @@ static gboolean deadline(gpointer data)
     boxrig_gtk_ime_state diagnostic;
     if (widget != NULL && widget_ime_state(widget, &diagnostic) == BOXRIG_UI_OK)
         fprintf(stderr, "route=%d bus=%d pending=%zu contexts=%zu errors=%zu\n",
-            diagnostic.active_route, diagnostic.ibus_state, diagnostic.ibus_pending,
-            diagnostic.ibus_contexts, diagnostic.ibus_errors);
+            diagnostic.active_route, diagnostic.direct.state, diagnostic.direct.pending,
+            diagnostic.direct.contexts, diagnostic.direct.errors);
     const uint8_t *bytes;
     if (terminal != NULL) fprintf(stderr, "output bytes=%zu\n", boxrig_terminal_output_peek(terminal, &bytes));
     boxrig_composition_view view;
@@ -255,7 +256,7 @@ static void queue_key_after_old_preedit(void)
     while (queued_input() < 2) iterate();
     size_t before = queued_input();
     GError *error = NULL;
-    GDBusConnection *probe = g_dbus_connection_new_for_address_sync(getenv("IBUS_ADDRESS"),
+    GDBusConnection *probe = g_dbus_connection_new_for_address_sync(probe_address,
         G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_CLIENT | G_DBUS_CONNECTION_FLAGS_MESSAGE_BUS_CONNECTION,
         NULL, NULL, &error);
     CHECK(probe != NULL && error == NULL);
@@ -270,28 +271,28 @@ static void queue_key_after_old_preedit(void)
     printf("Old preedit received while %zu native key events were retained\n", before);
 }
 
-static boxrig_gtk_ime_state await_route(boxrig_gtk_ime_route route, boxrig_gtk_ibus_state bus)
+static boxrig_gtk_ime_state await_route(boxrig_gtk_ime_route route, boxrig_ime_state bus)
 {
     guint timeout = g_timeout_add_seconds(60, deadline, "input route");
     boxrig_gtk_ime_state selected;
     for (;;) {
         frame();
         CHECK(widget_ime_state(widget, &selected) == BOXRIG_UI_OK);
-        if (selected.active_route == route && selected.ibus_state == bus &&
-            (route != BOXRIG_GTK_IME_ROUTE_IBUS || bus != BOXRIG_GTK_IBUS_READY || selected.ibus_contexts != 0)) break;
+        if (selected.active_route == route && selected.direct.state == bus &&
+            (route != BOXRIG_GTK_IME_ROUTE_IBUS || bus != BOXRIG_IME_READY || selected.direct.contexts != 0)) break;
         iterate();
     }
     g_source_remove(timeout);
     printf("GTK protocol runtime: %u.%u.%u display=%s module=%s route=%d reason=%d advertised=%u bus=%d\n",
         selected.gtk_major, selected.gtk_minor, selected.gtk_micro, selected.display_type, selected.gtk_module,
-        selected.active_route, selected.reason, selected.text_input_version, selected.ibus_state);
+        selected.active_route, selected.reason, selected.text_input_version, selected.direct.state);
     return selected;
 }
 
 static void verify_candidates(bool client)
 {
     GError *error = NULL;
-    GDBusConnection *probe = g_dbus_connection_new_for_address_sync(getenv("IBUS_ADDRESS"),
+    GDBusConnection *probe = g_dbus_connection_new_for_address_sync(probe_address,
         G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_CLIENT | G_DBUS_CONNECTION_FLAGS_MESSAGE_BUS_CONNECTION,
         NULL, NULL, &error);
     CHECK(probe != NULL && error == NULL);
@@ -345,7 +346,10 @@ int main(int argc, char **argv)
     CHECK(argc == 9);
     const unsigned int version = (unsigned int)atoi(argv[2]), scale = (unsigned int)atoi(argv[3]);
     const char *expected = argv[6];
-    bool direct = strcmp(expected, "direct") == 0 || strcmp(expected, "reconnect") == 0;
+    probe_address = g_strdup(getenv("IBUS_ADDRESS"));
+    CHECK(probe_address != NULL);
+    bool direct = strcmp(expected, "direct") == 0 || strcmp(expected, "reconnect") == 0 ||
+        strcmp(expected, "discovered") == 0;
     bool standard = strcmp(expected, "standard") == 0;
     bool module_ibus = strcmp(expected, "gtk-ibus") == 0;
     bool unavailable = strcmp(expected, "unavailable") == 0;
@@ -357,7 +361,7 @@ int main(int argc, char **argv)
     if (strcmp(argv[7], "default") == 0) CHECK(unsetenv("GTK_IM_MODULE") == 0);
     else CHECK(setenv("GTK_IM_MODULE", argv[7], 1) == 0);
     if (unavailable) CHECK(setenv("IBUS_ADDRESS", "unix:path=/tmp/boxrig-no-such-ibus.sock", 1) == 0);
-    if (strcmp(expected, "plain") == 0) {
+    if (strcmp(expected, "discovered") == 0) {
         CHECK(unsetenv("IBUS_ADDRESS") == 0);
         CHECK(unsetenv("XMODIFIERS") == 0);
     }
@@ -380,7 +384,7 @@ int main(int argc, char **argv)
         CHECK(sscanf(runtime, "%u.%u.%u", &major, &minor, &micro) == 3);
         CHECK(gtk_get_major_version() == major && gtk_get_minor_version() == minor && gtk_get_micro_version() == micro);
     }
-    if (strcmp(expected, "plain") == 0)
+    if (strcmp(expected, "discovered") == 0)
         g_object_set(gtk_settings_get_default(), "gtk-im-module", "gtk-im-context-simple", NULL);
     if (strcmp(expected, "reconnect") == 0)
         g_object_set(gtk_settings_get_default(), "gtk-im-module", "wayland", NULL);
@@ -449,14 +453,14 @@ int main(int argc, char **argv)
     g_signal_connect(gtk_widget_get_frame_clock(window), "after-paint", G_CALLBACK(after_paint), NULL);
     gtk_widget_grab_focus(GTK_WIDGET(widget));
     selected = await_route(direct ? BOXRIG_GTK_IME_ROUTE_IBUS : BOXRIG_GTK_IME_ROUTE_GTK,
-        direct ? BOXRIG_GTK_IBUS_READY : unavailable ? BOXRIG_GTK_IBUS_UNAVAILABLE : BOXRIG_GTK_IBUS_DISABLED);
+        direct ? BOXRIG_IME_READY : unavailable ? BOXRIG_IME_UNAVAILABLE : BOXRIG_IME_DISABLED);
     CHECK(strcmp(selected.display_type, "GdkWaylandDisplay") == 0);
     if (wc.ime_policy == BOXRIG_GTK_IME_AUTO && (strcmp(argv[7], "default") == 0 || argv[7][0] == '\0')) {
         CHECK(selected.registry_queried && selected.registry_complete && selected.text_input_version == version);
         CHECK(selected.reason == (standard ? BOXRIG_GTK_IME_REASON_WAYLAND_CLAUSES :
             direct ? (wc.candidate_policy == BOXRIG_UI_CANDIDATE_CLIENT ?
-                BOXRIG_GTK_IME_REASON_CLIENT_CANDIDATES : BOXRIG_GTK_IME_REASON_LEGACY_IBUS) :
-            unavailable ? BOXRIG_GTK_IME_REASON_IBUS_UNAVAILABLE : BOXRIG_GTK_IME_REASON_GTK_FALLBACK));
+                BOXRIG_GTK_IME_REASON_CLIENT_CANDIDATES : BOXRIG_GTK_IME_REASON_LEGACY_DIRECT) :
+            unavailable ? BOXRIG_GTK_IME_REASON_DIRECT_UNAVAILABLE : BOXRIG_GTK_IME_REASON_GTK_FALLBACK));
     } else {
         CHECK(!selected.registry_queried && !selected.registry_complete);
         CHECK(selected.reason == (wc.ime_policy == BOXRIG_GTK_IME_GTK ? BOXRIG_GTK_IME_REASON_EXPLICIT_GTK :
@@ -467,7 +471,7 @@ int main(int argc, char **argv)
     CHECK(selected.candidate_owner == (client_candidates ? BOXRIG_UI_CANDIDATE_OWNER_CLIENT :
         BOXRIG_UI_CANDIDATE_OWNER_SYSTEM));
     CHECK(selected.candidate_reason == (wc.candidate_policy == BOXRIG_UI_CANDIDATE_SYSTEM ?
-        BOXRIG_UI_CANDIDATE_SYSTEM_REQUEST : unavailable ? BOXRIG_UI_CANDIDATE_IBUS_UNAVAILABLE :
+        BOXRIG_UI_CANDIDATE_SYSTEM_REQUEST : unavailable ? BOXRIG_UI_CANDIDATE_IME_UNAVAILABLE :
         client_candidates ? BOXRIG_UI_CANDIDATE_READY : BOXRIG_UI_CANDIDATE_STANDARD_INPUT));
     if (direct || module_ibus) {
         CHECK(state().enabled == 0); /* No second input owner. */
@@ -525,7 +529,7 @@ int main(int argc, char **argv)
         send_key(59);
         await_preedit("記者の汽車が記者で記者した", 0, 9);
         CHECK(kill((pid_t)atoi(getenv("BOXRIG_TEST_IBUS_DAEMON_PID")), SIGTERM) == 0);
-        (void)await_route(BOXRIG_GTK_IME_ROUTE_GTK, BOXRIG_GTK_IBUS_UNAVAILABLE);
+        (void)await_route(BOXRIG_GTK_IME_ROUTE_GTK, BOXRIG_IME_UNAVAILABLE);
         await_preedit("", 0, 0);
         send_key(30); send_key(28);
         await_output("a\r");
@@ -539,11 +543,11 @@ int main(int argc, char **argv)
         CHECK(read(4, reply, sizeof(reply)) > 0);
         /* Reconnection may finish while the GTK owner is composing. Keep that
          * owner until its cancel has drained, then select the ready direct bus. */
-        (void)await_route(BOXRIG_GTK_IME_ROUTE_GTK, BOXRIG_GTK_IBUS_READY);
+        (void)await_route(BOXRIG_GTK_IME_ROUTE_GTK, BOXRIG_IME_READY);
         await_preedit("hold", 0, 0);
         (void)ime_server_exchange(channel, (ime_server_command){.operation = IME_SERVER_CANCEL});
         await_preedit("", 0, 0);
-        (void)await_route(BOXRIG_GTK_IME_ROUTE_IBUS, BOXRIG_GTK_IBUS_READY);
+        (void)await_route(BOXRIG_GTK_IME_ROUTE_IBUS, BOXRIG_IME_READY);
         CHECK(state().enabled == 0);
         send_key(59);
         await_preedit("記者の汽車が記者で記者した", 0, 9);
@@ -570,7 +574,7 @@ int main(int argc, char **argv)
 #endif
     gtk_widget_grab_focus(GTK_WIDGET(widget));
     selected = await_route(direct ? BOXRIG_GTK_IME_ROUTE_IBUS : BOXRIG_GTK_IME_ROUTE_GTK,
-        direct ? BOXRIG_GTK_IBUS_READY : unavailable ? BOXRIG_GTK_IBUS_UNAVAILABLE : BOXRIG_GTK_IBUS_DISABLED);
+        direct ? BOXRIG_IME_READY : unavailable ? BOXRIG_IME_UNAVAILABLE : BOXRIG_IME_DISABLED);
     if (direct || module_ibus) {
         send_key(59);
         await_preedit("記者の汽車が記者で記者した", 0, 9);
@@ -590,6 +594,7 @@ int main(int argc, char **argv)
     boxrig_terminal_destroy(terminal);
     gdk_display_close(gdk_display_get_default());
     ime_server_stop(channel, server);
+    g_free(probe_address);
     puts("PASS real GTK Wayland routing, clauses, cancellation and single input ownership");
     return 0;
 }

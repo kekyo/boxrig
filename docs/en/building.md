@@ -45,6 +45,14 @@ Core bundles utf8proc for Unicode processing and libpng and zlib for PNG images 
 Applications using only core do not need to link X11 or GTK.
 Consult the table above for the system libraries needed to build and run each UI configuration.
 
+Direct fcitx 5/4 input uses D-Bus through GLib/GIO and does not require fcitx development packages.
+At runtime, install the daemon for the selected generation and the input engine you use.
+Versions 5.1.7, 5.1.12, 5.1.19, and 4.2.9.9 have been tested.
+For Mozc on Debian/Ubuntu, install `fcitx5` and `fcitx5-mozc` for 5, or `fcitx` and `fcitx-mozc` for 4.
+System candidates with 4 on X11 also require a UI such as `fcitx-ui-classic`.
+For input delegated to GTK, also install the matching GTK IME module.
+See [Input and IME](./input-ime.md) for the supported direct and delegated routes.
+
 Before installing a Linux SDK, prepare the tools that generate license notices.
 
 ```sh

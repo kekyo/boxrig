@@ -347,11 +347,22 @@ static bool unqueryable_external_effects_and_child_ownership_are_not_assumed(voi
     return true;
 }
 
+static bool prepared_dwm_enabled;
+
+static HRESULT WINAPI apply_prepared_dwm(HWND window, const DWM_BLURBEHIND *blur)
+{
+    (void)window;
+    prepared_dwm_enabled = blur->fEnable != FALSE;
+    return S_OK;
+}
+
 static bool renderer_failure_restores_the_last_committed_window_effect(void)
 {
     HWND window = CreateWindowExW(0, L"STATIC", L"renderer rollback",
         WS_OVERLAPPEDWINDOW, 100, 100, 320, 160, NULL, NULL, GetModuleHandleW(NULL), NULL);
-    boxrig_win32_opacity_authority authority = {window, 97, true, true, false};
+    boxrig_win32_opacity_authority authority = {window, 97, true, true, true};
+    boxrig_win32_opacity_system system = {set_style, set_position, set_attributes,
+        composition_enabled, apply_prepared_dwm};
     boxrig_win32_opacity_native *native = NULL;
     boxrig_win32_transparency_host *host = NULL;
     boxrig_win32_opacity_diagnostic diagnostic;
@@ -366,7 +377,8 @@ static bool renderer_failure_restores_the_last_committed_window_effect(void)
     uint64_t committed_revision;
     CHECK(window != NULL);
     CHECK(boxrig_win32_transparency_host_create(97, true, 255, &host) == BOXRIG_UI_OK);
-    CHECK(boxrig_win32_opacity_native_create(&authority, &native, &diagnostic) == BOXRIG_UI_OK);
+    CHECK(boxrig_win32_opacity_native_create_with_system(&authority, &system,
+        &native, &diagnostic) == BOXRIG_UI_OK);
     config.mode = BOXRIG_WIN32_OPACITY_WINDOW;
     config.window_opacity = 144;
     CHECK(boxrig_win32_transparency_host_request(host, &config, &caps,
@@ -381,12 +393,15 @@ static bool renderer_failure_restores_the_last_committed_window_effect(void)
     caps.premultiplied_argb32_target = true;
     caps.supported_scopes = config.background.requested_scopes;
     CHECK(boxrig_win32_transparency_host_request(host, &config, &caps,
-        BOXRIG_WIN32_ALPHA_PATH_GDI, true) == BOXRIG_UI_OK);
+        BOXRIG_WIN32_ALPHA_PATH_GDI_DWM, true) == BOXRIG_UI_OK);
     CHECK(boxrig_win32_transparency_host_get_state(host, &state) == BOXRIG_UI_OK);
     CHECK(boxrig_win32_opacity_native_apply(native, host, &state.action) == BOXRIG_UI_OK);
     obsolete = state.action;
     CHECK(!(GetWindowLongPtrW(window, GWL_EXSTYLE) & WS_EX_LAYERED));
-    CHECK(GetWindowLongPtrW(window, GWL_EXSTYLE) & WS_EX_NOREDIRECTIONBITMAP);
+    /* Use the product's prepared-DWM path. The tested Windows host rejects
+     * switching a layered host to the legacy no-redirection surface (87). */
+    CHECK(prepared_dwm_enabled);
+    CHECK(!(GetWindowLongPtrW(window, GWL_EXSTYLE) & WS_EX_NOREDIRECTIONBITMAP));
     /* Host preparation succeeded, but no new renderer frame was accepted. */
     CHECK(boxrig_win32_transparency_host_cancel(host) == BOXRIG_UI_OK);
     CHECK(boxrig_win32_transparency_host_get_state(host, &state) == BOXRIG_UI_OK);
@@ -395,6 +410,7 @@ static bool renderer_failure_restores_the_last_committed_window_effect(void)
     CHECK(boxrig_win32_opacity_native_apply(native, host, &obsolete) == BOXRIG_UI_INVALID_ARGUMENT);
     CHECK(GetLayeredWindowAttributes(window, &key, &alpha, &flags));
     CHECK(alpha == 144 && flags == LWA_ALPHA);
+    CHECK(!prepared_dwm_enabled);
     CHECK(!(GetWindowLongPtrW(window, GWL_EXSTYLE) & WS_EX_NOREDIRECTIONBITMAP));
     CHECK(boxrig_win32_transparency_host_get_state(host, &state) == BOXRIG_UI_OK);
     CHECK(state.effective_mode == BOXRIG_WIN32_OPACITY_WINDOW && state.applied_revision == committed_revision);
@@ -458,15 +474,6 @@ static bool an_unknown_dwm_effect_requires_a_successful_restoration(void)
     boxrig_win32_transparency_host_destroy(host);
     CHECK(DestroyWindow(window));
     return true;
-}
-
-static bool prepared_dwm_enabled;
-
-static HRESULT WINAPI apply_prepared_dwm(HWND window, const DWM_BLURBEHIND *blur)
-{
-    (void)window;
-    prepared_dwm_enabled = blur->fEnable != FALSE;
-    return S_OK;
 }
 
 static BOOL WINAPI no_display_name(LPCWSTR name, DWORD index,

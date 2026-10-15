@@ -800,7 +800,6 @@ static void keyboard_key(
     uint32_t changed_modifier;
 
     (void)keyboard;
-    (void)time;
     if (component == NULL || !seat->keymap_available || native_code >= 248 ||
         (state != WL_KEYBOARD_KEY_STATE_PRESSED &&
          state != WL_KEYBOARD_KEY_STATE_RELEASED)) {
@@ -819,6 +818,7 @@ static void keyboard_key(
     item.type = BOXRIG_WAYLAND_INPUT_KEY;
     item.seat = seat;
     item.native_code = native_code;
+    item.ime_time = time;
     item.inhibited_key = !input_enabled(component) || seat->inhibited_key[native_code];
     seat->native_pressed[native_code] = state == WL_KEYBOARD_KEY_STATE_PRESSED;
     if (state == WL_KEYBOARD_KEY_STATE_PRESSED && !input_enabled(component))
@@ -2818,6 +2818,7 @@ static bool copy_pressed_key(
     }
     destination->keysym = item->keysym;
     destination->ime_modifiers = item->ime_modifiers;
+    destination->ime_time = item->ime_time;
     destination->component = component;
     destination->identity = item->value.key;
     destination->identity.text = text;
@@ -3007,6 +3008,7 @@ static bool queue_due_repeat(boxrig_wayland_context *context)
         item.inhibited_key = seat->inhibited_key[seat->repeat_key];
         item.keysym = pressed->keysym;
         item.ime_modifiers = pressed->ime_modifiers;
+        item.ime_time = pressed->ime_time;
         item.ime_generation = seat->ime_generation;
         item.compose_pending = boxrig_wayland_ibus_selected(context);
         item.value.key = pressed->identity;

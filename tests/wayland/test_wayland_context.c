@@ -48,6 +48,23 @@
         }                                                                       \
     } while (0)
 
+/* Protocol fixtures select the compositor route explicitly. Automatic
+ * discovery is tested below against controlled, independent IME services. */
+static boxrig_wayland_context_config protocol_context_config(void)
+{
+    boxrig_wayland_context_config config = boxrig_wayland_context_config_default();
+    config.input_method = BOXRIG_WAYLAND_IME_WAYLAND;
+    return config;
+}
+
+static boxrig_ui_status create_protocol_context(struct wl_display *display,
+    struct wl_event_queue *queue, const boxrig_wayland_context_config *config,
+    boxrig_wayland_context **context_out)
+{
+    boxrig_wayland_context_config effective = config == NULL ? protocol_context_config() : *config;
+    return boxrig_wayland_context_create(display, queue, &effective, context_out);
+}
+
 /* These protocol and layout fixtures do not run an animation scheduler.
  * Keep their display steady; the animation fixture below supplies a runtime. */
 static boxrig_ui_status create_steady_component(
@@ -2162,7 +2179,7 @@ static void *wayland_fixture_create_host(void)
     host->registry = create_host_registry(
         &host->server,
         &host->registry_state);
-    CHECK(boxrig_wayland_context_create(
+    CHECK(create_protocol_context(
               host->server.client_display,
               host->server.client_queue,
               NULL,
@@ -3265,7 +3282,7 @@ static void test_ready_and_required_removal(void)
     boxrig_wayland_context_diagnostic diagnostic;
 
     create_server(&server, true, false, true);
-    CHECK(boxrig_wayland_context_create(
+    CHECK(create_protocol_context(
               server.client_display,
               server.client_queue,
               NULL,
@@ -3307,7 +3324,7 @@ static void test_missing_required_global(void)
     boxrig_wayland_context_diagnostic diagnostic;
 
     create_server(&server, false, false, true);
-    CHECK(boxrig_wayland_context_create(
+    CHECK(create_protocol_context(
               server.client_display,
               server.client_queue,
               NULL,
@@ -3329,7 +3346,7 @@ static void test_clipboard_managers_follow_seat_lifetime(void)
     boxrig_wayland_context_diagnostic diagnostic;
 
     create_server(&server, true, false, true);
-    CHECK(boxrig_wayland_context_create(
+    CHECK(create_protocol_context(
               server.client_display,
               server.client_queue,
               NULL,
@@ -3389,7 +3406,7 @@ static void test_copy_uses_focused_seat_serial_and_immutable_sources(void)
     struct wl_array keys;
     boxrig_terminal_config terminal_config = boxrig_terminal_config_default();
     boxrig_wayland_context_config context_config =
-        boxrig_wayland_context_config_default();
+        protocol_context_config();
     boxrig_terminal *terminal = NULL;
     boxrig_ui_model *model = NULL;
     boxrig_wayland_context *context = NULL;
@@ -3437,7 +3454,7 @@ static void test_copy_uses_focused_seat_serial_and_immutable_sources(void)
     context_config.maximum_clipboard_transfers = 2;
     context_config.maximum_clipboard_bytes = 2 * (sizeof(copied_text) - 1);
     context_config.transfer_chunk_size = 3;
-    CHECK(boxrig_wayland_context_create(
+    CHECK(create_protocol_context(
               server.client_display,
               server.client_queue,
               &context_config,
@@ -3805,7 +3822,7 @@ static void test_paste_reads_validated_text_once_and_retries(void)
     struct wl_array keys;
     boxrig_terminal_config terminal_config = boxrig_terminal_config_default();
     boxrig_wayland_context_config context_config =
-        boxrig_wayland_context_config_default();
+        protocol_context_config();
     boxrig_wayland_terminal_component_config component_config =
         boxrig_wayland_terminal_component_config_default();
     boxrig_terminal *terminal = NULL;
@@ -3844,7 +3861,7 @@ static void test_paste_reads_validated_text_once_and_retries(void)
     CHECK(consumed == sizeof(bracketed_mode) - 1);
     CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
     context_config.transfer_chunk_size = 3;
-    CHECK(boxrig_wayland_context_create(
+    CHECK(create_protocol_context(
               server.client_display,
               server.client_queue,
               &context_config,
@@ -4168,7 +4185,7 @@ static void test_owned_child_and_parent_handshake(void)
     boxrig_terminal *terminal = NULL;
     boxrig_ui_model *model = NULL;
     boxrig_wayland_context_config context_config =
-        boxrig_wayland_context_config_default();
+        protocol_context_config();
     boxrig_wayland_context *context = NULL;
     boxrig_wayland_terminal_component *component = NULL;
     boxrig_wayland_terminal_component *extra = NULL;
@@ -4198,7 +4215,7 @@ static void test_owned_child_and_parent_handshake(void)
           BOXRIG_STATUS_OK);
     CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
     context_config.maximum_components = 1;
-    CHECK(boxrig_wayland_context_create(
+    CHECK(create_protocol_context(
               server.client_display,
               server.client_queue,
               &context_config,
@@ -4530,7 +4547,7 @@ static void test_visible_resize_commits_child_with_parent(void)
     CHECK(boxrig_terminal_create(&terminal_config, &terminal) ==
           BOXRIG_STATUS_OK);
     CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
-    CHECK(boxrig_wayland_context_create(
+    CHECK(create_protocol_context(
               server.client_display,
               server.client_queue,
               NULL,
@@ -4659,7 +4676,7 @@ static void test_integer_output_scale_and_hit_test(void)
     CHECK(boxrig_terminal_create(&terminal_config, &terminal) ==
           BOXRIG_STATUS_OK);
     CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
-    CHECK(boxrig_wayland_context_create(
+    CHECK(create_protocol_context(
               server.client_display,
               server.client_queue,
               NULL,
@@ -4783,7 +4800,7 @@ static void test_fractional_scale_viewport_and_hit_test(void)
     CHECK(boxrig_terminal_create(&terminal_config, &terminal) ==
           BOXRIG_STATUS_OK);
     CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
-    CHECK(boxrig_wayland_context_create(
+    CHECK(create_protocol_context(
               server.client_display,
               server.client_queue,
               NULL,
@@ -4938,7 +4955,7 @@ static void test_work_queue_overflow_is_sticky(void)
     boxrig_terminal *terminal = NULL;
     boxrig_ui_model *model = NULL;
     boxrig_wayland_context_config context_config =
-        boxrig_wayland_context_config_default();
+        protocol_context_config();
     boxrig_wayland_context *context = NULL;
     boxrig_wayland_terminal_component *first = NULL;
     boxrig_wayland_terminal_component *second = NULL;
@@ -4955,7 +4972,7 @@ static void test_work_queue_overflow_is_sticky(void)
     CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
     context_config.maximum_components = 2;
     context_config.maximum_work_items = 1;
-    CHECK(boxrig_wayland_context_create(
+    CHECK(create_protocol_context(
               server.client_display,
               server.client_queue,
               &context_config,
@@ -5038,7 +5055,7 @@ static void test_transparency_regions_and_fallback(void)
     CHECK(boxrig_terminal_create(&terminal_config, &terminal) ==
           BOXRIG_STATUS_OK);
     CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
-    CHECK(boxrig_wayland_context_create(
+    CHECK(create_protocol_context(
               server.client_display,
               server.client_queue,
               NULL,
@@ -5177,7 +5194,7 @@ static void test_visual_zoom_issues_one_application_size_command(void)
     CHECK(boxrig_terminal_create(&terminal_config, &terminal) ==
           BOXRIG_STATUS_OK);
     CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
-    CHECK(boxrig_wayland_context_create(
+    CHECK(create_protocol_context(
               server.client_display,
               server.client_queue,
               NULL,
@@ -5323,7 +5340,7 @@ static void test_constrained_visual_zoom_dispatches_one_grid_action(void)
     CHECK(boxrig_terminal_create(&terminal_config, &terminal) ==
           BOXRIG_STATUS_OK);
     CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
-    CHECK(boxrig_wayland_context_create(
+    CHECK(create_protocol_context(
               server.client_display,
               server.client_queue,
               NULL,
@@ -5448,7 +5465,7 @@ static void test_missing_argb_policy(void)
     CHECK(boxrig_terminal_create(&terminal_config, &terminal) ==
           BOXRIG_STATUS_OK);
     CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
-    CHECK(boxrig_wayland_context_create(
+    CHECK(create_protocol_context(
               server.client_display,
               server.client_queue,
               NULL,
@@ -5577,7 +5594,7 @@ static void test_seat_keyboard_routing_and_removal(void)
     CHECK(boxrig_terminal_create(&terminal_config, &terminal) ==
           BOXRIG_STATUS_OK);
     CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
-    CHECK(boxrig_wayland_context_create(
+    CHECK(create_protocol_context(
               server.client_display,
               server.client_queue,
               NULL,
@@ -5817,7 +5834,7 @@ static void test_host_keyboard_focus_routes_to_fallback_component(void)
     CHECK(boxrig_terminal_create(&terminal_config, &terminal) ==
           BOXRIG_STATUS_OK);
     CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
-    CHECK(boxrig_wayland_context_create(
+    CHECK(create_protocol_context(
               server.client_display,
               server.client_queue,
               NULL,
@@ -5937,7 +5954,7 @@ static void test_pointer_scale_batch_and_click_wrap(void)
     CHECK(boxrig_terminal_create(&terminal_config, &terminal) ==
           BOXRIG_STATUS_OK);
     CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
-    CHECK(boxrig_wayland_context_create(
+    CHECK(create_protocol_context(
               server.client_display,
               server.client_queue,
               NULL,
@@ -6268,7 +6285,7 @@ static void test_text_input_editable_document(void)
     struct wl_registry *registry = create_host_registry(&server, &host);
     CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
     CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
-    CHECK(boxrig_wayland_context_create(server.client_display, server.client_queue, NULL,
+    CHECK(create_protocol_context(server.client_display, server.client_queue, NULL,
         &context) == BOXRIG_UI_OK);
     pump(&server); pump(&server); pump(&server);
     struct wl_surface *parent = wl_compositor_create_surface(host.compositor);
@@ -6621,7 +6638,7 @@ static void test_text_input_batch_and_compose_fallback(void)
     CHECK(boxrig_terminal_create(&terminal_config, &terminal) ==
           BOXRIG_STATUS_OK);
     CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
-    CHECK(boxrig_wayland_context_create(
+    CHECK(create_protocol_context(
               server.client_display,
               server.client_queue,
               NULL,
@@ -6997,7 +7014,7 @@ static void test_text_input_candidate_stays_at_preedit_caret(void)
     config.columns = 20;
     CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
     CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
-    CHECK(boxrig_wayland_context_create(server.client_display, server.client_queue,
+    CHECK(create_protocol_context(server.client_display, server.client_queue,
         NULL, &context) == BOXRIG_UI_OK);
     pump(&server); pump(&server); pump(&server);
     struct wl_surface *parent = wl_compositor_create_surface(host.compositor);
@@ -7115,7 +7132,7 @@ static void test_text_input_v2_clause_hints(void)
     struct wl_registry *registry = create_host_registry(&server, &host);
     CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
     CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
-    CHECK(boxrig_wayland_context_create(server.client_display, server.client_queue,
+    CHECK(create_protocol_context(server.client_display, server.client_queue,
         NULL, &context) == BOXRIG_UI_OK);
     pump(&server); pump(&server); pump(&server);
     CHECK(boxrig_wayland_context_get_diagnostic(context, &diagnostic) == BOXRIG_UI_OK);
@@ -7313,7 +7330,7 @@ static void test_text_input_v2_cursor_surface_commit(void)
         terminal_config.columns = 40;
         CHECK(boxrig_terminal_create(&terminal_config, &terminal) == BOXRIG_STATUS_OK);
         CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
-        CHECK(boxrig_wayland_context_create(server.client_display, server.client_queue, NULL, &context) == BOXRIG_UI_OK);
+        CHECK(create_protocol_context(server.client_display, server.client_queue, NULL, &context) == BOXRIG_UI_OK);
         pump(&server); pump(&server); pump(&server);
         struct wl_surface *parent = wl_compositor_create_surface(host.compositor);
         wl_proxy_set_queue((struct wl_proxy *)parent, server.client_queue);
@@ -7405,7 +7422,7 @@ static void test_multiple_seats_and_components_are_independent(void)
           BOXRIG_STATUS_OK);
     CHECK(boxrig_ui_model_create(terminal_a, &model_a) == BOXRIG_UI_OK);
     CHECK(boxrig_ui_model_create(terminal_b, &model_b) == BOXRIG_UI_OK);
-    CHECK(boxrig_wayland_context_create(
+    CHECK(create_protocol_context(
               server.client_display,
               server.client_queue,
               NULL,
@@ -7658,7 +7675,7 @@ static void test_input_backpressure_and_resource_limits(void)
     struct wl_array keys;
     boxrig_terminal_config terminal_config = boxrig_terminal_config_default();
     boxrig_wayland_context_config context_config =
-        boxrig_wayland_context_config_default();
+        protocol_context_config();
     boxrig_wayland_terminal_component_config component_config =
         boxrig_wayland_terminal_component_config_default();
     boxrig_terminal *terminal = NULL;
@@ -7682,7 +7699,7 @@ static void test_input_backpressure_and_resource_limits(void)
     CHECK(boxrig_terminal_create(&terminal_config, &terminal) ==
           BOXRIG_STATUS_OK);
     CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
-    CHECK(boxrig_wayland_context_create(
+    CHECK(create_protocol_context(
               server.client_display,
               server.client_queue,
               &context_config,
@@ -7911,7 +7928,7 @@ static void test_keyboard_resets_cursor_blink(void)
     registry = create_host_registry(&server, &host);
     CHECK(boxrig_terminal_create(&terminal_config, &terminal) == BOXRIG_STATUS_OK);
     CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
-    CHECK(boxrig_wayland_context_create(server.client_display, server.client_queue, NULL, &context) == BOXRIG_UI_OK);
+    CHECK(create_protocol_context(server.client_display, server.client_queue, NULL, &context) == BOXRIG_UI_OK);
     pump(&server); pump(&server); pump(&server);
     parent = wl_compositor_create_surface(host.compositor);
     CHECK(parent != NULL);
@@ -8028,7 +8045,7 @@ static void test_input_inhibition(void)
     struct wl_registry *registry = create_host_registry(&server, &host);
     CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
     CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
-    CHECK(boxrig_wayland_context_create(server.client_display, server.client_queue, NULL, &context) == BOXRIG_UI_OK);
+    CHECK(create_protocol_context(server.client_display, server.client_queue, NULL, &context) == BOXRIG_UI_OK);
     pump(&server); pump(&server); pump(&server);
     struct wl_surface *parent = wl_compositor_create_surface(host.compositor);
     CHECK(parent != NULL);
@@ -8201,7 +8218,7 @@ static void test_terminal_io_configuration(void)
         struct wl_registry *registry = create_host_registry(&server, &host);
         CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
         CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
-        CHECK(boxrig_wayland_context_create(server.client_display, server.client_queue,
+        CHECK(create_protocol_context(server.client_display, server.client_queue,
                   NULL, &context) == BOXRIG_UI_OK);
         pump(&server); pump(&server); pump(&server);
         struct wl_surface *parent = wl_compositor_create_surface(host.compositor);
@@ -8300,7 +8317,7 @@ static void test_standard_scrollbar_visibility(void)
     struct wl_registry *registry = create_host_registry(&server, &host);
     CHECK(boxrig_terminal_create(&terminal_config, &terminal) == BOXRIG_STATUS_OK);
     CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
-    CHECK(boxrig_wayland_context_create(server.client_display, server.client_queue,
+    CHECK(create_protocol_context(server.client_display, server.client_queue,
         NULL, &context) == BOXRIG_UI_OK);
     pump(&server);
     pump(&server);
@@ -8557,10 +8574,10 @@ static void ibus_test_drain(fake_server *server, boxrig_wayland_context *context
         CHECK(boxrig_wayland_terminal_component_get_diagnostic(component, &input) == BOXRIG_UI_OK);
         CHECK(input.failure_reason == BOXRIG_WAYLAND_FAILURE_NONE);
         if (getenv("BOXRIG_TEST_TRACE_IBUS") != NULL) fprintf(stderr, "IBus drain: state=%d contexts=%zu pending=%zu depth=%zu waiting=%d\n",
-            bus.ibus_state, bus.active_ibus_context_count, bus.pending_ibus_request_count, input.input_queue_depth, input.ime_waiting);
-        CHECK(bus.ibus_state == BOXRIG_WAYLAND_IBUS_CONNECTING || bus.ibus_state == BOXRIG_WAYLAND_IBUS_READY);
-        if (bus.ibus_state == BOXRIG_WAYLAND_IBUS_READY && bus.active_ibus_context_count == 1 &&
-            bus.pending_ibus_request_count == 0 && input.input_queue_depth == 0) break;
+            bus.direct.state, bus.direct.contexts, bus.direct.pending, input.input_queue_depth, input.ime_waiting);
+        CHECK(bus.direct.state == BOXRIG_IME_CONNECTING || bus.direct.state == BOXRIG_IME_READY);
+        if (bus.direct.state == BOXRIG_IME_READY && bus.direct.contexts == 1 &&
+            bus.direct.pending == 0 && input.input_queue_depth == 0) break;
         ibus_test_poll(context);
     }
 }
@@ -8622,15 +8639,15 @@ static GVariant *ibus_test_state(GDBusConnection *connection)
 static void test_ibus_route_selection(void)
 {
     const struct { boxrig_wayland_input_method policy; uint32_t version;
-        bool ibus; const char *module; bool unavailable; } cases[] = {
-        {BOXRIG_WAYLAND_IME_WAYLAND, 1, false, "ibus", false},
-        {BOXRIG_WAYLAND_IME_AUTO, 2, false, "ibus", false},
-        {BOXRIG_WAYLAND_IME_AUTO, 1, true, "ibus", false},
-        {BOXRIG_WAYLAND_IME_AUTO, 1, false, "gtk-im-context-simple", false},
-        {BOXRIG_WAYLAND_IME_AUTO, 1, false, "fcitx", false},
+        bool ibus; const char *modifiers; bool unavailable; } cases[] = {
+        {BOXRIG_WAYLAND_IME_WAYLAND, 1, false, "@im=ibus", false},
+        {BOXRIG_WAYLAND_IME_AUTO, 2, false, "@im=ibus", false},
+        {BOXRIG_WAYLAND_IME_AUTO, 1, true, "@im=ibus", false},
+        {BOXRIG_WAYLAND_IME_AUTO, 1, true, "", false},
+        {BOXRIG_WAYLAND_IME_AUTO, 1, false, "@im=fcitx", true},
         {BOXRIG_WAYLAND_IME_AUTO, 1, true, NULL, false},
         {BOXRIG_WAYLAND_IME_IBUS, 2, true, "gtk-im-context-simple", false},
-        {BOXRIG_WAYLAND_IME_IBUS, 1, false, "ibus", true},
+        {BOXRIG_WAYLAND_IME_IBUS, 1, false, "@im=ibus", true},
     };
     GError *error = NULL;
     GDBusConnection *probe = g_dbus_connection_new_for_address_sync(getenv("IBUS_ADDRESS"),
@@ -8639,16 +8656,19 @@ static void test_ibus_route_selection(void)
     CHECK(probe != NULL && error == NULL);
     char *address = strdup(getenv("IBUS_ADDRESS"));
     char *module = strdup(getenv("GTK_IM_MODULE"));
-    CHECK(address != NULL && module != NULL);
+    char *modifiers = strdup(getenv("XMODIFIERS"));
+    CHECK(address != NULL && module != NULL && modifiers != NULL);
     for (int candidate_policy = BOXRIG_UI_CANDIDATE_AUTO; candidate_policy <= BOXRIG_UI_CANDIDATE_CLIENT; candidate_policy++)
     for (size_t index = 0; index < sizeof(cases) / sizeof(cases[0]); index++) {
         bool selected = cases[index].ibus || (cases[index].policy == BOXRIG_WAYLAND_IME_AUTO &&
             cases[index].version >= 2 && candidate_policy == BOXRIG_UI_CANDIDATE_CLIENT &&
-            cases[index].module != NULL && strcmp(cases[index].module, "ibus") == 0);
+            !cases[index].unavailable);
         if (getenv("BOXRIG_TEST_TRACE_IBUS") != NULL) fprintf(stderr, "IBus route case %zu\n", index);
         CHECK(setenv("IBUS_ADDRESS", cases[index].unavailable ? "unix:path=/dev/null" : address, 1) == 0);
-        CHECK(cases[index].module == NULL ? unsetenv("GTK_IM_MODULE") == 0 :
-            setenv("GTK_IM_MODULE", cases[index].module, 1) == 0);
+        CHECK(cases[index].modifiers == NULL ? unsetenv("XMODIFIERS") == 0 :
+            setenv("XMODIFIERS", cases[index].modifiers, 1) == 0);
+        /* Native Wayland must ignore GTK-only module configuration. */
+        CHECK(setenv("GTK_IM_MODULE", "fcitx", 1) == 0);
         fake_server server;
         host_registry_state host;
         create_server(&server, true, false, true);
@@ -8657,7 +8677,7 @@ static void test_ibus_route_selection(void)
             &zwp_text_input_manager_v3_interface, cases[index].version, &server, bind_text_input_manager);
         struct wl_registry *registry = create_host_registry(&server, &host);
         boxrig_wayland_context_config config = boxrig_wayland_context_config_default();
-        CHECK(config.input_method == BOXRIG_WAYLAND_IME_WAYLAND);
+        CHECK(config.input_method == BOXRIG_WAYLAND_IME_AUTO);
         config.input_method = cases[index].policy;
         CHECK(config.candidate_policy == BOXRIG_UI_CANDIDATE_AUTO);
         config.candidate_policy = (boxrig_ui_candidate_policy)candidate_policy;
@@ -8684,7 +8704,7 @@ static void test_ibus_route_selection(void)
                 pump(&server); dispatch_context(context);
                 boxrig_wayland_context_diagnostic state;
                 CHECK(boxrig_wayland_context_get_diagnostic(context, &state) == BOXRIG_UI_OK);
-                if (state.ibus_state == BOXRIG_WAYLAND_IBUS_UNAVAILABLE && state.pending_ibus_request_count == 0) break;
+                if (state.direct.state == BOXRIG_IME_UNAVAILABLE && state.direct.pending == 0) break;
                 ibus_test_poll(context);
             }
             ibus_test_key(&server, KEY_A);
@@ -8701,8 +8721,8 @@ static void test_ibus_route_selection(void)
         boxrig_wayland_context_diagnostic diagnostic;
         CHECK(boxrig_wayland_context_get_diagnostic(context, &diagnostic) == BOXRIG_UI_OK);
         CHECK(diagnostic.input_method == (selected ? BOXRIG_WAYLAND_IME_IBUS : BOXRIG_WAYLAND_IME_WAYLAND));
-        CHECK(diagnostic.ibus_state == (cases[index].unavailable ? BOXRIG_WAYLAND_IBUS_UNAVAILABLE :
-            selected ? BOXRIG_WAYLAND_IBUS_READY : BOXRIG_WAYLAND_IBUS_DISABLED));
+        CHECK(diagnostic.direct.state == (cases[index].unavailable ? BOXRIG_IME_UNAVAILABLE :
+            selected ? BOXRIG_IME_READY : BOXRIG_IME_DISABLED));
         CHECK(((diagnostic.input_capabilities & BOXRIG_WAYLAND_INPUT_CAPABILITY_IBUS) != 0) == selected);
         CHECK(server.text_current_enabled[0] == !selected);
         boxrig_wayland_component_diagnostic candidate_state;
@@ -8711,7 +8731,7 @@ static void test_ibus_route_selection(void)
         bool client = selected && candidate_policy != BOXRIG_UI_CANDIDATE_SYSTEM;
         CHECK(candidate_state.candidate_owner == (client ? BOXRIG_UI_CANDIDATE_OWNER_CLIENT : BOXRIG_UI_CANDIDATE_OWNER_SYSTEM));
         CHECK(candidate_state.candidate_reason == (candidate_policy == BOXRIG_UI_CANDIDATE_SYSTEM ? BOXRIG_UI_CANDIDATE_SYSTEM_REQUEST :
-            cases[index].unavailable ? BOXRIG_UI_CANDIDATE_IBUS_UNAVAILABLE :
+            cases[index].unavailable ? BOXRIG_UI_CANDIDATE_IME_UNAVAILABLE :
             client ? BOXRIG_UI_CANDIDATE_READY : BOXRIG_UI_CANDIDATE_STANDARD_INPUT));
         CHECK(candidate_state.candidate_count == 0 && !candidate_state.candidate_visible);
         if (selected) {
@@ -8736,7 +8756,8 @@ static void test_ibus_route_selection(void)
         destroy_server(&server);
     }
     CHECK(setenv("IBUS_ADDRESS", address, 1) == 0 && setenv("GTK_IM_MODULE", module, 1) == 0);
-    free(address); free(module);
+    CHECK(setenv("XMODIFIERS", modifiers, 1) == 0);
+    free(address); free(module); free(modifiers);
     g_object_unref(probe);
     puts("PASS native Wayland explicit and automatic IME route selection with unavailable fallback");
 }
@@ -9095,7 +9116,7 @@ static void test_ibus_native_preedit(void)
         boxrig_wayland_context_diagnostic diagnostic;
         pump(&server); dispatch_context(context);
         CHECK(boxrig_wayland_context_get_diagnostic(context, &diagnostic) == BOXRIG_UI_OK);
-        if (diagnostic.ibus_state == BOXRIG_WAYLAND_IBUS_UNAVAILABLE) break;
+        if (diagnostic.direct.state == BOXRIG_IME_UNAVAILABLE) break;
         ibus_test_poll(context);
     }
     ibus_test_key(&server, KEY_A);
@@ -9177,7 +9198,7 @@ static void test_native_candidate_pointer(void)
     boxrig_wayland_terminal_component *component = NULL;
     CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
     CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
-    CHECK(boxrig_wayland_context_create(server.client_display, server.client_queue,
+    CHECK(create_protocol_context(server.client_display, server.client_queue,
         NULL, &context) == BOXRIG_UI_OK);
     pump(&server); pump(&server); pump(&server);
     struct wl_surface *parent = wl_compositor_create_surface(host.compositor);
@@ -9317,7 +9338,7 @@ static void test_native_candidate_scale(void)
     boxrig_wayland_terminal_component *component = NULL;
     CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
     CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
-    CHECK(boxrig_wayland_context_create(server.client_display, server.client_queue,
+    CHECK(create_protocol_context(server.client_display, server.client_queue,
         NULL, &context) == BOXRIG_UI_OK);
     pump(&server); pump(&server); pump(&server);
     struct wl_surface *parent = wl_compositor_create_surface(host.compositor);
@@ -9391,6 +9412,430 @@ static void test_native_candidate_scale(void)
     puts("PASS native Wayland keeps composition and candidates through fractional scale changes");
 }
 
+static void test_fcitx5_native_input(void)
+{
+    fake_server server;
+    host_registry_state host;
+    create_server(&server, true, true, true);
+    struct wl_registry *registry = create_host_registry(&server, &host);
+    boxrig_wayland_context_config config = boxrig_wayland_context_config_default();
+    config.input_method = getenv("BOXRIG_TEST_IME_AUTO") != NULL ? BOXRIG_WAYLAND_IME_AUTO : BOXRIG_WAYLAND_IME_FCITX5;
+    bool client_candidates = getenv("BOXRIG_TEST_FCITX_CANDIDATES") != NULL;
+    config.candidate_policy = client_candidates ? BOXRIG_UI_CANDIDATE_CLIENT : BOXRIG_UI_CANDIDATE_SYSTEM;
+    boxrig_wayland_context *context = NULL;
+    CHECK(boxrig_wayland_context_create(server.client_display, server.client_queue, &config, &context) == BOXRIG_UI_OK);
+    pump(&server); pump(&server); pump(&server);
+    boxrig_terminal_config tc = boxrig_terminal_config_default();
+    boxrig_terminal *terminal;
+    boxrig_ui_model *model;
+    CHECK(boxrig_terminal_create(&tc, &terminal) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
+    struct wl_surface *parent = wl_compositor_create_surface(host.compositor);
+    wl_proxy_set_queue((struct wl_proxy *)parent, server.client_queue);
+    boxrig_wayland_terminal_component *component;
+    CHECK(create_steady_component(context, parent, model, NULL, &component) == BOXRIG_UI_OK);
+    pump(&server);
+    send_ibus_keymap(&server);
+    struct wl_array keys;
+    wl_array_init(&keys);
+    wl_keyboard_send_enter(server.keyboard_resources[0], 10, server.child_resource, &keys);
+    zwp_text_input_v3_send_enter(server.text_input_resources[0], server.child_resource);
+    ibus_test_drain(&server, context, component);
+    boxrig_wayland_context_diagnostic diagnostic;
+    CHECK(boxrig_wayland_context_get_diagnostic(context, &diagnostic) == BOXRIG_UI_OK);
+    CHECK(diagnostic.input_method == BOXRIG_WAYLAND_IME_FCITX5);
+    CHECK((diagnostic.input_capabilities & BOXRIG_WAYLAND_INPUT_CAPABILITY_FCITX5) != 0);
+    CHECK((diagnostic.input_capabilities & BOXRIG_WAYLAND_INPUT_CAPABILITY_IBUS) == 0);
+    boxrig_wayland_component_diagnostic component_state;
+    CHECK(boxrig_wayland_terminal_component_get_diagnostic(component, &component_state) == BOXRIG_UI_OK);
+    CHECK((component_state.input_capabilities & BOXRIG_WAYLAND_INPUT_CAPABILITY_FCITX5) != 0);
+    CHECK((component_state.input_capabilities & BOXRIG_WAYLAND_INPUT_CAPABILITY_IBUS) == 0);
+    CHECK(!server.text_current_enabled[0]);
+    if (getenv("BOXRIG_TEST_FCITX_REAL") != NULL) {
+        GDBusConnection *bus = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, NULL);
+        CHECK(bus != NULL);
+        GError *error = NULL;
+        GVariant *reply = g_dbus_connection_call_sync(bus, "org.fcitx.Fcitx5", "/controller",
+            "org.fcitx.Fcitx.Controller1", "SetCurrentIM", g_variant_new("(s)", "mozc"),
+            G_VARIANT_TYPE_UNIT, G_DBUS_CALL_FLAGS_NO_AUTO_START, 60000, NULL, &error);
+        if (error != NULL) fprintf(stderr, "fcitx5 SetCurrentIM: %s\n", error->message);
+        CHECK(reply != NULL);
+        g_variant_unref(reply);
+        const uint32_t word[] = {KEY_K, KEY_I, KEY_S, KEY_H, KEY_A};
+        for (size_t index = 0; index < G_N_ELEMENTS(word); index++) ibus_test_key(&server, word[index]);
+        ibus_test_drain(&server, context, component);
+        boxrig_composition_view text;
+        CHECK(boxrig_composition_get_view(boxrig_wayland_terminal_component_composition(component), &text) == BOXRIG_COMPOSITION_OK);
+        CHECK(text.active && text.text_length == strlen("きしゃ") && memcmp(text.text, "きしゃ", text.text_length) == 0);
+        check_ibus_output(terminal, "");
+        ibus_test_key(&server, KEY_SPACE);
+        ibus_test_drain(&server, context, component);
+        if (client_candidates) {
+            ibus_test_key(&server, KEY_SPACE);
+            ibus_test_drain(&server, context, component);
+            boxrig_ui_candidate_view panel;
+            CHECK(boxrig_ui_view_get_candidates(boxrig_wayland_terminal_component_view(component), &panel) == BOXRIG_UI_OK);
+            CHECK(panel.snapshot.format == BOXRIG_UI_CANDIDATE_PAGE && panel.snapshot.count > 0 && panel.snapshot.has_next_page);
+            ibus_test_key(&server, KEY_PAGEDOWN);
+            ibus_test_drain(&server, context, component);
+            CHECK(boxrig_ui_view_get_candidates(boxrig_wayland_terminal_component_view(component), &panel) == BOXRIG_UI_OK);
+            CHECK(panel.snapshot.count > 0 && panel.snapshot.has_previous_page);
+        }
+        CHECK(boxrig_composition_get_view(boxrig_wayland_terminal_component_composition(component), &text) == BOXRIG_COMPOSITION_OK);
+        CHECK(text.active && text.text_length != 0);
+        CHECK(text.text_length != strlen("きしゃ") || memcmp(text.text, "きしゃ", text.text_length) != 0);
+        char *converted = g_strndup(text.text, text.text_length);
+        ibus_test_key(&server, KEY_ENTER);
+        ibus_test_drain(&server, context, component);
+        check_ibus_inactive(component);
+        check_ibus_output(terminal, converted);
+        g_free(converted);
+        for (size_t index = 0; index < G_N_ELEMENTS(word); index++) ibus_test_key(&server, word[index]);
+        ibus_test_key(&server, KEY_ESC);
+        ibus_test_drain(&server, context, component);
+        check_ibus_inactive(component);
+        check_ibus_output(terminal, "");
+        g_object_unref(bus);
+    } else {
+        GDBusConnection *probe = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, NULL);
+        CHECK(probe != NULL);
+        boxrig_ui_component_allocation allocation = {.width = 600, .height = 300,
+            .window_state = BOXRIG_UI_WINDOW_NORMAL};
+        boxrig_ui_layout_result layout;
+        CHECK(boxrig_wayland_terminal_component_allocate(component, &allocation, &layout) == BOXRIG_UI_OK);
+        const uint32_t scales[] = {150, 240, 120};
+        for (size_t index = 0; index < G_N_ELEMENTS(scales); index++) {
+            wp_fractional_scale_v1_send_preferred_scale(server.fractional_scale_resource, scales[index]);
+            pump(&server); dispatch_context(context);
+            for (size_t buffer = 0; buffer < server.shm_buffer_create_count; buffer++)
+                if (server.shm_buffers[buffer] != NULL && server.shm_buffer_busy[buffer]) release_buffer(&server, buffer);
+            for (size_t callback = 0; callback < server.frame_callback_count; callback++)
+                if (server.frame_callbacks[callback] != NULL) complete_frame(&server, callback);
+            pump(&server);
+            boxrig_ui_component_frame_result frame;
+            for (;;) {
+                CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+                CHECK(boxrig_wayland_terminal_component_frame(component, &frame) == BOXRIG_UI_OK);
+                boxrig_ui_layout_action resize;
+                if (!boxrig_wayland_terminal_component_take_layout_action(component, &resize)) break;
+                CHECK(resize.kind == BOXRIG_UI_LAYOUT_ACTION_GRID_RESIZE);
+                CHECK(boxrig_terminal_resize(terminal, resize.value.grid_resize.rows,
+                    resize.value.grid_resize.columns) == BOXRIG_STATUS_OK);
+                CHECK(boxrig_wayland_terminal_component_complete_grid_resize(component, resize.revision, true) == BOXRIG_UI_OK);
+            }
+            int origin = 32 + 8 * (int)index;
+            CHECK(boxrig_wayland_terminal_component_set_ime_window_offset(component, origin, 48) == BOXRIG_UI_OK);
+            ibus_test_key(&server, KEY_ESC);
+            ibus_test_drain(&server, context, component);
+            GVariant *position = g_dbus_connection_call_sync(probe, "org.fcitx.Fcitx5", "/org/boxrig/FcitxProbe",
+                "org.boxrig.FcitxProbe", "Cursor", NULL, G_VARIANT_TYPE("(iiiidu)"),
+                G_DBUS_CALL_FLAGS_NO_AUTO_START, 60000, NULL, NULL);
+            CHECK(position != NULL);
+            gint x, y, width, height;
+            gdouble scale;
+            guint updates;
+            g_variant_get(position, "(iiiidu)", &x, &y, &width, &height, &scale, &updates);
+            if (updates == 0 || scale != scales[index] / 120.0)
+                fprintf(stderr, "Fcitx cursor scale case %zu: updates=%u scale=%g rectangle=%d,%d,%d,%d\n",
+                    index, updates, scale, x, y, width, height);
+            CHECK(updates > 0 && scale == scales[index] / 120.0);
+            CHECK(x == origin * scale && y == 48 * scale);
+            boxrig_font_effective_metrics metrics;
+            CHECK(boxrig_wayland_terminal_component_get_effective_metrics(component, &metrics) == BOXRIG_FONT_CATALOG_OK);
+            CHECK(width >= (gint)metrics.cell_width && width < (gint)metrics.cell_width + 4);
+            CHECK(height >= (gint)metrics.cell_height && height < (gint)metrics.cell_height + 4);
+            g_variant_unref(position);
+        }
+        g_object_unref(probe);
+        if (client_candidates) {
+            CHECK(component_state.candidate_owner == BOXRIG_UI_CANDIDATE_OWNER_NONE);
+            ibus_test_key(&server, KEY_V);
+            ibus_test_drain(&server, context, component);
+            boxrig_ui_candidate_view panel;
+            CHECK(boxrig_ui_view_get_candidates(boxrig_wayland_terminal_component_view(component), &panel) == BOXRIG_UI_OK);
+            CHECK(panel.snapshot.format == BOXRIG_UI_CANDIDATE_PAGE && panel.snapshot.count == 2 && panel.snapshot.cursor == 1);
+            CHECK(strcmp(panel.snapshot.auxiliary_above, "上よみ") == 0 && strcmp(panel.snapshot.auxiliary, "下") == 0);
+            CHECK(boxrig_wayland_terminal_component_get_diagnostic(component, &component_state) == BOXRIG_UI_OK);
+            CHECK(component_state.candidate_owner == BOXRIG_UI_CANDIDATE_OWNER_CLIENT);
+            ibus_test_key(&server, KEY_H);
+            ibus_test_drain(&server, context, component);
+            CHECK(boxrig_ui_view_get_candidates(boxrig_wayland_terminal_component_view(component), &panel) == BOXRIG_UI_OK);
+            CHECK(panel.snapshot.count == 0 && !panel.snapshot.auxiliary_visible && !panel.snapshot.auxiliary_above_visible);
+        }
+        ibus_test_key(&server, KEY_A);
+        ibus_test_drain(&server, context, component);
+        boxrig_composition_view text;
+        CHECK(boxrig_composition_get_view(boxrig_wayland_terminal_component_composition(component), &text) == BOXRIG_COMPOSITION_OK);
+        CHECK(text.active && text.text_length == strlen("きしゃ") && memcmp(text.text, "きしゃ", text.text_length) == 0);
+        CHECK(text.caret_offset == 3);
+        check_ibus_output(terminal, "");
+        ibus_test_key(&server, KEY_ESC);
+        ibus_test_drain(&server, context, component);
+        check_ibus_inactive(component);
+        ibus_test_key(&server, KEY_A);
+        ibus_test_key(&server, KEY_B);
+        ibus_test_key(&server, KEY_U);
+        ibus_test_drain(&server, context, component);
+        check_ibus_output(terminal, "汽車🙂u");
+        ibus_test_key(&server, KEY_F);
+        ibus_test_drain(&server, context, component);
+        check_ibus_output(terminal, "x");
+        boxrig_ui_editable_document *document = boxrig_ui_view_editable_document(
+            boxrig_wayland_terminal_component_view(component));
+        editable_owner owner = {.disposition = BOXRIG_UI_OK};
+        CHECK(boxrig_ui_editable_document_set_apply_handler(document, apply_editable, &owner) == BOXRIG_UI_OK);
+        publish_editable(document, &owner, "前かな後", 9, 9);
+        ibus_test_key(&server, KEY_D);
+        ibus_test_drain(&server, context, component);
+        CHECK(owner.accepted == 1 && strcmp(owner.text, "前記者後") == 0);
+        check_ibus_output(terminal, "");
+        CHECK(boxrig_ui_editable_document_clear(document) == BOXRIG_UI_OK);
+        CHECK(boxrig_ui_editable_document_set_apply_handler(document, NULL, NULL) == BOXRIG_UI_OK);
+    }
+    ibus_test_key(&server, KEY_A);
+    ibus_test_drain(&server, context, component);
+    wl_keyboard_send_leave(server.keyboard_resources[0], 50, server.child_resource);
+    pump(&server); dispatch_context(context);
+    check_ibus_output(terminal, getenv("BOXRIG_TEST_FCITX_REAL") != NULL ? "あ" : "き");
+    check_ibus_inactive(component);
+    wl_array_release(&keys);
+    boxrig_wayland_terminal_component_destroy(component);
+    wl_surface_destroy(parent);
+    wl_compositor_destroy(host.compositor);
+    wl_registry_destroy(registry);
+    pump(&server);
+    boxrig_wayland_context_destroy(context);
+    boxrig_ui_model_destroy(model);
+    boxrig_terminal_destroy(terminal);
+    destroy_server(&server);
+    puts("PASS native Wayland fcitx5 preedit, conversion, commit, cancellation and focus commit");
+}
+
+static void test_fcitx4_native_input(void)
+{
+    fake_server server;
+    host_registry_state host;
+    create_server(&server, true, true, true);
+    struct wl_registry *registry = create_host_registry(&server, &host);
+    boxrig_wayland_context_config config = boxrig_wayland_context_config_default();
+    config.input_method = getenv("BOXRIG_TEST_IME_AUTO") != NULL ? BOXRIG_WAYLAND_IME_AUTO : BOXRIG_WAYLAND_IME_FCITX4;
+    bool panels = getenv("BOXRIG_TEST_FCITX4_PANELS") != NULL;
+    config.candidate_policy = panels ? BOXRIG_UI_CANDIDATE_AUTO : BOXRIG_UI_CANDIDATE_SYSTEM;
+    boxrig_wayland_context *context = NULL;
+    CHECK(boxrig_wayland_context_create(server.client_display, server.client_queue, &config, &context) == BOXRIG_UI_OK);
+    pump(&server); pump(&server); pump(&server);
+    boxrig_terminal_config tc = boxrig_terminal_config_default();
+    boxrig_terminal *terminal;
+    boxrig_ui_model *model;
+    CHECK(boxrig_terminal_create(&tc, &terminal) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
+    struct wl_surface *parent = wl_compositor_create_surface(host.compositor);
+    wl_proxy_set_queue((struct wl_proxy *)parent, server.client_queue);
+    boxrig_wayland_terminal_component *component;
+    CHECK(create_steady_component(context, parent, model, NULL, &component) == BOXRIG_UI_OK);
+    pump(&server);
+    send_ibus_keymap(&server);
+    struct wl_array keys;
+    wl_array_init(&keys);
+    wl_keyboard_send_enter(server.keyboard_resources[0], 10, server.child_resource, &keys);
+    zwp_text_input_v3_send_enter(server.text_input_resources[0], server.child_resource);
+    ibus_test_drain(&server, context, component);
+    boxrig_wayland_context_diagnostic diagnostic;
+    CHECK(boxrig_wayland_context_get_diagnostic(context, &diagnostic) == BOXRIG_UI_OK);
+    CHECK(diagnostic.input_method == BOXRIG_WAYLAND_IME_FCITX4 && diagnostic.direct.backend == BOXRIG_IME_BACKEND_FCITX4);
+    CHECK((diagnostic.input_capabilities & BOXRIG_WAYLAND_INPUT_CAPABILITY_FCITX4) != 0);
+    CHECK((diagnostic.input_capabilities & BOXRIG_WAYLAND_INPUT_CAPABILITY_IBUS) == 0);
+    boxrig_wayland_component_diagnostic component_state;
+    CHECK(boxrig_wayland_terminal_component_get_diagnostic(component, &component_state) == BOXRIG_UI_OK);
+    CHECK((component_state.input_capabilities & BOXRIG_WAYLAND_INPUT_CAPABILITY_FCITX4) != 0);
+    CHECK((component_state.input_capabilities & BOXRIG_WAYLAND_INPUT_CAPABILITY_IBUS) == 0);
+    CHECK(!server.text_current_enabled[0]);
+    if (getenv("BOXRIG_TEST_FCITX_REAL") != NULL) {
+        CHECK(panels);
+        const char *display = getenv("DISPLAY"), *address = getenv("BOXRIG_TEST_FCITX4_REAL_ADDRESS");
+        CHECK(display != NULL && strrchr(display, ':') != NULL && address != NULL);
+        char *service = g_strdup_printf("org.fcitx.Fcitx-%d", atoi(strrchr(display, ':') + 1));
+        GDBusConnection *bus = g_dbus_connection_new_for_address_sync(address,
+            G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_CLIENT | G_DBUS_CONNECTION_FLAGS_MESSAGE_BUS_CONNECTION,
+            NULL, NULL, NULL);
+        CHECK(bus != NULL);
+        GVariant *reply = g_dbus_connection_call_sync(bus, service, "/inputmethod", "org.fcitx.Fcitx.InputMethod",
+            "SetCurrentIM", g_variant_new("(s)", "mozc"), G_VARIANT_TYPE_UNIT, G_DBUS_CALL_FLAGS_NO_AUTO_START, 60000, NULL, NULL);
+        CHECK(reply != NULL);
+        g_variant_unref(reply);
+        reply = g_dbus_connection_call_sync(bus, service, "/inputmethod", "org.fcitx.Fcitx.InputMethod",
+            "ActivateIM", NULL, G_VARIANT_TYPE_UNIT, G_DBUS_CALL_FLAGS_NO_AUTO_START, 60000, NULL, NULL);
+        CHECK(reply != NULL);
+        g_variant_unref(reply);
+        const uint32_t word[] = {KEY_K, KEY_I, KEY_S, KEY_H, KEY_A};
+        for (size_t index = 0; index < G_N_ELEMENTS(word); index++) ibus_test_key(&server, word[index]);
+        ibus_test_drain(&server, context, component);
+        boxrig_ui_candidate_view panel;
+        CHECK(boxrig_ui_view_get_candidates(boxrig_wayland_terminal_component_view(component), &panel) == BOXRIG_UI_OK);
+        CHECK(panel.snapshot.format == BOXRIG_UI_CANDIDATE_STRING_PANEL && panel.snapshot.visible);
+        CHECK(panel.snapshot.panel_preedit != NULL && g_str_has_prefix(panel.snapshot.panel_preedit, "きしゃ"));
+        CHECK(panel.snapshot.panel_cursor == strlen("きしゃ"));
+        check_ibus_inactive(component);
+        check_ibus_output(terminal, "");
+        ibus_test_key(&server, KEY_SPACE);
+        ibus_test_key(&server, KEY_SPACE);
+        ibus_test_drain(&server, context, component);
+        CHECK(boxrig_ui_view_get_candidates(boxrig_wayland_terminal_component_view(component), &panel) == BOXRIG_UI_OK);
+        CHECK(panel.snapshot.panel_text != NULL && panel.snapshot.panel_text[0] != 0);
+        char *first = g_strdup(panel.snapshot.panel_text);
+        ibus_test_key(&server, KEY_PAGEDOWN);
+        ibus_test_drain(&server, context, component);
+        CHECK(boxrig_ui_view_get_candidates(boxrig_wayland_terminal_component_view(component), &panel) == BOXRIG_UI_OK);
+        CHECK(panel.snapshot.panel_text != NULL && panel.snapshot.panel_text[0] != 0);
+        CHECK(strcmp(panel.snapshot.panel_text, first) != 0);
+        g_free(first);
+        boxrig_font_effective_metrics metrics;
+        CHECK(boxrig_wayland_terminal_component_get_effective_metrics(component, &metrics) == BOXRIG_FONT_CATALOG_OK);
+        boxrig_ui_component_allocation allocation = {.width = tc.columns * metrics.cell_width,
+            .height = tc.rows * metrics.cell_height, .window_state = BOXRIG_UI_WINDOW_EMBEDDED};
+        boxrig_ui_layout_result layout;
+        CHECK(boxrig_wayland_terminal_component_allocate(component, &allocation, &layout) == BOXRIG_UI_OK);
+        CHECK(boxrig_wayland_terminal_component_set_visible(component, true) == BOXRIG_UI_OK);
+        boxrig_ui_component_frame_result frame;
+        CHECK(boxrig_wayland_terminal_component_frame(component, &frame) == BOXRIG_UI_OK);
+        CHECK(boxrig_ui_view_get_candidates(boxrig_wayland_terminal_component_view(component), &panel) == BOXRIG_UI_OK);
+        CHECK(panel.layout.panel_text.height > 0 && panel.layout.panel_preedit.height > 0 && panel.layout.panel_caret.height > 0);
+        CHECK(boxrig_wayland_terminal_component_get_diagnostic(component, &component_state) == BOXRIG_UI_OK);
+        CHECK(component_state.candidate_owner == BOXRIG_UI_CANDIDATE_OWNER_CLIENT);
+        ibus_test_key(&server, KEY_F7);
+        ibus_test_drain(&server, context, component);
+        CHECK(boxrig_ui_view_get_candidates(boxrig_wayland_terminal_component_view(component), &panel) == BOXRIG_UI_OK);
+        CHECK(panel.snapshot.panel_preedit != NULL && g_str_has_prefix(panel.snapshot.panel_preedit, "キシャ"));
+        ibus_test_key(&server, KEY_ENTER);
+        ibus_test_drain(&server, context, component);
+        check_ibus_output(terminal, "キシャ");
+        CHECK(boxrig_ui_view_get_candidates(boxrig_wayland_terminal_component_view(component), &panel) == BOXRIG_UI_OK);
+        CHECK(!panel.snapshot.visible);
+        for (size_t index = 0; index < G_N_ELEMENTS(word); index++) ibus_test_key(&server, word[index]);
+        ibus_test_key(&server, KEY_ESC);
+        ibus_test_drain(&server, context, component);
+        CHECK(boxrig_ui_view_get_candidates(boxrig_wayland_terminal_component_view(component), &panel) == BOXRIG_UI_OK);
+        CHECK(!panel.snapshot.visible);
+        check_ibus_output(terminal, "");
+        ibus_test_key(&server, KEY_A);
+        ibus_test_drain(&server, context, component);
+        wl_keyboard_send_leave(server.keyboard_resources[0], 73, server.child_resource);
+        for (;;) {
+            pump(&server); dispatch_context(context);
+            CHECK(boxrig_wayland_context_get_diagnostic(context, &diagnostic) == BOXRIG_UI_OK);
+            CHECK(boxrig_wayland_terminal_component_get_diagnostic(component, &component_state) == BOXRIG_UI_OK);
+            if (diagnostic.direct.pending == 0 && component_state.input_queue_depth == 0 && !component_state.ime_waiting) break;
+            ibus_test_poll(context);
+        }
+        check_ibus_output(terminal, "あ");
+        CHECK(boxrig_ui_view_get_candidates(boxrig_wayland_terminal_component_view(component), &panel) == BOXRIG_UI_OK);
+        CHECK(panel.snapshot.panel_text == NULL);
+        CHECK(g_dbus_connection_close_sync(bus, NULL, NULL));
+        g_object_unref(bus);
+        g_free(service);
+        puts("PASS native Wayland real fcitx4/Mozc string panel, keyboard paging, cancellation and focus commit");
+        goto fcitx4_cleanup;
+    }
+    ibus_test_key(&server, KEY_A);
+    ibus_test_drain(&server, context, component);
+    boxrig_composition_view text;
+    CHECK(boxrig_composition_get_view(boxrig_wayland_terminal_component_composition(component), &text) == BOXRIG_COMPOSITION_OK);
+    if (panels) {
+        CHECK(!text.active && component_state.candidate_owner == BOXRIG_UI_CANDIDATE_OWNER_NONE);
+        boxrig_font_effective_metrics metrics;
+        CHECK(boxrig_wayland_terminal_component_get_effective_metrics(component, &metrics) == BOXRIG_FONT_CATALOG_OK);
+        boxrig_ui_component_allocation allocation = {.width = tc.columns * metrics.cell_width,
+            .height = tc.rows * metrics.cell_height, .window_state = BOXRIG_UI_WINDOW_EMBEDDED};
+        boxrig_ui_layout_result layout;
+        CHECK(boxrig_wayland_terminal_component_allocate(component, &allocation, &layout) == BOXRIG_UI_OK);
+        CHECK(boxrig_wayland_terminal_component_set_visible(component, true) == BOXRIG_UI_OK);
+        boxrig_ui_component_frame_result frame;
+        CHECK(boxrig_wayland_terminal_component_frame(component, &frame) == BOXRIG_UI_OK);
+        boxrig_ui_candidate_view panel;
+        CHECK(boxrig_ui_view_get_candidates(boxrig_wayland_terminal_component_view(component), &panel) == BOXRIG_UI_OK);
+        CHECK(panel.snapshot.format == BOXRIG_UI_CANDIDATE_STRING_PANEL && panel.snapshot.panel_preedit != NULL);
+        CHECK(strcmp(panel.snapshot.panel_preedit, "きしゃ🙂") == 0 && panel.snapshot.panel_cursor == 6);
+        CHECK(panel.layout.panel_preedit.height > 0 && panel.layout.panel_caret.height > 0);
+        ibus_test_key(&server, KEY_P);
+        ibus_test_drain(&server, context, component);
+        for (size_t index = 0; index < server.frame_callback_count; index++)
+            if (server.frame_callbacks[index] != NULL) complete_frame(&server, index);
+        for (size_t index = 0; index < server.shm_buffer_create_count; index++)
+            if (server.shm_buffers[index] != NULL && server.shm_buffer_busy[index]) release_buffer(&server, index);
+        pump(&server);
+        CHECK(boxrig_wayland_terminal_component_frame(component, &frame) == BOXRIG_UI_OK);
+        CHECK(boxrig_ui_view_get_candidates(boxrig_wayland_terminal_component_view(component), &panel) == BOXRIG_UI_OK);
+        CHECK(strcmp(panel.snapshot.panel_text, "1. 汽車 2号 2. 記者 🙂") == 0);
+        CHECK(panel.layout.panel_text.height > 0 && panel.snapshot.count == 0);
+        ibus_test_key(&server, KEY_N);
+        ibus_test_drain(&server, context, component);
+        CHECK(boxrig_ui_view_get_candidates(boxrig_wayland_terminal_component_view(component), &panel) == BOXRIG_UI_OK);
+        CHECK(strcmp(panel.snapshot.panel_text, "1. 次ページ 2. 候補") == 0);
+        CHECK(boxrig_wayland_terminal_component_get_diagnostic(component, &component_state) == BOXRIG_UI_OK);
+        CHECK(component_state.candidate_owner == BOXRIG_UI_CANDIDATE_OWNER_CLIENT);
+        CHECK(boxrig_wayland_terminal_component_set_input_enabled(component, false) == BOXRIG_UI_OK);
+        CHECK(boxrig_ui_view_get_candidates(boxrig_wayland_terminal_component_view(component), &panel) == BOXRIG_UI_OK);
+        CHECK(panel.snapshot.panel_text == NULL);
+        CHECK(boxrig_wayland_terminal_component_set_input_enabled(component, true) == BOXRIG_UI_OK);
+        ibus_test_drain(&server, context, component);
+        ibus_test_key(&server, KEY_A);
+        ibus_test_drain(&server, context, component);
+    } else {
+        CHECK(text.active && text.text_length == strlen("きしゃ") && memcmp(text.text, "きしゃ", text.text_length) == 0);
+        CHECK(text.caret_offset == 3 && text.segment_count == 2);
+    }
+    check_ibus_output(terminal, "");
+    ibus_test_key(&server, KEY_ESC);
+    ibus_test_drain(&server, context, component);
+    check_ibus_inactive(component);
+    ibus_test_key(&server, KEY_A);
+    ibus_test_key(&server, KEY_B);
+    ibus_test_key(&server, KEY_U);
+    ibus_test_drain(&server, context, component);
+    check_ibus_output(terminal, "汽車🙂u");
+    editable_owner owner = {.disposition = BOXRIG_UI_OK};
+    boxrig_ui_editable_document *document = boxrig_ui_view_editable_document(
+        boxrig_wayland_terminal_component_view(component));
+    for (unsigned int destination = 0; destination < 2; destination++) {
+        if (destination != 0) {
+            CHECK(boxrig_ui_editable_document_set_apply_handler(document, apply_editable, &owner) == BOXRIG_UI_OK);
+            publish_editable(document, &owner, "前かな後", 9, 9);
+            wl_keyboard_send_enter(server.keyboard_resources[0], 51, server.child_resource, &keys);
+            ibus_test_drain(&server, context, component);
+        }
+        ibus_test_key(&server, KEY_A);
+        ibus_test_drain(&server, context, component);
+        wl_keyboard_send_leave(server.keyboard_resources[0], 52 + destination, server.child_resource);
+        for (;;) {
+            pump(&server); dispatch_context(context);
+            CHECK(boxrig_wayland_context_get_diagnostic(context, &diagnostic) == BOXRIG_UI_OK);
+            CHECK(boxrig_wayland_terminal_component_get_diagnostic(component, &component_state) == BOXRIG_UI_OK);
+            if (diagnostic.direct.pending == 0 && component_state.input_queue_depth == 0 && !component_state.ime_waiting) break;
+            ibus_test_poll(context);
+        }
+        if (destination != 0) CHECK(owner.accepted == 1 && strcmp(owner.text, "前かなserver-commit後") == 0);
+        check_ibus_output(terminal, destination == 0 ? "server-commit" : "");
+        check_ibus_inactive(component);
+    }
+    if (panels) {
+        boxrig_ui_candidate_view panel;
+        CHECK(boxrig_ui_view_get_candidates(boxrig_wayland_terminal_component_view(component), &panel) == BOXRIG_UI_OK);
+        CHECK(panel.snapshot.panel_text == NULL && !panel.snapshot.visible);
+    }
+fcitx4_cleanup:
+    wl_array_release(&keys);
+    boxrig_wayland_terminal_component_destroy(component);
+    wl_surface_destroy(parent);
+    wl_compositor_destroy(host.compositor);
+    wl_registry_destroy(registry);
+    pump(&server);
+    boxrig_wayland_context_destroy(context);
+    boxrig_ui_model_destroy(model);
+    boxrig_terminal_destroy(terminal);
+    destroy_server(&server);
+    puts("PASS native Wayland fcitx4 selection, preedit, cancellation, input and server focus commit");
+}
+
 int main(int argc, char **argv)
 {
     boxrig_wayland_context_config context_config =
@@ -9402,6 +9847,17 @@ int main(int argc, char **argv)
         fprintf(stderr, "usage: test_wayland_context FONT_FILE\n");
         return 2;
     }
+    if (getenv("BOXRIG_TEST_FCITX4") != NULL) {
+        test_fcitx4_native_input();
+        FcFini();
+        return 0;
+    }
+    if (getenv("BOXRIG_TEST_FCITX5") != NULL) {
+        test_fcitx5_native_input();
+        FcFini();
+        return 0;
+    }
+    CHECK(context_config.input_method == BOXRIG_WAYLAND_IME_AUTO);
     CHECK(context_config.maximum_seats == BOXRIG_WAYLAND_SEATS_DEFAULT);
     CHECK(context_config.maximum_keymap_bytes ==
           BOXRIG_WAYLAND_KEYMAP_BYTES_DEFAULT);

@@ -443,7 +443,7 @@ static void ordered_surrounding(Widget *widget, boxrig_terminal *terminal, IBusB
                 frame(widget);
                 CHECK(widget_ime_state(widget, &state) == BOXRIG_UI_OK);
                 CHECK(widget_diagnostic(widget, &diagnostic) == BOXRIG_UI_OK);
-                if (state.ibus_pending == 0 && diagnostic.native_input_queue_depth == 0) break;
+                if (state.direct.pending == 0 && diagnostic.native_input_queue_depth == 0) break;
                 iterate();
             }
             g_source_remove(previous_timeout);
@@ -591,7 +591,7 @@ static void received_commit_crosses_input_boundary(Widget *widget, boxrig_termin
         frame(widget);
         CHECK(widget_diagnostic(widget, &diagnostic) == BOXRIG_UI_OK);
         CHECK(widget_ime_state(widget, &ime) == BOXRIG_UI_OK);
-        if (diagnostic.native_input_queue_depth == 0 && ime.ibus_pending == 0) break;
+        if (diagnostic.native_input_queue_depth == 0 && ime.direct.pending == 0) break;
         iterate();
     }
     GError *error = NULL;
@@ -666,12 +666,12 @@ static void background_widget_preserves_input(Widget *focused_widget, const widg
     guint timeout = g_timeout_add_seconds(60, deadline, "background IME initialization");
     for (;;) {
         CHECK(widget_ime_state(widget, &state) == BOXRIG_UI_OK);
-        if (state.ibus_state == BOXRIG_GTK_IBUS_READY && state.ibus_pending == 0) break;
+        if (state.direct.state == BOXRIG_IME_READY && state.direct.pending == 0) break;
         iterate();
     }
     g_source_remove(timeout);
     CHECK(!gtk_widget_has_focus(GTK_WIDGET(widget)));
-    CHECK(state.ibus_contexts == 0);
+    CHECK(state.direct.contexts == 0);
     boxrig_composition_view retained = composition(focused_widget);
     CHECK(retained.text_length == strlen("記者の汽車が記者で記者した"));
     CHECK(memcmp(retained.text, "記者の汽車が記者で記者した", retained.text_length) == 0);
@@ -850,11 +850,11 @@ int main(int argc, char **argv)
     CHECK(!route.registry_queried);
     if (direct_ibus) {
         CHECK(route.active_route == BOXRIG_GTK_IME_ROUTE_IBUS);
-        CHECK(route.ibus_state == BOXRIG_GTK_IBUS_READY && route.ibus_contexts == 1);
-        CHECK(route.reason == (explicit_direct ? BOXRIG_GTK_IME_REASON_EXPLICIT_IBUS : BOXRIG_GTK_IME_REASON_X11_IBUS));
+        CHECK(route.direct.state == BOXRIG_IME_READY && route.direct.contexts == 1);
+        CHECK(route.reason == (explicit_direct ? BOXRIG_GTK_IME_REASON_EXPLICIT_IBUS : BOXRIG_GTK_IME_REASON_X11_DIRECT));
     } else {
         CHECK(route.active_route == BOXRIG_GTK_IME_ROUTE_GTK);
-        CHECK(route.ibus_state == BOXRIG_GTK_IBUS_DISABLED && route.ibus_contexts == 0);
+        CHECK(route.direct.state == BOXRIG_IME_DISABLED && route.direct.contexts == 0);
         CHECK(strcmp(route.gtk_module, "ibus") == 0);
     }
     CHECK(strcmp(route.display_type, "GdkX11Display") == 0);

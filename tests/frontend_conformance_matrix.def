@@ -104,9 +104,9 @@ BOXRIG_FRONTEND_CONFORMANCE_CASE(
     "Viewport-local client candidate display and pointer isolation",
     UNSUPPORTED_BY_CONTRACT, "reason:Native X11 XIM keeps system candidates",
     UNSUPPORTED_BY_CONTRACT, "reason:Win32 keeps system candidates",
-    NATIVE, "test-gtk3-candidates+test-opengl-candidates+test-gtk-ime-routing",
-    NATIVE, "test-gtk4-candidates+test-opengl-candidates+test-gtk-ime-routing",
-    NATIVE, "test-wayland-input+test-opengl-candidates+test-wayland-candidates-startup")
+    NATIVE, "test-gtk3-candidates+test-opengl-candidates+test-gtk-ime-routing+test-fcitx5-panels+test-fcitx5-scale+test-fcitx5-display",
+    NATIVE, "test-gtk4-candidates+test-opengl-candidates+test-gtk-ime-routing+test-fcitx5-panels+test-fcitx5-scale",
+    NATIVE, "test-wayland-input+test-opengl-candidates+test-wayland-candidates-startup+test-fcitx5-panels+test-fcitx5-display")
 
 BOXRIG_FRONTEND_CONFORMANCE_CASE(
     VALUE_EDITABLE_DOCUMENT,
@@ -357,9 +357,9 @@ BOXRIG_FRONTEND_CONFORMANCE_CASE(
     "Native key, pointer, and input-method protocol ownership",
     NATIVE, "test_x11_input_adapter+test_x11_component",
     NATIVE, "test_win32_input_adapter+test_win32_component",
-    NATIVE, "test_gtk3_widget",
-    NATIVE, "test_gtk4_widget",
-    NATIVE, "test_wayland_context")
+    NATIVE, "test_gtk3_widget+test-gtk-fcitx5+test-fcitx5-auto",
+    NATIVE, "test_gtk4_widget+test-gtk-fcitx5+test-fcitx5-auto",
+    NATIVE, "test_wayland_context+test-wayland-fcitx5+test-fcitx5-auto")
 
 BOXRIG_FRONTEND_CONFORMANCE_CASE(
     NATIVE_EDITABLE_DOCUMENT,

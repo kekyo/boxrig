@@ -38,6 +38,7 @@ See [Terminal I/O settings](./terminal-io.md) for native copying and pasting and
 Preedit is overlaid as a composition.
 Writing it into terminal cells would make it indistinguishable from output received from the peer.
 Standard components also adjust cursor display and candidate placement for the IME.
+With fcitx 4 in-terminal candidates, preedit appears in the same panel as the candidates.
 
 Candidate policies are AUTO, SYSTEM, and CLIENT.
 Even if CLIENT is preferred, in-application display is unavailable when the input route cannot supply candidates.
@@ -45,17 +46,39 @@ Check diagnostics for the requested policy, actual candidate owner, and reason.
 
 ## Choose an input route
 
-| Platform | Main input routes | Information to check |
+| Environment | Main input routes | What to inspect |
 | --- | --- | --- |
-| X11 | XIM, direct IBus | Connection state, input owner, candidate owner |
-| GTK 3/4 | GtkIMContext, direct IBus when applicable | Route and reason from `get_ime_state()` |
-| Native Wayland | Compositor text-input, direct IBus | Context input route and component diagnostics |
-| Win32 | IMM, TSF integration for editable documents | Input capabilities, reconversion and editing availability |
+| Native X11 | XIM | Connection, input owner, and candidate owner |
+| GTK 3/X11 and GTK 3/4/Wayland | GtkIMContext, direct IBus, direct fcitx 5/4 | Route, reason, and direct in `get_ime_state()` |
+| GTK 4/X11 | GtkIMContext | Selected GTK module |
+| Native Wayland | Compositor text-input, direct IBus, direct fcitx 5/4 | Context route and direct diagnostics; component candidate diagnostics |
+| Win32 | IMM, with TSF for editable documents | Input, reconversion, and editing capabilities |
 
-In GTK, choose the rendering backend and IME policy separately.
-Explicit GTK modules, the actual display, and runtime capabilities also affect selection.
-Do not infer that direct IBus is active from a policy name alone.
-In particular, GTK 4/X11 can use GTK's IBus module even with the IBus policy.
+GTK and native Wayland default to AUTO. GTK preserves an explicit `GTK_IM_MODULE` and an already selected fcitx module, delegating input to GTK. A supported Wayland input route is also preserved. When a direct connection is needed, AUTO discovers IBus and fcitx 5/4. Native X11 continues to use XIM.
+
+Native Wayland AUTO prefers compositor input when text-input-v3 version 2 is available and the candidate policy is not CLIENT. An explicit CLIENT policy requests direct discovery. An explicit WAYLAND input policy is preserved.
+
+Direct AUTO selection uses the applicable GTK module, `XMODIFIERS`, then explicit addresses as hints. The addresses are `IBUS_ADDRESS` for IBus and `FCITX_DBUS_ADDRESS` for fcitx 4. Native Wayland ignores `GTK_IM_MODULE`. The module name `fcitx` and `@im=fcitx` refer to both generations, so running services determine the generation.
+
+With no hint and multiple independent services, the initial order is fcitx 5, IBus, then fcitx 4. Compatibility services from the same provider are not counted as independent providers; the native 5 protocol takes priority. Later arrivals do not replace a valid current selection. Discovery never starts a daemon.
+
+Applications can select a generation using `BOXRIG_GTK_IME_FCITX5` / `BOXRIG_GTK_IME_FCITX4` or `BOXRIG_WAYLAND_IME_FCITX5` / `BOXRIG_WAYLAND_IME_FCITX4`, and can similarly select IBus. An unavailable explicit provider falls back to framework input without selecting another direct provider. GTK 4/X11 passes explicit policies to the corresponding GTK module. Rendering and IME policies are independent.
+
+Fcitx 4 uses the display number from `DISPLAY`, or zero when it is absent. Setting `FCITX_DBUS_ADDRESS` takes priority; an invalid or unreachable explicit address does not fall back to another address. Otherwise, boxrig checks the connection information saved by fcitx 4 and the session bus. Keep the environment associated with the current login session. [Fcitx 4 connection information](https://github.com/fcitx/fcitx/blob/4.2.9.9/src/lib/fcitx-gclient/fcitxconnection.c)
+
+The `direct` diagnostic reports the protocol, connection state, selection reason, conflicting hints, multiple providers, compatibility aliases, and counts of requests, errors, and contexts. `CONNECTING` means discovery or connection is pending; `UNAVAILABLE` means the eligible service is unavailable; `DISABLED` means input is delegated to the framework. Even with `READY`, an input target can wait for its own context creation. Inspect the active route and `direct.backend` instead of inferring the route from configuration alone.
+
+Client candidates from fcitx 5 contain one received page and upper/lower auxiliary text. Counts and cursor positions are local to that page; previous/next availability is recorded without inventing a total count or absolute page number.
+
+Fcitx 4 displays preedit and its caret, candidates, and upper/lower auxiliary information in a string panel. Use the keyboard to select candidates, change pages, commit, and cancel. Individual selection highlighting and clause decoration absent from the notification cannot be reproduced. The candidate string is displayed without splitting it, and the diagnostic candidate count is zero. Custom renderers use the `STRING_PANEL` format of `boxrig_ui_candidate_snapshot` and its `panel_text`, `panel_preedit`, and `panel_cursor` fields. The cursor is a UTF-8 byte offset. [Fcitx 4 candidate notification](https://github.com/fcitx/fcitx/blob/4.2.9.9/src/lib/fcitx-gclient/fcitxclient.c#L1097), [candidate API](../../include/boxrig/ui/candidates.h)
+
+For direct fcitx 4 on Wayland, candidate AUTO selects a client panel when rendering is supported. Explicit SYSTEM positioning depends on the system UI and is not guaranteed in every environment. GTK 3/X11 SYSTEM uses formatted preedit and system candidates. [Fcitx 4 relative coordinates](https://github.com/fcitx/fcitx/blob/4.2.9.9/src/ui/kimpanel/kimpanel.c#L488)
+
+Both generations report owner NONE and reason UNCONFIRMED until a valid candidate notification arrives. SYSTEM means delegation to system UI, not confirmation that a popup appeared on screen. Some fcitx 5 compatibility implementations do not provide 4-style string panels; normally select AUTO or explicitly select fcitx 5. [The fcitx 4 compatibility implementation](https://github.com/fcitx/fcitx5/blob/5.1.12/src/frontend/fcitx4frontend/fcitx4frontend.cpp#L235)
+
+Disconnecting clears preedit and candidates. Reconnection does not reuse old display content or resend submitted keys. Fcitx 4 focus-loss commits follow the server setting; usage hints in the panel are never sent as committed text.
+
+On X11, client candidates may require `FCITX_X11_USE_CLIENT_SIDE_UI=True` in the daemon environment. Capabilities can also be adjusted according to the Wayland compositor and panel environment. If candidates are missing, inspect both configuration and candidate ownership diagnostics. [fcitx 5 capability adjustment](https://github.com/fcitx/fcitx5/blob/5.1.7/src/frontend/dbusfrontend/dbusfrontend.cpp), [official Wayland setup guide](https://fcitx-im.org/wiki/Using_Fcitx_5_on_Wayland)
 
 ## Supply an application-owned editable document
 

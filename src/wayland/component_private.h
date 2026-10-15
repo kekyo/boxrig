@@ -72,7 +72,7 @@ struct boxrig_wayland_terminal_component {
     boxrig_ui_model *model;
     boxrig_terminal *terminal;
     boxrig_ui_view *view;
-    boxrig_ibus_target ibus_target;
+    boxrig_ime_target ibus_target;
     boxrig_composition *composition;
     boxrig_pango_cairo_renderer *renderer;
     void *presentation_renderer;

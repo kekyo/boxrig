@@ -93,6 +93,8 @@ API success under Wine is not treated as equivalent to final composition on Wind
 | GTK 3/4 | Document access and replacement through a synchronous owner | GTK 3's API does not pass the selection anchor |
 | GTK 4 with the normal IBus module | Same as above | The IBus 1.5.29-rc2 custom-widget route does not deliver the anchor to the engine |
 | Direct IBus | Passes cursor and anchor and displays candidates inside the terminal | Requires an IBus connection |
+| Direct fcitx 5 | Cursor and anchor, synchronous edits, formatted preedit, and candidate pages | Requires a running 5 daemon; CLIENT ownership remains unconfirmed until a panel notification arrives |
+| Direct fcitx 4 | Cursor and anchor, synchronous edits, and a string panel containing preedit | Keyboard candidate operation; SYSTEM uses formatted preedit |
 | Native Wayland text-input-v3 | Treats deletion and commit as one replacement | Requires the peer protocol |
 | XIM | Supplies context and character-based editing to supporting servers | Unavailable unless the server advertises string-conversion support |
 | Win32 | DOCUMENTFEED and reconversion of selected text | Ordinary IME commits go to the PTY; the common synchronous owner alone does not change this |
@@ -110,7 +112,7 @@ Decorations beyond 256 spans are omitted.
 Wayland version 2 limits distinct ranges within one done event to 128; valid text and commits are retained on overflow.
 
 GTK automatic selection gives priority to a nonempty `GTK_IM_MODULE`.
-GTK 4 Wayland clause display requires both GTK runtime 4.23.4 or later and text-input-v3 version 2; a direct IBus route is available when those conditions are not met.
+GTK 4 Wayland clause display requires both GTK runtime 4.23.4 or later and text-input-v3 version 2; a direct IBus/fcitx 5/4 route is available when those conditions are not met.
 See the [IME selection implementation](../../../src/gtk/ime_probe.c) for route selection and [Input and IME](../input-ime.md) for context and editing requirements.
 
 The normal GTK 4 route in IBus 1.5.29-rc2 has cancellation-notification limitations in its default synchronous mode.

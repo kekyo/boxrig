@@ -88,7 +88,7 @@ install-shared-base: shared-base install-common-licenses
 
 define install_shared_gtk
 	$(INSTALL) -d $(DESTDIR)$(INCLUDEDIR)/boxrig/$(1) $(DESTDIR)$(INCLUDEDIR)/boxrig/gtk $(DESTDIR)$(PREFIX)/share/boxrig/examples/$(1)
-	$(INSTALL) -m 644 include/boxrig/$(1).h $(DESTDIR)$(INCLUDEDIR)/boxrig
+	$(INSTALL) -m 644 include/boxrig/$(1).h include/boxrig/ime.h $(DESTDIR)$(INCLUDEDIR)/boxrig
 	$(INSTALL) -m 644 include/boxrig/$(1)/*.h $(DESTDIR)$(INCLUDEDIR)/boxrig/$(1)
 	$(INSTALL) -m 644 include/boxrig/gtk/*.h $(DESTDIR)$(INCLUDEDIR)/boxrig/gtk
 	$(INSTALL) -m 644 examples/$(1)/external_scrollbar.h $(DESTDIR)$(PREFIX)/share/boxrig/examples/$(1)

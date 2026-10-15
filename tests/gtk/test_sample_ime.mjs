@@ -59,8 +59,10 @@ if (process.argv[2] === '--child') {
             const direct=major===3 && policy!=='gtk';
             const client=direct && candidates==='client';
             if (direct) {
-              assert.equal(fields['ime-reason'],policy==='auto'?'x11-ibus':'explicit-ibus');
+              assert.equal(fields['ime-reason'],policy==='auto'?'x11-direct':'explicit-ibus');
               if (fields['ime-route']!=='ibus') continue;
+              assert.equal(fields['direct-backend'],'ibus');
+              if (fields['direct-state']!=='2' || Number(fields.contexts)===0) continue;
             } else {
               assert.equal(fields['ime-route'],'gtk');
               assert.equal(fields['ime-reason'],policy==='gtk'?'explicit-gtk':'non-wayland');

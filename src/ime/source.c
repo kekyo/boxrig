@@ -2,9 +2,9 @@
 #include "source.h"
 #include <stdlib.h>
 
-typedef struct ibus_source {
+typedef struct ime_source {
     GSource base;
-    boxrig_ibus_client *client;
+    boxrig_ime_client *client;
     gpointer *tags;
     struct pollfd *descriptors;
     size_t count, capacity;
@@ -12,15 +12,15 @@ typedef struct ibus_source {
     bool prepared, failed;
     void (*failure)(void *);
     void *data;
-} ibus_source;
+} ime_source;
 
 static gboolean prepare(GSource *base, gint *timeout)
 {
-    ibus_source *source = (ibus_source *)base;
+    ime_source *source = (ime_source *)base;
     const struct pollfd *descriptors;
     size_t count;
     *timeout = -1;
-    if (boxrig_ibus_prepare_poll(source->client, &descriptors, &count, timeout) != BOXRIG_UI_OK)
+    if (boxrig_ime_prepare_poll(source->client, &descriptors, &count, timeout) != BOXRIG_UI_OK)
         goto failed;
     bool changed = count != source->count;
     for (size_t index = 0; !changed && index < count; index++)
@@ -56,7 +56,7 @@ failed:
 
 static gboolean check(GSource *base)
 {
-    ibus_source *source = (ibus_source *)base;
+    ime_source *source = (ime_source *)base;
     if (source->failed || (source->deadline >= 0 && g_source_get_time(base) >= source->deadline)) return TRUE;
     for (size_t index = 0; index < source->count; index++)
         if (g_source_query_unix_fd(base, source->tags[index]) != 0) return TRUE;
@@ -66,38 +66,38 @@ static gboolean check(GSource *base)
 static gboolean dispatch(GSource *base, GSourceFunc callback, gpointer data)
 {
     (void)callback; (void)data;
-    ibus_source *source = (ibus_source *)base;
+    ime_source *source = (ime_source *)base;
     if (source->failed) { source->failure(source->data); return G_SOURCE_REMOVE; }
     if (source->prepared) {
         for (size_t index = 0; index < source->count; index++)
             source->descriptors[index].revents = (short)g_source_query_unix_fd(base, source->tags[index]);
         source->prepared = false;
-        if (boxrig_ibus_dispatch_poll(source->client, source->descriptors, source->count) != BOXRIG_UI_OK) {
+        if (boxrig_ime_dispatch_poll(source->client, source->descriptors, source->count) != BOXRIG_UI_OK) {
             source->failure(source->data);
             return G_SOURCE_REMOVE;
         }
     }
-    boxrig_ibus_update(source->client);
+    boxrig_ime_update(source->client);
     return G_SOURCE_CONTINUE;
 }
 
 static void finalize(GSource *base)
 {
-    ibus_source *source = (ibus_source *)base;
+    ime_source *source = (ime_source *)base;
     free(source->tags);
     free(source->descriptors);
 }
 
-GSource *boxrig_ibus_source_new(boxrig_ibus_client *client, void (*failed)(void *), void *data)
+GSource *boxrig_ime_source_new(boxrig_ime_client *client, void (*failed)(void *), void *data)
 {
     static GSourceFuncs functions = {.prepare = prepare, .check = check,
         .dispatch = dispatch, .finalize = finalize};
-    GSource *base = g_source_new(&functions, sizeof(ibus_source));
-    ibus_source *source = (ibus_source *)base;
+    GSource *base = g_source_new(&functions, sizeof(ime_source));
+    ime_source *source = (ime_source *)base;
     source->client = client;
     source->failure = failed;
     source->data = data;
     source->deadline = -1;
-    g_source_set_name(base, "boxrig-ibus");
+    g_source_set_name(base, "boxrig-ime");
     return base;
 }

@@ -46,6 +46,8 @@ if (process.argv[2] === '--child') {
             assert.equal(fields['candidate-policy'], candidates);
             const direct = policy === 'ibus' || (policy === 'auto' &&
               (candidates === 'client' || Number(fields['text-input-version']) < 2));
+            // A verified daemon can precede keyboard focus and context setup.
+            if (direct && Number(fields.contexts) === 0) continue;
             assert.equal(fields['ime-route'], direct ? 'ibus' : 'wayland');
             assert.equal(fields['candidate-owner'], direct && candidates !== 'system' ? 'client' : 'system');
             assert.equal(fields['candidate-reason'], candidates === 'system' ? 'system-request' : direct ? 'ready' : 'standard-input');
