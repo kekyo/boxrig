@@ -308,8 +308,9 @@ OPENGL_RENDERER_OBJECTS := $(patsubst src/opengl/%.c,$(BUILD_DIR)/opengl/%.o,$(O
 OPENGL_RENDERER_OBJECTS += $(PANGO_CANDIDATE_OBJECT)
 OPENGL_RENDERER_LIBRARY := $(BUILD_DIR)/libboxrig-render-ogl.a
 ifeq ($(GTK_OPENGL),1)
-GTK3_OBJECTS += $(BUILD_DIR)/gtk3/gl_area.o $(BUILD_DIR)/gtk3/gl_surface.o $(OPENGL_RENDERER_OBJECTS)
-GTK4_OBJECTS += $(BUILD_DIR)/gtk4/gl_area.o $(BUILD_DIR)/gtk4/gl_surface.o $(OPENGL_RENDERER_OBJECTS)
+# The candidate painter is already included for the Cairo backend.
+GTK3_OBJECTS += $(BUILD_DIR)/gtk3/gl_area.o $(BUILD_DIR)/gtk3/gl_surface.o $(filter-out $(PANGO_CANDIDATE_OBJECT),$(OPENGL_RENDERER_OBJECTS))
+GTK4_OBJECTS += $(BUILD_DIR)/gtk4/gl_area.o $(BUILD_DIR)/gtk4/gl_surface.o $(filter-out $(PANGO_CANDIDATE_OBJECT),$(OPENGL_RENDERER_OBJECTS))
 endif
 X11_OPENGL_SOURCES := $(wildcard src/x11_opengl/*.c)
 X11_OPENGL_OBJECTS := $(patsubst src/x11_opengl/%.c,$(BUILD_DIR)/x11_opengl/%.o,$(X11_OPENGL_SOURCES))

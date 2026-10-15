@@ -6,8 +6,11 @@ root=$(mktemp -d)
 trap 'rm -rf "$root"' EXIT
 for opengl in 1 0 1; do
     stage="$root/stage-$opengl"
-    "$make_command" -j8 install-shared BUILD_DIR="$root/build" \
-        GTK_OPENGL="$opengl" DESTDIR="$stage" PREFIX=/usr
+    # Repeated builds must preserve valid archives and shared-library links.
+    for rebuild in 1 2 3; do
+        "$make_command" -j8 install-shared BUILD_DIR="$root/build" \
+            GTK_OPENGL="$opengl" DESTDIR="$stage" PREFIX=/usr
+    done
     sdk="$root/relocated-$opengl"
     if [ -d "$sdk" ]; then rm -r "$sdk"; fi
     mv "$stage/usr" "$sdk"
