@@ -135,8 +135,13 @@ boxrig_regex_limits boxrig_regex_limits_default(void);
  * @remarks Supports literals, scalar dot/classes, numbered (expression) and
  * named (?<name>expression) groups, noncapturing (?:expression), alternation,
  * ?, *, +, finite {m}/{m,n}, ^/$ input anchors, escaped metacharacters,
- * n/r/t and u{hex} escapes, and ASCII d/s/w classes. Empty matches, backreferences,
- * lookaround, and lazy quantifiers are rejected. Matching is case-sensitive.
+ * n/r/t and u{hex} escapes, ASCII d/s/w classes, and Unicode p{category}/P{category}
+ * classes. Unicode categories use case-sensitive General_Category short names
+ * (L/M/N/P/S/Z/C, LC, and their two-letter subcategories) from bundled utf8proc.
+ * Braces are required. Properties work inside and outside brackets but cannot
+ * be range endpoints. Scripts and binary properties are unsupported.
+ * Empty matches, backreferences, lookaround, and lazy quantifiers are rejected.
+ * Matching is case-sensitive.
  * The program owns its compiled data; pattern and limits may be released
  * immediately. Shared use and reference changes must be externally serialized.
  * Names are unique ASCII identifiers [A-Za-z_][A-Za-z_0-9]*. Groups are numbered
@@ -230,8 +235,9 @@ boxrig_status boxrig_regex_matcher_create(
  * @return OK or INVALID_ARGUMENT; IN_PROGRESS is returned through progress_out.
  * @remarks Budgets do not change matching semantics. For a fixed pattern,
  * total search work is linear in input length, including unmatched suffixes.
- * A character-class visit may compare up to the pattern's scalar range count;
- * one transition may copy the program's bounded capture registers.
+ * A character-class visit may compare up to the pattern's scalar range count.
+ * Unicode category membership adds at most one constant-time lookup per visit.
+ * One transition may copy the program's bounded capture registers.
  */
 boxrig_status boxrig_regex_matcher_resume(
     boxrig_regex_matcher *matcher, size_t work_budget, size_t *work_used_out,
