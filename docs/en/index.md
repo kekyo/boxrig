@@ -28,6 +28,7 @@ Each guide presents the feature and a code example before explaining its setting
 | --- | --- |
 | [Terminal I/O settings](./terminal-io.md) | Newlines, key sequences, and character encodings |
 | [Retrieving, selecting, and searching text](./text.md) | Text extraction, exact search, monitoring, and recognition |
+| [Regular expressions for arbitrary text](./regex.md) | UTF-8 matching, diagnostics, and resumable execution without a terminal |
 | [Input and IME](./input-ime.md) | Preedit, candidates, and editing application-owned documents |
 | [Fonts and layout](./fonts-and-layout.md) | Fonts, text size, DPI, and grid dimensions |
 | [Host integration](./host-integration.md) | Titles, the clipboard, notifications, and external images |
