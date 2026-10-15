@@ -244,6 +244,11 @@ int main(void)
     gtk_window_present(GTK_WINDOW(window));
     guint timer = g_timeout_add_seconds(60, deadline, "window mapping");
     while (!gtk_widget_get_mapped(GTK_WIDGET(widget)) || widget_width(GTK_WIDGET(widget)) <= 1) iterate();
+    /* Mapping does not finish the native focus events caused by presenting
+     * the window. Dispatch them before establishing the test's focus, or a
+     * late focus-out can discard the first in-flight IME key transaction. */
+    gdk_display_sync(gtk_widget_get_display(window));
+    while (g_main_context_pending(NULL)) g_main_context_iteration(NULL, FALSE);
     g_source_remove(timer);
     frame();
     boxrig_gtk_ime_state state;
@@ -310,6 +315,15 @@ int main(void)
     }
     key('a');
     boxrig_composition_view text = composition();
+    if (text.text_length != strlen("きしゃ") || memcmp(text.text, "きしゃ", text.text_length) != 0) {
+        CHECK(widget_ime_state(widget, &state) == BOXRIG_UI_OK);
+        boxrig_ui_component_diagnostic diagnostic;
+        CHECK(widget_diagnostic(widget, &diagnostic) == BOXRIG_UI_OK);
+        fprintf(stderr, "preedit active=%d focused=%d length=%zu text=%.*s pending=%zu contexts=%zu queue=%zu gtk-focus=%d errors=%zu\n",
+            text.active, text.focused, text.text_length, (int)text.text_length,
+            text.text == NULL ? "" : text.text, state.direct.pending, state.direct.contexts,
+            diagnostic.native_input_queue_depth, gtk_widget_has_focus(GTK_WIDGET(widget)), state.direct.errors);
+    }
     CHECK(text.text_length == strlen("きしゃ") && memcmp(text.text, "きしゃ", text.text_length) == 0);
     CHECK(text.caret_offset == 3);
     key(GDK_KEY_Escape);
