@@ -20,8 +20,17 @@ typedef struct boxrig_regex_range {
 typedef struct boxrig_regex_class {
     size_t range_start;
     size_t range_count;
+    uint32_t category_mask;
     bool negated;
 } boxrig_regex_class;
+
+typedef enum boxrig_regex_escape_kind {
+    BOXRIG_REGEX_ESCAPE_LITERAL,
+    BOXRIG_REGEX_ESCAPE_DIGIT,
+    BOXRIG_REGEX_ESCAPE_SPACE,
+    BOXRIG_REGEX_ESCAPE_WORD,
+    BOXRIG_REGEX_ESCAPE_CATEGORY
+} boxrig_regex_escape_kind;
 
 typedef enum boxrig_regex_node_type {
     BOXRIG_REGEX_NODE_EMPTY = 0,
@@ -287,15 +296,85 @@ static unsigned int hex_value(uint8_t byte)
     return (unsigned int)(byte - (uint8_t)'a') + 10u;
 }
 
+static uint32_t unicode_category_mask(const uint8_t *name, size_t length)
+{
+    static const struct {
+        char name[3];
+        utf8proc_category_t category;
+    } categories[] = {
+        {"Lu", UTF8PROC_CATEGORY_LU}, {"Ll", UTF8PROC_CATEGORY_LL},
+        {"Lt", UTF8PROC_CATEGORY_LT}, {"Lm", UTF8PROC_CATEGORY_LM},
+        {"Lo", UTF8PROC_CATEGORY_LO}, {"Mn", UTF8PROC_CATEGORY_MN},
+        {"Mc", UTF8PROC_CATEGORY_MC}, {"Me", UTF8PROC_CATEGORY_ME},
+        {"Nd", UTF8PROC_CATEGORY_ND}, {"Nl", UTF8PROC_CATEGORY_NL},
+        {"No", UTF8PROC_CATEGORY_NO}, {"Pc", UTF8PROC_CATEGORY_PC},
+        {"Pd", UTF8PROC_CATEGORY_PD}, {"Ps", UTF8PROC_CATEGORY_PS},
+        {"Pe", UTF8PROC_CATEGORY_PE}, {"Pi", UTF8PROC_CATEGORY_PI},
+        {"Pf", UTF8PROC_CATEGORY_PF}, {"Po", UTF8PROC_CATEGORY_PO},
+        {"Sm", UTF8PROC_CATEGORY_SM}, {"Sc", UTF8PROC_CATEGORY_SC},
+        {"Sk", UTF8PROC_CATEGORY_SK}, {"So", UTF8PROC_CATEGORY_SO},
+        {"Zs", UTF8PROC_CATEGORY_ZS}, {"Zl", UTF8PROC_CATEGORY_ZL},
+        {"Zp", UTF8PROC_CATEGORY_ZP}, {"Cc", UTF8PROC_CATEGORY_CC},
+        {"Cf", UTF8PROC_CATEGORY_CF}, {"Cs", UTF8PROC_CATEGORY_CS},
+        {"Co", UTF8PROC_CATEGORY_CO}, {"Cn", UTF8PROC_CATEGORY_CN},
+    };
+    if (length == 2u && name[0] == 'L' && name[1] == 'C') {
+        return (UINT32_C(1) << UTF8PROC_CATEGORY_LU) |
+               (UINT32_C(1) << UTF8PROC_CATEGORY_LL) |
+               (UINT32_C(1) << UTF8PROC_CATEGORY_LT);
+    }
+    uint32_t mask = 0u;
+    if (length == 1u || length == 2u) {
+        for (size_t i = 0u; i < sizeof(categories) / sizeof(categories[0]); i++) {
+            if (memcmp(name, categories[i].name, length) == 0) {
+                mask |= UINT32_C(1) << categories[i].category;
+            }
+        }
+    }
+    return mask;
+}
+
+static bool parse_unicode_category(
+    boxrig_regex_parser *parser,
+    size_t escape_offset,
+    bool negated,
+    uint32_t *category_mask_out)
+{
+    if (parser->offset < parser->pattern_length &&
+        parser->pattern[parser->offset] == (uint8_t)'{') {
+        size_t start = ++parser->offset;
+        while (parser->offset < parser->pattern_length &&
+               parser->pattern[parser->offset] != (uint8_t)'}' &&
+               parser->offset - start < 2u) {
+            parser->offset++;
+        }
+        if (parser->offset < parser->pattern_length &&
+            parser->pattern[parser->offset] == (uint8_t)'}') {
+            uint32_t mask = unicode_category_mask(
+                &parser->pattern[start], parser->offset - start);
+            if (mask != 0u) {
+                parser->offset++;
+                /* Negate this property before unioning it with other elements. */
+                *category_mask_out = negated ? ~mask : mask;
+                return true;
+            }
+        }
+    }
+    set_diagnostic(parser, BOXRIG_TEXT_REGEX_INVALID_ESCAPE, escape_offset);
+    return false;
+}
+
 static bool escaped_scalar(
     boxrig_regex_parser *parser,
     int32_t *scalar_out,
-    size_t *escape_kind_out)
+    boxrig_regex_escape_kind *escape_kind_out,
+    uint32_t *category_mask_out)
 {
     size_t escape_offset = parser->offset;
     uint8_t byte;
 
-    *escape_kind_out = 0u;
+    *escape_kind_out = BOXRIG_REGEX_ESCAPE_LITERAL;
+    *category_mask_out = 0u;
     parser->offset++;
     if (parser->offset == parser->pattern_length) {
         set_diagnostic(
@@ -312,11 +391,15 @@ static bool escaped_scalar(
     } else if (byte == (uint8_t)'t') {
         *scalar_out = '\t';
     } else if (byte == (uint8_t)'d') {
-        *escape_kind_out = 1u;
+        *escape_kind_out = BOXRIG_REGEX_ESCAPE_DIGIT;
     } else if (byte == (uint8_t)'s') {
-        *escape_kind_out = 2u;
+        *escape_kind_out = BOXRIG_REGEX_ESCAPE_SPACE;
     } else if (byte == (uint8_t)'w') {
-        *escape_kind_out = 3u;
+        *escape_kind_out = BOXRIG_REGEX_ESCAPE_WORD;
+    } else if (byte == (uint8_t)'p' || byte == (uint8_t)'P') {
+        *escape_kind_out = BOXRIG_REGEX_ESCAPE_CATEGORY;
+        return parse_unicode_category(parser, escape_offset, byte == (uint8_t)'P',
+                                      category_mask_out);
     } else if (byte == (uint8_t)'u') {
         uint32_t scalar = 0u;
         size_t digit_count = 0u;
@@ -370,12 +453,12 @@ static bool escaped_scalar(
 
 static bool append_ascii_class_ranges(
     boxrig_regex_parser *parser,
-    size_t escape_kind)
+    boxrig_regex_escape_kind escape_kind)
 {
-    if (escape_kind == 1u) {
+    if (escape_kind == BOXRIG_REGEX_ESCAPE_DIGIT) {
         return append_range(parser, '0', '9');
     }
-    if (escape_kind == 2u) {
+    if (escape_kind == BOXRIG_REGEX_ESCAPE_SPACE) {
         return append_range(parser, '\t', '\r') &&
                append_range(parser, ' ', ' ');
     }
@@ -389,11 +472,13 @@ static bool parse_class_element(
     boxrig_regex_parser *parser,
     size_t *range_start_out,
     size_t *range_count_out,
-    bool *single_out)
+    bool *single_out,
+    uint32_t *category_mask_out)
 {
     size_t range_start = parser->range_count;
     int32_t scalar = 0;
-    size_t escape_kind = 0u;
+    boxrig_regex_escape_kind escape_kind = BOXRIG_REGEX_ESCAPE_LITERAL;
+    *category_mask_out = 0u;
 
     if (parser->offset == parser->pattern_length) {
         set_diagnostic(
@@ -403,14 +488,15 @@ static bool parse_class_element(
         return false;
     }
     if (parser->pattern[parser->offset] == (uint8_t)'\\') {
-        if (!escaped_scalar(parser, &scalar, &escape_kind)) {
+        if (!escaped_scalar(parser, &scalar, &escape_kind, category_mask_out)) {
             return false;
         }
-        if (escape_kind != 0u) {
-            if (!append_ascii_class_ranges(parser, escape_kind)) {
+        if (escape_kind == BOXRIG_REGEX_ESCAPE_LITERAL) {
+            if (!append_range(parser, scalar, scalar)) {
                 return false;
             }
-        } else if (!append_range(parser, scalar, scalar)) {
+        } else if (escape_kind != BOXRIG_REGEX_ESCAPE_CATEGORY &&
+                   !append_ascii_class_ranges(parser, escape_kind)) {
             return false;
         }
     } else {
@@ -462,21 +548,32 @@ static bool parse_class(
         size_t first_start;
         size_t first_count;
         bool first_single;
+        uint32_t first_category_mask;
 
         if (!parse_class_element(
                 parser,
                 &first_start,
                 &first_count,
-                &first_single)) {
+                &first_single,
+                &first_category_mask)) {
             return false;
         }
         has_element = true;
+        class_value->category_mask |= first_category_mask;
+        if (first_category_mask != 0u &&
+            parser->offset + 1u < parser->pattern_length &&
+            parser->pattern[parser->offset] == (uint8_t)'-' &&
+            parser->pattern[parser->offset + 1u] != (uint8_t)']') {
+            set_diagnostic(parser, BOXRIG_TEXT_REGEX_INVALID_RANGE, parser->offset);
+            return false;
+        }
         if (first_single && parser->offset + 1u < parser->pattern_length &&
             parser->pattern[parser->offset] == (uint8_t)'-' &&
             parser->pattern[parser->offset + 1u] != (uint8_t)']') {
             size_t second_start;
             size_t second_count;
             bool second_single;
+            uint32_t second_category_mask;
             int32_t first = parser->ranges[first_start].first;
 
             parser->offset++;
@@ -484,7 +581,8 @@ static bool parse_class(
                     parser,
                     &second_start,
                     &second_count,
-                    &second_single)) {
+                    &second_single,
+                    &second_category_mask)) {
                 return false;
             }
             if (!second_single ||
@@ -694,12 +792,13 @@ static bool append_atom_token(
             return false;
         }
     } else if (byte == (uint8_t)'\\') {
-        size_t escape_kind;
+        boxrig_regex_escape_kind escape_kind;
+        uint32_t category_mask;
 
-        if (!escaped_scalar(parser, &token->scalar, &escape_kind)) {
+        if (!escaped_scalar(parser, &token->scalar, &escape_kind, &category_mask)) {
             return false;
         }
-        if (escape_kind == 0u) {
+        if (escape_kind == BOXRIG_REGEX_ESCAPE_LITERAL) {
             token->type = BOXRIG_REGEX_TOKEN_LITERAL;
         } else {
             boxrig_regex_class *class_value;
@@ -714,7 +813,9 @@ static bool append_atom_token(
             class_value = &parser->classes[parser->class_count];
             class_value->range_start = parser->range_count;
             class_value->negated = false;
-            if (!append_ascii_class_ranges(parser, escape_kind)) {
+            class_value->category_mask = category_mask;
+            if (escape_kind != BOXRIG_REGEX_ESCAPE_CATEGORY &&
+                !append_ascii_class_ranges(parser, escape_kind)) {
                 return false;
             }
             class_value->range_count =
@@ -1798,10 +1899,12 @@ static bool state_matches(
     if (state->type == BOXRIG_REGEX_STATE_CLASS) {
         const boxrig_regex_class *class_value =
             &program->classes[state->class_index];
-        bool contained = false;
+        bool contained = class_value->category_mask != 0u &&
+            (class_value->category_mask &
+             (UINT32_C(1) << utf8proc_category(scalar))) != 0u;
         size_t index;
 
-        for (index = 0u; index < class_value->range_count; index++) {
+        for (index = 0u; !contained && index < class_value->range_count; index++) {
             const boxrig_regex_range *range =
                 &program->ranges[class_value->range_start + index];
 

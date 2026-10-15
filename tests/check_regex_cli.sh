@@ -24,4 +24,10 @@ printf '%s\n' "$output" > "$directory/captures"
 tail -n 3 "$directory/captures" > "$directory/actual"
 printf 'group 0 0 1\ngroup 1 absent\ngroup 2 0 0\n' > "$directory/expected"
 cmp "$directory/expected" "$directory/actual"
+output=$(printf '前 https://example.みんな/' | "$cli" --captures '(?<scheme>https?)://(?<host>[\p{L}0-9.-]+)' 0 1)
+case "$output" in 'match 4 29 work='*) ;; *) echo "Unexpected Unicode match: $output" >&2; exit 1 ;; esac
+printf '%s\n' "$output" > "$directory/captures"
+tail -n 3 "$directory/captures" > "$directory/actual"
+printf 'group 0 0 25\ngroup 1 0 5\ngroup 2 8 25\n' > "$directory/expected"
+cmp "$directory/expected" "$directory/actual"
 echo 'PASS standalone regex CLI'

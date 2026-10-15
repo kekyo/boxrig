@@ -170,6 +170,10 @@ static void semantics(void)
         {"(あ+)", "!ああx", "ああ", "ああ", 0, 6},
         {"(?<name>a+)", "zaaa", "aaa", "aaa", 0, 3},
         {"(?:x)(a)", "xa", "xa", "a", 1, 2},
+        {"(?<scheme>https?)://(?<host>[\\p{L}0-9.-]+)",
+         "前 https://example.みんな/", "https://example.みんな", "https", 0, 5},
+        {"(?<letter>\\p{L})(?<mark>\\p{M})", "!e\xcc\x81",
+         "e\xcc\x81", "e", 0, 1},
     };
     boxrig_regex_limits limits = boxrig_regex_limits_default();
     for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
@@ -263,6 +267,50 @@ static void semantics(void)
            BOXRIG_STATUS_INVALID_ARGUMENT);
     assert(boxrig_regex_result_get_capture(result, 3, &capture) ==
            BOXRIG_STATUS_INVALID_ARGUMENT);
+    boxrig_regex_result_destroy(result);
+}
+
+static void unicode_named_captures(void)
+{
+    const char *pattern = "(?<scheme>https?)://(?<host>[\\p{L}0-9.-]+)";
+    const char *input = "前 https://example.みんな/";
+    boxrig_regex_limits limits = boxrig_regex_limits_default();
+    boxrig_text_regex_diagnostic diagnostic;
+    boxrig_regex_program *program;
+    assert(boxrig_regex_compile((const uint8_t *)pattern, strlen(pattern),
+               &limits, &diagnostic, &program) == BOXRIG_STATUS_OK);
+    bool found;
+    size_t group;
+    assert(boxrig_regex_program_find_named_group(program, "host", &found, &group) ==
+           BOXRIG_STATUS_OK);
+    assert(found && group == 2);
+    boxrig_regex_matcher *matcher;
+    size_t offset;
+    assert(boxrig_regex_matcher_create(program, (const uint8_t *)input,
+               strlen(input), 0, &offset, &matcher) == BOXRIG_STATUS_OK);
+    boxrig_regex_progress progress = BOXRIG_REGEX_IN_PROGRESS;
+    boxrig_regex_match whole;
+    while (progress == BOXRIG_REGEX_IN_PROGRESS) {
+        size_t used;
+        assert(boxrig_regex_matcher_resume(matcher, 1, &used, &progress, &whole) ==
+               BOXRIG_STATUS_OK);
+        assert(used <= 1);
+    }
+    assert(progress == BOXRIG_REGEX_MATCH && whole.start == 4 && whole.end == 29);
+    boxrig_regex_result *result;
+    assert(boxrig_regex_matcher_result(matcher, &result) == BOXRIG_STATUS_OK);
+    boxrig_regex_matcher_destroy(matcher);
+    boxrig_regex_program_destroy(program);
+    check_capture(result, 0, "https://example.みんな", 0, 25);
+    check_capture(result, 1, "https", 0, 5);
+    check_capture(result, 2, "example.みんな", 8, 25);
+    boxrig_regex_capture capture;
+    assert(boxrig_regex_result_get_named_capture(result, "scheme", &capture) ==
+           BOXRIG_STATUS_OK);
+    assert(capture.participated && capture.start == 0 && capture.end == 5);
+    assert(boxrig_regex_result_get_named_capture(result, "host", &capture) ==
+           BOXRIG_STATUS_OK);
+    assert(capture.participated && capture.start == 8 && capture.end == 25);
     boxrig_regex_result_destroy(result);
 }
 
@@ -573,6 +621,7 @@ int main(void)
 {
     named_group_metadata();
     semantics();
+    unicode_named_captures();
     diagnostics_and_bounds();
     binary_capture();
     capturing_linear_mismatch();
