@@ -256,7 +256,8 @@ boxrig_ui_status boxrig_gtk3_accessible_update(BoxrigGtk3TerminalWidget *widget)
     BoxrigGtk3TerminalAccessible *accessible = (BoxrigGtk3TerminalAccessible *)gtk_widget_get_accessible(GTK_WIDGET(widget));
     g_object_ref(accessible);
     boxrig_ui_status status = boxrig_gtk_accessible_publish(&accessible->text,
-        boxrig_gtk3_terminal_widget_view(widget), notify, accessible);
+        boxrig_gtk3_terminal_widget_view(widget),
+        boxrig_gtk3_terminal_widget_get_accessibility_enabled(widget), notify, accessible);
     g_object_unref(accessible);
     return status;
 }

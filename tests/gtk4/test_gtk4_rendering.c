@@ -206,6 +206,7 @@ int main(int argc, char **argv)
     fail_context = strcmp(argv[2], "context") == 0;
     bool expected_failure = fail_context || strcmp(argv[2], "unavailable") == 0;
     boxrig_gtk4_terminal_widget_config config = boxrig_gtk4_terminal_widget_config_default();
+    config.accessibility_enabled = true;
     CHECK(config.render_policy == BOXRIG_GTK_RENDER_CAIRO);
     if (strcmp(argv[1], "prefer") == 0) config.render_policy = BOXRIG_GTK_RENDER_OPENGL_PREFERRED;
     else if (strcmp(argv[1], "require") == 0) config.render_policy = BOXRIG_GTK_RENDER_OPENGL_REQUIRED;

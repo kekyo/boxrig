@@ -13,6 +13,7 @@ BOXRIG_0 {
         boxrig_gtk4_terminal_widget_font_catalog_revision;
         boxrig_gtk4_terminal_widget_frame;
         boxrig_gtk4_terminal_widget_frame_ready;
+        boxrig_gtk4_terminal_widget_get_accessibility_enabled;
         boxrig_gtk4_terminal_widget_get_diagnostic;
         boxrig_gtk4_terminal_widget_get_effective_metrics;
         boxrig_gtk4_terminal_widget_get_font_rendering_policy;
@@ -38,6 +39,7 @@ BOXRIG_0 {
         boxrig_gtk4_terminal_widget_quiesce;
         boxrig_gtk4_terminal_widget_register_font_file;
         boxrig_gtk4_terminal_widget_register_font_memory;
+        boxrig_gtk4_terminal_widget_set_accessibility_enabled;
         boxrig_gtk4_terminal_widget_set_font_rendering_policy;
         boxrig_gtk4_terminal_widget_set_font_specification;
         boxrig_gtk4_terminal_widget_set_frame_request_callback;

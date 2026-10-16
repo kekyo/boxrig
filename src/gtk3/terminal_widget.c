@@ -58,6 +58,7 @@ typedef struct boxrig_gtk3_font_specification_storage {
 struct _BoxrigGtk3TerminalWidget {
     GtkContainer parent_instance;
     boxrig_ui_model *model;
+    bool accessibility_enabled;
     boxrig_ui_view *view;
     boxrig_pango_cairo_renderer *renderer;
     boxrig_gtk_render_state render_state;
@@ -2079,6 +2080,7 @@ boxrig_gtk3_terminal_widget_config_default(void)
     config.render_policy = BOXRIG_GTK_RENDER_CAIRO;
     config.ime_policy = BOXRIG_GTK_IME_AUTO;
     config.candidate_policy = BOXRIG_UI_CANDIDATE_AUTO;
+    config.accessibility_enabled = false;
     config.frame_request_callback = NULL;
     config.frame_request_context = NULL;
     return config;
@@ -2277,6 +2279,7 @@ boxrig_ui_status boxrig_gtk3_terminal_widget_create_with_render_state(
     widget->render_state = *state_out;
     widget->gl_failed = state_out->reason == BOXRIG_GTK_RENDER_REASON_NOT_BUILT;
     widget->model = model;
+    widget->accessibility_enabled = config->accessibility_enabled;
     widget->maximum_native_input_events =
         config->maximum_native_input_events;
     widget->maximum_frame_items = config->maximum_frame_items;
@@ -2313,6 +2316,32 @@ boxrig_ui_status boxrig_gtk3_terminal_widget_get_render_state(
     if (!accepts_calls(widget) || state_out == NULL) return BOXRIG_UI_INVALID_ARGUMENT;
     *state_out = widget->render_state;
     return BOXRIG_UI_OK;
+}
+
+bool boxrig_gtk3_terminal_widget_get_accessibility_enabled(
+    const BoxrigGtk3TerminalWidget *widget)
+{
+    return widget != NULL && widget->accessibility_enabled;
+}
+
+boxrig_ui_status boxrig_gtk3_terminal_widget_set_accessibility_enabled(
+    BoxrigGtk3TerminalWidget *widget, bool enabled)
+{
+    if (!accepts_calls(widget)) return BOXRIG_UI_INVALID_ARGUMENT;
+    if (widget->in_frame || widget->in_gl_render) return BOXRIG_UI_BUSY;
+    if (widget->accessibility_enabled == enabled) return BOXRIG_UI_OK;
+    widget->accessibility_enabled = enabled;
+    if (enabled) {
+        request_application_frame(widget);
+        return BOXRIG_UI_OK;
+    }
+    /* Withdrawal signals can destroy the widget or attempt a nested frame. */
+    g_object_ref(widget);
+    widget->in_frame = true;
+    boxrig_ui_status status = boxrig_gtk3_accessible_update(widget);
+    widget->in_frame = false;
+    g_object_unref(widget);
+    return status;
 }
 
 boxrig_ui_status boxrig_gtk3_terminal_widget_set_render_policy(
