@@ -18,6 +18,8 @@ boxrig_ui_status boxrig_gtk_accessible_publish(boxrig_gtk_accessible_state *stat
     if (state->detached) return BOXRIG_UI_UNAVAILABLE;
     if (state->publishing) return BOXRIG_UI_BUSY;
     if (!enabled && state->snapshot == NULL) return BOXRIG_UI_OK;
+    if (enabled && boxrig_ui_accessible_snapshot_is_current(view, state->snapshot))
+        return BOXRIG_UI_OK;
     boxrig_ui_accessible_snapshot *next = NULL;
     if (enabled) {
         boxrig_ui_status status = boxrig_ui_accessible_snapshot_create(view,

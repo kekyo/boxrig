@@ -172,7 +172,9 @@ int main(void)
     CHECK(notification_count == 3 && memcmp(notifications, "DIC", 3) == 0);
     CHECK(interface->get_caret_position(text) == 8);
     notification_count = 0;
+    const size_t unchanged_builds = snapshot_builds;
     for (size_t i = 0; i < 4; i++) frame(widget);
+    CHECK(snapshot_builds == unchanged_builds);
     CHECK(notification_count == 0);
 
     boxrig_composition *composition = boxrig_gtk4_terminal_widget_composition(widget);
@@ -186,6 +188,7 @@ int main(void)
     CHECK(boxrig_composition_get_view(composition, &composition_view) == BOXRIG_COMPOSITION_OK);
     CHECK(composition_view.active);
     frame(widget);
+    CHECK(snapshot_builds == unchanged_builds);
     CHECK(notification_count == 0);
     check_bytes(interface->get_contents(text, 0, G_MAXUINT), "A日本é🙂\nX\n\n\n");
     preedit = (boxrig_composition_event){.type = BOXRIG_COMPOSITION_CANCEL};
@@ -218,6 +221,10 @@ int main(void)
     CHECK(names != NULL && values != NULL);
     g_strfreev(names); g_strfreev(values);
     interface->get_default_attributes(text, NULL, NULL);
+    notification_count = 0;
+    feed(terminal, widget, "\033[2;1H");
+    CHECK(interface->get_caret_position(text) == 7);
+    CHECK(notification_count == 1 && notifications[0] == 'C');
 
     GBytes *retained = interface->get_contents(text, 0, G_MAXUINT);
     void *weak_widget = widget;

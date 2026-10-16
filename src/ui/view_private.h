@@ -9,6 +9,7 @@
 
 #include "boxrig/ui/view.h"
 #include "color_private.h"
+#include "accessible.h"
 
 #include <stdint.h>
 
@@ -91,5 +92,10 @@ typedef struct boxrig_ui_accessible_row_state {
 
 void boxrig_ui_view_accessible_row(const boxrig_ui_view *view, size_t row,
     boxrig_ui_accessible_row_state *state);
+
+/* Captures all inputs to the accessible viewport, independently of consumed
+ * renderer damage. Layout changes after a queued GL frame remain observable. */
+void boxrig_ui_view_accessible_version(const boxrig_ui_view *view,
+    boxrig_ui_accessible_version *version);
 
 #endif

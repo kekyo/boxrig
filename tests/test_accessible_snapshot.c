@@ -26,6 +26,7 @@ static boxrig_ui_accessible_snapshot *read_snapshot(boxrig_ui_view *view,
     CHECK(boxrig_ui_accessible_snapshot_create(view,
         BOXRIG_UI_ACCESSIBLE_MAXIMUM_BYTES, &snapshot) == BOXRIG_UI_OK);
     CHECK(snapshot != NULL);
+    CHECK(boxrig_ui_accessible_snapshot_is_current(view, snapshot));
     if (strcmp(snapshot->text, text) != 0)
         fprintf(stderr, "expected [%s], got [%s]\n", text, snapshot->text);
     CHECK(strcmp(snapshot->text, text) == 0);
@@ -88,15 +89,17 @@ int main(void)
     CHECK(boxrig_ui_view_update_selection(view, &end) == BOXRIG_UI_OK);
     boxrig_ui_accessible_snapshot *selected = read_snapshot(view,
         "A日本é🙂\nline two\n\n\n", 15);
+    CHECK(!boxrig_ui_accessible_snapshot_is_current(view, unicode));
     CHECK(selected->selection_count == 1);
     CHECK(selected->selections[0].start == 1 && selected->selections[0].end == 5);
     boxrig_ui_accessible_snapshot *other = read_snapshot(second,
         "A日本é🙂\nline two\n\n\n", 15);
     CHECK(other->selection_count == 0);
     CHECK(unicode->selection_count == 0);
-    boxrig_ui_accessible_snapshot_destroy(selected);
     boxrig_ui_accessible_snapshot_destroy(other);
     CHECK(boxrig_ui_view_clear_selection(view) == BOXRIG_UI_OK);
+    CHECK(!boxrig_ui_accessible_snapshot_is_current(view, selected));
+    boxrig_ui_accessible_snapshot_destroy(selected);
 
     feed(terminal, "\rX\033[K");
     boxrig_ui_accessible_snapshot *replacement = read_snapshot(view,

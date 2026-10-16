@@ -170,7 +170,9 @@ int main(void)
     CHECK(atk_text_get_character_count(text) == 11);
     CHECK(atk_text_get_caret_offset(text) == 8);
     notification_count = 0;
+    const size_t unchanged_builds = snapshot_builds;
     for (int i = 0; i < 4; i++) frame(widget);
+    CHECK(snapshot_builds == unchanged_builds);
     CHECK(notification_count == 0);
 
     boxrig_composition *composition = boxrig_gtk3_terminal_widget_composition(widget);
@@ -184,6 +186,7 @@ int main(void)
     CHECK(boxrig_composition_get_view(composition, &composition_view) == BOXRIG_COMPOSITION_OK);
     CHECK(composition_view.active);
     frame(widget);
+    CHECK(snapshot_builds == unchanged_builds);
     CHECK(notification_count == 0);
     contents = atk_text_get_text(text, 0, -1);
     CHECK(strcmp(contents, "A日本é🙂\nX\n\n\n") == 0);
@@ -210,6 +213,10 @@ int main(void)
     }
     CHECK(bold && italic && underline && start == 0 && end == 1);
     atk_attribute_set_free(attributes);
+    notification_count = 0;
+    feed(terminal, widget, "\033[2;1H");
+    CHECK(atk_text_get_caret_offset(text) == 7);
+    CHECK(notification_count == 1 && notifications[0] == 'C');
     notification_count = 0;
     CHECK(boxrig_gtk3_terminal_widget_set_accessibility_enabled(widget, false) == BOXRIG_UI_OK);
     CHECK(atk_text_get_character_count(text) == 0);
