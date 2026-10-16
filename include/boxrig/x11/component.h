@@ -18,6 +18,10 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** Opaque terminal component using one explicit native hosting mode. */
 typedef struct boxrig_x11_terminal_component boxrig_x11_terminal_component;
 
@@ -615,6 +619,41 @@ bool boxrig_x11_terminal_component_focused(
     const boxrig_x11_terminal_component *component);
 
 /**
+ * Inhibits or resumes this component's terminal-directed user input.
+ * @param component Live component on its owning event thread.
+ * @param enabled True to resume, false to discard pending user input.
+ * @return OK; BUSY during dispatch (unchanged) or while a started paste awaits
+ * output capacity (accepted); INVALID_ARGUMENT, UNAVAILABLE or LIMIT_EXCEEDED.
+ * @remarks Inspect get_input_state() to distinguish an accepted STOPPING request.
+ * Regular frame dispatch completes it when the closing paste sequence is queued
+ * in core. Enabling during STOPPING is BUSY. Copy, selection, scrolling, drawing
+ * and local routing remain available; transport draining is owned by the host.
+ * Other components sharing the terminal and already queued output are unaffected.
+ */
+boxrig_ui_status boxrig_x11_terminal_component_set_input_enabled(
+    boxrig_x11_terminal_component *component, bool enabled);
+
+/**
+ * Reads the input phase and generation without advancing pending work.
+ * @param component Live component on its owning event thread.
+ * @param state_out Required state output.
+ * @return OK or INVALID_ARGUMENT.
+ */
+boxrig_ui_status boxrig_x11_terminal_component_get_input_state(
+    const boxrig_x11_terminal_component *component, boxrig_ui_input_state *state_out);
+
+/**
+ * Exchanges input settings when no native key or IME transaction is pending.
+ * @param component Frontend to configure on its owning event thread.
+ * @param config Complete replacement, copied using the core validation rules.
+ * @return OK, BUSY while a key is held or input/IME/clipboard/paste is pending,
+ *         INVALID_ARGUMENT, LIMIT_EXCEEDED, or OUT_OF_MEMORY.
+ * @remarks BUSY and other failures preserve all old settings and input state.
+ */
+boxrig_ui_status boxrig_x11_terminal_component_set_input_config(
+    boxrig_x11_terminal_component *component, const boxrig_input_config *config);
+
+/**
  * Installs application shortcut routing ahead of terminal encoding.
  *
  * @param component Component to configure.
@@ -861,5 +900,9 @@ boxrig_x11_terminal_component_dispatch_event(
 boxrig_ui_status boxrig_x11_terminal_component_frame(
     boxrig_x11_terminal_component *component,
     boxrig_ui_component_frame_result *result_out);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

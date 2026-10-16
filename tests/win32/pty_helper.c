@@ -208,7 +208,7 @@ static bool report_size(HANDLE output, const char *label)
     return write_all(output, message);
 }
 
-static bool report_grid_title(HANDLE output)
+static bool report_grid_title(HANDLE output, bool alternate)
 {
     CONSOLE_SCREEN_BUFFER_INFO information;
     wchar_t title[64];
@@ -217,7 +217,8 @@ static bool report_grid_title(HANDLE output)
         swprintf(
             title,
             sizeof(title) / sizeof(title[0]),
-            L"grid-%d-%d",
+            L"%ls-%d-%d",
+            alternate ? L"Grid" : L"grid",
             (int)information.dwSize.Y,
             (int)information.dwSize.X) < 0) {
         return false;
@@ -260,8 +261,10 @@ static bool emit_presentation_pattern(HANDLE output)
 
     if (!write_all(
             output,
-            "\033[?25l\033[48;2;20;42;76m\033[38;2;232;238;248m"
-            "\033[2J\033[H")) {
+            /* Leave unused cells in the default background. ConPTY extends
+             * those cells when resizing, independently of the last SGR. */
+            "\033[?25l\033[0m\033[2J\033[H"
+            "\033[38;2;232;238;248m")) {
         return false;
     }
     for (row = 0; row < 24; row++) {
@@ -417,8 +420,8 @@ int main(int argument_count, char **arguments)
             if (!report_size(output, "SIZE")) {
                 return 1;
             }
-        } else if (byte == 'g') {
-            if (!report_grid_title(output)) {
+        } else if (byte == 'g' || byte == 'G') {
+            if (!report_grid_title(output, byte == 'G')) {
                 return 1;
             }
         } else if (byte == 'h') {

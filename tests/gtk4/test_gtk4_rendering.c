@@ -17,6 +17,7 @@ static size_t target_count;
 static GskRenderNode *retained_snapshots[8];
 static size_t retained_count;
 static boxrig_terminal *resize_before_render;
+static size_t accessible_rows_after_render;
 
 static gboolean observe_target(GtkGLArea *area, GdkGLContext *context, gpointer data)
 {
@@ -27,6 +28,7 @@ static gboolean observe_target(GtkGLArea *area, GdkGLContext *context, gpointer 
         size_t rows, columns;
         boxrig_terminal_size(resize_before_render, &rows, &columns);
         CHECK(boxrig_terminal_resize(resize_before_render, rows + 1, columns + 1) == BOXRIG_STATUS_OK);
+        accessible_rows_after_render = rows + 1;
         resize_before_render = NULL;
     }
     GLint texture = 0;
@@ -83,6 +85,17 @@ static void drawn(GdkFrameClock *clock, gpointer data)
     (void)clock;
     fixture *test = data;
     test->drawn_generation = boxrig_gtk4_terminal_widget_presentation_generation(test->widget);
+    if (accessible_rows_after_render != 0) {
+        GtkAccessibleText *text = GTK_ACCESSIBLE_TEXT(test->widget);
+        GBytes *contents = GTK_ACCESSIBLE_TEXT_GET_IFACE(text)->get_contents(text, 0, G_MAXUINT);
+        gsize length;
+        const char *bytes = g_bytes_get_data(contents, &length);
+        size_t rows = 0;
+        for (gsize i = 0; i < length; i++) rows += bytes[i] == '\n';
+        CHECK(rows == accessible_rows_after_render);
+        g_bytes_unref(contents);
+        accessible_rows_after_render = 0;
+    }
 }
 
 static gboolean frame(gpointer data)

@@ -1337,6 +1337,41 @@ boxrig_composition *boxrig_wayland_terminal_component_composition(
     return component == NULL ? NULL : component->composition;
 }
 
+boxrig_ui_status boxrig_wayland_terminal_component_set_input_config(
+    boxrig_wayland_terminal_component *component, const boxrig_input_config *config)
+{
+    if (component == NULL || !component->running || config == NULL) {
+        return BOXRIG_UI_INVALID_ARGUMENT;
+    }
+    boxrig_composition_view composition;
+    if (boxrig_composition_get_view(component->composition, &composition) !=
+        BOXRIG_COMPOSITION_OK) {
+        return BOXRIG_UI_INVALID_ARGUMENT;
+    }
+    if (component->processing_input || component->input_control.state.phase == BOXRIG_UI_INPUT_STOPPING ||
+        component->pressed_key_count != 0u || component->input_queue_depth != 0u ||
+        component->input_blocked || component->ime_waiting ||
+        composition.active || composition.commit_pending ||
+        boxrig_wayland_clipboard_input_pending(component)) {
+        return BOXRIG_UI_BUSY;
+    }
+    for (boxrig_wayland_seat *seat = component->context->seats;
+         seat != NULL; seat = seat->next) {
+        if ((seat->text_component == component &&
+             (seat->pending_preedit_set || seat->pending_commit_set ||
+              seat->pending_delete_set || seat->text_state_deferred)) ||
+            (seat->keyboard_component == component && seat->compose_state != NULL &&
+             xkb_compose_state_get_status(seat->compose_state) == XKB_COMPOSE_COMPOSING)) {
+            return BOXRIG_UI_BUSY;
+        }
+    }
+    boxrig_status status = boxrig_terminal_set_input_config(component->terminal, config);
+    if (status == BOXRIG_STATUS_OK) return BOXRIG_UI_OK;
+    if (status == BOXRIG_STATUS_OUT_OF_MEMORY) return BOXRIG_UI_OUT_OF_MEMORY;
+    if (status == BOXRIG_STATUS_LIMIT_EXCEEDED) return BOXRIG_UI_LIMIT_EXCEEDED;
+    return BOXRIG_UI_INVALID_ARGUMENT;
+}
+
 boxrig_ui_status boxrig_wayland_terminal_component_set_key_router(
     boxrig_wayland_terminal_component *component,
     boxrig_input_key_router router,
@@ -3639,28 +3674,30 @@ boxrig_ui_status boxrig_wayland_terminal_component_get_diagnostic(
         component->input_queue_high_water;
     diagnostic_out->input_blocked = component->input_blocked;
     diagnostic_out->ime_waiting = component->ime_waiting;
-    boxrig_ibus_diagnostic ibus;
-    boxrig_ibus_get_diagnostic(component->context->ibus, &ibus);
+    boxrig_ime_diagnostic ibus;
+    boxrig_ime_get_diagnostic(component->context->ibus, &ibus);
     bool pending = component->context->state == BOXRIG_WAYLAND_CONTEXT_INITIALIZING ||
-        ibus.state == BOXRIG_IBUS_CONNECTING;
-    bool client = boxrig_wayland_ibus_selected(component->context) &&
-        component->context->config.candidate_policy != BOXRIG_UI_CANDIDATE_SYSTEM;
+        ibus.state == BOXRIG_IME_CONNECTING;
+    boxrig_ui_candidate_owner owner = boxrig_ime_candidate_owner(component->context->ibus, &component->ibus_target);
     diagnostic_out->candidate_policy = component->context->config.candidate_policy;
     diagnostic_out->candidate_owner = pending ? BOXRIG_UI_CANDIDATE_OWNER_NONE :
-        client ? BOXRIG_UI_CANDIDATE_OWNER_CLIENT : BOXRIG_UI_CANDIDATE_OWNER_SYSTEM;
+        owner;
     diagnostic_out->candidate_reason = pending ? BOXRIG_UI_CANDIDATE_PENDING :
         diagnostic_out->candidate_policy == BOXRIG_UI_CANDIDATE_SYSTEM ? BOXRIG_UI_CANDIDATE_SYSTEM_REQUEST :
-        ibus.state == BOXRIG_IBUS_UNAVAILABLE ? BOXRIG_UI_CANDIDATE_IBUS_UNAVAILABLE :
-        client ? BOXRIG_UI_CANDIDATE_READY : BOXRIG_UI_CANDIDATE_STANDARD_INPUT;
+        ibus.state == BOXRIG_IME_UNAVAILABLE ? BOXRIG_UI_CANDIDATE_IME_UNAVAILABLE :
+        owner == BOXRIG_UI_CANDIDATE_OWNER_NONE ? BOXRIG_UI_CANDIDATE_UNCONFIRMED :
+        owner == BOXRIG_UI_CANDIDATE_OWNER_CLIENT ? BOXRIG_UI_CANDIDATE_READY : BOXRIG_UI_CANDIDATE_STANDARD_INPUT;
     boxrig_ui_candidate_view candidates;
     (void)boxrig_ui_view_get_candidates(component->view, &candidates);
     diagnostic_out->candidate_revision = candidates.revision;
     diagnostic_out->candidate_count = candidates.snapshot.count;
     diagnostic_out->candidate_cursor = candidates.snapshot.cursor;
     diagnostic_out->candidate_visible = candidates.snapshot.visible;
-    diagnostic_out->auxiliary_visible = candidates.snapshot.auxiliary_visible;
-    if (boxrig_wayland_ibus_selected(component->context))
-        diagnostic_out->input_capabilities |= BOXRIG_WAYLAND_INPUT_CAPABILITY_IBUS;
+    diagnostic_out->auxiliary_visible = candidates.snapshot.auxiliary_visible || candidates.snapshot.auxiliary_above_visible;
+    if (boxrig_wayland_ibus_selected(component->context) && ibus.backend != BOXRIG_IME_BACKEND_NONE)
+        diagnostic_out->input_capabilities |= ibus.backend == BOXRIG_IME_BACKEND_FCITX5 ?
+            BOXRIG_WAYLAND_INPUT_CAPABILITY_FCITX5 : ibus.backend == BOXRIG_IME_BACKEND_FCITX4 ?
+            BOXRIG_WAYLAND_INPUT_CAPABILITY_FCITX4 : BOXRIG_WAYLAND_INPUT_CAPABILITY_IBUS;
     diagnostic_out->pressed_key_count = component->pressed_key_count;
     diagnostic_out->pressed_button_count = component->pressed_button_count;
     diagnostic_out->input_error_count = component->input_error_count;

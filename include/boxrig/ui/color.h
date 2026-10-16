@@ -9,6 +9,10 @@
 
 #include "boxrig/terminal.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** Display operation whose colors are being resolved. */
 typedef enum boxrig_ui_color_target {
     /** Terminal cell, including a blank cell. */
@@ -156,5 +160,9 @@ boxrig_status boxrig_ui_color_resolve_rgb(
     boxrig_color color,
     boxrig_dynamic_color default_role,
     boxrig_rgb *rgb_out);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

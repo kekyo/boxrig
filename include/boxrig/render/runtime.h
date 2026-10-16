@@ -11,6 +11,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** An opaque function pointer returned by a caller-owned OpenGL resolver. */
 typedef void (*boxrig_gl_function)(void);
 
@@ -464,5 +468,9 @@ boxrig_gl_status boxrig_gl_runtime_destroy(
     boxrig_gl_runtime **runtime,
     uint64_t context_generation,
     boxrig_gl_diagnostic *diagnostic_out);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

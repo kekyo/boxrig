@@ -74,14 +74,27 @@ The bundled demo uses libdecor where available, but libdecor is not required to 
 
 ## Input and the clipboard
 
-The default input route uses text-input through the compositor.
-A direct IBus configuration is also available.
+The default AUTO policy prefers compositor input when text-input-v3 version 2 is available and the candidate policy is not CLIENT.
+Otherwise, it discovers IBus and fcitx 5/4.
+Applications can also explicitly select an input route.
 Check context and component diagnostics for surrounding text, candidate display, and the selected input route.
 
 Retrieve clipboard transfer FDs with `prepare_wait_sources()` and pass their readiness to `dispatch_wait_sources()`.
 The FDs are borrowed; do not close them.
 Refresh the wait sources after Wayland or transfer dispatch.
-Direct IBus connections also use `prepare_ime_poll()` and `dispatch_ime_poll()`.
+Direct IME connections also use `prepare_ime_poll()` and `dispatch_ime_poll()`.
+
+Call `boxrig_wayland_terminal_component_set_input_enabled(component, false)` to inhibit input from that component to the terminal.
+Inhibition and resumption each advance the input generation, invalidating pending keys, IME commits, incoming clipboard transfers, and unstarted pastes.
+Keys held across inhibition remain suppressed until released.
+Selection, copy, history navigation, local key and mouse actions, rendering, and terminal protocol replies continue.
+
+If an active paste terminator cannot yet be submitted, inhibition returns `BUSY` and the state becomes `STOPPING`.
+Continue context dispatch while processing core output normally.
+Resume only after `get_input_state()` reports `DISABLED`.
+Completion means the required terminator has entered the core; transport draining remains the host's responsibility.
+Calls from an input-processing callback also return `BUSY`, preserving the current state.
+Refresh wait sources after inhibition because transfer FDs may have become invalid.
 
 ## OpenGL selection and shutdown
 

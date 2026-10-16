@@ -74,6 +74,7 @@ See [Terminal I/O settings](../terminal-io.md) for Shift_JIS conversion and comp
 | `CSI ! p` | Soft reset | DECSTR |
 | `CSI Ps " q` | Set cell protection | 1 enables; 0/2 disables |
 | `CSI 22 ; Ps t`, `CSI 23 ; Ps t` | Request title save/restore | 0 means both, 1 icon, 2 window; storage belongs to the host |
+| `CSI 8 ; rows ; columns t` | [Host grid-size request](../host-integration.md#handle-grid-size-requests) | Omitted axes retain their size; 0 uses the display dimension. The host authorizes and resolves actual dimensions |
 
 Printer controls `CSI 0/4/5 i` and memory lock/unlock are accepted as no-ops.
 After reading an unknown sequence's terminator, normal text display resumes.

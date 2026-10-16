@@ -340,6 +340,7 @@ static bool test_host_adapter(Display *display)
     static const uint8_t title_stack[] =
         "\x1b[22;0;0t\x1b]2;temporary\x07\x1b[23;0;0t";
     static const uint8_t metadata_input[] =
+        "\x1b[8;25;90t"
         "\x1b]2;t\xc3\xa9\x1b\\"
         "\x1b]7;file://host/untrusted\x07"
         "\x1b]8;;https://example.test/\x07"
@@ -434,6 +435,9 @@ static bool test_host_adapter(Display *display)
         7));
     CHECK(feed(terminal, metadata_input, sizeof(metadata_input) - 1));
     CHECK(boxrig_x11_host_adapter_process_items(adapter) == 0);
+    size_t kept_rows, kept_columns;
+    boxrig_terminal_size(terminal, &kept_rows, &kept_columns);
+    CHECK(kept_rows == config.rows && kept_columns == config.columns);
     XSync(display, False);
     CHECK(property_equals(
         display,

@@ -7,6 +7,8 @@
 #ifndef BOXRIG_TERMINAL_H
 #define BOXRIG_TERMINAL_H
 
+#include "boxrig/regex.h"
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -21,7 +23,7 @@ typedef struct boxrig_terminal boxrig_terminal;
 /** Exclusive host ownership of a terminal animation clock. */
 typedef struct boxrig_animation_clock boxrig_animation_clock;
 
-/** One owned-at-construction override for a legacy cursor key. */
+/** One copied override for a legacy cursor key. */
 typedef struct boxrig_key_mapping boxrig_key_mapping;
 
 /** Maximum entries in a terminal's key mapping table. */
@@ -52,21 +54,6 @@ typedef struct boxrig_key_mapping boxrig_key_mapping;
 
 /** Maximum upper bound accepted by one finite regex quantifier. */
 #define BOXRIG_TEXT_RECOGNIZER_QUANTIFIER_CAPACITY_MAX ((size_t)4096u)
-
-/** Result codes returned by fallible boxrig operations. */
-typedef enum boxrig_status {
-    BOXRIG_STATUS_OK = 0,
-    BOXRIG_STATUS_INVALID_ARGUMENT,
-    BOXRIG_STATUS_OUT_OF_MEMORY,
-    BOXRIG_STATUS_LIMIT_EXCEEDED,
-    BOXRIG_STATUS_WOULD_BLOCK,
-    /** A current result set is not available until bounded work completes. */
-    BOXRIG_STATUS_INCOMPLETE,
-    /** A retained text position or range no longer names the same text. */
-    BOXRIG_STATUS_STALE,
-    /** An exclusive owner already controls this operation. */
-    BOXRIG_STATUS_BUSY
-} boxrig_status;
 
 /** Measurement of the first terminal text cluster in a UTF-8 buffer. */
 typedef struct boxrig_text_cluster_measurement {
@@ -295,40 +282,6 @@ typedef enum boxrig_text_recognizer_scope {
     BOXRIG_TEXT_RECOGNIZER_SCOPE_BOTH
 } boxrig_text_recognizer_scope;
 
-/** Stable machine-readable result of compiling a bounded regular expression. */
-typedef enum boxrig_text_regex_diagnostic_code {
-    /** Compilation succeeded. */
-    BOXRIG_TEXT_REGEX_DIAGNOSTIC_NONE = 0,
-    /** Pattern bytes are not valid RFC 3629 UTF-8. */
-    BOXRIG_TEXT_REGEX_INVALID_UTF8,
-    /** A backslash escape is incomplete or unsupported. */
-    BOXRIG_TEXT_REGEX_INVALID_ESCAPE,
-    /** A group or scalar class delimiter is missing or unexpected. */
-    BOXRIG_TEXT_REGEX_UNBALANCED_DELIMITER,
-    /** A scalar-class range is reversed or otherwise malformed. */
-    BOXRIG_TEXT_REGEX_INVALID_RANGE,
-    /** Syntax outside the documented boxrig regular language was used. */
-    BOXRIG_TEXT_REGEX_UNSUPPORTED_SYNTAX,
-    /** A finite quantifier is malformed or has a reversed range. */
-    BOXRIG_TEXT_REGEX_INVALID_QUANTIFIER,
-    /** The complete expression can match an empty string. */
-    BOXRIG_TEXT_REGEX_NULLABLE,
-    /** Pattern bytes exceed the public or configured capacity. */
-    BOXRIG_TEXT_REGEX_PATTERN_LIMIT,
-    /** A finite quantifier exceeds its configured upper bound. */
-    BOXRIG_TEXT_REGEX_QUANTIFIER_LIMIT,
-    /** Thompson compilation exceeds its configured state capacity. */
-    BOXRIG_TEXT_REGEX_STATE_LIMIT
-} boxrig_text_regex_diagnostic_code;
-
-/** Compile failure location without a borrowed error-message pointer. */
-typedef struct boxrig_text_regex_diagnostic {
-    /** Machine-readable compile result. */
-    boxrig_text_regex_diagnostic_code code;
-    /** UTF-8 byte offset of the failure, or pattern length on success. */
-    size_t pattern_offset;
-} boxrig_text_regex_diagnostic;
-
 /**
  * Strict per-recognizer resource limits.
  *
@@ -339,6 +292,10 @@ typedef struct boxrig_text_recognizer_limits {
     size_t state_capacity;
     /** Maximum upper bound of one finite quantifier. */
     size_t quantifier_capacity;
+    /** Maximum numbered capture groups when compiling a pattern. */
+    size_t capture_capacity;
+    /** Maximum capture-register bytes when compiling a pattern. */
+    size_t capture_byte_capacity;
     /** Maximum projected UTF-8 bytes in one logical line. */
     size_t line_byte_capacity;
     /** Maximum terminal columns in one logical line. */
@@ -347,6 +304,9 @@ typedef struct boxrig_text_recognizer_limits {
     size_t line_match_capacity;
     /** Maximum matches retained across both configured namespaces. */
     size_t result_capacity;
+    /** Maximum matched bytes and capture records per current/staging set.
+     * Both sets may coexist; externally retained results are caller-owned. */
+    size_t result_byte_capacity;
     /** Maximum logical lines retained by current result bookkeeping. */
     size_t dirty_line_capacity;
     /** Maximum projected bytes captured by one immutable baseline. */
@@ -431,7 +391,7 @@ typedef enum boxrig_cursor_column_mode {
     BOXRIG_CURSOR_COLUMN_MODE_UTF16
 } boxrig_cursor_column_mode;
 
-/** Outbound newline encoding selected when a terminal is created. */
+/** Outbound newline encoding selected by input configuration. */
 typedef enum boxrig_newline {
     /** One carriage return byte. */
     BOXRIG_NEWLINE_CR = 0,
@@ -442,6 +402,44 @@ typedef enum boxrig_newline {
     /** Enter follows mode 20: CR when reset and CRLF when set. */
     BOXRIG_NEWLINE_TERMINAL
 } boxrig_newline;
+
+/** Legacy encoding selected independently for Backspace and Delete. */
+typedef enum boxrig_erase_binding {
+    /** Backspace sends DEL; Delete sends CSI 3 ~. */
+    BOXRIG_ERASE_AUTO = 0,
+    /** Send the single ASCII BS byte (0x08). */
+    BOXRIG_ERASE_ASCII_BACKSPACE,
+    /** Send the single ASCII DEL byte (0x7f). */
+    BOXRIG_ERASE_ASCII_DELETE,
+    /** Send CSI 3 ~, with the existing Delete modifier parameter when needed. */
+    BOXRIG_ERASE_DELETE_SEQUENCE,
+    /** Send the current communication channel's erase byte; use AUTO if unknown. */
+    BOXRIG_ERASE_TTY
+} boxrig_erase_binding;
+
+/** Erase information supplied by the owner of the current communication channel. */
+typedef struct boxrig_tty_erase {
+    /** True when byte was obtained; NUL and disabled erase values remain available. */
+    bool available;
+    /** Unmodified one-byte value, ignored when unavailable. */
+    uint8_t byte;
+} boxrig_tty_erase;
+
+/** Input settings validated and copied atomically at construction or runtime. */
+typedef struct boxrig_input_config {
+    /** Legacy Enter encoding. Defaults to TERMINAL; fixed CR, LF and CRLF
+     * ignore mode 20. Numeric keypad Enter follows this value. Kitty reports
+     * and application-keypad sequences retain their protocol encoding. */
+    boxrig_newline enter_newline;
+    /** Independent legacy Backspace choice; defaults to AUTO. */
+    boxrig_erase_binding backspace_binding;
+    /** Independent legacy Delete/keypad Delete choice; defaults to AUTO. */
+    boxrig_erase_binding delete_binding;
+    /** Copied legacy cursor-key overrides, or NULL for an empty table. */
+    const boxrig_key_mapping *key_mappings;
+    /** Table entries, at most BOXRIG_KEY_MAPPING_COUNT_MAX. */
+    size_t key_mapping_count;
+} boxrig_input_config;
 
 /** Interpretation of received display CR and LF controls. */
 typedef enum boxrig_receive_newline {
@@ -570,13 +568,8 @@ typedef struct boxrig_terminal_config {
     boxrig_ambiguous_width ambiguous_width;
     /** Unit used by horizontal cursor positions received from the client. */
     boxrig_cursor_column_mode cursor_column_mode;
-    /**
-     * Legacy Enter encoding. Defaults to TERMINAL; fixed CR, LF and CRLF
-     * ignore mode 20. Numeric keypad Enter follows this value. Kitty reports
-     * and application-keypad sequences retain their protocol encoding.
-     * The terminal copies this value and retains it across RIS and DECSTR.
-     */
-    boxrig_newline enter_newline;
+    /** Copied input settings, retained across RIS and DECSTR. */
+    boxrig_input_config input;
     /**
      * Encoding of LF bytes in paste chunks. Defaults to LF; only CR, LF and
      * CRLF are accepted. Other bytes and bracketed-paste markers are unchanged.
@@ -591,14 +584,6 @@ typedef struct boxrig_terminal_config {
      * boundaries; any intervening byte ends the pair. Retained across resets.
      */
     boxrig_receive_newline receive_newline;
-    /**
-     * Legacy cursor-key overrides, or NULL when key_mapping_count is zero.
-     * The entries and their byte sequences are copied during construction
-     * and retained across resets. The default is NULL.
-     */
-    const boxrig_key_mapping *key_mappings;
-    /** Number of entries in key_mappings; at most BOXRIG_KEY_MAPPING_COUNT_MAX. */
-    size_t key_mapping_count;
     /** Text codec, fixed at construction and retained across terminal resets. */
     boxrig_encoding encoding;
 } boxrig_terminal_config;
@@ -884,8 +869,43 @@ typedef enum boxrig_host_item_type {
     /** Desktop notification display or update request. */
     BOXRIG_HOST_ITEM_NOTIFICATION,
     /** External Kitty graphics data read request. */
-    BOXRIG_HOST_ITEM_GRAPHICS_DATA
+    BOXRIG_HOST_ITEM_GRAPHICS_DATA,
+    /** Untrusted terminal grid-size request; no completion or reply required. */
+    BOXRIG_HOST_ITEM_GRID_RESIZE
 } boxrig_host_item_type;
+
+/** Meaning of one axis in a CSI 8 terminal grid-size request. */
+typedef enum boxrig_grid_size_mode {
+    /** An omitted parameter retains the host's current dimension. */
+    BOXRIG_GRID_SIZE_KEEP = 0,
+    /** A positive parameter specifies a number of character cells. */
+    BOXRIG_GRID_SIZE_EXPLICIT,
+    /** A zero parameter requests the display dimension, resolved by the host. */
+    BOXRIG_GRID_SIZE_DISPLAY
+} boxrig_grid_size_mode;
+
+/** One independent axis of an untrusted terminal grid-size request. */
+typedef struct boxrig_grid_size_axis {
+    /** Whether to retain, explicitly set, or use the display dimension. */
+    boxrig_grid_size_mode mode;
+    /** Positive count for EXPLICIT, otherwise zero. */
+    uint32_t cells;
+} boxrig_grid_size_axis;
+
+/**
+ * Requested character-cell dimensions without changing the terminal grid.
+ * @remarks The host authorizes the request and resolves KEEP/DISPLAY using
+ * its current allocation and display. Explicit counts span 1..UINT32_MAX;
+ * the host must validate its own size and resource limits before applying
+ * them. CSI 8 has no completion response. Use existing layout revisions to
+ * manage native sizing, then resize the core and transport to the actual grid.
+ */
+typedef struct boxrig_grid_size_request {
+    /** Height in character cells. */
+    boxrig_grid_size_axis rows;
+    /** Width in character cells. */
+    boxrig_grid_size_axis columns;
+} boxrig_grid_size_request;
 
 /** Occasion on which a desktop notification may be displayed. */
 typedef enum boxrig_notification_occasion {
@@ -994,6 +1014,11 @@ typedef struct boxrig_host_item {
      * The view remains valid until the terminal is next modified.
      */
     const boxrig_graphics_transport_view *graphics_transport;
+    /**
+     * Inline request for GRID_RESIZE, otherwise zero-initialized. Copying
+     * this value retains both axes independently of the queued item's lifetime.
+     */
+    boxrig_grid_size_request grid_resize;
 } boxrig_host_item;
 
 /** Logical key identifiers accepted by the input encoder. */
@@ -1144,6 +1169,67 @@ struct boxrig_key_mapping {
     /** Byte length; zero intentionally suppresses this legacy key event. */
     size_t length;
 };
+
+/**
+ * Returns default runtime input settings, also used by terminal construction.
+ * @return Terminal-mode Enter, Auto erase bindings, and no arrow overrides.
+ */
+boxrig_input_config boxrig_input_config_default(void);
+
+/**
+ * Atomically validates, copies, and replaces runtime input settings.
+ * @param terminal Terminal to configure.
+ * @param config Complete replacement; mapping payloads are copied.
+ * @return OK, INVALID_ARGUMENT, LIMIT_EXCEEDED, or OUT_OF_MEMORY.
+ * @remarks Failure preserves the old settings. Success preserves screen,
+ * history, selection, protocol modes, and already queued output. Settings
+ * survive RIS/DECSTR. Kitty encoding precedes all legacy settings. For a
+ * one-byte BS/DEL binding Ctrl exchanges BS and DEL and Alt prefixes ESC;
+ * DELETE_SEQUENCE encodes all modifiers in CSI without an extra Alt prefix.
+ * Legacy releases produce no bytes. Core applies changes at the call boundary;
+ * a frontend owner must use its guarded setter to avoid changing a held-key or
+ * pending IME series. Calls and borrowed settings must be externally serialized.
+ */
+boxrig_status boxrig_terminal_set_input_config(
+    boxrig_terminal *terminal, const boxrig_input_config *config);
+
+/**
+ * Reads all current settings without allocating.
+ * @param terminal Terminal to inspect.
+ * @param config_out Required output; mapping pointers are borrowed until the
+ *        next successful exchange or terminal destruction.
+ * @return OK or INVALID_ARGUMENT.
+ * @remarks The returned value may itself be passed to set_input_config(); all
+ * replacement data is copied before any old storage is released.
+ */
+boxrig_status boxrig_terminal_get_input_config(
+    const boxrig_terminal *terminal, boxrig_input_config *config_out);
+
+/**
+ * Replaces erase information for the current communication channel.
+ * @param terminal Terminal to update.
+ * @param erase Current value; an unavailable value discards any previous byte.
+ * @return OK or INVALID_ARGUMENT for a NULL terminal.
+ * @remarks Initially unavailable. The channel owner updates this immediately
+ * before sending a TTY-bound erase key, and clears it on disconnect or channel
+ * replacement. Core performs no OS query. NUL and disabled values are sent as
+ * bytes. Ctrl exchanges only BS/DEL; other bytes are unchanged. Alt prefixes ESC.
+ * This information is independent of input settings, survives screen resets,
+ * and may be refreshed during a held-key series. Calls must be serialized.
+ */
+boxrig_status boxrig_terminal_set_tty_erase(
+    boxrig_terminal *terminal, boxrig_tty_erase erase);
+
+/**
+ * Reads the last erase information supplied by the communication channel owner.
+ * @param terminal Terminal to inspect.
+ * @param erase_out Required output; byte is zero when unavailable.
+ * @return OK or INVALID_ARGUMENT for a NULL argument.
+ * @remarks This is a snapshot, not an OS query. Unknown TTY bindings use the
+ * corresponding key's AUTO behavior, including on Win32 or remote transports.
+ */
+boxrig_status boxrig_terminal_get_tty_erase(
+    const boxrig_terminal *terminal, boxrig_tty_erase *erase_out);
 
 /** Logical key transition type. */
 typedef enum boxrig_key_action {
@@ -1771,6 +1857,39 @@ boxrig_status boxrig_terminal_register_text_recognizer(
     const boxrig_text_recognizer_options *options,
     boxrig_text_regex_diagnostic *diagnostic_out,
     uint64_t *recognizer_id_out);
+
+/**
+ * Registers a shared immutable regex program without compiling it again.
+ * @param terminal Terminal that owns the new recognizer.
+ * @param program Program retained on success; the caller keeps its reference.
+ * @param scope Logical text namespaces to scan.
+ * @param limits Positive scan/snapshot/result bounds; compiler bounds are
+ *        already fixed by program and are ignored here.
+ * @param recognizer_id_out Required nonzero identity, cleared on failure.
+ * @return OK, INVALID_ARGUMENT, LIMIT_EXCEEDED, or OUT_OF_MEMORY.
+ * @remarks Uses the same captures and matching rules as standalone matchers.
+ */
+boxrig_status boxrig_terminal_register_compiled_text_recognizer(
+    boxrig_terminal *terminal, boxrig_regex_program *program,
+    boxrig_text_recognizer_scope scope,
+    const boxrig_text_recognizer_limits *limits, uint64_t *recognizer_id_out);
+
+/**
+ * Retains the immutable captures recorded when a screen match was recognized.
+ * @param terminal Terminal to inspect.
+ * @param recognizer_id Recognizer identity from a current recognition result.
+ * @param match_id Match identity from that result.
+ * @param result_set_revision Required current result-set revision.
+ * @param result_out Required owned result, cleared on failure.
+ * @return OK, STALE for invalidated/missing results, INVALID_ARGUMENT,
+ *         or LIMIT_EXCEEDED on reference overflow.
+ * @remarks Does not rematch. The reference survives terminal updates, rescans,
+ * unregistering, and destruction. Capture offsets address the result's matched
+ * bytes, including positions inside a grapheme; they are not terminal columns.
+ */
+boxrig_status boxrig_terminal_text_recognizer_result(
+    const boxrig_terminal *terminal, uint64_t recognizer_id, uint64_t match_id,
+    uint64_t result_set_revision, boxrig_regex_result **result_out);
 
 /**
  * Unregisters a recognizer and removes all of its unconsumed events.

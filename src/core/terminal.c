@@ -174,11 +174,9 @@ boxrig_terminal_config boxrig_terminal_config_default(void)
     config.graphics_frame_capacity = 16384;
     config.ambiguous_width = BOXRIG_AMBIGUOUS_WIDTH_NARROW;
     config.cursor_column_mode = BOXRIG_CURSOR_COLUMN_MODE_TERMINAL;
-    config.enter_newline = BOXRIG_NEWLINE_TERMINAL;
+    config.input = boxrig_input_config_default();
     config.paste_newline = BOXRIG_NEWLINE_LF;
     config.receive_newline = BOXRIG_RECEIVE_NEWLINE_TERMINAL;
-    config.key_mappings = NULL;
-    config.key_mapping_count = 0;
     config.encoding = BOXRIG_ENCODING_UTF8;
     return config;
 }
@@ -208,7 +206,6 @@ boxrig_status boxrig_terminal_create(
             SIZE_MAX / sizeof(boxrig_text_recognizer_state *) ||
         !graphics_config_valid(config) ||
         (unsigned int)config->encoding > (unsigned int)BOXRIG_ENCODING_SHIFT_JIS ||
-        (unsigned int)config->enter_newline > BOXRIG_NEWLINE_TERMINAL ||
         (unsigned int)config->paste_newline > BOXRIG_NEWLINE_CRLF ||
         (unsigned int)config->receive_newline > BOXRIG_RECEIVE_NEWLINE_CRLF ||
         (config->ambiguous_width != BOXRIG_AMBIGUOUS_WIDTH_NARROW &&
@@ -222,7 +219,7 @@ boxrig_status boxrig_terminal_create(
     if (terminal == NULL) {
         return BOXRIG_STATUS_OUT_OF_MEMORY;
     }
-    status = boxrig_input_initialize_key_mappings(terminal, config);
+    status = boxrig_terminal_set_input_config(terminal, &config->input);
     if (status != BOXRIG_STATUS_OK) {
         boxrig_terminal_destroy(terminal);
         return status;
@@ -248,7 +245,6 @@ boxrig_status boxrig_terminal_create(
     terminal->notification_pending_capacity =
         config->notification_pending_capacity;
     terminal->output_capacity = config->output_capacity;
-    terminal->enter_newline = config->enter_newline;
     terminal->paste_newline = config->paste_newline;
     terminal->receive_newline = config->receive_newline;
     terminal->encoding = config->encoding;
@@ -323,7 +319,7 @@ void boxrig_terminal_destroy(boxrig_terminal *terminal)
     if (terminal->animation_clock != NULL) {
         terminal->animation_clock->terminal = NULL;
     }
-    free(terminal->key_mappings);
+    free((void *)terminal->input_config.key_mappings);
     boxrig_dcs_reset(&terminal->dcs);
     boxrig_kitty_graphics_reset(&terminal->graphics);
     boxrig_kitty_graphics_protocol_destroy(terminal);
@@ -800,6 +796,17 @@ boxrig_status boxrig_terminal_push_host_item(
     terminal->host_item_count++;
     terminal->host_payload_length += payload_length;
     return BOXRIG_STATUS_OK;
+}
+
+boxrig_status boxrig_terminal_push_grid_resize(
+    boxrig_terminal *terminal,
+    const boxrig_grid_size_request *request)
+{
+    size_t tail = (terminal->host_item_head + terminal->host_item_count) % terminal->host_item_capacity;
+    boxrig_status status = boxrig_terminal_push_host_item(
+        terminal, BOXRIG_HOST_ITEM_GRID_RESIZE, 0, 0, NULL, 0);
+    if (status == BOXRIG_STATUS_OK) terminal->host_items[tail].item.grid_resize = *request;
+    return status;
 }
 
 static void mark_hyperlink_handle(

@@ -13,6 +13,10 @@
 
 #include <stdbool.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** Opaque X11 extension, Visual, Colormap, and compositor tracker. */
 typedef struct boxrig_x11_transparency_context
     boxrig_x11_transparency_context;
@@ -173,5 +177,9 @@ int boxrig_x11_transparency_context_process_event(
     boxrig_x11_transparency_context *context,
     const XEvent *event,
     bool *changed_out);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

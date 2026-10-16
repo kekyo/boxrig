@@ -99,7 +99,8 @@ static void complete_focus_wait(void)
 
 static void focused(IBusEngine *engine, const char *path, const char *client, gpointer data)
 {
-    (void)engine; (void)path; (void)data;
+    (void)engine; (void)data;
+    fprintf(stderr, "focus-in path=%s client=%s\n", path, client);
     g_free(focused_client);
     focused_client = g_strdup(client);
     complete_focus_wait();
@@ -107,7 +108,8 @@ static void focused(IBusEngine *engine, const char *path, const char *client, gp
 
 static void unfocused(IBusEngine *engine, const char *path, gpointer data)
 {
-    (void)engine; (void)path; (void)data;
+    (void)engine; (void)data;
+    fprintf(stderr, "focus-out path=%s\n", path);
     g_clear_pointer(&focused_client, g_free);
 }
 

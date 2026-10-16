@@ -16,6 +16,10 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** Policy for host actions requested by terminal-controlled content. */
 typedef struct boxrig_x11_host_policy {
     /** Apply OSC title changes to the sample window. */
@@ -146,5 +150,9 @@ int boxrig_x11_host_adapter_process_poll(
  * @param adapter Adapter to destroy, or NULL.
  */
 void boxrig_x11_host_adapter_destroy(boxrig_x11_host_adapter *adapter);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

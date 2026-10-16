@@ -20,8 +20,17 @@ typedef struct boxrig_regex_range {
 typedef struct boxrig_regex_class {
     size_t range_start;
     size_t range_count;
+    uint32_t category_mask;
     bool negated;
 } boxrig_regex_class;
+
+typedef enum boxrig_regex_escape_kind {
+    BOXRIG_REGEX_ESCAPE_LITERAL,
+    BOXRIG_REGEX_ESCAPE_DIGIT,
+    BOXRIG_REGEX_ESCAPE_SPACE,
+    BOXRIG_REGEX_ESCAPE_WORD,
+    BOXRIG_REGEX_ESCAPE_CATEGORY
+} boxrig_regex_escape_kind;
 
 typedef enum boxrig_regex_node_type {
     BOXRIG_REGEX_NODE_EMPTY = 0,
@@ -34,7 +43,8 @@ typedef enum boxrig_regex_node_type {
     BOXRIG_REGEX_NODE_ALTERNATE,
     BOXRIG_REGEX_NODE_OPTIONAL,
     BOXRIG_REGEX_NODE_STAR,
-    BOXRIG_REGEX_NODE_PLUS
+    BOXRIG_REGEX_NODE_PLUS,
+    BOXRIG_REGEX_NODE_CAPTURE
 } boxrig_regex_node_type;
 
 typedef struct boxrig_regex_node {
@@ -45,6 +55,7 @@ typedef struct boxrig_regex_node {
     size_t pattern_offset;
     int32_t scalar;
     size_t class_index;
+    size_t capture_index;
     bool nullable;
 } boxrig_regex_node;
 
@@ -59,7 +70,8 @@ typedef enum boxrig_regex_token_type {
     BOXRIG_REGEX_TOKEN_OPTIONAL,
     BOXRIG_REGEX_TOKEN_STAR,
     BOXRIG_REGEX_TOKEN_PLUS,
-    BOXRIG_REGEX_TOKEN_REPEAT
+    BOXRIG_REGEX_TOKEN_REPEAT,
+    BOXRIG_REGEX_TOKEN_CAPTURE
 } boxrig_regex_token_type;
 
 typedef struct boxrig_regex_token {
@@ -69,6 +81,7 @@ typedef struct boxrig_regex_token {
     size_t class_index;
     size_t repeat_minimum;
     size_t repeat_maximum;
+    size_t capture_index;
 } boxrig_regex_token;
 
 typedef enum boxrig_regex_operator {
@@ -80,13 +93,14 @@ typedef enum boxrig_regex_operator {
 typedef struct boxrig_regex_operator_entry {
     boxrig_regex_operator operator_kind;
     size_t pattern_offset;
+    size_t capture_index;
 } boxrig_regex_operator_entry;
 
 typedef struct boxrig_regex_parser {
     const uint8_t *pattern;
     size_t pattern_length;
     size_t offset;
-    const boxrig_text_recognizer_limits *limits;
+    const boxrig_regex_limits *limits;
     boxrig_text_regex_diagnostic *diagnostic;
     boxrig_regex_token *postfix;
     size_t postfix_count;
@@ -100,6 +114,8 @@ typedef struct boxrig_regex_parser {
     boxrig_regex_range *ranges;
     size_t range_count;
     size_t range_capacity;
+    char **group_names;
+    size_t group_count;
 } boxrig_regex_parser;
 
 typedef enum boxrig_regex_state_type {
@@ -110,7 +126,9 @@ typedef enum boxrig_regex_state_type {
     BOXRIG_REGEX_STATE_CLASS,
     BOXRIG_REGEX_STATE_ASSERT_BEGIN,
     BOXRIG_REGEX_STATE_ASSERT_END,
-    BOXRIG_REGEX_STATE_ACCEPT
+    BOXRIG_REGEX_STATE_ACCEPT,
+    BOXRIG_REGEX_STATE_CAPTURE_OPEN,
+    BOXRIG_REGEX_STATE_CAPTURE_CLOSE
 } boxrig_regex_state_type;
 
 typedef struct boxrig_regex_state {
@@ -119,6 +137,7 @@ typedef struct boxrig_regex_state {
     size_t alternate_out;
     int32_t scalar;
     size_t class_index;
+    size_t capture_index;
 } boxrig_regex_state;
 
 typedef struct boxrig_regex_fragment {
@@ -127,6 +146,8 @@ typedef struct boxrig_regex_fragment {
 } boxrig_regex_fragment;
 
 struct boxrig_regex_program {
+    size_t references;
+    boxrig_regex_limits limits;
     boxrig_regex_state *states;
     size_t state_count;
     size_t start_state;
@@ -134,6 +155,9 @@ struct boxrig_regex_program {
     size_t class_count;
     boxrig_regex_range *ranges;
     size_t range_count;
+    size_t pattern_length;
+    char **group_names;
+    size_t group_count;
 };
 
 typedef enum boxrig_regex_cursor_phase {
@@ -149,28 +173,58 @@ typedef enum boxrig_regex_closure_target {
     BOXRIG_REGEX_CLOSURE_NEXT
 } boxrig_regex_closure_target;
 
+typedef struct boxrig_regex_thread {
+    size_t state;
+    size_t start;
+} boxrig_regex_thread;
+
+typedef struct boxrig_regex_closure_frame {
+    size_t state;
+    size_t source;
+} boxrig_regex_closure_frame;
+
 struct boxrig_regex_cursor {
     const boxrig_regex_program *program;
     const int32_t *scalars;
     const uint8_t *boundaries;
     size_t scalar_count;
-    size_t candidate;
     size_t position;
+    size_t longest_start;
     size_t longest_end;
-    size_t *current_states;
+    boxrig_regex_thread *current_states;
     size_t current_count;
-    size_t *next_states;
+    boxrig_regex_thread *next_states;
     size_t next_count;
     size_t transition_index;
-    size_t *closure_stack;
+    boxrig_regex_closure_frame *closure_stack;
     size_t closure_count;
     uint64_t *seen;
     uint64_t generation;
     boxrig_regex_cursor_phase phase;
     boxrig_regex_closure_target closure_target;
-    bool current_accept;
-    bool next_accept;
-    bool next_prepared;
+    size_t closure_start;
+    size_t register_count;
+    size_t *current_captures;
+    size_t *next_captures;
+    size_t *seed_captures;
+    size_t *best_captures;
+};
+
+struct boxrig_regex_matcher {
+    boxrig_regex_program *program;
+    boxrig_regex_cursor *cursor;
+    int32_t *scalars;
+    size_t *byte_offsets;
+    uint8_t *boundaries;
+    uint8_t *input;
+};
+
+struct boxrig_regex_result {
+    size_t references;
+    boxrig_regex_program *program;
+    uint8_t *data;
+    size_t length;
+    boxrig_regex_capture *captures;
 };
 
 static void set_diagnostic(
@@ -242,15 +296,85 @@ static unsigned int hex_value(uint8_t byte)
     return (unsigned int)(byte - (uint8_t)'a') + 10u;
 }
 
+static uint32_t unicode_category_mask(const uint8_t *name, size_t length)
+{
+    static const struct {
+        char name[3];
+        utf8proc_category_t category;
+    } categories[] = {
+        {"Lu", UTF8PROC_CATEGORY_LU}, {"Ll", UTF8PROC_CATEGORY_LL},
+        {"Lt", UTF8PROC_CATEGORY_LT}, {"Lm", UTF8PROC_CATEGORY_LM},
+        {"Lo", UTF8PROC_CATEGORY_LO}, {"Mn", UTF8PROC_CATEGORY_MN},
+        {"Mc", UTF8PROC_CATEGORY_MC}, {"Me", UTF8PROC_CATEGORY_ME},
+        {"Nd", UTF8PROC_CATEGORY_ND}, {"Nl", UTF8PROC_CATEGORY_NL},
+        {"No", UTF8PROC_CATEGORY_NO}, {"Pc", UTF8PROC_CATEGORY_PC},
+        {"Pd", UTF8PROC_CATEGORY_PD}, {"Ps", UTF8PROC_CATEGORY_PS},
+        {"Pe", UTF8PROC_CATEGORY_PE}, {"Pi", UTF8PROC_CATEGORY_PI},
+        {"Pf", UTF8PROC_CATEGORY_PF}, {"Po", UTF8PROC_CATEGORY_PO},
+        {"Sm", UTF8PROC_CATEGORY_SM}, {"Sc", UTF8PROC_CATEGORY_SC},
+        {"Sk", UTF8PROC_CATEGORY_SK}, {"So", UTF8PROC_CATEGORY_SO},
+        {"Zs", UTF8PROC_CATEGORY_ZS}, {"Zl", UTF8PROC_CATEGORY_ZL},
+        {"Zp", UTF8PROC_CATEGORY_ZP}, {"Cc", UTF8PROC_CATEGORY_CC},
+        {"Cf", UTF8PROC_CATEGORY_CF}, {"Cs", UTF8PROC_CATEGORY_CS},
+        {"Co", UTF8PROC_CATEGORY_CO}, {"Cn", UTF8PROC_CATEGORY_CN},
+    };
+    if (length == 2u && name[0] == 'L' && name[1] == 'C') {
+        return (UINT32_C(1) << UTF8PROC_CATEGORY_LU) |
+               (UINT32_C(1) << UTF8PROC_CATEGORY_LL) |
+               (UINT32_C(1) << UTF8PROC_CATEGORY_LT);
+    }
+    uint32_t mask = 0u;
+    if (length == 1u || length == 2u) {
+        for (size_t i = 0u; i < sizeof(categories) / sizeof(categories[0]); i++) {
+            if (memcmp(name, categories[i].name, length) == 0) {
+                mask |= UINT32_C(1) << categories[i].category;
+            }
+        }
+    }
+    return mask;
+}
+
+static bool parse_unicode_category(
+    boxrig_regex_parser *parser,
+    size_t escape_offset,
+    bool negated,
+    uint32_t *category_mask_out)
+{
+    if (parser->offset < parser->pattern_length &&
+        parser->pattern[parser->offset] == (uint8_t)'{') {
+        size_t start = ++parser->offset;
+        while (parser->offset < parser->pattern_length &&
+               parser->pattern[parser->offset] != (uint8_t)'}' &&
+               parser->offset - start < 2u) {
+            parser->offset++;
+        }
+        if (parser->offset < parser->pattern_length &&
+            parser->pattern[parser->offset] == (uint8_t)'}') {
+            uint32_t mask = unicode_category_mask(
+                &parser->pattern[start], parser->offset - start);
+            if (mask != 0u) {
+                parser->offset++;
+                /* Negate this property before unioning it with other elements. */
+                *category_mask_out = negated ? ~mask : mask;
+                return true;
+            }
+        }
+    }
+    set_diagnostic(parser, BOXRIG_TEXT_REGEX_INVALID_ESCAPE, escape_offset);
+    return false;
+}
+
 static bool escaped_scalar(
     boxrig_regex_parser *parser,
     int32_t *scalar_out,
-    size_t *escape_kind_out)
+    boxrig_regex_escape_kind *escape_kind_out,
+    uint32_t *category_mask_out)
 {
     size_t escape_offset = parser->offset;
     uint8_t byte;
 
-    *escape_kind_out = 0u;
+    *escape_kind_out = BOXRIG_REGEX_ESCAPE_LITERAL;
+    *category_mask_out = 0u;
     parser->offset++;
     if (parser->offset == parser->pattern_length) {
         set_diagnostic(
@@ -267,11 +391,15 @@ static bool escaped_scalar(
     } else if (byte == (uint8_t)'t') {
         *scalar_out = '\t';
     } else if (byte == (uint8_t)'d') {
-        *escape_kind_out = 1u;
+        *escape_kind_out = BOXRIG_REGEX_ESCAPE_DIGIT;
     } else if (byte == (uint8_t)'s') {
-        *escape_kind_out = 2u;
+        *escape_kind_out = BOXRIG_REGEX_ESCAPE_SPACE;
     } else if (byte == (uint8_t)'w') {
-        *escape_kind_out = 3u;
+        *escape_kind_out = BOXRIG_REGEX_ESCAPE_WORD;
+    } else if (byte == (uint8_t)'p' || byte == (uint8_t)'P') {
+        *escape_kind_out = BOXRIG_REGEX_ESCAPE_CATEGORY;
+        return parse_unicode_category(parser, escape_offset, byte == (uint8_t)'P',
+                                      category_mask_out);
     } else if (byte == (uint8_t)'u') {
         uint32_t scalar = 0u;
         size_t digit_count = 0u;
@@ -311,7 +439,7 @@ static bool escaped_scalar(
         }
         parser->offset++;
         *scalar_out = (int32_t)scalar;
-    } else if (strchr("\\.[](){}*+?|^$-", (int)byte) != NULL) {
+    } else if (byte != 0u && strchr("\\.[](){}*+?|^$-", (int)byte) != NULL) {
         *scalar_out = (int32_t)byte;
     } else {
         set_diagnostic(
@@ -325,12 +453,12 @@ static bool escaped_scalar(
 
 static bool append_ascii_class_ranges(
     boxrig_regex_parser *parser,
-    size_t escape_kind)
+    boxrig_regex_escape_kind escape_kind)
 {
-    if (escape_kind == 1u) {
+    if (escape_kind == BOXRIG_REGEX_ESCAPE_DIGIT) {
         return append_range(parser, '0', '9');
     }
-    if (escape_kind == 2u) {
+    if (escape_kind == BOXRIG_REGEX_ESCAPE_SPACE) {
         return append_range(parser, '\t', '\r') &&
                append_range(parser, ' ', ' ');
     }
@@ -344,11 +472,13 @@ static bool parse_class_element(
     boxrig_regex_parser *parser,
     size_t *range_start_out,
     size_t *range_count_out,
-    bool *single_out)
+    bool *single_out,
+    uint32_t *category_mask_out)
 {
     size_t range_start = parser->range_count;
     int32_t scalar = 0;
-    size_t escape_kind = 0u;
+    boxrig_regex_escape_kind escape_kind = BOXRIG_REGEX_ESCAPE_LITERAL;
+    *category_mask_out = 0u;
 
     if (parser->offset == parser->pattern_length) {
         set_diagnostic(
@@ -358,14 +488,15 @@ static bool parse_class_element(
         return false;
     }
     if (parser->pattern[parser->offset] == (uint8_t)'\\') {
-        if (!escaped_scalar(parser, &scalar, &escape_kind)) {
+        if (!escaped_scalar(parser, &scalar, &escape_kind, category_mask_out)) {
             return false;
         }
-        if (escape_kind != 0u) {
-            if (!append_ascii_class_ranges(parser, escape_kind)) {
+        if (escape_kind == BOXRIG_REGEX_ESCAPE_LITERAL) {
+            if (!append_range(parser, scalar, scalar)) {
                 return false;
             }
-        } else if (!append_range(parser, scalar, scalar)) {
+        } else if (escape_kind != BOXRIG_REGEX_ESCAPE_CATEGORY &&
+                   !append_ascii_class_ranges(parser, escape_kind)) {
             return false;
         }
     } else {
@@ -417,21 +548,32 @@ static bool parse_class(
         size_t first_start;
         size_t first_count;
         bool first_single;
+        uint32_t first_category_mask;
 
         if (!parse_class_element(
                 parser,
                 &first_start,
                 &first_count,
-                &first_single)) {
+                &first_single,
+                &first_category_mask)) {
             return false;
         }
         has_element = true;
+        class_value->category_mask |= first_category_mask;
+        if (first_category_mask != 0u &&
+            parser->offset + 1u < parser->pattern_length &&
+            parser->pattern[parser->offset] == (uint8_t)'-' &&
+            parser->pattern[parser->offset + 1u] != (uint8_t)']') {
+            set_diagnostic(parser, BOXRIG_TEXT_REGEX_INVALID_RANGE, parser->offset);
+            return false;
+        }
         if (first_single && parser->offset + 1u < parser->pattern_length &&
             parser->pattern[parser->offset] == (uint8_t)'-' &&
             parser->pattern[parser->offset + 1u] != (uint8_t)']') {
             size_t second_start;
             size_t second_count;
             bool second_single;
+            uint32_t second_category_mask;
             int32_t first = parser->ranges[first_start].first;
 
             parser->offset++;
@@ -439,7 +581,8 @@ static bool parse_class(
                     parser,
                     &second_start,
                     &second_count,
-                    &second_single)) {
+                    &second_single,
+                    &second_category_mask)) {
                 return false;
             }
             if (!second_single ||
@@ -538,6 +681,7 @@ static bool push_operator(
     }
     entry.operator_kind = operator_kind;
     entry.pattern_offset = pattern_offset;
+    entry.capture_index = 0u;
     parser->operators[parser->operator_count++] = entry;
     return true;
 }
@@ -609,7 +753,7 @@ static bool parse_repeat(
     }
     parser->offset++;
     if (maximum > parser->limits->quantifier_capacity ||
-        maximum > BOXRIG_TEXT_RECOGNIZER_QUANTIFIER_CAPACITY_MAX) {
+        maximum > BOXRIG_REGEX_QUANTIFIER_CAPACITY_MAX) {
         set_diagnostic(
             parser,
             BOXRIG_TEXT_REGEX_QUANTIFIER_LIMIT,
@@ -648,12 +792,13 @@ static bool append_atom_token(
             return false;
         }
     } else if (byte == (uint8_t)'\\') {
-        size_t escape_kind;
+        boxrig_regex_escape_kind escape_kind;
+        uint32_t category_mask;
 
-        if (!escaped_scalar(parser, &token->scalar, &escape_kind)) {
+        if (!escaped_scalar(parser, &token->scalar, &escape_kind, &category_mask)) {
             return false;
         }
-        if (escape_kind == 0u) {
+        if (escape_kind == BOXRIG_REGEX_ESCAPE_LITERAL) {
             token->type = BOXRIG_REGEX_TOKEN_LITERAL;
         } else {
             boxrig_regex_class *class_value;
@@ -668,7 +813,9 @@ static bool append_atom_token(
             class_value = &parser->classes[parser->class_count];
             class_value->range_start = parser->range_count;
             class_value->negated = false;
-            if (!append_ascii_class_ranges(parser, escape_kind)) {
+            class_value->category_mask = category_mask;
+            if (escape_kind != BOXRIG_REGEX_ESCAPE_CATEGORY &&
+                !append_ascii_class_ranges(parser, escape_kind)) {
                 return false;
             }
             class_value->range_count =
@@ -679,7 +826,7 @@ static bool append_atom_token(
     } else {
         size_t length;
 
-        if (byte < UINT8_C(0x80) &&
+        if (byte != 0u && byte < UINT8_C(0x80) &&
             strchr("|()*+?{}]", (int)byte) != NULL) {
             set_diagnostic(
                 parser,
@@ -696,9 +843,83 @@ static bool append_atom_token(
     return true;
 }
 
+static bool identifier_start(uint8_t byte)
+{
+    return (byte >= 'A' && byte <= 'Z') ||
+           (byte >= 'a' && byte <= 'z') || byte == '_';
+}
+
+static bool parse_group(boxrig_regex_parser *parser, size_t *group_out)
+{
+    size_t group_offset = parser->offset++;
+    size_t name_start = 0u, name_length = 0u;
+    *group_out = 0u;
+    if (parser->offset < parser->pattern_length &&
+        parser->pattern[parser->offset] == '?') {
+        if (parser->offset + 1u < parser->pattern_length &&
+            parser->pattern[parser->offset + 1u] == ':') {
+            parser->offset += 2u;
+            return true;
+        }
+        if (parser->offset + 1u >= parser->pattern_length ||
+            parser->pattern[parser->offset + 1u] != '<') {
+            set_diagnostic(parser, BOXRIG_TEXT_REGEX_UNSUPPORTED_SYNTAX,
+                           parser->offset);
+            return false;
+        }
+        parser->offset += 2u;
+        name_start = parser->offset;
+        if (parser->offset == parser->pattern_length ||
+            !identifier_start(parser->pattern[parser->offset])) {
+            set_diagnostic(parser, BOXRIG_TEXT_REGEX_UNSUPPORTED_SYNTAX,
+                           parser->offset);
+            return false;
+        }
+        do {
+            parser->offset++;
+        } while (parser->offset < parser->pattern_length &&
+                 (identifier_start(parser->pattern[parser->offset]) ||
+                  (parser->pattern[parser->offset] >= '0' &&
+                   parser->pattern[parser->offset] <= '9')));
+        name_length = parser->offset - name_start;
+        if (parser->offset == parser->pattern_length ||
+            parser->pattern[parser->offset] != '>') {
+            set_diagnostic(parser, BOXRIG_TEXT_REGEX_UNSUPPORTED_SYNTAX,
+                           parser->offset);
+            return false;
+        }
+        parser->offset++;
+        for (size_t i = 1u; i <= parser->group_count; i++) {
+            const char *name = parser->group_names[i];
+            if (name != NULL && strlen(name) == name_length &&
+                memcmp(name, parser->pattern + name_start, name_length) == 0) {
+                set_diagnostic(parser, BOXRIG_TEXT_REGEX_UNSUPPORTED_SYNTAX,
+                               name_start);
+                return false;
+            }
+        }
+    }
+    if (parser->group_count == parser->limits->capture_capacity) {
+        set_diagnostic(parser, BOXRIG_TEXT_REGEX_CAPTURE_LIMIT, group_offset);
+        return false;
+    }
+    *group_out = ++parser->group_count;
+    if (name_length != 0u) {
+        char *name = malloc(name_length + 1u);
+        if (name == NULL) {
+            return false;
+        }
+        memcpy(name, parser->pattern + name_start, name_length);
+        name[name_length] = '\0';
+        parser->group_names[*group_out] = name;
+    }
+    return true;
+}
+
 static bool parse_to_postfix(boxrig_regex_parser *parser)
 {
     bool previous_atom = false;
+    bool previous_quantifier = false;
 
     while (parser->offset < parser->pattern_length) {
         size_t token_offset = parser->offset;
@@ -707,14 +928,6 @@ static bool parse_to_postfix(boxrig_regex_parser *parser)
         if (byte == (uint8_t)'(') {
             boxrig_regex_operator_entry entry;
 
-            if (parser->offset + 1u < parser->pattern_length &&
-                parser->pattern[parser->offset + 1u] == (uint8_t)'?') {
-                set_diagnostic(
-                    parser,
-                    BOXRIG_TEXT_REGEX_UNSUPPORTED_SYNTAX,
-                    parser->offset + 1u);
-                return false;
-            }
             if (previous_atom &&
                 !push_operator(
                     parser,
@@ -731,9 +944,12 @@ static bool parse_to_postfix(boxrig_regex_parser *parser)
             }
             entry.operator_kind = BOXRIG_REGEX_OPERATOR_GROUP;
             entry.pattern_offset = token_offset;
+            if (!parse_group(parser, &entry.capture_index)) {
+                return false;
+            }
             parser->operators[parser->operator_count++] = entry;
-            parser->offset++;
             previous_atom = false;
+            previous_quantifier = false;
         } else if (byte == (uint8_t)')') {
             bool found_group = false;
 
@@ -749,6 +965,16 @@ static bool parse_to_postfix(boxrig_regex_parser *parser)
                     parser->operators[--parser->operator_count];
 
                 if (entry.operator_kind == BOXRIG_REGEX_OPERATOR_GROUP) {
+                    if (entry.capture_index != 0u) {
+                        boxrig_regex_token capture;
+                        memset(&capture, 0, sizeof(capture));
+                        capture.type = BOXRIG_REGEX_TOKEN_CAPTURE;
+                        capture.pattern_offset = entry.pattern_offset;
+                        capture.capture_index = entry.capture_index;
+                        if (!append_postfix(parser, capture)) {
+                            return false;
+                        }
+                    }
                     found_group = true;
                     break;
                 }
@@ -765,6 +991,7 @@ static bool parse_to_postfix(boxrig_regex_parser *parser)
             }
             parser->offset++;
             previous_atom = true;
+            previous_quantifier = false;
         } else if (byte == (uint8_t)'|') {
             if (!previous_atom ||
                 !push_operator(
@@ -782,11 +1009,12 @@ static bool parse_to_postfix(boxrig_regex_parser *parser)
             }
             parser->offset++;
             previous_atom = false;
+            previous_quantifier = false;
         } else if (byte == (uint8_t)'?' || byte == (uint8_t)'*' ||
                    byte == (uint8_t)'+' || byte == (uint8_t)'{') {
             boxrig_regex_token token;
 
-            if (!previous_atom) {
+            if (!previous_atom || previous_quantifier) {
                 set_diagnostic(
                     parser,
                     byte == (uint8_t)'{'
@@ -812,6 +1040,7 @@ static bool parse_to_postfix(boxrig_regex_parser *parser)
             if (!append_postfix(parser, token)) {
                 return false;
             }
+            previous_quantifier = true;
         } else {
             boxrig_regex_token token;
 
@@ -827,6 +1056,7 @@ static bool parse_to_postfix(boxrig_regex_parser *parser)
                 return false;
             }
             previous_atom = true;
+            previous_quantifier = false;
         }
     }
     if (!previous_atom) {
@@ -1123,7 +1353,9 @@ static bool build_ast(
                            parser,
                            nodes,
                            &node_count,
-                           token->type == BOXRIG_REGEX_TOKEN_OPTIONAL
+                           token->type == BOXRIG_REGEX_TOKEN_CAPTURE
+                               ? BOXRIG_REGEX_NODE_CAPTURE
+                               : token->type == BOXRIG_REGEX_TOKEN_OPTIONAL
                                ? BOXRIG_REGEX_NODE_OPTIONAL
                                : token->type == BOXRIG_REGEX_TOKEN_STAR
                                      ? BOXRIG_REGEX_NODE_STAR
@@ -1132,6 +1364,9 @@ static bool build_ast(
                            token->pattern_offset,
                            &root)) {
                 goto cleanup;
+            }
+            if (token->type == BOXRIG_REGEX_TOKEN_CAPTURE) {
+                nodes[root].capture_index = token->capture_index;
             }
             stack[stack_count++] = root;
         }
@@ -1257,7 +1492,21 @@ static bool compile_ast(
         } else {
             boxrig_regex_fragment child = fragments[node->left];
 
-            if (node->type == BOXRIG_REGEX_NODE_OPTIONAL) {
+            if (node->type == BOXRIG_REGEX_NODE_CAPTURE) {
+                size_t open, close;
+                if (!add_state(parser, program, BOXRIG_REGEX_STATE_CAPTURE_OPEN,
+                               node->pattern_offset, &open) ||
+                    !add_state(parser, program, BOXRIG_REGEX_STATE_CAPTURE_CLOSE,
+                               node->pattern_offset, &close)) {
+                    goto cleanup;
+                }
+                program->states[fragment->start].out = open;
+                program->states[open].capture_index = node->capture_index;
+                program->states[open].out = child.start;
+                program->states[child.end].out = close;
+                program->states[close].capture_index = node->capture_index;
+                program->states[close].out = fragment->end;
+            } else if (node->type == BOXRIG_REGEX_NODE_OPTIONAL) {
                 program->states[fragment->start].type =
                     BOXRIG_REGEX_STATE_SPLIT;
                 program->states[fragment->start].out = child.start;
@@ -1296,26 +1545,38 @@ cleanup:
     return success;
 }
 
-static bool limits_valid(const boxrig_text_recognizer_limits *limits)
+boxrig_regex_limits boxrig_regex_limits_default(void)
 {
-    return limits != NULL && limits->state_capacity != 0u &&
-           limits->state_capacity <= BOXRIG_TEXT_RECOGNIZER_STATE_CAPACITY_MAX &&
+    boxrig_regex_limits limits;
+    limits.pattern_capacity = BOXRIG_REGEX_PATTERN_CAPACITY_MAX;
+    limits.state_capacity = 32768u;
+    limits.quantifier_capacity = BOXRIG_REGEX_QUANTIFIER_CAPACITY_MAX;
+    limits.input_byte_capacity = 1024u * 1024u;
+    limits.capture_capacity = 32u;
+    limits.capture_byte_capacity = 16u * 1024u * 1024u;
+    return limits;
+}
+
+static bool limits_valid(const boxrig_regex_limits *limits)
+{
+    return limits != NULL && limits->pattern_capacity != 0u &&
+           limits->pattern_capacity <= BOXRIG_REGEX_PATTERN_CAPACITY_MAX &&
+           limits->state_capacity != 0u &&
+           limits->state_capacity <= BOXRIG_REGEX_STATE_CAPACITY_MAX &&
            limits->quantifier_capacity != 0u &&
-           limits->quantifier_capacity <=
-               BOXRIG_TEXT_RECOGNIZER_QUANTIFIER_CAPACITY_MAX &&
-           limits->line_byte_capacity != 0u &&
-           limits->line_column_capacity != 0u &&
-           limits->line_match_capacity != 0u &&
-           limits->result_capacity != 0u &&
-           limits->dirty_line_capacity != 0u &&
-           limits->snapshot_byte_capacity != 0u &&
-           limits->snapshot_line_capacity != 0u;
+           limits->quantifier_capacity <= BOXRIG_REGEX_QUANTIFIER_CAPACITY_MAX &&
+           limits->input_byte_capacity != 0u &&
+           limits->input_byte_capacity <= BOXRIG_REGEX_INPUT_BYTE_CAPACITY_MAX &&
+           limits->capture_capacity != 0u &&
+           limits->capture_capacity <= BOXRIG_REGEX_CAPTURE_CAPACITY_MAX &&
+           limits->capture_byte_capacity != 0u &&
+           limits->capture_byte_capacity <= BOXRIG_REGEX_CAPTURE_BYTE_CAPACITY_MAX;
 }
 
 boxrig_status boxrig_regex_compile(
     const uint8_t *pattern,
     size_t pattern_length,
-    const boxrig_text_recognizer_limits *limits,
+    const boxrig_regex_limits *limits,
     boxrig_text_regex_diagnostic *diagnostic_out,
     boxrig_regex_program **program_out)
 {
@@ -1328,19 +1589,22 @@ boxrig_status boxrig_regex_compile(
     size_t range_capacity;
     boxrig_status status = BOXRIG_STATUS_OUT_OF_MEMORY;
 
+    if (program_out != NULL) {
+        *program_out = NULL;
+    }
+    if (diagnostic_out != NULL) {
+        diagnostic_out->code = BOXRIG_TEXT_REGEX_DIAGNOSTIC_NONE;
+        diagnostic_out->pattern_offset = 0u;
+    }
     if (diagnostic_out == NULL || program_out == NULL) {
         return BOXRIG_STATUS_INVALID_ARGUMENT;
     }
-    diagnostic_out->code = BOXRIG_TEXT_REGEX_DIAGNOSTIC_NONE;
-    diagnostic_out->pattern_offset = 0u;
-    *program_out = NULL;
     if ((pattern == NULL && pattern_length != 0u) || !limits_valid(limits)) {
         return BOXRIG_STATUS_INVALID_ARGUMENT;
     }
-    if (pattern_length > BOXRIG_TEXT_RECOGNIZER_PATTERN_CAPACITY_MAX) {
+    if (pattern_length > limits->pattern_capacity) {
         diagnostic_out->code = BOXRIG_TEXT_REGEX_PATTERN_LIMIT;
-        diagnostic_out->pattern_offset =
-            BOXRIG_TEXT_RECOGNIZER_PATTERN_CAPACITY_MAX;
+        diagnostic_out->pattern_offset = limits->pattern_capacity;
         return BOXRIG_STATUS_LIMIT_EXCEEDED;
     }
     if (pattern_length > (SIZE_MAX - 1u) / 2u ||
@@ -1365,18 +1629,24 @@ boxrig_status boxrig_regex_compile(
         sizeof(*parser.operators));
     parser.classes = calloc(parser.class_capacity, sizeof(*parser.classes));
     parser.ranges = calloc(parser.range_capacity, sizeof(*parser.ranges));
+    parser.group_names = calloc(limits->capture_capacity + 1u,
+                                sizeof(*parser.group_names));
     nodes = calloc(limits->state_capacity, sizeof(*nodes));
     if (parser.postfix == NULL || parser.operators == NULL ||
-        parser.classes == NULL || parser.ranges == NULL || nodes == NULL) {
+        parser.classes == NULL || parser.ranges == NULL || nodes == NULL ||
+        parser.group_names == NULL) {
         goto cleanup;
     }
     if (!parse_to_postfix(&parser) ||
         !build_ast(&parser, nodes, &node_count, &root)) {
         status = diagnostic_out->code == BOXRIG_TEXT_REGEX_STATE_LIMIT ||
+                         diagnostic_out->code == BOXRIG_TEXT_REGEX_CAPTURE_LIMIT ||
                          diagnostic_out->code ==
                              BOXRIG_TEXT_REGEX_QUANTIFIER_LIMIT
                      ? BOXRIG_STATUS_LIMIT_EXCEEDED
-                     : BOXRIG_STATUS_INVALID_ARGUMENT;
+                     : diagnostic_out->code == BOXRIG_TEXT_REGEX_DIAGNOSTIC_NONE
+                           ? BOXRIG_STATUS_OUT_OF_MEMORY
+                           : BOXRIG_STATUS_INVALID_ARGUMENT;
         goto cleanup;
     }
     if (nodes[root].nullable) {
@@ -1391,6 +1661,9 @@ boxrig_status boxrig_regex_compile(
     if (program == NULL) {
         goto cleanup;
     }
+    program->references = 1u;
+    program->limits = *limits;
+    program->pattern_length = pattern_length;
     program->states = calloc(limits->state_capacity, sizeof(*program->states));
     if (program->states == NULL) {
         goto cleanup;
@@ -1401,6 +1674,18 @@ boxrig_status boxrig_regex_compile(
                      : BOXRIG_STATUS_OUT_OF_MEMORY;
         goto cleanup;
     }
+    /* Public count/state ceilings make this product fit even 32-bit size_t.
+     * Both state banks plus seed/best registers are fixed for all input sizes. */
+    size_t capture_bytes = (program->state_count * 2u + 2u) *
+                           (parser.group_count + 1u) * 2u * sizeof(size_t);
+    if (capture_bytes > limits->capture_byte_capacity) {
+        set_diagnostic(&parser, BOXRIG_TEXT_REGEX_CAPTURE_LIMIT, pattern_length);
+        status = BOXRIG_STATUS_LIMIT_EXCEEDED;
+        goto cleanup;
+    }
+    program->group_names = parser.group_names;
+    program->group_count = parser.group_count;
+    parser.group_names = NULL;
     program->classes = parser.classes;
     program->class_count = parser.class_count;
     program->ranges = parser.ranges;
@@ -1420,7 +1705,25 @@ cleanup:
     free(parser.operators);
     free(parser.classes);
     free(parser.ranges);
+    if (parser.group_names != NULL) {
+        for (size_t i = 1u; i <= parser.group_count; i++) {
+            free(parser.group_names[i]);
+        }
+        free(parser.group_names);
+    }
     return status;
+}
+
+boxrig_status boxrig_regex_program_retain(boxrig_regex_program *program)
+{
+    if (program == NULL) {
+        return BOXRIG_STATUS_INVALID_ARGUMENT;
+    }
+    if (program->references == SIZE_MAX) {
+        return BOXRIG_STATUS_LIMIT_EXCEEDED;
+    }
+    program->references++;
+    return BOXRIG_STATUS_OK;
 }
 
 void boxrig_regex_program_destroy(boxrig_regex_program *program)
@@ -1428,15 +1731,59 @@ void boxrig_regex_program_destroy(boxrig_regex_program *program)
     if (program == NULL) {
         return;
     }
+    if (program->references > 1u) {
+        program->references--;
+        return;
+    }
     free(program->states);
     free(program->classes);
     free(program->ranges);
+    if (program->group_names != NULL) {
+        for (size_t i = 1u; i <= program->group_count; i++) {
+            free(program->group_names[i]);
+        }
+        free(program->group_names);
+    }
     free(program);
 }
 
 size_t boxrig_regex_program_state_count(const boxrig_regex_program *program)
 {
     return program == NULL ? 0u : program->state_count;
+}
+
+size_t boxrig_regex_program_group_count(const boxrig_regex_program *program)
+{
+    return program == NULL ? 0u : program->group_count;
+}
+
+boxrig_status boxrig_regex_program_find_named_group(
+    const boxrig_regex_program *program, const char *name,
+    bool *found_out, size_t *group_out)
+{
+    if (found_out != NULL) {
+        *found_out = false;
+    }
+    if (group_out != NULL) {
+        *group_out = 0;
+    }
+    if (program == NULL || name == NULL || found_out == NULL || group_out == NULL) {
+        return BOXRIG_STATUS_INVALID_ARGUMENT;
+    }
+    for (size_t i = 1u; i <= program->group_count; i++) {
+        const char *candidate = program->group_names[i];
+        if (candidate != NULL && strcmp(candidate, name) == 0) {
+            *found_out = true;
+            *group_out = i;
+            break;
+        }
+    }
+    return BOXRIG_STATUS_OK;
+}
+
+size_t boxrig_regex_program_pattern_length(const boxrig_regex_program *program)
+{
+    return program->pattern_length;
 }
 
 static void begin_generation(boxrig_regex_cursor *cursor)
@@ -1454,19 +1801,38 @@ static void begin_generation(boxrig_regex_cursor *cursor)
 
 static void schedule_closure(
     boxrig_regex_cursor *cursor,
-    size_t state_index)
+    size_t state_index,
+    size_t source_index)
 {
     if (state_index == SIZE_MAX ||
         cursor->seen[state_index] == cursor->generation) {
         return;
     }
-    cursor->seen[state_index] = cursor->generation;
-    cursor->closure_stack[cursor->closure_count++] = state_index;
+    boxrig_regex_closure_frame *frame =
+        &cursor->closure_stack[cursor->closure_count++];
+    frame->state = state_index;
+    frame->source = source_index;
 }
 
 static void process_closure_state(boxrig_regex_cursor *cursor)
 {
-    size_t state_index = cursor->closure_stack[--cursor->closure_count];
+    boxrig_regex_closure_frame frame =
+        cursor->closure_stack[--cursor->closure_count];
+    size_t state_index = frame.state;
+    if (cursor->seen[state_index] == cursor->generation) {
+        return;
+    }
+    /* Mark on visitation, not scheduling: a preferred nullable branch may
+     * reach a state that is also waiting on the lower-priority stack branch.
+     * A visited source's registers never change at this input position. */
+    cursor->seen[state_index] = cursor->generation;
+    size_t *bank = cursor->closure_target == BOXRIG_REGEX_CLOSURE_CURRENT
+                       ? cursor->current_captures : cursor->next_captures;
+    size_t *captures = bank + state_index * cursor->register_count;
+    const size_t *source = frame.source == SIZE_MAX
+                              ? cursor->seed_captures
+                              : bank + frame.source * cursor->register_count;
+    memcpy(captures, source, cursor->register_count * sizeof(*captures));
     const boxrig_regex_state *state = &cursor->program->states[state_index];
     size_t closure_position = cursor->closure_target ==
                                       BOXRIG_REGEX_CLOSURE_CURRENT
@@ -1474,28 +1840,48 @@ static void process_closure_state(boxrig_regex_cursor *cursor)
                                   : cursor->position + 1u;
 
     if (state->type == BOXRIG_REGEX_STATE_EPSILON) {
-        schedule_closure(cursor, state->out);
+        schedule_closure(cursor, state->out, state_index);
     } else if (state->type == BOXRIG_REGEX_STATE_SPLIT) {
-        schedule_closure(cursor, state->alternate_out);
-        schedule_closure(cursor, state->out);
+        schedule_closure(cursor, state->alternate_out, state_index);
+        schedule_closure(cursor, state->out, state_index);
+    } else if (state->type == BOXRIG_REGEX_STATE_CAPTURE_OPEN ||
+               state->type == BOXRIG_REGEX_STATE_CAPTURE_CLOSE) {
+        size_t offset = state->capture_index * 2u;
+        if (state->type == BOXRIG_REGEX_STATE_CAPTURE_OPEN) {
+            captures[offset] = closure_position;
+            captures[offset + 1u] = SIZE_MAX;
+        } else {
+            captures[offset + 1u] = closure_position;
+        }
+        schedule_closure(cursor, state->out, state_index);
     } else if (state->type == BOXRIG_REGEX_STATE_ASSERT_BEGIN) {
         if (closure_position == 0u) {
-            schedule_closure(cursor, state->out);
+            schedule_closure(cursor, state->out, state_index);
         }
     } else if (state->type == BOXRIG_REGEX_STATE_ASSERT_END) {
         if (closure_position == cursor->scalar_count) {
-            schedule_closure(cursor, state->out);
+            schedule_closure(cursor, state->out, state_index);
         }
     } else if (state->type == BOXRIG_REGEX_STATE_ACCEPT) {
-        if (cursor->closure_target == BOXRIG_REGEX_CLOSURE_CURRENT) {
-            cursor->current_accept = true;
-        } else {
-            cursor->next_accept = true;
+        if (cursor->boundaries[closure_position] &&
+            (cursor->closure_start < cursor->longest_start ||
+             (cursor->closure_start == cursor->longest_start &&
+              closure_position > cursor->longest_end))) {
+            cursor->longest_start = cursor->closure_start;
+            cursor->longest_end = closure_position;
+            memcpy(cursor->best_captures, captures,
+                   cursor->register_count * sizeof(*captures));
+            cursor->best_captures[0] = cursor->longest_start;
+            cursor->best_captures[1] = cursor->longest_end;
         }
     } else if (cursor->closure_target == BOXRIG_REGEX_CLOSURE_CURRENT) {
-        cursor->current_states[cursor->current_count++] = state_index;
+        boxrig_regex_thread *thread = &cursor->current_states[cursor->current_count++];
+        thread->state = state_index;
+        thread->start = cursor->closure_start;
     } else {
-        cursor->next_states[cursor->next_count++] = state_index;
+        boxrig_regex_thread *thread = &cursor->next_states[cursor->next_count++];
+        thread->state = state_index;
+        thread->start = cursor->closure_start;
     }
 }
 
@@ -1513,10 +1899,12 @@ static bool state_matches(
     if (state->type == BOXRIG_REGEX_STATE_CLASS) {
         const boxrig_regex_class *class_value =
             &program->classes[state->class_index];
-        bool contained = false;
+        bool contained = class_value->category_mask != 0u &&
+            (class_value->category_mask &
+             (UINT32_C(1) << utf8proc_category(scalar))) != 0u;
         size_t index;
 
-        for (index = 0u; index < class_value->range_count; index++) {
+        for (index = 0u; !contained && index < class_value->range_count; index++) {
             const boxrig_regex_range *range =
                 &program->ranges[class_value->range_start + index];
 
@@ -1557,11 +1945,22 @@ boxrig_status boxrig_regex_cursor_create(
         program->state_count,
         sizeof(*cursor->next_states));
     cursor->closure_stack = calloc(
-        program->state_count,
+        program->state_count * 2u + 1u,
         sizeof(*cursor->closure_stack));
     cursor->seen = calloc(program->state_count, sizeof(*cursor->seen));
+    cursor->register_count = (program->group_count + 1u) * 2u;
+    cursor->current_captures = calloc(program->state_count * cursor->register_count,
+                                      sizeof(*cursor->current_captures));
+    cursor->next_captures = calloc(program->state_count * cursor->register_count,
+                                   sizeof(*cursor->next_captures));
+    cursor->seed_captures = calloc(cursor->register_count,
+                                   sizeof(*cursor->seed_captures));
+    cursor->best_captures = calloc(cursor->register_count,
+                                   sizeof(*cursor->best_captures));
     if (cursor->current_states == NULL || cursor->next_states == NULL ||
-        cursor->closure_stack == NULL || cursor->seen == NULL) {
+        cursor->closure_stack == NULL || cursor->seen == NULL ||
+        cursor->current_captures == NULL || cursor->next_captures == NULL ||
+        cursor->seed_captures == NULL || cursor->best_captures == NULL) {
         boxrig_regex_cursor_destroy(cursor);
         return BOXRIG_STATUS_OUT_OF_MEMORY;
     }
@@ -1591,8 +1990,8 @@ boxrig_status boxrig_regex_cursor_reset(
     cursor->scalars = scalars;
     cursor->boundaries = grapheme_boundaries;
     cursor->scalar_count = scalar_count;
-    cursor->candidate = start;
-    cursor->position = 0u;
+    cursor->position = start;
+    cursor->longest_start = SIZE_MAX;
     cursor->longest_end = SIZE_MAX;
     cursor->current_count = 0u;
     cursor->next_count = 0u;
@@ -1600,9 +1999,8 @@ boxrig_status boxrig_regex_cursor_reset(
     cursor->closure_count = 0u;
     cursor->phase = BOXRIG_REGEX_CURSOR_CANDIDATE;
     cursor->closure_target = BOXRIG_REGEX_CLOSURE_CURRENT;
-    cursor->current_accept = false;
-    cursor->next_accept = false;
-    cursor->next_prepared = false;
+    cursor->closure_start = start;
+    begin_generation(cursor);
     return BOXRIG_STATUS_OK;
 }
 
@@ -1615,6 +2013,10 @@ void boxrig_regex_cursor_destroy(boxrig_regex_cursor *cursor)
     free(cursor->next_states);
     free(cursor->closure_stack);
     free(cursor->seen);
+    free(cursor->current_captures);
+    free(cursor->next_captures);
+    free(cursor->seed_captures);
+    free(cursor->best_captures);
     free(cursor);
 }
 
@@ -1644,95 +2046,348 @@ boxrig_status boxrig_regex_cursor_resume(
     while (work_used < work_budget) {
         if (cursor->phase == BOXRIG_REGEX_CURSOR_CANDIDATE) {
             work_used++;
-            if (cursor->candidate > cursor->scalar_count) {
-                cursor->phase = BOXRIG_REGEX_CURSOR_COMPLETE;
-                *progress_out = BOXRIG_REGEX_NOT_FOUND;
-                break;
+            /* Earlier starts reach every state first. A later start at the same
+             * state cannot improve leftmost-longest matching, so it is merged.
+             * Retain the generation from the previous output closure when
+             * injecting the next candidate: every state is visited at most
+             * once at this input position, even for long unmatched suffixes. */
+            if (cursor->longest_start == SIZE_MAX &&
+                cursor->position < cursor->scalar_count &&
+                cursor->boundaries[cursor->position]) {
+                cursor->closure_target = BOXRIG_REGEX_CLOSURE_CURRENT;
+                cursor->closure_start = cursor->position;
+                for (size_t i = 0u; i < cursor->register_count; i++) {
+                    cursor->seed_captures[i] = SIZE_MAX;
+                }
+                schedule_closure(cursor, cursor->program->start_state, SIZE_MAX);
             }
-            if (!cursor->boundaries[cursor->candidate]) {
-                cursor->candidate++;
-                continue;
-            }
-            cursor->position = cursor->candidate;
-            cursor->longest_end = SIZE_MAX;
-            cursor->current_count = 0u;
-            cursor->next_count = 0u;
-            cursor->closure_count = 0u;
-            cursor->current_accept = false;
-            cursor->next_accept = false;
-            cursor->next_prepared = false;
-            cursor->closure_target = BOXRIG_REGEX_CLOSURE_CURRENT;
-            begin_generation(cursor);
-            schedule_closure(cursor, cursor->program->start_state);
             cursor->phase = BOXRIG_REGEX_CURSOR_START_CLOSURE;
         } else if (cursor->phase == BOXRIG_REGEX_CURSOR_START_CLOSURE ||
                    cursor->phase == BOXRIG_REGEX_CURSOR_OUTPUT_CLOSURE) {
             if (cursor->closure_count != 0u) {
                 process_closure_state(cursor);
                 work_used++;
-            } else if (cursor->phase ==
-                       BOXRIG_REGEX_CURSOR_START_CLOSURE) {
-                if (cursor->current_accept &&
-                    cursor->boundaries[cursor->position]) {
-                    cursor->longest_end = cursor->position;
+            } else if (cursor->phase == BOXRIG_REGEX_CURSOR_START_CLOSURE) {
+                if (cursor->position == cursor->scalar_count ||
+                    (cursor->longest_start != SIZE_MAX &&
+                     (cursor->current_count == 0u ||
+                      cursor->current_states[0].start > cursor->longest_start))) {
+                    cursor->phase = BOXRIG_REGEX_CURSOR_COMPLETE;
+                    if (cursor->longest_start == SIZE_MAX) {
+                        *progress_out = BOXRIG_REGEX_NOT_FOUND;
+                    } else {
+                        match_out->start = cursor->longest_start;
+                        match_out->end = cursor->longest_end;
+                        *progress_out = BOXRIG_REGEX_MATCH;
+                    }
+                    break;
                 }
                 cursor->transition_index = 0u;
+                cursor->next_count = 0u;
+                begin_generation(cursor);
                 cursor->phase = BOXRIG_REGEX_CURSOR_TRANSITION;
             } else {
                 cursor->phase = BOXRIG_REGEX_CURSOR_TRANSITION;
             }
         } else if (cursor->phase == BOXRIG_REGEX_CURSOR_TRANSITION) {
-            if (cursor->position == cursor->scalar_count ||
-                cursor->current_count == 0u) {
-                if (cursor->longest_end != SIZE_MAX) {
-                    match_out->start = cursor->candidate;
-                    match_out->end = cursor->longest_end;
-                    cursor->phase = BOXRIG_REGEX_CURSOR_COMPLETE;
-                    *progress_out = BOXRIG_REGEX_MATCH;
-                    break;
-                }
-                cursor->candidate++;
-                cursor->phase = BOXRIG_REGEX_CURSOR_CANDIDATE;
-                continue;
-            }
-            if (!cursor->next_prepared) {
-                cursor->next_count = 0u;
-                cursor->next_accept = false;
-                cursor->closure_count = 0u;
-                begin_generation(cursor);
-                cursor->next_prepared = true;
-            }
             if (cursor->transition_index < cursor->current_count) {
+                const boxrig_regex_thread *thread =
+                    &cursor->current_states[cursor->transition_index++];
                 const boxrig_regex_state *state =
-                    &cursor->program->states[
-                        cursor->current_states[cursor->transition_index++]];
-
-                if (state_matches(
-                        cursor->program,
-                        state,
-                        cursor->scalars[cursor->position])) {
+                    &cursor->program->states[thread->state];
+                if (thread->start <= cursor->longest_start &&
+                    state_matches(cursor->program, state,
+                                  cursor->scalars[cursor->position])) {
                     cursor->closure_target = BOXRIG_REGEX_CLOSURE_NEXT;
-                    schedule_closure(cursor, state->out);
+                    cursor->closure_start = thread->start;
+                    memcpy(cursor->seed_captures,
+                           cursor->current_captures +
+                               thread->state * cursor->register_count,
+                           cursor->register_count * sizeof(*cursor->seed_captures));
+                    schedule_closure(cursor, state->out, SIZE_MAX);
                     cursor->phase = BOXRIG_REGEX_CURSOR_OUTPUT_CLOSURE;
                 }
                 work_used++;
             } else {
-                size_t *state_swap = cursor->current_states;
-
+                boxrig_regex_thread *state_swap = cursor->current_states;
                 cursor->current_states = cursor->next_states;
                 cursor->next_states = state_swap;
+                size_t *capture_swap = cursor->current_captures;
+                cursor->current_captures = cursor->next_captures;
+                cursor->next_captures = capture_swap;
                 cursor->current_count = cursor->next_count;
-                cursor->current_accept = cursor->next_accept;
                 cursor->position++;
-                if (cursor->current_accept &&
-                    cursor->boundaries[cursor->position]) {
-                    cursor->longest_end = cursor->position;
-                }
-                cursor->transition_index = 0u;
-                cursor->next_prepared = false;
+                cursor->phase = BOXRIG_REGEX_CURSOR_CANDIDATE;
             }
         }
     }
     *work_used_out = work_used;
     return BOXRIG_STATUS_OK;
+}
+
+boxrig_status boxrig_regex_matcher_create(
+    boxrig_regex_program *program,
+    const uint8_t *input,
+    size_t input_length,
+    size_t start_byte,
+    size_t *error_offset_out,
+    boxrig_regex_matcher **matcher_out)
+{
+    if (matcher_out != NULL) {
+        *matcher_out = NULL;
+    }
+    if (error_offset_out != NULL) {
+        *error_offset_out = 0u;
+    }
+    if (program == NULL || matcher_out == NULL || error_offset_out == NULL ||
+        (input == NULL && input_length != 0u)) {
+        return BOXRIG_STATUS_INVALID_ARGUMENT;
+    }
+    if (input_length > program->limits.input_byte_capacity) {
+        *error_offset_out = program->limits.input_byte_capacity;
+        return BOXRIG_STATUS_LIMIT_EXCEEDED;
+    }
+    if (start_byte > input_length ||
+        (start_byte < input_length && (input[start_byte] & 0xc0u) == 0x80u)) {
+        *error_offset_out = start_byte;
+        return BOXRIG_STATUS_INVALID_ARGUMENT;
+    }
+    boxrig_regex_matcher *matcher = calloc(1u, sizeof(*matcher));
+    if (matcher == NULL) {
+        return BOXRIG_STATUS_OUT_OF_MEMORY;
+    }
+    matcher->scalars = calloc(input_length + 1u, sizeof(*matcher->scalars));
+    matcher->byte_offsets = calloc(input_length + 1u, sizeof(*matcher->byte_offsets));
+    matcher->boundaries = calloc(input_length + 1u, sizeof(*matcher->boundaries));
+    matcher->input = malloc(input_length + 1u);
+    if (matcher->scalars == NULL || matcher->byte_offsets == NULL ||
+        matcher->boundaries == NULL || matcher->input == NULL) {
+        boxrig_regex_matcher_destroy(matcher);
+        return BOXRIG_STATUS_OUT_OF_MEMORY;
+    }
+    if (input_length != 0u) {
+        memcpy(matcher->input, input, input_length);
+    }
+    size_t offset = 0u, scalar_count = 0u, start = 0u;
+    utf8proc_int32_t grapheme_state = 0;
+    while (offset < input_length) {
+        utf8proc_int32_t scalar;
+        utf8proc_ssize_t length = utf8proc_iterate(
+            input + offset, (utf8proc_ssize_t)(input_length - offset), &scalar);
+        if (length <= 0) {
+            *error_offset_out = offset;
+            boxrig_regex_matcher_destroy(matcher);
+            return BOXRIG_STATUS_INVALID_ARGUMENT;
+        }
+        if (offset == start_byte) {
+            start = scalar_count;
+        }
+        matcher->scalars[scalar_count] = scalar;
+        matcher->byte_offsets[scalar_count] = offset;
+        matcher->boundaries[scalar_count] = scalar_count == 0u ||
+            utf8proc_grapheme_break_stateful(
+                matcher->scalars[scalar_count - 1u], scalar, &grapheme_state);
+        scalar_count++;
+        offset += (size_t)length;
+    }
+    matcher->byte_offsets[scalar_count] = input_length;
+    matcher->boundaries[scalar_count] = 1u;
+    if (start_byte == input_length) {
+        start = scalar_count;
+    }
+    boxrig_status status = boxrig_regex_cursor_create(
+        program, matcher->scalars, matcher->boundaries, scalar_count, start,
+        &matcher->cursor);
+    if (status == BOXRIG_STATUS_OK) {
+        status = boxrig_regex_program_retain(program);
+    }
+    if (status != BOXRIG_STATUS_OK) {
+        boxrig_regex_matcher_destroy(matcher);
+        return status;
+    }
+    matcher->program = program;
+    *error_offset_out = input_length;
+    *matcher_out = matcher;
+    return BOXRIG_STATUS_OK;
+}
+
+boxrig_status boxrig_regex_matcher_resume(
+    boxrig_regex_matcher *matcher,
+    size_t work_budget,
+    size_t *work_used_out,
+    boxrig_regex_progress *progress_out,
+    boxrig_regex_match *match_out)
+{
+    if (matcher == NULL) {
+        return BOXRIG_STATUS_INVALID_ARGUMENT;
+    }
+    boxrig_status status = boxrig_regex_cursor_resume(
+        matcher->cursor, work_budget, work_used_out, progress_out, match_out);
+    if (status == BOXRIG_STATUS_OK && *progress_out == BOXRIG_REGEX_MATCH) {
+        match_out->start = matcher->byte_offsets[match_out->start];
+        match_out->end = matcher->byte_offsets[match_out->end];
+    }
+    return status;
+}
+
+void boxrig_regex_matcher_destroy(boxrig_regex_matcher *matcher)
+{
+    if (matcher == NULL) {
+        return;
+    }
+    boxrig_regex_cursor_destroy(matcher->cursor);
+    boxrig_regex_program_destroy(matcher->program);
+    free(matcher->scalars);
+    free(matcher->byte_offsets);
+    free(matcher->boundaries);
+    free(matcher->input);
+    free(matcher);
+}
+
+size_t boxrig_regex_result_storage_size(
+    const boxrig_regex_program *program, size_t byte_length)
+{
+    size_t fixed = sizeof(boxrig_regex_result) +
+                   (program->group_count + 1u) * sizeof(boxrig_regex_capture);
+    return byte_length > SIZE_MAX - fixed ? SIZE_MAX : fixed + byte_length;
+}
+
+boxrig_status boxrig_regex_cursor_create_result(
+    const boxrig_regex_cursor *cursor, const uint8_t *input,
+    const size_t *byte_offsets, boxrig_regex_result **result_out)
+{
+    if (result_out == NULL) {
+        return BOXRIG_STATUS_INVALID_ARGUMENT;
+    }
+    *result_out = NULL;
+    if (cursor == NULL || input == NULL || byte_offsets == NULL) {
+        return BOXRIG_STATUS_INVALID_ARGUMENT;
+    }
+    if (cursor->phase != BOXRIG_REGEX_CURSOR_COMPLETE) {
+        return BOXRIG_STATUS_INCOMPLETE;
+    }
+    if (cursor->longest_start == SIZE_MAX) {
+        return BOXRIG_STATUS_INVALID_ARGUMENT;
+    }
+    size_t byte_start = byte_offsets[cursor->longest_start];
+    size_t length = byte_offsets[cursor->longest_end] - byte_start;
+    boxrig_regex_result *result = calloc(1u, sizeof(*result));
+    if (result == NULL) {
+        return BOXRIG_STATUS_OUT_OF_MEMORY;
+    }
+    result->references = 1u;
+    result->data = malloc(length);
+    result->captures = calloc(cursor->program->group_count + 1u,
+                               sizeof(*result->captures));
+    if (result->data == NULL || result->captures == NULL) {
+        boxrig_regex_result_destroy(result);
+        return BOXRIG_STATUS_OUT_OF_MEMORY;
+    }
+    boxrig_status status = boxrig_regex_program_retain(
+        (boxrig_regex_program *)cursor->program);
+    if (status != BOXRIG_STATUS_OK) {
+        boxrig_regex_result_destroy(result);
+        return status;
+    }
+    result->program = (boxrig_regex_program *)cursor->program;
+    memcpy(result->data, input + byte_start, length);
+    result->length = length;
+    for (size_t i = 0u; i <= cursor->program->group_count; i++) {
+        size_t start = cursor->best_captures[i * 2u];
+        size_t end = cursor->best_captures[i * 2u + 1u];
+        if (start != SIZE_MAX && end != SIZE_MAX) {
+            result->captures[i].participated = true;
+            result->captures[i].start = byte_offsets[start] - byte_start;
+            result->captures[i].end = byte_offsets[end] - byte_start;
+        }
+    }
+    *result_out = result;
+    return BOXRIG_STATUS_OK;
+}
+
+boxrig_status boxrig_regex_matcher_result(
+    const boxrig_regex_matcher *matcher, boxrig_regex_result **result_out)
+{
+    if (result_out != NULL) {
+        *result_out = NULL;
+    }
+    if (matcher == NULL) {
+        return BOXRIG_STATUS_INVALID_ARGUMENT;
+    }
+    return boxrig_regex_cursor_create_result(matcher->cursor, matcher->input,
+                                              matcher->byte_offsets, result_out);
+}
+
+const uint8_t *boxrig_regex_result_data(
+    const boxrig_regex_result *result, size_t *length_out)
+{
+    if (length_out == NULL) {
+        return NULL;
+    }
+    *length_out = result == NULL ? 0u : result->length;
+    return result == NULL ? NULL : result->data;
+}
+
+size_t boxrig_regex_result_group_count(const boxrig_regex_result *result)
+{
+    return result == NULL ? 0u : result->program->group_count;
+}
+
+boxrig_status boxrig_regex_result_get_capture(
+    const boxrig_regex_result *result, size_t group,
+    boxrig_regex_capture *capture_out)
+{
+    if (capture_out == NULL) {
+        return BOXRIG_STATUS_INVALID_ARGUMENT;
+    }
+    memset(capture_out, 0, sizeof(*capture_out));
+    if (result == NULL || group > result->program->group_count) {
+        return BOXRIG_STATUS_INVALID_ARGUMENT;
+    }
+    *capture_out = result->captures[group];
+    return BOXRIG_STATUS_OK;
+}
+
+boxrig_status boxrig_regex_result_get_named_capture(
+    const boxrig_regex_result *result, const char *name,
+    boxrig_regex_capture *capture_out)
+{
+    if (capture_out == NULL) {
+        return BOXRIG_STATUS_INVALID_ARGUMENT;
+    }
+    memset(capture_out, 0, sizeof(*capture_out));
+    if (result == NULL) {
+        return BOXRIG_STATUS_INVALID_ARGUMENT;
+    }
+    bool found;
+    size_t group;
+    if (boxrig_regex_program_find_named_group(result->program, name,
+            &found, &group) != BOXRIG_STATUS_OK || !found) {
+        return BOXRIG_STATUS_INVALID_ARGUMENT;
+    }
+    *capture_out = result->captures[group];
+    return BOXRIG_STATUS_OK;
+}
+
+boxrig_status boxrig_regex_result_retain(boxrig_regex_result *result)
+{
+    if (result->references == SIZE_MAX) {
+        return BOXRIG_STATUS_LIMIT_EXCEEDED;
+    }
+    result->references++;
+    return BOXRIG_STATUS_OK;
+}
+
+void boxrig_regex_result_destroy(boxrig_regex_result *result)
+{
+    if (result == NULL) {
+        return;
+    }
+    if (--result->references != 0u) {
+        return;
+    }
+    boxrig_regex_program_destroy(result->program);
+    free(result->data);
+    free(result->captures);
+    free(result);
 }

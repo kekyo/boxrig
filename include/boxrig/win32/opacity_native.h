@@ -7,6 +7,10 @@
 #define BOXRIG_WIN32_OPACITY_NATIVE_H
 #include "boxrig/win32/host_transparency.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** Native attributes whose ownership is explicitly delegated by the host. */
 typedef struct boxrig_win32_opacity_authority {
     /** Caller-owned, same-thread top-level; no ancestor is searched. */
@@ -75,4 +79,8 @@ boxrig_ui_status boxrig_win32_opacity_native_refresh(
  */
 boxrig_ui_status boxrig_win32_opacity_native_destroy(
     boxrig_win32_opacity_native **native, boxrig_win32_opacity_diagnostic *diagnostic);
+#ifdef __cplusplus
+}
+#endif
+
 #endif

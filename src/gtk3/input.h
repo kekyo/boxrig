@@ -82,6 +82,13 @@ void boxrig_gtk3_input_unmap(boxrig_gtk3_input *input);
 
 void boxrig_gtk3_input_destroy(boxrig_gtk3_input *input);
 
+boxrig_ui_status boxrig_gtk3_input_set_enabled(boxrig_gtk3_input *input, bool enabled);
+boxrig_ui_status boxrig_gtk3_input_get_state(
+    const boxrig_gtk3_input *input, boxrig_ui_input_state *state_out);
+
+boxrig_ui_status boxrig_gtk3_input_set_config(
+    boxrig_gtk3_input *input, const boxrig_input_config *config);
+
 boxrig_ui_status boxrig_gtk3_input_set_key_router(
     boxrig_gtk3_input *input,
     boxrig_input_key_router router,

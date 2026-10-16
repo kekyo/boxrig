@@ -1,0 +1,12 @@
+BOXRIG_0 {
+    global:
+        boxrig_session_config_default;
+        boxrig_session_create;
+        boxrig_session_destroy;
+        boxrig_session_dispatch;
+        boxrig_session_input_pending;
+        boxrig_session_interests;
+        boxrig_session_resize;
+        boxrig_session_terminal;
+    local: *;
+};

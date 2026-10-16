@@ -509,6 +509,8 @@ static bool test_application_key_routing_captures_the_key_series(void)
               adapter,
               route_control_a,
               &trace) == 0);
+    boxrig_input_config replacement = boxrig_input_config_default();
+    CHECK(boxrig_x11_input_adapter_set_input_config(adapter, &replacement) == BOXRIG_UI_OK);
     CHECK(boxrig_terminal_feed(
               terminal,
               mode,
@@ -526,11 +528,13 @@ static bool test_application_key_routing_captures_the_key_series(void)
     event.xkey.time = 1;
     CHECK(event.xkey.keycode != 0);
     CHECK(boxrig_x11_input_adapter_process_event(adapter, &event) == 1);
+    CHECK(boxrig_x11_input_adapter_set_input_config(adapter, &replacement) == BOXRIG_UI_BUSY);
     event.xkey.time = 2;
     CHECK(boxrig_x11_input_adapter_process_event(adapter, &event) == 1);
     event.xkey.type = KeyRelease;
     event.xkey.time = 3;
     CHECK(boxrig_x11_input_adapter_process_event(adapter, &event) == 1);
+    CHECK(boxrig_x11_input_adapter_set_input_config(adapter, &replacement) == BOXRIG_UI_OK);
     CHECK(trace.count == 3);
     CHECK(trace.actions[0] == BOXRIG_KEY_PRESS);
     CHECK(trace.actions[1] == BOXRIG_KEY_REPEAT);
@@ -727,6 +731,7 @@ static bool test_application_mouse_routing_captures_the_drag_series(void)
               sizeof(modes) - 1,
               &consumed) == BOXRIG_STATUS_OK);
 
+    CHECK(boxrig_x11_input_adapter_set_input_enabled(adapter, false) == BOXRIG_UI_OK);
     memset(&event, 0, sizeof(event));
     event.xbutton.display = display;
     event.xbutton.window = window;
@@ -802,6 +807,7 @@ static bool test_application_mouse_routing_captures_the_drag_series(void)
 
     event.xbutton.type = ButtonPress;
     event.xbutton.state = 0;
+    CHECK(boxrig_x11_input_adapter_set_input_enabled(adapter, true) == BOXRIG_UI_OK);
     event.xbutton.button = Button3;
     CHECK(boxrig_x11_input_adapter_process_event(adapter, &event) == 1);
     CHECK(boxrig_terminal_output_peek(terminal, &output) != 0);
@@ -1148,6 +1154,7 @@ static bool test_streamed_paste_normalizes_and_retries(void)
 
 static bool test_primary_selection_paste(void)
 {
+    for (unsigned boundary = 0; boundary < 2; boundary++) {
     Display *display;
     Window window;
     Window owner;
@@ -1290,6 +1297,29 @@ static bool test_primary_selection_paste(void)
                    : request_event.xselectionrequest.property;
     CHECK(request_event.xselectionrequest.target == targets);
     CHECK(request_event.xselectionrequest.time == paste_time);
+    if (boundary != 0) {
+        XEvent late = {0};
+        late.xselection.type = SelectionNotify;
+        late.xselection.display = display;
+        late.xselection.requestor = request_event.xselectionrequest.requestor;
+        late.xselection.selection = request_event.xselectionrequest.selection;
+        late.xselection.target = request_event.xselectionrequest.target;
+        late.xselection.property = None;
+        late.xselection.time = request_event.xselectionrequest.time;
+        CHECK(boxrig_x11_input_adapter_set_input_enabled(adapter, false) == BOXRIG_UI_OK);
+        capabilities = boxrig_x11_input_adapter_view_action_capabilities(adapter);
+        CHECK(capabilities.copy_targets != 0 && capabilities.paste_targets == 0);
+        CHECK(boxrig_x11_input_adapter_set_input_enabled(adapter, true) == BOXRIG_UI_OK);
+        action.kind = BOXRIG_UI_VIEW_ACTION_PASTE;
+        CHECK(boxrig_x11_input_adapter_apply_view_action(adapter, NULL, &action) == BOXRIG_UI_OK);
+        CHECK(take_atom_property_event(display, window, timestamp_property, PropertyNewValue, &event));
+        CHECK(boxrig_x11_input_adapter_process_event(adapter, &event) == 1);
+        XSync(display, False);
+        CHECK(XCheckTypedWindowEvent(display, owner, SelectionRequest, &request_event));
+        /* An old owner reply must not cancel the new incoming request. */
+        CHECK(boxrig_x11_input_adapter_process_event(adapter, &late) == 0);
+        property = request_event.xselectionrequest.property;
+    }
     XChangeProperty(
         display,
         request_event.xselectionrequest.requestor,
@@ -1316,7 +1346,7 @@ static bool test_primary_selection_paste(void)
     XSync(display, False);
     CHECK(XCheckTypedWindowEvent(
               display,
-              window,
+              notify.xselection.requestor,
               SelectionNotify,
               &event));
     CHECK(boxrig_x11_input_adapter_process_event(adapter, &event) == 1);
@@ -1351,7 +1381,7 @@ static bool test_primary_selection_paste(void)
     XSync(display, False);
     CHECK(XCheckTypedWindowEvent(
               display,
-              window,
+              notify.xselection.requestor,
               SelectionNotify,
               &event));
     CHECK(boxrig_x11_input_adapter_process_event(adapter, &event) == 1);
@@ -1364,6 +1394,7 @@ static bool test_primary_selection_paste(void)
     XDestroyWindow(display, owner);
     XDestroyWindow(display, window);
     XCloseDisplay(display);
+    }
     return true;
 }
 
@@ -1479,6 +1510,7 @@ static bool test_copy_ownership_targets_direct_incr_and_limits(void)
               1024,
               config.output_capacity,
               &adapter) == 0);
+    CHECK(boxrig_x11_input_adapter_set_input_enabled(adapter, false) == BOXRIG_UI_OK);
     CHECK(boxrig_x11_input_adapter_set_clipboard_transfer_limits(
               adapter,
               64,
@@ -2099,6 +2131,7 @@ static bool test_incr_paste_owner_loss_and_capacity(void)
     notify.xselection.display = source_display;
     notify.xselection.requestor = request.xselectionrequest.requestor;
     notify.xselection.selection = request.xselectionrequest.selection;
+    notify.xselection.requestor = request.xselectionrequest.requestor;
     notify.xselection.target = request.xselectionrequest.target;
     notify.xselection.property = property;
     notify.xselection.time = request.xselectionrequest.time;
@@ -2111,7 +2144,7 @@ static bool test_incr_paste_owner_loss_and_capacity(void)
     XSync(source_display, False);
     CHECK(take_window_event(
         input_display,
-        input_window,
+        request.xselectionrequest.requestor,
         SelectionNotify,
         &event));
     CHECK(boxrig_x11_input_adapter_process_event(adapter, &event) == 1);
@@ -2133,6 +2166,7 @@ static bool test_incr_paste_owner_loss_and_capacity(void)
         PropModeReplace,
         (const unsigned char *)&announced_length,
         1);
+    notify.xselection.requestor = request.xselectionrequest.requestor;
     notify.xselection.target = request.xselectionrequest.target;
     notify.xselection.property = request.xselectionrequest.property;
     notify.xselection.time = request.xselectionrequest.time;
@@ -2145,13 +2179,13 @@ static bool test_incr_paste_owner_loss_and_capacity(void)
     XSync(source_display, False);
     CHECK(take_window_event(
         input_display,
-        input_window,
+        request.xselectionrequest.requestor,
         SelectionNotify,
         &event));
     CHECK(boxrig_x11_input_adapter_process_event(adapter, &event) == 1);
     CHECK(take_property_event(
         source_display,
-        input_window,
+        request.xselectionrequest.requestor,
         PropertyDelete,
         &event));
 
@@ -2166,7 +2200,7 @@ static bool test_incr_paste_owner_loss_and_capacity(void)
     for (index = 0; index < sizeof(chunks) / sizeof(chunks[0]); index++) {
         XChangeProperty(
             source_display,
-            input_window,
+            request.xselectionrequest.requestor,
             property,
             utf8_string,
             8,
@@ -2176,19 +2210,19 @@ static bool test_incr_paste_owner_loss_and_capacity(void)
         XSync(source_display, False);
         CHECK(take_property_event(
             input_display,
-            input_window,
+            request.xselectionrequest.requestor,
             PropertyNewValue,
             &event));
         CHECK(boxrig_x11_input_adapter_process_event(adapter, &event) == 1);
         CHECK(take_property_event(
             source_display,
-            input_window,
+            request.xselectionrequest.requestor,
             PropertyDelete,
             &event));
     }
     XChangeProperty(
         source_display,
-        input_window,
+        request.xselectionrequest.requestor,
         property,
         utf8_string,
         8,
@@ -2198,7 +2232,7 @@ static bool test_incr_paste_owner_loss_and_capacity(void)
     XSync(source_display, False);
     CHECK(take_property_event(
         input_display,
-        input_window,
+        request.xselectionrequest.requestor,
         PropertyNewValue,
         &event));
     CHECK(boxrig_x11_input_adapter_process_event(adapter, &event) == 1);
@@ -2236,26 +2270,27 @@ static bool test_incr_paste_owner_loss_and_capacity(void)
     property = request.xselectionrequest.property;
     XChangeProperty(
         source_display,
-        input_window,
+        request.xselectionrequest.requestor,
         property,
         XA_ATOM,
         32,
         PropModeReplace,
         (const unsigned char *)offered_targets,
         1);
+    notify.xselection.requestor = request.xselectionrequest.requestor;
     notify.xselection.target = request.xselectionrequest.target;
     notify.xselection.property = property;
     notify.xselection.time = request.xselectionrequest.time;
     CHECK(XSendEvent(
               source_display,
-              input_window,
+              request.xselectionrequest.requestor,
               False,
               0,
               &notify) != 0);
     XSync(source_display, False);
     CHECK(take_window_event(
         input_display,
-        input_window,
+        request.xselectionrequest.requestor,
         SelectionNotify,
         &event));
     CHECK(boxrig_x11_input_adapter_process_event(adapter, &event) == 1);
@@ -2268,26 +2303,27 @@ static bool test_incr_paste_owner_loss_and_capacity(void)
     announced_length = 33;
     XChangeProperty(
         source_display,
-        input_window,
+        request.xselectionrequest.requestor,
         request.xselectionrequest.property,
         incr,
         32,
         PropModeReplace,
         (const unsigned char *)&announced_length,
         1);
+    notify.xselection.requestor = request.xselectionrequest.requestor;
     notify.xselection.target = request.xselectionrequest.target;
     notify.xselection.property = request.xselectionrequest.property;
     notify.xselection.time = request.xselectionrequest.time;
     CHECK(XSendEvent(
               source_display,
-              input_window,
+              request.xselectionrequest.requestor,
               False,
               0,
               &notify) != 0);
     XSync(source_display, False);
     CHECK(take_window_event(
         input_display,
-        input_window,
+        request.xselectionrequest.requestor,
         SelectionNotify,
         &event));
     CHECK(boxrig_x11_input_adapter_process_event(adapter, &event) == 1);
@@ -3324,10 +3360,10 @@ static bool test_terminal_io_configuration(void)
         const boxrig_key_mapping mapping = {BOXRIG_KEY_UP, 0, mapped, sizeof(mapped)};
         boxrig_terminal_config config = boxrig_terminal_config_default();
         config.encoding = (boxrig_encoding)encoding;
-        config.enter_newline = BOXRIG_NEWLINE_LF;
+        config.input.enter_newline = BOXRIG_NEWLINE_LF;
         config.paste_newline = BOXRIG_NEWLINE_CRLF;
-        config.key_mappings = &mapping;
-        config.key_mapping_count = 1;
+        config.input.key_mappings = &mapping;
+        config.input.key_mapping_count = 1;
         boxrig_terminal *terminal = NULL;
         CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
 
@@ -3366,6 +3402,91 @@ static bool test_terminal_io_configuration(void)
     return true;
 }
 
+static bool test_input_inhibition(void)
+{
+    Display *display = XOpenDisplay(NULL);
+    CHECK(display != NULL);
+    Window window = XCreateSimpleWindow(display, DefaultRootWindow(display), 0, 0, 80, 60, 0, 0, 0);
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    config.output_capacity = 6;
+    boxrig_terminal *terminal = NULL;
+    boxrig_x11_input_adapter *adapter = NULL;
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_x11_input_adapter_create(display, window, window, terminal,
+        8, 16, 1024, 1, &adapter) == 0);
+    boxrig_ui_input_state state;
+    CHECK(boxrig_x11_input_adapter_get_input_state(adapter, &state) == BOXRIG_UI_OK);
+    CHECK(state.phase == BOXRIG_UI_INPUT_ENABLED);
+    uint64_t before = state.generation;
+    CHECK(boxrig_terminal_send_text(terminal, "filled", 6) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_x11_input_adapter_queue_paste(adapter, (const uint8_t *)"discard", 7) == 0);
+    CHECK(boxrig_x11_input_adapter_set_input_enabled(adapter, false) == BOXRIG_UI_OK);
+    CHECK(boxrig_x11_input_adapter_get_input_state(adapter, &state) == BOXRIG_UI_OK);
+    CHECK(state.phase == BOXRIG_UI_INPUT_DISABLED && state.generation > before);
+    CHECK(boxrig_x11_input_adapter_queue_paste(adapter, (const uint8_t *)"blocked", 7) == -1);
+    CHECK(boxrig_x11_input_adapter_preedit_start(adapter) == 0);
+    boxrig_composition_view composition;
+    CHECK(boxrig_composition_get_view(boxrig_x11_input_adapter_composition(adapter), &composition) == BOXRIG_COMPOSITION_OK);
+    CHECK(!composition.active);
+    CHECK(boxrig_x11_input_adapter_commit_utf8(adapter, "old", 3) == 0);
+    const uint8_t *output;
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 6 && memcmp(output, "filled", 6) == 0);
+    CHECK(boxrig_terminal_output_consume(terminal, 6) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_x11_input_adapter_retry(adapter) == 0);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 0);
+    CHECK(boxrig_x11_input_adapter_set_input_enabled(adapter, true) == BOXRIG_UI_OK);
+
+    XEvent key = {0};
+    key.xkey.display = display;
+    key.xkey.window = window;
+    key.xkey.root = DefaultRootWindow(display);
+    key.xkey.keycode = XKeysymToKeycode(display, XK_Return);
+    key.xkey.type = KeyPress;
+    CHECK(boxrig_terminal_send_text(terminal, "filled", 6) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_x11_input_adapter_process_event(adapter, &key) == 1);
+    CHECK(boxrig_x11_input_adapter_blocked(adapter));
+    CHECK(boxrig_x11_input_adapter_set_input_enabled(adapter, false) == BOXRIG_UI_OK);
+    CHECK(boxrig_x11_input_adapter_set_input_enabled(adapter, true) == BOXRIG_UI_OK);
+    CHECK(boxrig_terminal_output_consume(terminal, 6) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_x11_input_adapter_retry(adapter) == 0);
+    CHECK(boxrig_x11_input_adapter_process_event(adapter, &key) == 1);
+    key.xkey.type = KeyRelease;
+    CHECK(boxrig_x11_input_adapter_process_event(adapter, &key) == 1);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 0);
+    key.xkey.type = KeyPress;
+    CHECK(boxrig_x11_input_adapter_process_event(adapter, &key) == 1);
+    key.xkey.type = KeyRelease;
+    CHECK(boxrig_x11_input_adapter_process_event(adapter, &key) == 1);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 1 && output[0] == '\r');
+    CHECK(boxrig_terminal_output_consume(terminal, 1) == BOXRIG_STATUS_OK);
+
+    size_t consumed;
+    CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)"\x1b[?2004h", 8, &consumed) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_x11_input_adapter_queue_paste(adapter, (const uint8_t *)"discard", 7) == 0);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 6 && memcmp(output, "\x1b[200~", 6) == 0);
+    CHECK(boxrig_x11_input_adapter_set_input_enabled(adapter, false) == BOXRIG_UI_BUSY);
+    CHECK(boxrig_x11_input_adapter_get_input_state(adapter, &state) == BOXRIG_UI_OK);
+    CHECK(state.phase == BOXRIG_UI_INPUT_STOPPING);
+    CHECK(boxrig_x11_input_adapter_set_input_enabled(adapter, true) == BOXRIG_UI_BUSY);
+    CHECK(boxrig_x11_input_adapter_set_input_config(adapter, &config.input) == BOXRIG_UI_BUSY);
+    CHECK(boxrig_terminal_output_consume(terminal, 6) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)"\x1b[5n", 4, &consumed) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_x11_input_adapter_retry(adapter) == 0);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 4 && memcmp(output, "\x1b[0n", 4) == 0);
+    CHECK(boxrig_terminal_output_consume(terminal, 4) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_x11_input_adapter_retry(adapter) == 0);
+    CHECK(boxrig_x11_input_adapter_get_input_state(adapter, &state) == BOXRIG_UI_OK);
+    CHECK(state.phase == BOXRIG_UI_INPUT_DISABLED);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 6 && memcmp(output, "\x1b[201~", 6) == 0);
+    CHECK(boxrig_terminal_output_consume(terminal, 6) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_x11_input_adapter_set_input_enabled(adapter, true) == BOXRIG_UI_OK);
+    boxrig_x11_input_adapter_destroy(adapter);
+    boxrig_terminal_destroy(terminal);
+    XDestroyWindow(display, window);
+    XCloseDisplay(display);
+    return true;
+}
+
 int main(void)
 {
     static const struct {
@@ -3373,6 +3494,7 @@ int main(void)
         bool (*run)(void);
     } tests[] = {
         {"terminal UTF-8/Shift_JIS IME, key and paste settings", test_terminal_io_configuration},
+        {"input inhibition and started paste completion", test_input_inhibition},
         {"XIM protocol events are filtered",
          test_xim_protocol_events_are_filtered},
         {"XIM functional key commits text",

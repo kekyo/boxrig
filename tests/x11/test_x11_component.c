@@ -858,6 +858,8 @@ static bool component_controls(Display *display)
     uint32_t capabilities;
     bool changed = true;
 
+    config.paste_chunk_size = 1;
+    terminal_config.output_capacity = 6;
     terminal_config.rows = 3;
     terminal_config.columns = 8;
     CHECK(parent != None);
@@ -936,6 +938,30 @@ static bool component_controls(Display *display)
     CHECK(memcmp(output, paste, sizeof(paste)) == 0);
     CHECK(boxrig_terminal_output_consume(terminal, sizeof(paste)) ==
           BOXRIG_STATUS_OK);
+
+
+    CHECK(feed_text(terminal, "\x1b[?2004h"));
+    CHECK(boxrig_x11_terminal_component_queue_paste(component, (const uint8_t *)"discard", 7) == BOXRIG_UI_OK);
+    CHECK(boxrig_x11_terminal_component_set_input_enabled(component, false) == BOXRIG_UI_BUSY);
+    boxrig_ui_input_state input_state;
+    CHECK(boxrig_x11_terminal_component_get_input_state(component, &input_state) == BOXRIG_UI_OK);
+    CHECK(input_state.phase == BOXRIG_UI_INPUT_STOPPING);
+    event.type = FocusIn;
+    CHECK(boxrig_x11_terminal_component_dispatch_event(component, &event) == BOXRIG_UI_COMPONENT_EVENT_HANDLED);
+    CHECK(boxrig_x11_terminal_component_focused(component));
+    event.type = FocusOut;
+    CHECK(boxrig_x11_terminal_component_dispatch_event(component, &event) == BOXRIG_UI_COMPONENT_EVENT_HANDLED);
+    CHECK(!boxrig_x11_terminal_component_focused(component));
+    CHECK(boxrig_x11_terminal_component_frame(component, &frame) == BOXRIG_UI_OK);
+    CHECK(frame.input_blocked);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 6 && memcmp(output, "\x1b[200~", 6) == 0);
+    CHECK(boxrig_terminal_output_consume(terminal, 6) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_x11_terminal_component_frame(component, &frame) == BOXRIG_UI_OK);
+    CHECK(boxrig_x11_terminal_component_get_input_state(component, &input_state) == BOXRIG_UI_OK);
+    CHECK(input_state.phase == BOXRIG_UI_INPUT_DISABLED);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 6 && memcmp(output, "\x1b[201~", 6) == 0);
+    CHECK(boxrig_terminal_output_consume(terminal, 6) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_x11_terminal_component_queue_paste(component, paste, sizeof(paste)) == BOXRIG_UI_UNAVAILABLE);
 
     CHECK(boxrig_x11_terminal_component_get_scrollbar_model(
               component,

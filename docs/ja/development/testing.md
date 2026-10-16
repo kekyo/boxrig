@@ -48,12 +48,27 @@ Windows実機のP2試験は、[実機の準備](#windows実機を準備する)�
 | 点滅・装飾 | `test-text-blink`、`test-cursor-style`、`test-selection-style` |
 | 背景・通知 | `test-background-layers`、`test-notification-dispatch`、`test-notification-samples` |
 | GTKとIME | `test-ime-clause`、`test-gtk-ime-routing`、`test-gtk-ibus-direct` |
+| fcitx 5 | `test-fcitx5`、`test-fcitx5-panels`、`test-fcitx5-auto` |
+| fcitx 4 | `test-fcitx4`、`test-fcitx4-panels-core`、`test-fcitx4-panels-gtk`、`test-fcitx4-discovery` |
 | Wayland入力 | `test-wayland-input`、`test-wayland-candidates-startup` |
 | ビルド時の生成処理 | `test-codegen` |
 | Win32の初回描画の同期 | `test-win32-first-frame-fence`、`test-win32-sample-first-frame-fence` |
 
 targetの依存と実行条件は[Makefile](../../../Makefile)が定義しています。
 実行ファイルのコンパイルだけで終わるtargetと、起動まで行うtargetを区別してください。
+
+実デーモンの試験では、Mozcと、試験専用のD-Bus・表示サーバー・設定ディレクトリーを使います。
+4系と5系を分けたPodman環境で、Debian 13、Ubuntu 24.04、Ubuntu 26.04の収録パッケージを確認できます。
+ホストのIME設定やユーザー辞書は共有しません。
+
+```sh
+bash tests/ime/run_distribution.sh debian13 fcitx5
+bash tests/ime/run_distribution.sh debian13 fcitx4
+```
+
+第1引数には`ubuntu2404`と`ubuntu2604`も指定できます。
+結果は`build/test-results/ime-distributions/`にあり、パッケージ版、入力試験のログ、付属ターミナルの画像・動画を保存します。
+4系は実際の4.2.9.9で検証し、5系の試験では4系互換サービスとAUTOの選択も確認します。
 
 ## SDKと文書中の利用例を確認する
 

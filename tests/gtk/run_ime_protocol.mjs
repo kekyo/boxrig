@@ -57,7 +57,7 @@ for (const runtime of runtimes) {
     ['auto','gtk-ibus','ibus'],
     ['gtk','gtk-ibus','ibus'],
     ['auto','unavailable','default'],
-    ['auto','plain','default'],
+    ['auto','discovered','default'],
     ['auto','reconnect','default'],
   ]) cases.push({version:1,scale:1,renderer:'cairo',policy,expected,module});
   if(runtime.hints) cases.push({version:2,scale:1,renderer:'cairo',policy:'gtk',expected:'standard',module:'wayland'});

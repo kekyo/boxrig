@@ -14,6 +14,10 @@
 
 #include <windows.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** Opaque DirectWrite renderer used by a Win32 frontend. */
 typedef struct boxrig_win32_renderer boxrig_win32_renderer;
 
@@ -477,5 +481,9 @@ int boxrig_win32_renderer_draw_composition(
     HDC device_context,
     boxrig_terminal *terminal,
     boxrig_composition *composition);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

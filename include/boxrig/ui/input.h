@@ -13,6 +13,28 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/** User-input availability of one frontend component. */
+typedef enum boxrig_ui_input_phase {
+    /** New terminal-directed user input is accepted. */
+    BOXRIG_UI_INPUT_ENABLED = 0,
+    /** Input is inhibited; a started paste still needs its closing sequence. */
+    BOXRIG_UI_INPUT_STOPPING,
+    /** Input is inhibited and any required closing sequence is queued in core. */
+    BOXRIG_UI_INPUT_DISABLED
+} boxrig_ui_input_phase;
+
+/** Input inhibition snapshot owned by one frontend component. */
+typedef struct boxrig_ui_input_state {
+    /** Current input phase; copy, selection, scrolling and rendering remain usable. */
+    boxrig_ui_input_phase phase;
+    /** Monotonic generation invalidating input retained before each transition. */
+    uint64_t generation;
+} boxrig_ui_input_state;
+
 /** Clipboard namespace addressed by one portable view action. */
 typedef enum boxrig_ui_clipboard_target {
     /** X11 PRIMARY-style selection completed by an explicit host policy. */
@@ -118,5 +140,9 @@ typedef boxrig_input_mouse_route (*boxrig_input_mouse_router)(
     const boxrig_mouse_event *event,
     const boxrig_ui_hit_test_result *hit,
     void *context);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

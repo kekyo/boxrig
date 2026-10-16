@@ -69,6 +69,68 @@ static void owned_state(void)
     CHECK(boxrig_ui_view_set_visible(view, false) == BOXRIG_UI_OK);
     CHECK(boxrig_ui_view_get_candidates(view, &actual) == BOXRIG_UI_OK);
     CHECK(actual.snapshot.count == 0);
+    char above[] = "読み";
+    snapshot = (boxrig_ui_candidate_snapshot){.format = BOXRIG_UI_CANDIDATE_PAGE,
+        .count = 1, .page_size = 1, .items = items, .visible = true,
+        .has_previous_page = true, .has_next_page = true,
+        .auxiliary_above = above, .auxiliary_above_visible = true};
+    CHECK(boxrig_ui_view_set_candidates(view, &snapshot) == BOXRIG_UI_OK);
+    above[0] = 0;
+    CHECK(boxrig_ui_view_get_candidates(view, &actual) == BOXRIG_UI_OK);
+    CHECK(actual.snapshot.format == BOXRIG_UI_CANDIDATE_PAGE);
+    CHECK(actual.snapshot.has_previous_page && actual.snapshot.has_next_page);
+    CHECK(strcmp(actual.snapshot.auxiliary_above, "読み") == 0);
+    snapshot.page_size = 2;
+    CHECK(boxrig_ui_view_set_candidates(view, &snapshot) == BOXRIG_UI_INVALID_ARGUMENT);
+    snapshot = (boxrig_ui_candidate_snapshot){.format = BOXRIG_UI_CANDIDATE_PAGE,
+        .auxiliary_above = "候補なし", .auxiliary_above_visible = true};
+    CHECK(boxrig_ui_view_set_candidates(view, &snapshot) == BOXRIG_UI_OK);
+    boxrig_ui_view_clear_candidates(view);
+    CHECK(boxrig_ui_view_get_candidates(view, &actual) == BOXRIG_UI_OK);
+    CHECK(actual.snapshot.auxiliary_above == NULL);
+    char panel[] = "1. 汽車 2号 2. 記者 🙂", preedit[] = "きしゃ🙂";
+    snapshot = (boxrig_ui_candidate_snapshot){.format = BOXRIG_UI_CANDIDATE_STRING_PANEL,
+        .visible = true, .panel_text = panel, .panel_preedit = preedit, .panel_cursor = 9};
+    CHECK(boxrig_ui_view_set_candidates(view, &snapshot) == BOXRIG_UI_OK);
+    panel[0] = preedit[0] = 0;
+    CHECK(boxrig_ui_view_get_candidates(view, &actual) == BOXRIG_UI_OK);
+    CHECK(actual.snapshot.count == 0 && actual.snapshot.page_size == 0);
+    CHECK(strcmp(actual.snapshot.panel_text, "1. 汽車 2号 2. 記者 🙂") == 0);
+    CHECK(strcmp(actual.snapshot.panel_preedit, "きしゃ🙂") == 0 && actual.snapshot.panel_cursor == 9);
+    snapshot.panel_text = "候補";
+    snapshot.panel_preedit = "きしゃ🙂";
+    snapshot.panel_cursor = 10;
+    CHECK(boxrig_ui_view_set_candidates(view, &snapshot) == BOXRIG_UI_INVALID_ARGUMENT);
+    snapshot.panel_cursor = 14;
+    CHECK(boxrig_ui_view_set_candidates(view, &snapshot) == BOXRIG_UI_INVALID_ARGUMENT);
+    snapshot.panel_cursor = 13;
+    CHECK(boxrig_ui_view_set_candidates(view, &snapshot) == BOXRIG_UI_OK);
+    snapshot.panel_text = "\xed\xa0\x80";
+    CHECK(boxrig_ui_view_set_candidates(view, &snapshot) == BOXRIG_UI_INVALID_ARGUMENT);
+    snapshot.panel_text = "候補";
+    snapshot.has_next_page = true;
+    CHECK(boxrig_ui_view_set_candidates(view, &snapshot) == BOXRIG_UI_INVALID_ARGUMENT);
+    snapshot.has_next_page = false;
+    snapshot.count = snapshot.page_size = 1;
+    snapshot.items = items;
+    CHECK(boxrig_ui_view_set_candidates(view, &snapshot) == BOXRIG_UI_INVALID_ARGUMENT);
+    snapshot.count = snapshot.page_size = 0;
+    snapshot.items = NULL;
+    large = malloc(BOXRIG_UI_CANDIDATE_BYTES_MAXIMUM);
+    CHECK(large != NULL);
+    memset(large, 'x', BOXRIG_UI_CANDIDATE_BYTES_MAXIMUM - 1);
+    large[BOXRIG_UI_CANDIDATE_BYTES_MAXIMUM - 1] = 0;
+    snapshot.panel_text = large;
+    CHECK(boxrig_ui_view_set_candidates(view, &snapshot) == BOXRIG_UI_LIMIT_EXCEEDED);
+    snapshot.panel_preedit = NULL;
+    snapshot.panel_cursor = 0;
+    CHECK(boxrig_ui_view_set_candidates(view, &snapshot) == BOXRIG_UI_OK);
+    free(large);
+    CHECK(boxrig_ui_view_set_focused(view, true) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_set_focused(view, false) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_get_candidates(view, &actual) == BOXRIG_UI_OK);
+    CHECK(actual.snapshot.panel_text == NULL && actual.snapshot.panel_preedit == NULL);
+    CHECK(boxrig_terminal_output_peek(terminal, &bytes) == 0);
     boxrig_ui_view_destroy(other);
     boxrig_ui_view_destroy(view);
     boxrig_ui_model_destroy(model);
@@ -127,12 +189,99 @@ static void placement(void)
     candidates.snapshot.count = 0;
     CHECK(boxrig_ui_candidates_place(&candidates, &m, &result) == BOXRIG_UI_OK);
     CHECK(result.bounds.width == 0 && result.bounds.height == 0);
+
+    candidates.snapshot = (boxrig_ui_candidate_snapshot){.format = BOXRIG_UI_CANDIDATE_PAGE,
+        .count = 3, .page_size = 3, .cursor = 2, .visible = true,
+        .has_previous_page = true, .has_next_page = true,
+        .auxiliary_above = "読み", .auxiliary_above_visible = true,
+        .auxiliary = "説明", .auxiliary_visible = true};
+    m.width = m.height = 500;
+    m.anchor = (boxrig_ui_candidate_rectangle){300, 150, 9, 21};
+    m.auxiliary_above_width = 100;
+    m.auxiliary_above_lines = 2;
+    CHECK(boxrig_ui_candidates_place(&candidates, &m, &result) == BOXRIG_UI_OK);
+    CHECK(result.first == 0 && result.count == 3);
+    CHECK(result.has_previous_page && result.has_next_page);
+    CHECK(!result.hidden_before && !result.hidden_after);
+    CHECK(result.auxiliary_above.height > 0 && result.auxiliary.height > 0);
+    CHECK(result.auxiliary_above.y + result.auxiliary_above.height <= result.items[0].y);
+    CHECK(result.items[2].y + result.items[2].height <= result.auxiliary.y);
+    for (size_t hi = 0; hi < sizeof(dimensions) / sizeof(*dimensions); hi++) {
+        m.height = dimensions[hi];
+        CHECK(boxrig_ui_candidates_place(&candidates, &m, &result) == BOXRIG_UI_OK);
+        CHECK(result.first <= 2 && result.first + result.count > 2);
+        CHECK(result.bounds.y >= 0 && result.bounds.y + result.bounds.height <= m.height);
+    }
+    candidates.snapshot.count = candidates.snapshot.page_size = candidates.snapshot.cursor = 0;
+    candidates.snapshot.visible = false;
+    CHECK(boxrig_ui_candidates_place(&candidates, &m, &result) == BOXRIG_UI_OK);
+    CHECK(result.count == 0 && result.bounds.height > 0);
+    CHECK(result.auxiliary_above.height > 0 && result.auxiliary.height > 0);
+    candidates.snapshot.auxiliary_above_visible = candidates.snapshot.auxiliary_visible = false;
+    CHECK(boxrig_ui_candidates_place(&candidates, &m, &result) == BOXRIG_UI_OK);
+    CHECK(result.bounds.height == 0);
+}
+
+static void string_panel_placement(void)
+{
+    boxrig_ui_candidate_view candidates = {.revision = 29, .snapshot = {
+        .format = BOXRIG_UI_CANDIDATE_STRING_PANEL, .visible = true,
+        .panel_text = "1. 汽車 2号 2. 記者 🙂", .panel_preedit = "きしゃ", .panel_cursor = 6,
+        .auxiliary_above = "上", .auxiliary_above_visible = true,
+        .auxiliary = "下", .auxiliary_visible = true}};
+    boxrig_ui_candidate_measurement m = {.width = 600, .height = 400, .cell_width = 10,
+        .line_height = 24, .anchor = {580, 100, 10, 24},
+        .panel_text_width = 240, .panel_text_lines = 3, .panel_preedit_width = 72,
+        .auxiliary_above_width = 24, .auxiliary_above_lines = 2,
+        .auxiliary_width = 24, .auxiliary_lines = 2};
+    boxrig_ui_candidate_layout result;
+    CHECK(boxrig_ui_candidates_place(&candidates, &m, &result) == BOXRIG_UI_OK);
+    CHECK(result.revision == 29 && result.count == 0 && result.first == 0);
+    CHECK(!result.has_previous_page && !result.has_next_page && !result.horizontal);
+    CHECK(!result.hidden_before && !result.hidden_after);
+    CHECK(result.auxiliary_above.y + result.auxiliary_above.height <= result.panel_preedit.y);
+    CHECK(result.panel_preedit.y + result.panel_preedit.height <= result.panel_text.y);
+    CHECK(result.panel_text.y + result.panel_text.height <= result.auxiliary.y);
+    CHECK(result.panel_text.height >= m.line_height * 3);
+    const int sizes[] = {1, 2, 10, 35, 80, 200, 500};
+    for (size_t w = 0; w < sizeof(sizes) / sizeof(*sizes); w++)
+    for (size_t h = 0; h < sizeof(sizes) / sizeof(*sizes); h++) {
+        m.width = sizes[w]; m.height = sizes[h];
+        m.anchor.x = m.anchor.y = INT_MAX;
+        CHECK(boxrig_ui_candidates_place(&candidates, &m, &result) == BOXRIG_UI_OK);
+        CHECK(result.bounds.x >= 0 && result.bounds.y >= 0);
+        CHECK(result.bounds.width > 0 && result.bounds.height > 0);
+        CHECK(result.bounds.x + result.bounds.width <= m.width);
+        CHECK(result.bounds.y + result.bounds.height <= m.height);
+        const boxrig_ui_candidate_rectangle sections[] = {result.panel_preedit,
+            result.panel_text, result.auxiliary_above, result.auxiliary};
+        for (size_t i = 0; i < 4; i++) {
+            boxrig_ui_candidate_rectangle r = sections[i];
+            if (r.width == 0 || r.height == 0) continue;
+            CHECK(r.x >= result.bounds.x && r.y >= result.bounds.y);
+            CHECK(r.x + r.width <= result.bounds.x + result.bounds.width);
+            CHECK(r.y + r.height <= result.bounds.y + result.bounds.height);
+        }
+    }
+    m.width = 600; m.height = 400;
+    candidates.snapshot.panel_text = "";
+    candidates.snapshot.auxiliary_above_visible = candidates.snapshot.auxiliary_visible = false;
+    CHECK(boxrig_ui_candidates_place(&candidates, &m, &result) == BOXRIG_UI_OK);
+    CHECK(result.panel_preedit.height > 0 && result.panel_text.height == 0);
+    candidates.snapshot.panel_preedit = NULL;
+    candidates.snapshot.panel_cursor = 0;
+    CHECK(boxrig_ui_candidates_place(&candidates, &m, &result) == BOXRIG_UI_OK);
+    CHECK(result.bounds.height == 0);
+    candidates.snapshot.auxiliary_visible = true;
+    CHECK(boxrig_ui_candidates_place(&candidates, &m, &result) == BOXRIG_UI_OK);
+    CHECK(result.auxiliary.height > 0 && result.panel_preedit.height == 0 && result.count == 0);
 }
 
 int main(void)
 {
     owned_state();
     placement();
+    string_panel_placement();
     puts("PASS owned candidate state, transactional limits, focus clearing and bounded selected-row placement");
     return 0;
 }

@@ -35,6 +35,15 @@ void boxrig_wayland_clipboard_destroy_seat_devices(
 void boxrig_wayland_clipboard_quiesce_component(
     boxrig_wayland_terminal_component *component);
 
+bool boxrig_wayland_clipboard_input_pending(
+    const boxrig_wayland_terminal_component *component);
+
+bool boxrig_wayland_clipboard_paste_started(
+    const boxrig_wayland_terminal_component *component);
+
+void boxrig_wayland_clipboard_cancel_input(
+    boxrig_wayland_terminal_component *component);
+
 size_t boxrig_wayland_clipboard_dispatch(
     boxrig_wayland_context *context,
     size_t maximum_items,

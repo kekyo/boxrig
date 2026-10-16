@@ -808,7 +808,9 @@ BOXRIG_PUBLIC_CONTRACT(
     "BOXRIG_WAYLAND_INPUT_CAPABILITY_POINTER "
     "BOXRIG_WAYLAND_INPUT_CAPABILITY_TEXT_INPUT_V3 "
     "BOXRIG_WAYLAND_INPUT_CAPABILITY_XKB_COMPOSE "
-    "BOXRIG_WAYLAND_INPUT_CAPABILITY_IBUS")
+    "BOXRIG_WAYLAND_INPUT_CAPABILITY_IBUS "
+    "BOXRIG_WAYLAND_INPUT_CAPABILITY_FCITX5 "
+    "BOXRIG_WAYLAND_INPUT_CAPABILITY_FCITX4")
 
 BOXRIG_PUBLIC_CONTRACT(
     CAPABILITY, "include/boxrig/wayland.h", NATIVE_CLIPBOARD, 16u,
@@ -1537,3 +1539,87 @@ BOXRIG_PUBLIC_CONTRACT(
 BOXRIG_PUBLIC_CONTRACT(
     OPERATION, "include/boxrig/win32/transparency.h", NATIVE_RUNTIME_HOST, 2u,
     "boxrig_win32_transparency_context_set_scrollbar_visible")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/regex.h", VALUE_REGEX_CAPTURES, 31u,
+    "boxrig_regex_limits_default "
+    "boxrig_regex_compile "
+    "boxrig_regex_program_retain "
+    "boxrig_regex_program_destroy "
+    "boxrig_regex_program_state_count "
+    "boxrig_regex_program_group_count "
+    "boxrig_regex_program_find_named_group "
+    "boxrig_regex_matcher_create "
+    "boxrig_regex_matcher_resume "
+    "boxrig_regex_matcher_destroy "
+    "boxrig_regex_matcher_result "
+    "boxrig_regex_result_data "
+    "boxrig_regex_result_group_count "
+    "boxrig_regex_result_get_capture "
+    "boxrig_regex_result_get_named_capture "
+    "boxrig_regex_result_destroy")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/terminal.h", VALUE_REGEX_CAPTURES, 31u,
+    "boxrig_terminal_register_compiled_text_recognizer "
+    "boxrig_terminal_text_recognizer_result")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/terminal.h", VALUE_INPUT_CONFIGURATION, 31u,
+    "boxrig_input_config_default "
+    "boxrig_terminal_set_input_config "
+    "boxrig_terminal_get_input_config "
+    "boxrig_terminal_set_tty_erase "
+    "boxrig_terminal_get_tty_erase")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/posix.h", NATIVE_TTY_ERASE, 29u,
+    "boxrig_posix_get_tty_erase")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/posix.h", NATIVE_PTY_SPAWN_RESULT, 29u,
+    "boxrig_posix_pty_spawn_with_diagnostic "
+    "boxrig_posix_pty_spawn_descriptor "
+    "boxrig_posix_pty_get_spawn_result")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/gtk3/terminal_widget.h", NATIVE_INPUT_POLICY, 4u,
+    "boxrig_gtk3_terminal_widget_set_input_enabled "
+    "boxrig_gtk3_terminal_widget_get_input_state "
+    "boxrig_gtk3_terminal_widget_set_input_config")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/gtk4/terminal_widget.h", NATIVE_INPUT_POLICY, 8u,
+    "boxrig_gtk4_terminal_widget_set_input_enabled "
+    "boxrig_gtk4_terminal_widget_get_input_state "
+    "boxrig_gtk4_terminal_widget_set_input_config")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/wayland.h", NATIVE_INPUT_POLICY, 16u,
+    "boxrig_wayland_terminal_component_set_input_enabled "
+    "boxrig_wayland_terminal_component_get_input_state "
+    "boxrig_wayland_terminal_component_set_input_config")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/win32/component.h", NATIVE_INPUT_POLICY, 2u,
+    "boxrig_win32_terminal_component_set_input_enabled "
+    "boxrig_win32_terminal_component_get_input_state "
+    "boxrig_win32_terminal_component_set_input_config")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/win32/input.h", NATIVE_INPUT_POLICY, 2u,
+    "boxrig_win32_input_adapter_set_input_enabled "
+    "boxrig_win32_input_adapter_get_input_state "
+    "boxrig_win32_input_adapter_set_input_config")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/x11/component.h", NATIVE_INPUT_POLICY, 1u,
+    "boxrig_x11_terminal_component_set_input_enabled "
+    "boxrig_x11_terminal_component_get_input_state "
+    "boxrig_x11_terminal_component_set_input_config")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/x11/input.h", NATIVE_INPUT_POLICY, 1u,
+    "boxrig_x11_input_adapter_set_input_enabled "
+    "boxrig_x11_input_adapter_get_input_state "
+    "boxrig_x11_input_adapter_set_input_config")

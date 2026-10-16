@@ -1,0 +1,10 @@
+prefix={{prefix}}
+libdir={{libdir}}
+includedir={{includedir}}
+
+Name: boxrig
+Description: Independent terminal parser and Unicode regex library
+Version: {{version}}
+Libs: -L${libdir} -lboxrig
+Libs.private: -lm
+Cflags: -I${includedir}

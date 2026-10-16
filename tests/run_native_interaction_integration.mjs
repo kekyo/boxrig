@@ -392,14 +392,32 @@ try {
     'keyup',
     'Control_L',
   ]);
+  // Shortcut handling and native layout can finish after the first PTY query.
+  // Observe the requested geometry instead of treating a key reply as a fence.
+  const zoomDeadline = Date.now() + 15000;
   await send('v');
+  while (
+    state.width <= initialMetrics.width &&
+    state.height <= initialMetrics.height
+  ) {
+    assert(Date.now() < zoomDeadline, 'Ctrl wheel cell metrics');
+    await send('v');
+  }
   assert(
     state.width > initialMetrics.width || state.height > initialMetrics.height,
     'Ctrl wheel zoom'
   );
   assert.equal(state.reports, reports, 'Ctrl wheel must not report');
   command('xdotool', ['key', '--clearmodifiers', 'ctrl+0']);
+  const resetDeadline = Date.now() + 15000;
   await send('v');
+  while (
+    state.width !== initialMetrics.width ||
+    state.height !== initialMetrics.height
+  ) {
+    assert(Date.now() < resetDeadline, 'Ctrl reset cell metrics');
+    await send('v');
+  }
   assert.equal(state.width, initialMetrics.width);
   assert.equal(state.height, initialMetrics.height);
   assert.equal(state.reports, reports);

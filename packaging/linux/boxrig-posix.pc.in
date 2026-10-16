@@ -1,0 +1,11 @@
+prefix={{prefix}}
+libdir={{libdir}}
+includedir={{includedir}}
+
+Name: boxrig-posix
+Description: POSIX PTY and terminal session adapters
+Version: {{version}}
+Requires: boxrig-session
+Libs: -L${libdir} -lboxrig-posix
+Libs.private: -lutil
+Cflags: -I${includedir}

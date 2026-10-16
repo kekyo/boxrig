@@ -8,12 +8,17 @@
 #define BOXRIG_WAYLAND_H
 
 #include "boxrig/ui.h"
+#include "boxrig/ime.h"
 
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <poll.h>
 #include <wayland-client.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /**
  * Creates a standard monotonic-clock adapter for one owning Wayland loop.
@@ -150,7 +155,11 @@ typedef enum boxrig_wayland_input_capability {
     /** xkb compose fallback was created for the process locale. */
     BOXRIG_WAYLAND_INPUT_CAPABILITY_XKB_COMPOSE = 1u << 3,
     /** The selected direct IBus connection is usable. */
-    BOXRIG_WAYLAND_INPUT_CAPABILITY_IBUS = 1u << 4
+    BOXRIG_WAYLAND_INPUT_CAPABILITY_IBUS = 1u << 4,
+    /** Direct asynchronous fcitx 5 is the current input owner. */
+    BOXRIG_WAYLAND_INPUT_CAPABILITY_FCITX5 = 1u << 5,
+    /** Direct asynchronous fcitx 4 is the current input owner. */
+    BOXRIG_WAYLAND_INPUT_CAPABILITY_FCITX4 = 1u << 6
 } boxrig_wayland_input_capability;
 
 /** Optional native selection protocols currently available to a context. */
@@ -235,28 +244,19 @@ typedef struct boxrig_wayland_serial {
 typedef enum boxrig_wayland_input_method {
     /** Use the compositor text-input protocol, with xkb compose fallback. */
     BOXRIG_WAYLAND_IME_WAYLAND = 0,
-    /** Prefer version-2 clause hints, otherwise a configured IBus daemon. */
+    /** Prefer version-2 clause hints, otherwise discover a running direct IME. */
     BOXRIG_WAYLAND_IME_AUTO,
     /** Connect directly to IBus, falling back when it is unavailable. */
-    BOXRIG_WAYLAND_IME_IBUS
+    BOXRIG_WAYLAND_IME_IBUS,
+    /** Connect directly to fcitx 5, falling back when it is unavailable. */
+    BOXRIG_WAYLAND_IME_FCITX5,
+    /** Connect directly to fcitx 4, falling back when it is unavailable. */
+    BOXRIG_WAYLAND_IME_FCITX4
 } boxrig_wayland_input_method;
-
-/** Lifecycle of the optional direct IBus connection. */
-typedef enum boxrig_wayland_ibus_state {
-    /** The selected policy does not need an IBus connection. */
-    BOXRIG_WAYLAND_IBUS_DISABLED = 0,
-    /** An asynchronous bus or input-context request is being established. */
-    BOXRIG_WAYLAND_IBUS_CONNECTING,
-    /** The owned bus connection is usable. */
-    BOXRIG_WAYLAND_IBUS_READY,
-    /** IBus could not be reached; ordinary input remains available. */
-    BOXRIG_WAYLAND_IBUS_UNAVAILABLE
-} boxrig_wayland_ibus_state;
-
 
 /** Bounded display-wide context configuration. */
 typedef struct boxrig_wayland_context_config {
-    /** Input policy; defaults to compositor-managed Wayland. */
+    /** Input policy; defaults to AUTO. */
     boxrig_wayland_input_method input_method;
     /** Candidate display policy; AUTO keeps a capable standard Wayland route. */
     boxrig_ui_candidate_policy candidate_policy;
@@ -278,16 +278,10 @@ typedef struct boxrig_wayland_context_config {
 
 /** Queryable display-wide Wayland state. */
 typedef struct boxrig_wayland_context_diagnostic {
-    /** Currently selected route: WAYLAND or IBUS (never AUTO). */
+    /** Selected input route; AUTO while direct service discovery is pending. */
     boxrig_wayland_input_method input_method;
-    /** Current optional IBus connection state. */
-    boxrig_wayland_ibus_state ibus_state;
-    /** Number of focused, ready per-seat IBus input contexts. */
-    size_t active_ibus_context_count;
-    /** Outstanding asynchronous setup and key requests. */
-    size_t pending_ibus_request_count;
-    /** Recoverable IBus connection, protocol, or key-request errors. */
-    size_t ibus_error_count;
+    /** Common direct IME selection and transport diagnostics. */
+    boxrig_ime_diagnostic direct;
     /** Current asynchronous registry lifecycle. */
     boxrig_wayland_context_state state;
     /** First sticky failure, or BOXRIG_WAYLAND_FAILURE_NONE. */
@@ -905,6 +899,42 @@ boxrig_composition *boxrig_wayland_terminal_component_composition(
     boxrig_wayland_terminal_component *component);
 
 /**
+ * Requests input inhibition or resumption on the owning event thread.
+ * @param component Component whose terminal input is controlled.
+ * @param enabled True to resume, false to cancel unsubmitted input.
+ * @return OK when complete, BUSY while a paste terminator awaits capacity or
+ * during input dispatch, INVALID_ARGUMENT, LIMIT_EXCEEDED, or UNAVAILABLE.
+ * @remarks An accepted disable request advances the generation immediately.
+ * Continue context dispatch to enqueue any required paste terminator, and use
+ * get_input_state() to distinguish STOPPING from DISABLED before resuming.
+ * Reentrant BUSY preserves the old state. DISABLED denotes core submission,
+ * not transport drain. Selection, copy, local routes, rendering, and terminal
+ * protocol replies remain available. Held keys stay inhibited until release.
+ */
+boxrig_ui_status boxrig_wayland_terminal_component_set_input_enabled(
+    boxrig_wayland_terminal_component *component, bool enabled);
+
+/**
+ * Reads the input phase and generation without advancing pending work.
+ * @param component Component on its owning event thread.
+ * @param state_out Required state output.
+ * @return OK or INVALID_ARGUMENT.
+ */
+boxrig_ui_status boxrig_wayland_terminal_component_get_input_state(
+    const boxrig_wayland_terminal_component *component, boxrig_ui_input_state *state_out);
+
+/**
+ * Exchanges input settings when no native key or IME transaction is pending.
+ * @param component Frontend to configure on its owning event thread.
+ * @param config Complete replacement, copied using the core validation rules.
+ * @return OK, BUSY while a key is held or input/IME/clipboard/paste is pending,
+ *         INVALID_ARGUMENT, LIMIT_EXCEEDED, or OUT_OF_MEMORY.
+ * @remarks BUSY and other failures preserve all old settings and input state.
+ */
+boxrig_ui_status boxrig_wayland_terminal_component_set_input_config(
+    boxrig_wayland_terminal_component *component, const boxrig_input_config *config);
+
+/**
  * Installs an application key router before terminal encoding.
  *
  * @param component Component to configure.
@@ -1369,5 +1399,9 @@ uint32_t boxrig_wayland_terminal_component_capabilities(
 boxrig_ui_status boxrig_wayland_terminal_component_get_diagnostic(
     const boxrig_wayland_terminal_component *component,
     boxrig_wayland_component_diagnostic *diagnostic_out);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -13,6 +13,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** Result of one nonblocking transport operation. */
 typedef enum boxrig_transport_status {
     /** The operation transferred a positive number of bytes. */
@@ -233,5 +237,9 @@ boxrig_session_status boxrig_session_resize(
     boxrig_session *session,
     size_t rows,
     size_t columns);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

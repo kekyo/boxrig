@@ -45,6 +45,14 @@ coreにはUnicode処理のutf8proc、PNG画像のlibpngとzlibを同梱し、`li
 coreだけを使うアプリケーションには、X11やGTKをリンクする必要はありません。
 UIのビルド・実行に必要なシステムライブラリは、上の表で環境ごとに確認してください。
 
+直接fcitx 5／4の経路はGLib／GIOのD-Bus通信を使用するため、fcitx用の開発パッケージは不要です。
+実行時には、利用する世代のデーモンと入力エンジンが必要です。
+5.1.7、5.1.12、5.1.19と、4.2.9.9で動作を確認しています。
+Debian／UbuntuでMozcを使う場合は、5系には`fcitx5`と`fcitx5-mozc`、4系には`fcitx`と`fcitx-mozc`が必要です。
+4系のX11でシステム候補を表示する場合は、`fcitx-ui-classic`などのUIも導入します。
+GTKへ入力を委譲する場合は、対応するGTK用IMEモジュールも導入してください。
+直接接続と委譲の対応範囲は[入力とIME](./input-ime.md)を参照してください。
+
 LinuxのSDKをインストールする前に、ライセンス表示を生成するツールを用意します。
 
 ```sh
@@ -75,6 +83,37 @@ Windowsを使用しない場合は`native`を指定してください。
 
 共通UI、通信、POSIX接続は、それぞれ`build/libboxrig-ui.a`、`build/libboxrig-session.a`、`build/libboxrig-posix.a`になります。
 環境別の静的ライブラリも`build/`に置かれます。
+
+### Linuxの共有ライブラリを使う
+
+core・UI・session・POSIXの共有版は、次のコマンドで作成・インストールできます。
+
+```sh
+make shared-base BUILD_DIR=/tmp/boxrig-build
+make install-shared-base BUILD_DIR=/tmp/boxrig-build PREFIX="$HOME/.local"
+pkg-config --cflags --libs boxrig-ui boxrig-posix
+```
+
+生成先は`BUILD_DIR/shared/`です。指定を省略すると`build/shared/`になります。
+共有版用のPICオブジェクトを使うため、通常の静的ビルドと出力先が分かれます。
+インストール先には共有版と静的版の両方が入り、共有版のSONAMEは`libboxrig.so.0`などです。
+配布先には、利用するライブラリの`.so.0`と、その依存となるboxrigライブラリも含めてください。
+同じディレクトリの依存をロードできますが、アプリケーションからそのディレクトリを探す設定は必要です。
+標準ライブラリ検索パス、アプリケーションのRUNPATH、または`LD_LIBRARY_PATH`を利用します。
+
+`PREFIX`・`LIBDIR`・`INCLUDEDIR`・`PKGCONFIGDIR`には空白を含まない絶対パスを指定します。
+ステージングには`DESTDIR`を使えます。生成したpkg-config情報はインストール先からの相対パスなので、SDK全体を移動しても利用可能です。
+独自の場所へ置いた場合は、`PKG_CONFIG_PATH`へその`lib/pkgconfig`を追加してください。
+静的版の依存も取得する場合は`pkg-config --static --libs`を使います。
+共有版が同じ検索先にある場合、静的リンクの選択にはコンパイラ・リンカー側の設定も必要です。
+公開APIはインストールしたヘッダーに宣言された関数です。`BOXRIG_PRIVATE_0`のシンボルはアプリケーションから使用しません。
+同梱のlibpng・zlib・utf8procは公開されず、アプリケーションやGTKが使うcodecと独立しています。
+
+GTKも共有版にする場合は`make shared`、インストールには`make install-shared`を使います。
+GTK3だけなら`shared-gtk3`と`install-shared-gtk3`、GTK4だけなら末尾を`gtk4`に置き換えます。
+いずれも基礎4ライブラリを含みます。`GTK_OPENGL=0`でCairoだけの構成も選択できます。
+配布パッケージのLinux SDKには、この6つの共有ライブラリと静的ライブラリが含まれます。
+生成される6つの`.pc`の版は`BOXRIG_VERSION`で指定でき、配布パッケージでは`screw-up`が取得した版になります。
 
 ## Windows向けにクロスビルドする
 

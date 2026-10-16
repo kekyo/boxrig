@@ -12,6 +12,10 @@
 #include <stddef.h>
 #include <sys/types.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /**
  * Reads a bounded Kitty graphics external transport on POSIX hosts.
  * @param transport Borrowed file, temporary-file, or shared-memory request.
@@ -125,18 +129,87 @@ int boxrig_posix_pty_input_batch_service(
 /** Opaque reusable POSIX pseudoterminal process. */
 typedef struct boxrig_posix_pty boxrig_posix_pty;
 
+/** Result of preparing and executing the PTY child, separate from its exit. */
+typedef enum boxrig_posix_pty_spawn_state {
+    /** Child setup or exec has not yet completed. */
+    BOXRIG_POSIX_PTY_SPAWN_PENDING = 0,
+    /** The close-on-exec diagnostic channel closed without a reported error. */
+    BOXRIG_POSIX_PTY_SPAWN_SUCCEEDED,
+    /** Parent preparation, child setup, exec, or diagnostic transport failed. */
+    BOXRIG_POSIX_PTY_SPAWN_FAILED
+} boxrig_posix_pty_spawn_state;
+
+/** Operation responsible for a POSIX PTY spawn failure. */
+typedef enum boxrig_posix_pty_spawn_stage {
+    /** No failure was reported. */
+    BOXRIG_POSIX_PTY_STAGE_NONE = 0,
+    /** Invalid spawn arguments. */
+    BOXRIG_POSIX_PTY_STAGE_ARGUMENTS,
+    /** Allocating the PTY object. */
+    BOXRIG_POSIX_PTY_STAGE_ALLOCATE,
+    /** Opening the master and slave terminal. */
+    BOXRIG_POSIX_PTY_STAGE_OPEN_PTY,
+    /** Opening the child diagnostic pipe. */
+    BOXRIG_POSIX_PTY_STAGE_PIPE,
+    /** Preparing nonblocking, close-on-exec, or private descriptors. */
+    BOXRIG_POSIX_PTY_STAGE_DESCRIPTORS,
+    /** Creating the child process. */
+    BOXRIG_POSIX_PTY_STAGE_FORK,
+    /** Creating the child's session. */
+    BOXRIG_POSIX_PTY_STAGE_SESSION,
+    /** Acquiring the child's controlling terminal. */
+    BOXRIG_POSIX_PTY_STAGE_CONTROLLING_TERMINAL,
+    /** Connecting standard input, output, or error to the slave. */
+    BOXRIG_POSIX_PTY_STAGE_STDIO,
+    /** Preparing the child's environment and executable search. */
+    BOXRIG_POSIX_PTY_STAGE_ENVIRONMENT,
+    /** Executing the requested command. */
+    BOXRIG_POSIX_PTY_STAGE_EXEC,
+    /** Reading an incomplete or failed diagnostic channel. */
+    BOXRIG_POSIX_PTY_STAGE_DIAGNOSTIC
+} boxrig_posix_pty_spawn_stage;
+
+/** Caller-owned spawn diagnostic, independent of process exit status. */
+typedef struct boxrig_posix_pty_spawn_result {
+    /** Pending, successful handoff, or failure. */
+    boxrig_posix_pty_spawn_state state;
+    /** Failing operation, or NONE when pending or successful. */
+    boxrig_posix_pty_spawn_stage stage;
+    /** Saved errno on failure, otherwise zero. */
+    int error_number;
+} boxrig_posix_pty_spawn_result;
+
+/**
+ * Reads the current terminal erase byte with tcgetattr().
+ * @param descriptor Open PTY master or other local terminal descriptor.
+ * @param erase_out Required output, reset to unavailable before querying.
+ * @return Zero on success, or -1 with errno set (including ENOTTY/EBADF).
+ * @remarks Call at TTY-bound key processing time so child stty changes are
+ * observed. NUL and _POSIX_VDISABLE remain available one-byte values. This
+ * synchronous query does not change terminal attributes, retain the descriptor,
+ * or update a core terminal. Pass the result to boxrig_terminal_set_tty_erase(),
+ * including unavailable results on failure; clear it when changing channels.
+ */
+int boxrig_posix_get_tty_erase(int descriptor, boxrig_tty_erase *erase_out);
+
 /**
  * Spawns a command connected to a new pseudoterminal.
  *
- * @param arguments NULL-terminated argument vector passed to execvp().
+ * @param arguments NULL-terminated argument vector with execvp-style PATH
+ * search and /bin/sh fallback for an executable text file without a shebang.
  * @param terminal_type Nonempty TERM value installed in the child environment.
  * @param rows Initial terminal rows.
  * @param columns Initial terminal columns.
  * @param pty_out Receives the allocated pseudoterminal object.
- * @return Zero on success, or -1 with errno set.
+ * @return Zero after child creation, or -1 for parent preparation failure.
  *
  * @remarks The library copies terminal_type into the child TERM variable and
  * does not read BOXRIG_TERM or another process-environment policy input.
+ * Child setup and exec results are obtained with get_spawn_result(); a zero
+ * return alone does not imply exec success. Parent preparation is synchronous.
+ * Environment and search storage are prepared before fork; the child performs
+ * no allocation or environment mutation. The caller must serialize concurrent
+ * mutations to its process environment while the spawn call snapshots it.
  */
 int boxrig_posix_pty_spawn(
     char *const arguments[],
@@ -144,6 +217,54 @@ int boxrig_posix_pty_spawn(
     size_t rows,
     size_t columns,
     boxrig_posix_pty **pty_out);
+
+/**
+ * Spawns a PTY child and also preserves parent preparation diagnostics.
+ * @param arguments NULL-terminated argument vector with execvp-style lookup.
+ * @param terminal_type Nonempty child TERM value.
+ * @param rows Initial nonzero terminal rows.
+ * @param columns Initial nonzero terminal columns.
+ * @param pty_out Required output, set to NULL before preparation.
+ * @param diagnostic_out Optional caller-owned result, including on failure.
+ * @return Zero after child creation with a PENDING diagnostic; -1 with errno
+ * and a FAILED diagnostic if parent preparation failed. No child survives a
+ * parent preparation failure.
+ * @remarks Query the returned PTY for subsequent child setup/exec results.
+ */
+int boxrig_posix_pty_spawn_with_diagnostic(
+    char *const arguments[],
+    const char *terminal_type,
+    size_t rows,
+    size_t columns,
+    boxrig_posix_pty **pty_out,
+    boxrig_posix_pty_spawn_result *diagnostic_out);
+
+/**
+ * Returns the borrowed nonblocking spawn-result descriptor.
+ * @param pty Pseudoterminal that owns the descriptor until destruction.
+ * @return Descriptor, or -1 with EINVAL for NULL.
+ * @remarks Wait for readability or hangup while the result is PENDING, then
+ * call get_spawn_result(). Stop watching once resolved. Do not read, close,
+ * or change this descriptor directly. It is independent of the PTY master.
+ */
+int boxrig_posix_pty_spawn_descriptor(const boxrig_posix_pty *pty);
+
+/**
+ * Reads a spawn diagnostic without blocking or reaping the child.
+ * @param pty Pseudoterminal on its owning event thread.
+ * @param result_out Required caller-owned snapshot.
+ * @return Zero for a valid query, including PENDING or FAILED; -1 with EINVAL
+ * for invalid arguments. Diagnostic I/O errors become a cached FAILED result.
+ * @remarks Final results remain available until destruction, even after wait.
+ * Success records channel closure without a reported setup/exec error, not
+ * application readiness or continued execution. A command can successfully
+ * start and exit immediately with 127.
+ * Process exit and external termination remain separately observable through
+ * the child PID. This function never competes with the host's sole reaper.
+ */
+int boxrig_posix_pty_get_spawn_result(
+    boxrig_posix_pty *pty,
+    boxrig_posix_pty_spawn_result *result_out);
 
 /**
  * Returns the nonblocking pseudoterminal master descriptor.
@@ -180,6 +301,9 @@ int boxrig_posix_pty_resize(
  * @param pty Pseudoterminal whose child is reaped.
  * @param status_out Receives the wait status.
  * @return Zero on success, or -1 with errno set.
+ * @remarks Use this function or one host-owned waitpid path as the sole child
+ * reaper. Reading spawn results never reaps the child. Spawn failure and
+ * successful execution followed by exit 127 can produce the same wait status.
  */
 int boxrig_posix_pty_wait(boxrig_posix_pty *pty, int *status_out);
 
@@ -187,6 +311,8 @@ int boxrig_posix_pty_wait(boxrig_posix_pty *pty, int *status_out);
  * Closes and releases a pseudoterminal object.
  *
  * @param pty Pseudoterminal to release. NULL is accepted.
+ * @remarks Closes the master and spawn-result descriptors. It does not reap
+ * the child; remove pending waits and finish child ownership before release.
  */
 void boxrig_posix_pty_destroy(boxrig_posix_pty *pty);
 
@@ -209,5 +335,9 @@ boxrig_session_status boxrig_posix_pty_session_create(
     boxrig_posix_pty *pty,
     const boxrig_session_config *config,
     boxrig_session **session_out);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

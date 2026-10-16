@@ -4,6 +4,10 @@
 #include "boxrig/ui/background_effect.h"
 #include <windows.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** Exclusive owner of one toplevel's DWM system backdrop attribute. */
 typedef struct boxrig_win32_background_effect boxrig_win32_background_effect;
 /**
@@ -45,4 +49,8 @@ boxrig_ui_background_effect_state boxrig_win32_background_effect_get_state(const
  * @remarks On failure the provider remains live for retry; do not free its owner.
  */
 boxrig_ui_status boxrig_win32_background_effect_destroy(boxrig_win32_background_effect **effect);
+#ifdef __cplusplus
+}
+#endif
+
 #endif

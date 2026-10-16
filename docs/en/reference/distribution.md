@@ -13,6 +13,8 @@ This is not a claim that a single archive containing every feature is available 
 
 | Configuration | Installation targets and pkg-config names |
 | --- | --- |
+| Linux shared base libraries | `install-shared-base`; `boxrig`, `boxrig-ui`, `boxrig-session`, `boxrig-posix` |
+| Linux shared GTK libraries | `install-shared-gtk3`/`install-shared-gtk4`, or `install-shared` for both; `boxrig-gtk3`/`boxrig-gtk4` and the four base libraries |
 | GTK 3/4 | `install-gtk3`/`install-gtk4`, `boxrig-gtk3`/`boxrig-gtk4` |
 | Native Wayland | `install-wayland`, `boxrig-wayland` |
 | Common OpenGL renderer | `install-render-ogl`, `boxrig-render-ogl` |
@@ -21,7 +23,8 @@ This is not a claim that a single archive containing every feature is available 
 | Windows OpenGL | `install-win32-opengl-{amd64,i686}`; `boxrig-render-ogl`, `boxrig-win32-ogl` |
 | Windows D3D11 | `install-render-d3d11-{amd64,i686}`, `install-win32-d3d11-{amd64,i686}`; `boxrig-render-d3d11`, `boxrig-win32-d3d11` |
 
-Static libraries are the default.
+The existing install targets provide static libraries.
+Linux shared targets and distribution packages also include `.so.0` libraries for core, UI, session, POSIX, GTK3, and GTK4.
 Windows OpenGL also has a DLL and import-library configuration.
 Current D3D11 installation uses static libraries.
 Use a separate prefix for each target ABI.
@@ -32,7 +35,7 @@ Headers go in `include/boxrig/`; libraries and `.pc` files in `lib/` and `lib/pk
 Included examples vary by module.
 
 The `.pc` files derive their prefix from their own location, so you can move the whole directory tree.
-The current `Version` is `0.0.0`.
+The six Linux shared `.pc` files accept `BOXRIG_VERSION` and match the release version in distribution packages. Other `.pc` files use `0.0.0`.
 For Windows linking, set `PKG_CONFIG_LIBDIR` to the target SDK only and avoid mixing in host Linux `.pc` files.
 Retrieve additional static-link dependencies with `pkg-config --static --libs`.
 
@@ -44,7 +47,9 @@ utf8proc, libpng, and zlib are compiled into core, so check [Third-party license
 
 ## Distribute on Linux
 
-Core's Unicode, PNG, and compression dependencies are included in `libboxrig.a`.
+Core's Unicode, PNG, and compression dependencies are included in `libboxrig.a` and `libboxrig.so.0`; codec symbols are not exported from the shared library.
+When using shared libraries, place the required boxrig `.so.0` files together and make that directory available through your application's RUNPATH, `LD_LIBRARY_PATH`, or the standard loader path.
+Applications must not call `BOXRIG_PRIVATE_0` functions absent from public headers. Keep the SDK's libraries at the same version.
 UI applications require shared libraries for the selected X11, GTK, Wayland, Pango, Cairo, IBus, and other facilities.
 OpenGL also requires the target environment's EGL/GL libraries and drivers.
 
@@ -101,7 +106,7 @@ For distribution with another toolchain version, compare against the original li
 
 ## Distribution features not yet provided
 
-The distributions described in this guide are SDKs built from source with the Makefile's install targets.
-Automated release-archive creation and management of public ABI compatibility are not provided.
+Create SDKs with Makefile install targets and archives with `build_package.sh`.
+Linux shared libraries have SONAMEs and symbol versions, but cross-version ABI compatibility guarantees and automated compatibility checks are not provided.
 
 [Documentation index](../index.md)

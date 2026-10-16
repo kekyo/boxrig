@@ -5,6 +5,7 @@
 You can adjust Enter and paste newlines, received newlines, and character encoding to match the communication peer.
 Examples include devices that expect LF for Enter and peers using Shift_JIS.
 These are boxrig core settings supplied when creating the terminal.
+Enter, erase bindings, and arrow mappings can also be exchanged together at runtime.
 All views of the same terminal share these I/O rules.
 They are independent of UI colors and fonts.
 
@@ -24,7 +25,7 @@ Keep the terminal returned on success and release it with `boxrig_terminal_destr
 boxrig_status create_line_terminal(boxrig_terminal **terminal_out)
 {
     boxrig_terminal_config config = boxrig_terminal_config_default();
-    config.enter_newline = BOXRIG_NEWLINE_LF;
+    config.input.enter_newline = BOXRIG_NEWLINE_LF;
     config.paste_newline = BOXRIG_NEWLINE_CRLF;
     config.receive_newline = BOXRIG_RECEIVE_NEWLINE_CRLF;
     return boxrig_terminal_create(&config, terminal_out);
@@ -38,7 +39,7 @@ Changing your local `config` after creation does not update the terminal.
 
 | Setting | Default | Choices |
 | --- | --- | --- |
-| `enter_newline` | `BOXRIG_NEWLINE_TERMINAL` | Follow terminal mode 20, or force CR, LF, or CRLF |
+| `input.enter_newline` | `BOXRIG_NEWLINE_TERMINAL` | Follow terminal mode 20, or force CR, LF, or CRLF |
 | `paste_newline` | `BOXRIG_NEWLINE_LF` | Convert LF in pasted text to CR, LF, or CRLF |
 
 For Enter with TERMINAL, mode 20 disabled produces CR and enabled produces CRLF.
@@ -72,8 +73,8 @@ It bypasses a PTY, letting you observe the behavior separately from OS newline c
 
 ## Change key sequences
 
-`key_mappings` specifies length-delimited byte sequences for arrow keys and modifiers.
-The table and bytes are copied at creation.
+`input.key_mappings` specifies length-delimited byte sequences for arrow keys and modifiers.
+The table and bytes are copied at creation and when settings are replaced.
 A zero length suppresses the key, and sequences containing NUL are valid.
 
 Mappings require an exact match of the applicable modifier combination, excluding Caps Lock and Num Lock.
@@ -84,6 +85,87 @@ Mappings apply to legacy key input and take precedence over application cursor m
 No Alt ESC prefix or character encoding conversion is added to the completed sequence.
 Events selected for Kitty key reporting retain Kitty format.
 Build the [key mapping example](../../examples/core/key_mapping.c) with `make example-key-mapping` to compare the default Up sequence with a mapping to `55 00`.
+
+## Backspace and Delete
+
+`input.backspace_binding` and `input.delete_binding` are independent choices:
+
+| `BOXRIG_ERASE_` value | Backspace | Delete |
+| --- | --- | --- |
+| `AUTO` (default) | DEL (`0x7f`) | `ESC [ 3 ~` |
+| `ASCII_BACKSPACE` | BS (`0x08`) | BS (`0x08`) |
+| `ASCII_DELETE` | DEL (`0x7f`) | DEL (`0x7f`) |
+| `DELETE_SEQUENCE` | `ESC [ 3 ~` | `ESC [ 3 ~` |
+| `TTY` | Channel erase byte, or Auto when unavailable | Channel erase byte, or Auto when unavailable |
+
+Ctrl exchanges BS and DEL; Alt prefixes a one-byte binding with ESC. A delete
+sequence carries modifiers as `CSI 3 ; modifier ~` without an extra Alt prefix.
+Keypad Delete follows Delete. Legacy press and repeat send bytes; release does
+not. Kitty reports and application-keypad encoding retain protocol priority.
+
+## Change settings at runtime
+
+`boxrig_terminal_config.input` uses `boxrig_input_config`, also accepted by
+`boxrig_terminal_set_input_config()`. Start with `boxrig_input_config_default()`
+and replace Enter, erase bindings, and arrow mappings together.
+
+```c
+boxrig_input_config input = boxrig_input_config_default();
+input.enter_newline = BOXRIG_NEWLINE_LF;
+input.backspace_binding = BOXRIG_ERASE_ASCII_BACKSPACE;
+input.delete_binding = BOXRIG_ERASE_DELETE_SEQUENCE;
+boxrig_status status = boxrig_terminal_set_input_config(terminal, &input);
+```
+
+The terminal validates and copies everything before exchanging settings.
+Invalid values, capacity errors, and allocation failures preserve the previous configuration.
+Screen content, history, selection, protocol modes, and queued output survive successful exchanges.
+Enter, erase bindings, and arrow mappings can change at runtime; codec and paste/receive newline policies remain construction settings.
+
+`boxrig_terminal_get_input_config()` returns current settings and a borrowed
+mapping table, valid until the next successful exchange or terminal destruction.
+That value can safely be passed back to the setter, which copies before releasing
+the previous table. These operations require external serialization.
+
+Use the frontend's `set_input_config()` on its owning event thread.
+GTK3/GTK4 widgets use `boxrig_gtkN_terminal_widget_set_input_config()`, and
+X11/Wayland/Win32 components use `boxrig_PLATFORM_terminal_component_set_input_config()`.
+X11 and Win32 input adapters provide the same settings API.
+It returns `BOXRIG_UI_BUSY` while the addressed component
+has a held key, queued input, IME, clipboard, or paste transaction. Continue normal
+event processing and retry after the series ends. When multiple components share
+a terminal, the host must ensure that all their input series have ended.
+
+The [key-mapping example](../../examples/core/key_mapping.c), built with
+`make example-key-mapping`, also prints bytes after changing arrows, Enter,
+Backspace, and Delete at runtime.
+
+## Using the TTY erase byte
+
+`BOXRIG_ERASE_TTY` uses the current erase byte supplied by the communication
+channel owner. `boxrig_tty_erase.available` distinguishes an obtained `byte`
+from unavailable information. Core performs no OS query: pass information with
+`boxrig_terminal_set_tty_erase()` and inspect the last supplied value with
+`boxrig_terminal_get_tty_erase()`. Initially unavailable, TTY uses the key's Auto
+behavior until a value is supplied.
+
+On POSIX, call `boxrig_posix_get_tty_erase(fd, &erase)` immediately before sending
+a TTY-bound key and pass the result to core on both success and failure. It reads
+the current `VERASE` using [tcgetattr()](https://pubs.opengroup.org/onlinepubs/9799919799/functions/tcgetattr.html).
+Failure clears the information and returns -1 with `errno` set. Querying at key
+time observes later `stty erase` changes. The GTK3, GTK4, X11, and Wayland example
+drivers include this integration.
+
+NUL and `_POSIX_VDISABLE` are available bytes, not missing values. Ctrl exchanges
+only BS and DEL; other bytes are unchanged. Alt prefixes ESC. TTY information
+survives settings exchanges and screen resets and can be refreshed during a
+held-key series. The host must supply `available = false` on disconnect or
+channel replacement so the next connection cannot reuse the previous value.
+
+For SSH, Telnet, serial, or other channels, supply a byte only when the connection
+layer knows it. Win32 PTY has no erase-query API and uses unavailable information
+with Auto fallback. Run `make test-tty-erase` to exercise POSIX changes and the
+actual bytes received by the PTY child.
 
 ## Character encodings and raw bytes
 

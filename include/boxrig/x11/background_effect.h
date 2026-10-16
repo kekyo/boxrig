@@ -3,6 +3,10 @@
 #define BOXRIG_X11_BACKGROUND_EFFECT_H
 #include "boxrig/ui/background_effect.h"
 #include <X11/Xlib.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 /** Exclusive KDE blur-property owner for one application toplevel. */
 typedef struct boxrig_x11_background_effect boxrig_x11_background_effect;
 /**
@@ -56,4 +60,8 @@ boxrig_ui_background_effect_state boxrig_x11_background_effect_get_state(const b
  * @param effect Provider, or NULL. Call before destroying the window or display.
  */
 void boxrig_x11_background_effect_destroy(boxrig_x11_background_effect *effect);
+#ifdef __cplusplus
+}
+#endif
+
 #endif

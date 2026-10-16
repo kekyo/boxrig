@@ -16,6 +16,7 @@ Header comments at each link specify the individual API contracts.
 | --- | --- | --- |
 | Terminal creation, parsing, cells, history, output, and host requests | [terminal.h](../../../include/boxrig/terminal.h) | [Core step-by-step](../step-by-step/step-by-step-core.md) |
 | Text, selection, search, monitoring, recognition, images, and time | [terminal.h](../../../include/boxrig/terminal.h) | [Text](../text.md), [Graphics specification](./graphics.md) |
+| Regular expressions, captures, and name validation before matching | [regex.h](../../../include/boxrig/regex.h) | [Regular expressions](../regex.md) |
 | Nonblocking communication sessions | [session.h](../../../include/boxrig/session.h) | [Sessions](../sessions.md) |
 | POSIX file descriptors and PTYs | [posix.h](../../../include/boxrig/posix.h) | [Sessions](../sessions.md) |
 | Win32 communication and PTYs | [session.h](../../../include/boxrig/win32/session.h), [pty.h](../../../include/boxrig/win32/pty.h) | [Win32](../platforms/win32.md) |
@@ -28,6 +29,7 @@ Header comments at each link specify the individual API contracts.
 | Views, allocation, frames, and common components | [view.h](../../../include/boxrig/ui/view.h), [component.h](../../../include/boxrig/ui/component.h) | [UI step-by-step](../step-by-step/step-by-step-ui.md) |
 | Keys, shortcuts, and pasting | [input.h](../../../include/boxrig/ui/input.h), [shortcut.h](../../../include/boxrig/ui/shortcut.h), [input_text.h](../../../include/boxrig/ui/input_text.h) | [Terminal I/O settings](../terminal-io.md) |
 | IME preedit, candidates, and editable documents | [composition.h](../../../include/boxrig/ui/composition.h), [candidates.h](../../../include/boxrig/ui/candidates.h), [editable.h](../../../include/boxrig/ui/editable.h) | [Input and IME](../input-ime.md) |
+| Direct IME protocol, connection state, and selection diagnostics | [ime.h](../../../include/boxrig/ime.h) | [Input route selection](../input-ime.md#choose-an-input-route) |
 | Fonts and text layout | [text_layout.h](../../../include/boxrig/ui/text_layout.h) | [Fonts and layout](../fonts-and-layout.md) |
 | Time, blinking, and waiting | [animation.h](../../../include/boxrig/ui/animation.h), [blink.h](../../../include/boxrig/ui/blink.h), [animation_poll.h](../../../include/boxrig/ui/animation_poll.h) | [Blinking](../blinking.md) |
 | Colors, background images, cursors, selection, and scrollbars | [color.h](../../../include/boxrig/ui/color.h), [image.h](../../../include/boxrig/ui/image.h), [decoration.h](../../../include/boxrig/ui/decoration.h), [scrollbar.h](../../../include/boxrig/ui/scrollbar.h) | [Backgrounds](../background.md), [Decorations](../decorations.md), [Scrollbars](../scrollbars.md) |

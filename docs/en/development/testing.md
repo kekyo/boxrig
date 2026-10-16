@@ -48,12 +48,27 @@ Run the full suite at the end.
 | Blinking and decorations | `test-text-blink`, `test-cursor-style`, `test-selection-style` |
 | Backgrounds and notifications | `test-background-layers`, `test-notification-dispatch`, `test-notification-samples` |
 | GTK and IME | `test-ime-clause`, `test-gtk-ime-routing`, `test-gtk-ibus-direct` |
+| Fcitx 5 | `test-fcitx5`, `test-fcitx5-panels`, `test-fcitx5-auto` |
+| Fcitx 4 | `test-fcitx4`, `test-fcitx4-panels-core`, `test-fcitx4-panels-gtk`, `test-fcitx4-discovery` |
 | Wayland input | `test-wayland-input`, `test-wayland-candidates-startup` |
 | Build-time code generation | `test-codegen` |
 | Win32 first-frame synchronization | `test-win32-first-frame-fence`, `test-win32-sample-first-frame-fence` |
 
 The [Makefile](../../../Makefile) defines target dependencies and execution conditions.
 Distinguish targets that only compile an executable from targets that run it.
+
+Real-daemon tests use Mozc with private D-Bus, display servers, and configuration directories.
+Separate Podman environments for 4 and 5 test the packaged versions from Debian 13, Ubuntu 24.04, and Ubuntu 26.04.
+They do not share the host's IME settings or user dictionary.
+
+```sh
+bash tests/ime/run_distribution.sh debian13 fcitx5
+bash tests/ime/run_distribution.sh debian13 fcitx4
+```
+
+The first argument also accepts `ubuntu2404` and `ubuntu2604`.
+Results under `build/test-results/ime-distributions/` include package versions, input-test logs, and images and videos of the sample terminal.
+Generation 4 is tested with a real 4.2.9.9 daemon; generation 5 tests also cover its 4 compatibility service and AUTO selection.
 
 ## Check SDK and documentation examples
 

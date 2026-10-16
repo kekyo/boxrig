@@ -49,6 +49,13 @@ if [ -n "$destination" ]; then
     mkdir -p "$sdk/include/boxrig" "$sdk/lib/pkgconfig" "$sdk/bin" \
         "$sdk/share/licenses/boxrig" "$sdk/share/boxrig/examples"
     printf 'library\n' > "$sdk/lib/libboxrig.a"
+    if [[ " $* " == *' install-shared '* ]]; then
+        for name in boxrig boxrig-ui boxrig-session boxrig-posix boxrig-gtk3 boxrig-gtk4; do
+            printf 'library\n' > "$sdk/lib/lib$name.a"
+            printf 'shared library\n' > "$sdk/lib/lib$name.so.0"
+            ln -s "lib$name.so.0" "$sdk/lib/lib$name.so"
+        done
+    fi
     printf 'license\n' > "$sdk/share/licenses/boxrig/README.md"
     printf 'Japanese documentation\n' > "$sdk/share/licenses/boxrig/README_ja.md"
     printf 'example\n' > "$sdk/share/boxrig/examples/example.c"
@@ -69,9 +76,11 @@ elif [[ " $* " == *' win32 '* ]]; then
         printf 'emitter\n' > "build/boxrig_emitter/win32/$arch/boxrig_emitter.exe"
     done
 elif [[ " $* " == *' package-codegen '* ]]; then
-    mkdir -p build/tools/codegen build/generated/licenses
+    mkdir -p build/tools/codegen build/generated/licenses build/generated/pkgconfig
     printf 'generated JavaScript\n' > build/tools/codegen/generate-wayland-notices.mjs
     printf 'generated JavaScript\n' > build/tools/codegen/generate-shift-jis.mjs
+    printf 'generated JavaScript\n' > build/tools/codegen/generate-linux-metadata.mjs
+    printf 'generated package metadata\n' > build/generated/pkgconfig/boxrig.pc
     printf 'protocol notices\n' > build/generated/licenses/Wayland-protocols-NOTICES.md
 else
     printf 'Unexpected make invocation: %s\n' "$*" >&2
@@ -95,6 +104,8 @@ tar -xzf "$project/artifacts/$linux_name.tar.gz" -C "$root"
 test -x "$root/$linux_name/bin/boxrig_term_gtk4"
 test -x "$root/$linux_name/bin/boxrig_emitter"
 test -s "$root/$linux_name/lib/libboxrig-session.a"
+test -s "$root/$linux_name/lib/libboxrig-gtk3.so.0"
+test -L "$root/$linux_name/lib/libboxrig.so"
 test ! -e "$root/$linux_name/share/boxrig/examples"
 test ! -e "$root/$linux_name/share/licenses/boxrig/README_ja.md"
 test ! -e "$project/artifacts/boxrig-0.1.0-win32-amd64.zip"

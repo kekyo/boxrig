@@ -76,7 +76,9 @@ Preserve the directory structure when moving an SDK, and do not mix SDKs with di
 
 ## Files required for execution and distribution
 
-Static libraries are the default, but the selected UI's system shared libraries must also be available at runtime.
+Linux SDKs include shared and static core, UI, session, POSIX, GTK3, and GTK4 libraries.
+For shared linkage, distribute the required boxrig `.so.0` files together and configure your application's RUNPATH or library search path to find them.
+Keep boxrig libraries at the same SDK version. System shared libraries for the selected UI must also be available at runtime.
 When using a DLL for Windows OpenGL, distribute that DLL as well.
 The standard configuration uses OS-supplied ConPTY and does not require bundling Microsoft executables.
 If you explicitly choose bundled ConPTY, include the files matching the ABI and their license documents.

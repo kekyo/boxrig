@@ -20,8 +20,12 @@ for generated in build/tools/codegen/generate-wayland-notices.mjs \
     build/generated/licenses/Wayland-protocols-NOTICES.md; do
     [ -s "$generated" ] || package_fail "Source preparation is missing: $generated"
 done
+for package in boxrig boxrig-ui boxrig-session boxrig-posix boxrig-gtk3 boxrig-gtk4; do
+    [ -s "build/generated/pkgconfig/$package.pc" ] || package_fail "Source preparation is missing: $package.pc"
+done
+export BOXRIG_PREGENERATED_PKGCONFIG="$PWD/build/generated/pkgconfig"
 bash packaging/build_sdk.sh linux "$version" /output "$jobs" "$distro-$release-$arch"
-for library in build/libboxrig*.a; do
+for library in build/libboxrig*.a build/shared/libboxrig*.so.0; do
     package_check_elf "$library" "$arch"
 done
 for frontend in x11 gtk3 gtk4 wayland; do

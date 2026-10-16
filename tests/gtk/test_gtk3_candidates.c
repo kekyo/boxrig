@@ -105,7 +105,7 @@ static void settle(void)
         boxrig_ui_component_diagnostic state;
         CHECK(boxrig_gtk3_terminal_widget_get_ime_state(widget, &ime) == BOXRIG_UI_OK);
         CHECK(boxrig_gtk3_terminal_widget_get_diagnostic(widget, &state) == BOXRIG_UI_OK);
-        if (ime.ibus_pending == 0 && state.native_input_queue_depth == 0 &&
+        if (ime.direct.pending == 0 && state.native_input_queue_depth == 0 &&
             boxrig_gtk3_terminal_widget_has_presentation(widget)) break;
         iterate();
     }
@@ -156,9 +156,25 @@ static void pointer(GdkEventType type, double x, double y, GdkModifierType state
     settle();
 }
 
+static gboolean painted(GtkWidget *native, cairo_t *cr, gpointer data)
+{
+    (void)native; (void)cr;
+    *(bool *)data = true;
+    return FALSE;
+}
+
 static cairo_surface_t *capture(const char *name)
 {
     GtkWidget *native = GTK_WIDGET(widget);
+    /* Input completion does not finish GTK's queued size allocation. Wait
+     * for a real draw before requesting an offscreen copy of the widget. */
+    bool drawn = false;
+    gulong handler = g_signal_connect_after(native, "draw", G_CALLBACK(painted), &drawn);
+    guint timeout = g_timeout_add_seconds(60, deadline, "allocated widget draw");
+    gtk_widget_queue_draw(native);
+    while (!drawn) { frame(); if (!drawn) iterate(); }
+    g_source_remove(timeout);
+    g_signal_handler_disconnect(native, handler);
     int scale = gtk_widget_get_scale_factor(native);
     cairo_surface_t *surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32,
         gtk_widget_get_allocated_width(native) * scale, gtk_widget_get_allocated_height(native) * scale);
@@ -270,6 +286,8 @@ int main(int argc, char **argv)
     key(GDK_KEY_F14, 192);
     pointer(GDK_BUTTON_RELEASE, outside_x, outside_y, GDK_BUTTON1_MASK);
     CHECK(mouse_routed == 0 && boxrig_terminal_output_peek(terminal, &bytes) == 0);
+    /* Renderer changes can leave GTK allocation pending after input drains. */
+    gtk_widget_queue_resize(GTK_WIDGET(widget));
     cairo_surface_t *hidden = capture("hidden.png");
     CHECK(differences(before, hidden) == 0);
     key(GDK_KEY_F15, 193);

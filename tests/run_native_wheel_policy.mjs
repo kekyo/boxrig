@@ -229,8 +229,7 @@ try {
         return row;
     return -1;
   };
-  const observeRow = () => {
-    const { bytes, width, height } = capture();
+  const observeRow = ({ bytes, width, height }) => {
     if (!origin) {
       const x = Math.floor(width / 2);
       let y = 0;
@@ -246,7 +245,20 @@ try {
           rowColor(bytes, (nextY * width + x) * 3) !== firstRow + 1
         )
           nextY++;
-        assert(nextY <= y + state.height && nextY >= state.height);
+        // The PTY can acknowledge new cell metrics before GTK presents them.
+        // Require the next complete row to have that height before deriving
+        // the content origin from the image.
+        let thirdY = nextY + 1;
+        while (
+          thirdY < height &&
+          rowColor(bytes, (thirdY * width + x) * 3) !== firstRow + 2
+        )
+          thirdY++;
+        if (thirdY === height || thirdY - nextY !== state.height) return -1;
+        assert(
+          nextY <= y + state.height && nextY >= state.height,
+          JSON.stringify({ y, nextY, cellHeight: state.height, firstRow })
+        );
         y = nextY - state.height;
       }
       let left = 0;
@@ -271,7 +283,7 @@ try {
   const expectRow = async (expected, name) => {
     const until = Date.now() + 15000;
     let actual;
-    while ((actual = observeRow()) !== expected) {
+    while ((actual = observeRow(capture())) !== expected) {
       assert(
         Date.now() < until,
         `${name}: expected row ${expected}, got ${actual}`
@@ -374,7 +386,7 @@ try {
   };
   let live = -1;
   const initialPresentationDeadline = Date.now() + 15000;
-  while ((live = observeRow()) < 0) {
+  while ((live = observeRow(capture())) < 0) {
     assert(
       Date.now() < initialPresentationDeadline,
       'initial colored history presentation'
@@ -407,11 +419,19 @@ try {
     assert.equal(state.mouseX, Math.floor(state.width * 2.5) + 2);
     assert.equal(state.mouseY, Math.floor(state.height * 2.5) + 2);
     results.push({ name: 'one-pixel-within-cell', ...state });
+    const previousFrame = capture();
+    const previousHeight = state.height;
     wheel(4, ['Control_L']);
     await send('z');
     assert.equal(state.reports, 2);
     assert(state.height > initial.height || state.width > initial.width);
     origin = undefined;
+    if (state.height !== previousHeight)
+      assert.equal(
+        observeRow(previousFrame),
+        -1,
+        'A frame with the previous cell height is not a presented zoom frame'
+      );
     await expectRow(live, 'pixel-zoom');
     wheel(4);
     await send('z');

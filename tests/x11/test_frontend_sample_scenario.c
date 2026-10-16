@@ -1034,7 +1034,7 @@ static bool wait_for_exit_with_display(
             (strstr(process->diagnostics,
                     "READY sample pending GTK3 clipboard callback after teardown\n") != NULL ||
              strstr(process->diagnostics,
-                    "READY sample pending X11 selection after quiesce\n") != NULL ||
+                    "READY sample pending X11 selection before quiesce\n") != NULL ||
              (held_clipboard_may_cancel && strstr(process->diagnostics,
                     "READY sample pending GTK4 clipboard callback after teardown\n") != NULL))) {
             if (!reply_to_held_clipboard_request(display, &held_clipboard_request, true)) {
@@ -1849,6 +1849,11 @@ static bool run_window_close_scenario(
             &cell_width)) {
         return false;
     }
+    /* The child title is applied while parsing output, before GTK necessarily
+     * presents its first frame and reports the selected renderer. Observe the
+     * rendered terminal before exercising ordinary native window shutdown. */
+    *stage_out = "present terminal before native close";
+    if (!wait_for_semantic_pixels(display, root, window, process)) return false;
     if (copy_before_close) {
         XWindowAttributes attributes;
         unsigned long left = 0u;
@@ -1861,8 +1866,7 @@ static bool run_window_close_scenario(
         int viewport_y;
 
         *stage_out = "copy and paste before native close";
-        if (!wait_for_semantic_pixels(display, root, window, process) ||
-            XGetWindowAttributes(display, window, &attributes) == 0) {
+        if (XGetWindowAttributes(display, window, &attributes) == 0) {
             return false;
         }
         (void)read_frame_extents(display, window, &left, &right, &top, &bottom);

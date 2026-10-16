@@ -1,0 +1,19 @@
+BOXRIG_0 {
+    global:
+        boxrig_posix_get_tty_erase;
+        boxrig_posix_pty_child;
+        boxrig_posix_pty_descriptor;
+        boxrig_posix_pty_destroy;
+        boxrig_posix_pty_get_spawn_result;
+        boxrig_posix_pty_input_batch_initialize;
+        boxrig_posix_pty_input_batch_pending;
+        boxrig_posix_pty_input_batch_service;
+        boxrig_posix_pty_resize;
+        boxrig_posix_pty_session_create;
+        boxrig_posix_pty_spawn;
+        boxrig_posix_pty_spawn_descriptor;
+        boxrig_posix_pty_spawn_with_diagnostic;
+        boxrig_posix_pty_wait;
+        boxrig_posix_read_graphics_transport;
+    local: *;
+};

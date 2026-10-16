@@ -14,6 +14,10 @@
 
 #include <X11/Xlib.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** Opaque Xlib renderer used by an X11 frontend. */
 typedef struct boxrig_x11_renderer boxrig_x11_renderer;
 
@@ -393,5 +397,9 @@ int boxrig_x11_renderer_draw_view_composition(
     boxrig_x11_renderer *renderer,
     boxrig_ui_view *view,
     boxrig_composition *composition);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

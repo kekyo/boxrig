@@ -565,7 +565,7 @@ boxrig_wayland_context_config boxrig_wayland_context_config_default(void)
 {
     boxrig_wayland_context_config config;
 
-    config.input_method = BOXRIG_WAYLAND_IME_WAYLAND;
+    config.input_method = BOXRIG_WAYLAND_IME_AUTO;
     config.candidate_policy = BOXRIG_UI_CANDIDATE_AUTO;
     config.maximum_components = BOXRIG_WAYLAND_COMPONENTS_DEFAULT;
     config.maximum_work_items = BOXRIG_WAYLAND_WORK_ITEMS_DEFAULT;
@@ -595,7 +595,7 @@ boxrig_ui_status boxrig_wayland_context_create(
     effective = config == NULL ? boxrig_wayland_context_config_default()
                                : *config;
     if (effective.input_method < BOXRIG_WAYLAND_IME_WAYLAND ||
-        effective.input_method > BOXRIG_WAYLAND_IME_IBUS ||
+        effective.input_method > BOXRIG_WAYLAND_IME_FCITX4 ||
         effective.candidate_policy < BOXRIG_UI_CANDIDATE_AUTO ||
         effective.candidate_policy > BOXRIG_UI_CANDIDATE_CLIENT ||
         effective.maximum_components == 0 ||

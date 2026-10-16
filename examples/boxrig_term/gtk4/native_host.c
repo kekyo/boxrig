@@ -446,6 +446,8 @@ int boxrig_term_gtk4_process_host_items(
             }
         } else if (item.type == BOXRIG_HOST_ITEM_WORKING_DIRECTORY) {
             /* The untrusted URI remains metadata and causes no host action. */
+        } else if (item.type == BOXRIG_HOST_ITEM_GRID_RESIZE) {
+            /* The sample keeps remote sizing separate from user layout. */
         } else if (item.type == BOXRIG_HOST_ITEM_CLIPBOARD_WRITE) {
             boxrig_host_request_result result =
                 write_clipboard(application, &item);
@@ -828,6 +830,7 @@ boxrig_input_key_route boxrig_term_gtk4_route_application_shortcut(
     if (application == NULL || application->widget == NULL) {
         return BOXRIG_INPUT_KEY_ROUTE_ERROR;
     }
+    boxrig_term_posix_runtime_prepare_key(application->runtime, event);
     const char *renderer_demo = getenv("BOXRIG_RENDERER_DEMO");
     if (renderer_demo != NULL && strcmp(renderer_demo, "1") == 0 &&
         (event->key == BOXRIG_KEY_F6 || event->key == BOXRIG_KEY_F7 || event->key == BOXRIG_KEY_F8) &&

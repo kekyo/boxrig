@@ -13,6 +13,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** Renderer-owned premultiplied ARGB image pixels. */
 typedef struct boxrig_premultiplied_image {
     /** Pixel width. */
@@ -125,5 +129,9 @@ bool boxrig_composite_premultiplied_image(
 bool boxrig_composite_premultiplied_image_behind(uint32_t *destination,
     size_t width, size_t height, size_t stride, const boxrig_premultiplied_image *image,
     const boxrig_image_composite_operation *operation, size_t *count);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

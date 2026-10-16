@@ -11,7 +11,7 @@
 int main(void)
 {
     boxrig_terminal_config config = boxrig_terminal_config_default();
-    config.enter_newline = BOXRIG_NEWLINE_LF;
+    config.input.enter_newline = BOXRIG_NEWLINE_LF;
     config.paste_newline = BOXRIG_NEWLINE_CRLF;
     config.receive_newline = BOXRIG_RECEIVE_NEWLINE_CRLF;
     boxrig_terminal *terminal = NULL;

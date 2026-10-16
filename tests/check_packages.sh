@@ -57,8 +57,32 @@ test -x "$sdk/bin/boxrig_emitter"
 test -s "$sdk/share/licenses/boxrig/Wayland-protocols-NOTICES.md"
 cp "$repository/tests/win32/test_core_package.c" consumer.c
 "$compiler" -std=c99 -Wall -Wextra -Wpedantic -Werror consumer.c \
-    -I"$sdk/include" -L"$sdk/lib" -lboxrig -lm -o consumer
-./consumer
+    -I"$sdk/include" -L"$sdk/lib" -lboxrig -lm -o "$sdk/bin/consumer" \
+    '-Wl,-rpath,$ORIGIN/../lib'
+env -u LD_LIBRARY_PATH LD_BIND_NOW=1 "$sdk/bin/consumer"
+export PKG_CONFIG_PATH="$sdk/lib/pkgconfig"
+test "$(pkg-config --modversion boxrig)" = "$version"
+"$compiler" -std=c99 -Wall -Wextra -Wpedantic -Werror \
+    "$repository/tests/shared/consumer.c" \
+    $(pkg-config --cflags --libs boxrig-ui boxrig-posix) -ldl \
+    '-Wl,-rpath,$ORIGIN/../lib' -o "$sdk/bin/shared-consumer"
+env -u LD_LIBRARY_PATH LD_BIND_NOW=1 "$sdk/bin/shared-consumer"
+for specification in \
+    'boxrig-gtk3:gtk3/test_gtk3_package.c' \
+    'boxrig-gtk4:gtk4/test_gtk4_package.c' \
+    'boxrig-wayland:wayland/test_wayland_package.c' \
+    'boxrig-x11-ogl:x11/test_x11_opengl_package.c' \
+    'boxrig-wayland-ogl:wayland/test_wayland_opengl_package.c'; do
+    package=${specification%%:*}
+    source=${specification#*:}
+    # The other frontends remain static and need their private dependencies.
+    mode=()
+    if [[ "$package" != boxrig-gtk* ]]; then mode=(--static); fi
+    "$compiler" -std=c99 -Wall -Wextra -Werror "$repository/tests/$source" \
+        $(pkg-config --cflags --libs "${mode[@]}" "$package") \
+        '-Wl,-rpath,$ORIGIN/../lib' -o "$sdk/bin/$package-consumer"
+    env -u LD_LIBRARY_PATH LD_BIND_NOW=1 "$sdk/bin/$package-consumer"
+done
 PKG_CONFIG_PATH="$sdk/lib/pkgconfig" pkg-config --exists \
     boxrig-gtk3 boxrig-gtk4 boxrig-wayland boxrig-render-ogl \
     boxrig-x11-ogl boxrig-wayland-ogl boxrig-notification \

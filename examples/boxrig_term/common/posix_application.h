@@ -158,6 +158,17 @@ int boxrig_term_posix_runtime_start(
     const boxrig_term_posix_config *config);
 
 /**
+ * Refreshes a TTY-bound erase key from the current PTY immediately before routing.
+ * @param runtime Runtime supplying the PTY and core; NULL is ignored.
+ * @param event Borrowed logical key. NULL and non-erase/release events are ignored.
+ * @remarks Queries only TTY-bound Backspace/Delete/keypad Delete press/repeat.
+ * A missing, terminated, or unreadable PTY clears the previous information so
+ * core uses Auto. No timer or startup snapshot is used.
+ */
+void boxrig_term_posix_runtime_prepare_key(
+    boxrig_term_posix_runtime *runtime, const boxrig_key_event *event);
+
+/**
  * Waits for the child and translates its wait status to an application code.
  *
  * @param runtime Started runtime.
