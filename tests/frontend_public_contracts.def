@@ -1583,6 +1583,16 @@ BOXRIG_PUBLIC_CONTRACT(
     "boxrig_posix_pty_get_spawn_result")
 
 BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/gtk3/terminal_widget.h", NATIVE_ACCESSIBILITY_POLICY, 4u,
+    "boxrig_gtk3_terminal_widget_set_accessibility_enabled "
+    "boxrig_gtk3_terminal_widget_get_accessibility_enabled")
+
+BOXRIG_PUBLIC_CONTRACT(
+    OPERATION, "include/boxrig/gtk4/terminal_widget.h", NATIVE_ACCESSIBILITY_POLICY, 8u,
+    "boxrig_gtk4_terminal_widget_set_accessibility_enabled "
+    "boxrig_gtk4_terminal_widget_get_accessibility_enabled")
+
+BOXRIG_PUBLIC_CONTRACT(
     OPERATION, "include/boxrig/gtk3/terminal_widget.h", NATIVE_INPUT_POLICY, 4u,
     "boxrig_gtk3_terminal_widget_set_input_enabled "
     "boxrig_gtk3_terminal_widget_get_input_state "
