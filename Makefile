@@ -5548,7 +5548,7 @@ test-gtk3-accessible: $(BUILD_DIR)/tests/test_gtk3_accessible
 	$(XVFB_RUN) -a env GDK_BACKEND=x11 NO_AT_BRIDGE=1 GSETTINGS_BACKEND=memory GIO_USE_VFS=local ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
 
 $(BUILD_DIR)/tests/test_gtk3_accessible: tests/gtk3/test_accessible_text.c $(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
-	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK3_CPPFLAGS) $(CFLAGS) $(GTK3_PROJECT_CFLAGS) $(SANITIZERS) $< $(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK3_LIBS) -lm -o $@
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK3_CPPFLAGS) $(CFLAGS) $(GTK3_PROJECT_CFLAGS) $(SANITIZERS) -Wl,--wrap=boxrig_ui_accessible_snapshot_create $< $(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK3_LIBS) -lm -o $@
 
 .PHONY: test-gtk3-atspi
 test: test-gtk3-atspi
@@ -5572,7 +5572,7 @@ test-gtk4-accessible: $(BUILD_DIR)/tests/test_gtk4_accessible
 	$(XVFB_RUN) -a env GDK_BACKEND=x11 GTK_A11Y=none GSK_RENDERER=cairo GSETTINGS_BACKEND=memory GIO_USE_VFS=local ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
 
 $(BUILD_DIR)/tests/test_gtk4_accessible: tests/gtk4/test_accessible_text.c $(GTK4_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
-	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK4_CPPFLAGS) $(CFLAGS) $(GTK4_PROJECT_CFLAGS) $(SANITIZERS) $< $(GTK4_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK4_LIBS) -lm \
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK4_CPPFLAGS) $(CFLAGS) $(GTK4_PROJECT_CFLAGS) $(SANITIZERS) -Wl,--wrap=boxrig_ui_accessible_snapshot_create $< $(GTK4_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK4_LIBS) -lm \
 		-Wl,--wrap=gtk_accessible_text_update_contents -Wl,--wrap=gtk_accessible_text_update_caret_position \
 		-Wl,--wrap=gtk_accessible_text_update_selection_bound -o $@
 

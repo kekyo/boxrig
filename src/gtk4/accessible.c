@@ -157,5 +157,6 @@ static void notify(boxrig_gtk_accessible_event event,
 boxrig_ui_status boxrig_gtk4_accessible_update(BoxrigGtk4TerminalWidget *widget)
 {
     return boxrig_gtk_accessible_publish(boxrig_gtk4_accessible_state(widget),
-        boxrig_gtk4_terminal_widget_view(widget), notify, GTK_ACCESSIBLE_TEXT(widget));
+        boxrig_gtk4_terminal_widget_view(widget),
+        boxrig_gtk4_terminal_widget_get_accessibility_enabled(widget), notify, GTK_ACCESSIBLE_TEXT(widget));
 }

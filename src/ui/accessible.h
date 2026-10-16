@@ -27,12 +27,20 @@ typedef struct boxrig_ui_accessible_character {
     bool selected;
 } boxrig_ui_accessible_character;
 
+/* Independent content, presentation and selection inputs. Paint-only changes
+ * such as blinking and IME overlays are deliberately absent. */
+typedef struct boxrig_ui_accessible_version {
+    uint64_t text, buffer, colors, model, layout, selection;
+    size_t rows, columns, viewport, caret_row, caret_column;
+} boxrig_ui_accessible_version;
+
 /* Immutable and independent of the originating terminal, view and layouts.
  * Characters are Unicode scalars. The extra terminal character contains the
  * final byte offset. Hard rows include LF, soft rows join without padding a
  * continuation cell. Unwritten trailing cells are omitted; explicit spaces
  * and indentation are retained. Carets outside the viewport clamp to its end. */
 typedef struct boxrig_ui_accessible_snapshot {
+    boxrig_ui_accessible_version version;
     size_t memory_bytes;
     size_t byte_count;
     size_t character_count;
@@ -56,6 +64,10 @@ typedef struct boxrig_ui_accessible_change {
 boxrig_ui_status boxrig_ui_accessible_snapshot_create(boxrig_ui_view *view,
     size_t maximum_bytes, boxrig_ui_accessible_snapshot **out);
 void boxrig_ui_accessible_snapshot_destroy(boxrig_ui_accessible_snapshot *snapshot);
+
+/* Constant-time check after model synchronization; never scans cells. */
+bool boxrig_ui_accessible_snapshot_is_current(const boxrig_ui_view *view,
+    const boxrig_ui_accessible_snapshot *snapshot);
 
 /* Minimal common-prefix/suffix replacement in Unicode scalar offsets.
  * NULL snapshots describe empty text. Neither input is modified. */

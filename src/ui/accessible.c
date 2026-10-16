@@ -167,6 +167,7 @@ boxrig_ui_status boxrig_ui_accessible_snapshot_create(boxrig_ui_view *view,
     if (status != BOXRIG_UI_OK) return status;
     boxrig_ui_accessible_snapshot *snapshot = calloc(1, measure.memory_bytes);
     if (snapshot == NULL) return BOXRIG_UI_OUT_OF_MEMORY;
+    boxrig_ui_view_accessible_version(view, &snapshot->version);
     snapshot->memory_bytes = measure.memory_bytes;
     snapshot->byte_count = measure.bytes;
     snapshot->character_count = measure.characters;
@@ -196,6 +197,21 @@ boxrig_ui_status boxrig_ui_accessible_snapshot_create(boxrig_ui_view *view,
 void boxrig_ui_accessible_snapshot_destroy(boxrig_ui_accessible_snapshot *snapshot)
 {
     free(snapshot);
+}
+
+bool boxrig_ui_accessible_snapshot_is_current(const boxrig_ui_view *view,
+    const boxrig_ui_accessible_snapshot *snapshot)
+{
+    if (view == NULL || snapshot == NULL) return false;
+    boxrig_ui_accessible_version next;
+    boxrig_ui_view_accessible_version(view, &next);
+    const boxrig_ui_accessible_version *old = &snapshot->version;
+    return old->text == next.text && old->buffer == next.buffer &&
+        old->colors == next.colors && old->model == next.model &&
+        old->layout == next.layout && old->selection == next.selection &&
+        old->rows == next.rows && old->columns == next.columns &&
+        old->viewport == next.viewport && old->caret_row == next.caret_row &&
+        old->caret_column == next.caret_column;
 }
 
 void boxrig_ui_accessible_snapshot_diff(const boxrig_ui_accessible_snapshot *old,

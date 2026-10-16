@@ -81,6 +81,12 @@ A failed switch may preserve the previous usable rendering backend.
 ## Read terminal text through assistive technology
 
 The GTK 3 widget implements `AtkText`, and the GTK 4 widget implements `GtkAccessibleText`.
+Text publication is disabled by default. Applications using screen readers or automated text retrieval must set `accessibility_enabled = true` in the widget creation configuration.
+Use `set_accessibility_enabled()` to change it at runtime and `get_accessibility_enabled()` to read the setting.
+Disabling withdraws previously published text and stops snapshot generation and change notifications. Enabling publishes the current viewport on the next `frame()`; synchronized output waits until its batch completes.
+Standard GTK accessibility for menus and buttons is unaffected.
+When enabled, the widget reuses published text while its content, attributes, geometry, selection, and caret remain unchanged. Blinking and IME preedit overlays alone do not rebuild terminal text.
+
 AT-SPI exposes the visible text, a caret corresponding to the terminal cursor, per-view selections, and character attributes.
 Offsets count Unicode scalars. Wide-character continuation cells do not add characters, while combining characters count their individual scalars.
 Character extents exposed by GTK 3 cover the cells occupied by the grapheme.

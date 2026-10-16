@@ -1,6 +1,8 @@
 /* boxrig - Under MIT. */
 #include "boxrig/gtk4.h"
 
+#include "../../src/ui/accessible.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -8,6 +10,16 @@
 #define CHECK(condition) do { if (!(condition)) { \
     fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #condition); \
     abort(); } } while (0)
+
+static size_t snapshot_builds;
+boxrig_ui_status __real_boxrig_ui_accessible_snapshot_create(boxrig_ui_view *view,
+    size_t maximum_bytes, boxrig_ui_accessible_snapshot **out);
+boxrig_ui_status __wrap_boxrig_ui_accessible_snapshot_create(boxrig_ui_view *view,
+    size_t maximum_bytes, boxrig_ui_accessible_snapshot **out)
+{
+    snapshot_builds++;
+    return __real_boxrig_ui_accessible_snapshot_create(view, maximum_bytes, out);
+}
 
 static char notifications[128];
 static size_t notification_count;
@@ -40,6 +52,7 @@ void __wrap_gtk_accessible_text_update_contents(GtkAccessibleText *text,
     }
     boxrig_ui_component_frame_result result;
     CHECK(boxrig_gtk4_terminal_widget_frame(BOXRIG_GTK4_TERMINAL_WIDGET(text), &result) == BOXRIG_UI_BUSY);
+    CHECK(boxrig_gtk4_terminal_widget_set_accessibility_enabled(BOXRIG_GTK4_TERMINAL_WIDGET(text), false) == BOXRIG_UI_BUSY);
     notifications[notification_count++] = removal ? 'D' : 'I';
     __real_gtk_accessible_text_update_contents(text, change, start, end);
     if (removal && release_on_remove != NULL) {
@@ -103,6 +116,12 @@ int main(void)
     gtk_widget_measure(GTK_WIDGET(widget), GTK_ORIENTATION_VERTICAL, -1, NULL, &height, NULL, NULL);
     gtk_widget_allocate(GTK_WIDGET(widget), width, height, -1, NULL);
     frame(widget);
+    CHECK(snapshot_builds == 0);
+    CHECK(!widget_config.accessibility_enabled);
+    CHECK(!boxrig_gtk4_terminal_widget_get_accessibility_enabled(widget));
+    CHECK(boxrig_gtk4_terminal_widget_set_accessibility_enabled(widget, true) == BOXRIG_UI_OK);
+    frame(widget);
+    CHECK(snapshot_builds == 1);
     CHECK(GTK_IS_ACCESSIBLE_TEXT(widget));
     GtkAccessibleText *text = GTK_ACCESSIBLE_TEXT(widget);
     GtkAccessibleTextInterface *interface = GTK_ACCESSIBLE_TEXT_GET_IFACE(text);
@@ -153,7 +172,9 @@ int main(void)
     CHECK(notification_count == 3 && memcmp(notifications, "DIC", 3) == 0);
     CHECK(interface->get_caret_position(text) == 8);
     notification_count = 0;
+    const size_t unchanged_builds = snapshot_builds;
     for (size_t i = 0; i < 4; i++) frame(widget);
+    CHECK(snapshot_builds == unchanged_builds);
     CHECK(notification_count == 0);
 
     boxrig_composition *composition = boxrig_gtk4_terminal_widget_composition(widget);
@@ -167,6 +188,7 @@ int main(void)
     CHECK(boxrig_composition_get_view(composition, &composition_view) == BOXRIG_COMPOSITION_OK);
     CHECK(composition_view.active);
     frame(widget);
+    CHECK(snapshot_builds == unchanged_builds);
     CHECK(notification_count == 0);
     check_bytes(interface->get_contents(text, 0, G_MAXUINT), "A日本é🙂\nX\n\n\n");
     preedit = (boxrig_composition_event){.type = BOXRIG_COMPOSITION_CANCEL};
@@ -199,10 +221,30 @@ int main(void)
     CHECK(names != NULL && values != NULL);
     g_strfreev(names); g_strfreev(values);
     interface->get_default_attributes(text, NULL, NULL);
+    notification_count = 0;
+    feed(terminal, widget, "\033[2;1H");
+    CHECK(interface->get_caret_position(text) == 7);
+    CHECK(notification_count == 1 && notifications[0] == 'C');
 
     GBytes *retained = interface->get_contents(text, 0, G_MAXUINT);
     void *weak_widget = widget;
     g_object_add_weak_pointer(G_OBJECT(widget), &weak_widget);
+    CHECK(boxrig_gtk4_terminal_widget_set_accessibility_enabled(widget, false) == BOXRIG_UI_OK);
+    check_bytes(interface->get_contents(text, 0, G_MAXUINT), "");
+    const size_t before_disabled = snapshot_builds;
+    notification_count = 0;
+    feed(terminal, widget, "\033[?2026h\rdisabled update");
+    CHECK(snapshot_builds == before_disabled && notification_count == 0);
+    check_bytes(interface->get_contents(text, 0, G_MAXUINT), "");
+    CHECK(boxrig_gtk4_terminal_widget_set_accessibility_enabled(widget, true) == BOXRIG_UI_OK);
+    frame(widget);
+    CHECK(snapshot_builds == before_disabled);
+    feed(terminal, widget, "\033[?2026l");
+    CHECK(snapshot_builds == before_disabled + 1);
+    GBytes *latest = interface->get_contents(text, 0, G_MAXUINT);
+    CHECK(g_strstr_len(g_bytes_get_data(latest, NULL), (gssize)g_bytes_get_size(latest), "disabled update") != NULL);
+    g_bytes_unref(latest);
+    notification_count = 0;
     release_on_remove = window;
     feed(terminal, widget, "\033[2J\033[Hdone");
     CHECK(weak_widget == NULL);

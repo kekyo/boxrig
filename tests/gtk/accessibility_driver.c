@@ -114,6 +114,7 @@ int main(void)
     g_assert_cmpint(boxrig_terminal_create(&config, &terminal), ==, BOXRIG_STATUS_OK);
     g_assert_cmpint(boxrig_ui_model_create(terminal, &model), ==, BOXRIG_UI_OK);
     WidgetConfig widget_config = API(config_default)();
+    widget_config.accessibility_enabled = true;
     widget_config.frame_request_callback = request_frame;
     widget_config.frame_request_context = &frame_source;
     widget_config.ime_policy = BOXRIG_GTK_IME_GTK;

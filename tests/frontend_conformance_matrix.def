@@ -538,6 +538,17 @@ BOXRIG_FRONTEND_CONFORMANCE_CASE(
     COMMON, "test-input-config")
 
 BOXRIG_FRONTEND_CONFORMANCE_CASE(
+    NATIVE_ACCESSIBILITY_POLICY,
+    "native.accessibility-policy",
+    NATIVE_FRONTEND,
+    "Opt-in text publication, live withdrawal, unchanged snapshot reuse and assistive-technology events",
+    UNSUPPORTED_BY_CONTRACT, "reason:GTK-specific-accessible-text-publication",
+    UNSUPPORTED_BY_CONTRACT, "reason:GTK-specific-accessible-text-publication",
+    NATIVE, "test-gtk3-accessible+test-gtk3-atspi+test-gtk3-orca",
+    NATIVE, "test-gtk4-accessible+test-gtk4-atspi+test-gtk4-orca",
+    UNSUPPORTED_BY_CONTRACT, "reason:GTK-specific-accessible-text-publication")
+
+BOXRIG_FRONTEND_CONFORMANCE_CASE(
     NATIVE_INPUT_POLICY,
     "native.input-policy",
     NATIVE_FRONTEND,

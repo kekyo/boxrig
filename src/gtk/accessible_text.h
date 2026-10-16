@@ -24,7 +24,7 @@ typedef void (*boxrig_gtk_accessible_notify)(boxrig_gtk_accessible_event event,
 /* The frontend keeps its native object alive throughout synchronous callbacks.
  * A callback may detach it; no subsequent notification then escapes this call. */
 boxrig_ui_status boxrig_gtk_accessible_publish(boxrig_gtk_accessible_state *state,
-    boxrig_ui_view *view, boxrig_gtk_accessible_notify notify, void *context);
+    boxrig_ui_view *view, bool enabled, boxrig_gtk_accessible_notify notify, void *context);
 void boxrig_gtk_accessible_detach(boxrig_gtk_accessible_state *state);
 
 /* Scalar, Unicode word/sentence, physical row, or hard-line paragraph.
