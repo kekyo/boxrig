@@ -537,6 +537,15 @@ void boxrig_text_workload_observe_recognizer_match_identity_comparison(void);
 #define boxrig_text_workload_observe_recognizer_match_identity_comparison() \
     ((void)0)
 #endif
+/* Forward-only snapshot lookup. Initialize point_index to zero for each new
+ * snapshot and request nondecreasing byte offsets. Each call compares at most
+ * one point; WOULD_BLOCK means that one point was advanced and the caller must
+ * charge that work before retrying. Duplicate offsets select the first point,
+ * exactly as the public random-access lookup does. No borrowed pointer is kept. */
+boxrig_status boxrig_text_snapshot_position_step(
+    const boxrig_text_snapshot *snapshot, size_t *point_index,
+    size_t byte_offset, boxrig_text_position *position_out);
+
 boxrig_status boxrig_terminal_queue_notification(
     boxrig_terminal *terminal,
     const boxrig_notification_view *notification);

@@ -1557,6 +1557,12 @@ static bool run_self_test(void)
     if (result.text.snapshot_position_comparisons == 0) {
         return fail_step("self-test", "snapshot boundary comparison counter");
     }
+    /* Sequential recognition may visit each snapshot point and scalar
+     * boundary once; only the few final match lookups need random access. */
+    if (!measure_recognizer_long_line(4096, &result) ||
+        result.text.snapshot_position_comparisons > 4 * (4096 + 1) + 128) {
+        return fail_step("self-test", "linear recognizer boundary work");
+    }
     if (!measure_recognizer_many_patterns(3, 4, &result) ||
         result.fragments != 4 || result.projected_bytes != 4 ||
         result.recognizers != 3 || result.events != 3 ||

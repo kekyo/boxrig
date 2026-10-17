@@ -6294,6 +6294,70 @@ static bool test_resize_preserves_past_viewport_logical_anchor(void)
     return true;
 }
 
+static bool test_snapshot_sequential_positions(void)
+{
+    static const char *inputs[] = {
+        "", "\r\n\r\n", "A e\xcc\x81\xe7\x95\x8c 0123456789\r\n\r\nZ",
+        "\xf0\x9f\x91\xa9\xe2\x80\x8d\xf0\x9f\x92\xbb\r\ne\xcc\x81"
+    };
+    for (size_t sample = 0; sample < sizeof(inputs) / sizeof(inputs[0]); sample++) {
+        for (int alternate = 0; alternate < 2; alternate++) {
+            boxrig_terminal_config config = boxrig_terminal_config_default();
+            config.rows = 6;
+            config.columns = 5;
+            config.scrollback_capacity = 16;
+            boxrig_terminal *terminal = NULL;
+            CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+            size_t consumed;
+            if (alternate) CHECK(boxrig_terminal_feed(terminal,
+                (const uint8_t *)"\033[?1049h", 8, &consumed) == BOXRIG_STATUS_OK);
+            CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)inputs[sample],
+                strlen(inputs[sample]), &consumed) == BOXRIG_STATUS_OK);
+            CHECK(consumed == strlen(inputs[sample]));
+            CHECK(boxrig_terminal_resize(terminal, 6, 3) == BOXRIG_STATUS_OK);
+            boxrig_text_snapshot_options options = {0};
+            options.screen = alternate ? BOXRIG_TEXT_SCREEN_ALTERNATE : BOXRIG_TEXT_SCREEN_PRIMARY;
+            options.byte_capacity = 4096;
+            options.line_capacity = 64;
+            boxrig_text_snapshot *snapshot = NULL;
+            CHECK(boxrig_terminal_create_text_snapshot(terminal, &options, &snapshot) == BOXRIG_STATUS_OK);
+            /* Neither lookup may depend on the terminal or its mutable cells. */
+            boxrig_terminal_destroy(terminal);
+            size_t length;
+            (void)boxrig_text_snapshot_data(snapshot, &length);
+            for (int sparse = 0; sparse < 2; sparse++) {
+                size_t point = 0;
+                for (size_t offset = sparse ? length : 0; offset <= length; offset++) {
+                    boxrig_text_position expected, actual;
+                    boxrig_status reference = boxrig_text_snapshot_position_at_byte_offset(
+                        snapshot, offset, &expected);
+                    /* Repeating an offset must still choose its first point. */
+                    for (int repeat = 0; repeat < 2; repeat++) {
+                        boxrig_status status;
+                        do {
+                            size_t previous = point;
+                            status = boxrig_text_snapshot_position_step(snapshot, &point, offset, &actual);
+                            CHECK(point >= previous && point - previous <= 1);
+                            CHECK(status != BOXRIG_STATUS_WOULD_BLOCK || point == previous + 1);
+                        } while (status == BOXRIG_STATUS_WOULD_BLOCK);
+                        CHECK(status == reference);
+                        if (status == BOXRIG_STATUS_OK) {
+                            CHECK(actual.screen == expected.screen &&
+                                actual.line_id.epoch == expected.line_id.epoch &&
+                                actual.line_id.serial == expected.line_id.serial &&
+                                actual.line_revision == expected.line_revision &&
+                                actual.text_revision == expected.text_revision &&
+                                actual.column == expected.column);
+                        }
+                    }
+                }
+            }
+            boxrig_text_snapshot_destroy(snapshot);
+        }
+    }
+    return true;
+}
+
 static bool test_logical_text_projection_and_owned_snapshot(void)
 {
     static const uint8_t input[] =
@@ -9924,6 +9988,8 @@ int main(void)
          test_resize_preserves_past_viewport_logical_anchor},
         {"logical text projection and owned snapshot",
          test_logical_text_projection_and_owned_snapshot},
+        {"sequential snapshot positions match random access",
+         test_snapshot_sequential_positions},
         {"sparse snapshot selection", test_sparse_snapshot_selection},
         {"logical text identity revision and range rebase",
          test_logical_text_identity_revision_and_range_rebase},

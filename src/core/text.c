@@ -1750,6 +1750,25 @@ boxrig_status boxrig_text_snapshot_position_at_byte_offset(
     return BOXRIG_STATUS_INVALID_ARGUMENT;
 }
 
+boxrig_status boxrig_text_snapshot_position_step(
+    const boxrig_text_snapshot *snapshot, size_t *point_index,
+    size_t byte_offset, boxrig_text_position *position_out)
+{
+    if (snapshot == NULL || point_index == NULL || position_out == NULL ||
+        byte_offset > snapshot->byte_length || *point_index >= snapshot->point_count) {
+        return BOXRIG_STATUS_INVALID_ARGUMENT;
+    }
+    const boxrig_text_snapshot_point *point = &snapshot->points[*point_index];
+    TEXT_WORKLOAD_ADD(snapshot_position_comparisons, 1);
+    if (point->byte_offset < byte_offset) {
+        (*point_index)++;
+        return BOXRIG_STATUS_WOULD_BLOCK;
+    }
+    if (point->byte_offset != byte_offset) return BOXRIG_STATUS_INVALID_ARGUMENT;
+    *position_out = point->position;
+    return BOXRIG_STATUS_OK;
+}
+
 boxrig_status boxrig_text_snapshot_byte_offset_at_position(
     const boxrig_text_snapshot *snapshot,
     const boxrig_text_position *position,

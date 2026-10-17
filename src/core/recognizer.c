@@ -47,6 +47,7 @@ typedef struct boxrig_text_recognizer_entry {
     size_t snapshot_index;
     size_t snapshot_line_index;
     size_t snapshot_byte_offset;
+    size_t snapshot_point_index;
     uint64_t scan_text_revision;
     uint64_t scan_layout_revision;
     int32_t *line_scalars;
@@ -163,6 +164,7 @@ static void destroy_scan(boxrig_text_recognizer_entry *recognizer)
     recognizer->snapshot_index = 0u;
     recognizer->snapshot_line_index = 0u;
     recognizer->snapshot_byte_offset = 0u;
+    recognizer->snapshot_point_index = 0u;
     recognizer->line_scalar_count = 0u;
     recognizer->line_byte_start = 0u;
     recognizer->line_byte_end = 0u;
@@ -677,11 +679,13 @@ static boxrig_status prepare_line_step(
         size_t index = recognizer->line_prepare_boundary_index;
         boxrig_text_position position;
 
-        status = boxrig_text_snapshot_position_at_byte_offset(
+        status = boxrig_text_snapshot_position_step(
             snapshot,
+            &recognizer->snapshot_point_index,
             recognizer->line_byte_start +
                 recognizer->line_byte_offsets[index],
             &position);
+        if (status == BOXRIG_STATUS_WOULD_BLOCK) return BOXRIG_STATUS_OK;
         recognizer->line_boundaries[index] =
             status == BOXRIG_STATUS_OK ? 1u : 0u;
         if (index == 0u && status == BOXRIG_STATUS_OK) {
@@ -1090,6 +1094,7 @@ static boxrig_status resume_recognizer(
                 recognizer->snapshot_index++;
                 recognizer->snapshot_line_index = 0u;
                 recognizer->snapshot_byte_offset = 0u;
+                recognizer->snapshot_point_index = 0u;
                 continue;
             }
             begin_line(recognizer);
