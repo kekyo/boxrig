@@ -83,7 +83,7 @@ static gboolean dispatch_source_prepare(
     if (application->session != NULL && !application->peer_closed) {
         interests = boxrig_session_interests(application->session);
     }
-    if (application->host_items_pending ||
+    if (application->recognition_pending || application->host_items_pending ||
         (widget_frame_ready(application) && application->frame_requested) ||
         ((interests & BOXRIG_SESSION_INTEREST_DISPATCH) != 0 &&
          (interests & BOXRIG_SESSION_INTEREST_WRITE) == 0)) {
@@ -109,7 +109,7 @@ static gboolean dispatch_source_dispatch(
     boxrig_term_gtk4_dispatch_source *source =
         (boxrig_term_gtk4_dispatch_source *)base;
     boxrig_term_gtk4_application *application = source->application;
-    boxrig_session_dispatch_result session_result;
+    boxrig_session_dispatch_result session_result = {0};
     boxrig_ui_component_frame_result frame_result;
     uint32_t ready = BOXRIG_SESSION_READY_NONE;
     GIOCondition native_ready =
@@ -144,7 +144,13 @@ static gboolean dispatch_source_dispatch(
     if ((native_ready & G_IO_OUT) != 0) {
         ready |= BOXRIG_SESSION_READY_WRITE;
     }
-    if (boxrig_session_dispatch(
+    /* An idle continuation needs only recognition and event delivery. Native
+     * input, host work and real frame requests still take the full path. */
+    bool recognition_only = application->recognition_pending &&
+        native_ready == 0 && !application->host_items_pending &&
+        !application->frame_requested &&
+        (boxrig_session_interests(application->session) & BOXRIG_SESSION_INTEREST_DISPATCH) == 0;
+    if (!recognition_only && (boxrig_session_dispatch(
             application->session,
             ready,
             &session_result) != BOXRIG_SESSION_OK ||
@@ -155,8 +161,11 @@ static gboolean dispatch_source_dispatch(
             -1 ||
         boxrig_ui_model_synchronize(application->model) != BOXRIG_UI_OK ||
         boxrig_term_font_demo_apply(&application->font_demo) == -1 ||
-        boxrig_term_scrollbar_demo_apply(&application->scrollbar_demo) == -1 ||
-        boxrig_term_text_policy_resume(
+        boxrig_term_scrollbar_demo_apply(&application->scrollbar_demo) == -1)) {
+        boxrig_term_gtk4_fail(application);
+        return G_SOURCE_REMOVE;
+    }
+    if (boxrig_term_text_policy_resume(
             application->text_policy,
             BOXRIG_TERM_TEXT_POLICY_WORK_BUDGET_DEFAULT,
             &recognition_work,
@@ -164,8 +173,7 @@ static gboolean dispatch_source_dispatch(
         boxrig_term_gtk4_fail(application);
         return G_SOURCE_REMOVE;
     }
-    application->frame_requested =
-        application->frame_requested || recognition_more;
+    application->recognition_pending = recognition_more;
     application->peer_closed =
         application->peer_closed || session_result.peer_closed;
     should_frame = widget_frame_ready(application) &&
@@ -225,7 +233,8 @@ static gboolean dispatch_source_dispatch(
     if (boxrig_term_gtk4_dispatch_needs_immediate_wake(
             application->host_items_pending,
             widget_frame_ready(application),
-            application->frame_requested)) {
+            application->frame_requested,
+            application->recognition_pending)) {
         g_source_set_ready_time(base, 0);
     }
     return G_SOURCE_CONTINUE;

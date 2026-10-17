@@ -119,11 +119,22 @@ static gboolean expired(gpointer data)
     abort();
 }
 
-static void run(bool mapped, bool urls)
+typedef enum workload { TAIL_URL, PLAIN, EVENTS_ONLY, DISABLED, CANCEL } workload;
+
+static gboolean higher_priority(gpointer data)
 {
+    size_t *calls = data;
+    (*calls)++;
+    return G_SOURCE_REMOVE;
+}
+
+static void run(bool mapped, workload input)
+{
+    CHECK(g_setenv("BOXRIG_AUTO_URLS", input == DISABLED ? "0" : "1", true));
+    bool urls = input != PLAIN && input != DISABLED;
     application app = {0};
     boxrig_terminal_config config = boxrig_terminal_config_default();
-    config.rows = 66;
+    config.rows = input == EVENTS_ONLY ? 96 : 66;
     config.columns = 190;
     config.text_recognizer_event_capacity = 1024;
     CHECK(boxrig_terminal_create(&config, &app.terminal) == BOXRIG_STATUS_OK);
@@ -201,20 +212,57 @@ static void run(bool mapped, bool urls)
     /* Enough text to require many budgets before the final URL. Alternate
      * screen avoids a scrollbar resize that would require another GTK tick;
      * blinking cannot accidentally resume the isolated recognition source. */
-    for (size_t index = 0; index < 250; index++)
-        feed(&app, "unchanged row without a link 0123456789012345678901234567890123456789\r\n");
-    feed(&app, urls ? "https://example.org/final" : "finite output complete");
+    if (input == EVENTS_ONLY) {
+        for (size_t row = 0; row < 96; row++) {
+            char line[96];
+            snprintf(line, sizeof(line), "\033[%zu;1Hhttps://example.org/%zu", row + 1, row);
+            feed(&app, line);
+        }
+        size_t used;
+        bool more;
+        CHECK(boxrig_terminal_resume_text_recognizers(app.terminal, SIZE_MAX,
+            &used, &more) == BOXRIG_STATUS_OK && !more);
+    } else {
+        for (size_t index = 0; index < 250; index++)
+            feed(&app, "unchanged row without a link 0123456789012345678901234567890123456789\r\n");
+        feed(&app, urls || input == DISABLED ? "https://example.org/final" : "finite output complete");
+    }
     resumes = frames = host_passes = 0;
     last_more = false;
     APP(request_dispatch)(&app);
+    CHECK(g_main_context_iteration(context, false));
+    if (input == CANCEL) {
+        CHECK(last_more && app.recognition_pending);
+        size_t before = resumes;
+        g_source_destroy(app.dispatch_source);
+        CHECK(!g_main_context_pending(context));
+        CHECK(!g_main_context_iteration(context, false) && resumes == before);
+        goto cleanup;
+    }
+    if (input != DISABLED) {
+        CHECK(last_more && app.recognition_pending);
+        CHECK(g_source_get_priority(app.dispatch_source) == G_PRIORITY_DEFAULT_IDLE);
+        size_t calls = 0, before = resumes;
+        GSource *other = g_idle_source_new();
+        g_source_set_priority(other, G_PRIORITY_DEFAULT);
+        g_source_set_callback(other, higher_priority, &calls, NULL);
+        CHECK(g_source_attach(other, context) != 0);
+        CHECK(g_main_context_iteration(context, false));
+        CHECK(calls == 1 && resumes == before);
+        g_source_unref(other);
+    }
     drain(&app, context);
-    fprintf(stderr, "GTK%d mapped=%d urls=%d resumes=%zu frames=%zu host=%zu more=%d\n",
-        GTK_MAJOR_VERSION, mapped, urls, resumes, frames, host_passes, last_more);
-    CHECK(resumes > 1);
-    CHECK(!last_more);
+    fprintf(stderr, "GTK%d mapped=%d workload=%d resumes=%zu frames=%zu host=%zu more=%d\n",
+        GTK_MAJOR_VERSION, mapped, input, resumes, frames, host_passes, last_more);
+    CHECK(resumes >= (input == DISABLED ? 1u : 2u));
+    CHECK(!last_more && !app.recognition_pending);
     boxrig_text_recognizer_event event;
     CHECK(!boxrig_terminal_text_recognizer_event_peek(app.terminal, &event));
-    CHECK(frames < resumes);
+    /* Native presentation may coalesce the annotation with the text frame. */
+    CHECK(frames <= (mapped ? (urls ? 2u : 1u) : 0u));
+    if (mapped) CHECK(frames >= 1);
+    if (mapped && input != DISABLED) CHECK(host_passes <= frames);
+    if (input == EVENTS_ONLY) CHECK(resumes == 2);
     if (!mapped) CHECK(frames == 0);
 
     boxrig_ui_view *view = WIDGET(view)(app.widget);
@@ -228,9 +276,10 @@ static void run(bool mapped, bool urls)
         CHECK(status == BOXRIG_UI_OK || status == BOXRIG_UI_LIMIT_EXCEEDED);
         annotation_count += count;
     }
-    CHECK(annotation_count == (urls ? 1u : 0u));
+    CHECK(annotation_count == (input == EVENTS_ONLY ? 96u : urls ? 1u : 0u));
     CHECK(!g_main_context_pending(context));
 
+cleanup:
     g_source_destroy(app.dispatch_source);
     g_source_unref(app.dispatch_source);
     app.dispatch_source = NULL;
@@ -256,9 +305,12 @@ int main(void)
 #else
     CHECK(gtk_init_check());
 #endif
-    run(true, true);
-    run(true, false);
-    run(false, true);
+    run(true, TAIL_URL);
+    run(true, PLAIN);
+    run(false, TAIL_URL);
+    run(false, EVENTS_ONLY);
+    run(true, DISABLED);
+    run(true, CANCEL);
     printf("PASS GTK%d finite sample recognition drains without extra input\n", GTK_MAJOR_VERSION);
     return 0;
 }

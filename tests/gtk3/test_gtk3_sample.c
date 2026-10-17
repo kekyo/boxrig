@@ -1795,17 +1795,26 @@ int main(int argument_count, char **arguments)
     if (boxrig_term_gtk3_dispatch_needs_immediate_wake(
             false,
             false,
+            false,
             false) ||
         boxrig_term_gtk3_dispatch_needs_immediate_wake(
             false,
             false,
-            true) ||
+            true,
+            false) ||
         !boxrig_term_gtk3_dispatch_needs_immediate_wake(
             false,
             true,
+            true,
+            false) ||
+        !boxrig_term_gtk3_dispatch_needs_immediate_wake(
+            false,
+            false,
+            false,
             true) ||
         !boxrig_term_gtk3_dispatch_needs_immediate_wake(
             true,
+            false,
             false,
             false)) {
         fprintf(

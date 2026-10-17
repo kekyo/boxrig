@@ -85,6 +85,9 @@ typedef struct sample_selection_snapshot {
 static sample_selection_snapshot *sample_selection_snapshots;
 static uint64_t selection_snapshots_created;
 static bool clipboard_roundtrip_completed;
+static bool finite_recognition_pending;
+static bool finite_recognition_presentation_pending;
+static size_t finite_recognition_resumes;
 #if defined(BOXRIG_TEST_SAMPLE_GTK3) || defined(BOXRIG_TEST_SAMPLE_GTK4) || \
     defined(BOXRIG_TEST_SAMPLE_X11) || defined(BOXRIG_TEST_SAMPLE_WAYLAND) || \
     defined(_WIN32)
@@ -3070,6 +3073,12 @@ bool __wrap_boxrig_terminal_host_item_peek(
 
     if (result && terminal == sample_terminal &&
         item_out->type == BOXRIG_HOST_ITEM_TITLE) {
+        static const char finite_title[] = "boxrig-finite-recognition";
+        if (getenv("BOXRIG_TEST_FINITE_RECOGNITION") != NULL &&
+            item_out->payload_length == sizeof(finite_title) - 1 &&
+            memcmp(item_out->payload, finite_title, sizeof(finite_title) - 1) == 0) {
+            finite_recognition_pending = true;
+        }
         if (item_out->payload_length == strlen(BOXRIG_TEST_FRONTEND_SAMPLE_LINEAR_TITLE) &&
             memcmp(item_out->payload, BOXRIG_TEST_FRONTEND_SAMPLE_LINEAR_TITLE,
                    item_out->payload_length) == 0) {
@@ -3133,6 +3142,29 @@ int __wrap_boxrig_term_text_policy_resume(
         policy, work_budget, work_used_out, more_work_out);
     if (policy != NULL && policy == sample_policy) {
         REQUIRE(result == 0);
+    }
+    if (result == 0 && policy == sample_policy && finite_recognition_pending) {
+        finite_recognition_resumes++;
+        if (!*more_work_out) {
+            size_t rows, columns, count = 0;
+            boxrig_terminal_size(sample_terminal, &rows, &columns);
+            (void)columns;
+            for (size_t row = 0; row < rows; row++) {
+                boxrig_ui_text_annotation_visual_range ranges[4];
+                size_t required;
+                REQUIRE(boxrig_ui_view_query_text_annotation_visual_ranges(
+                    sample_view, row, ranges, 4, &required) == BOXRIG_UI_OK);
+                for (size_t index = 0; index < required; index++) {
+                    REQUIRE(ranges[index].annotation.source_id == BOXRIG_TERM_URL_ANNOTATION_SOURCE_ID);
+                    count++;
+                }
+            }
+            boxrig_text_recognizer_event event;
+            REQUIRE(count == 1 && finite_recognition_resumes > 1);
+            REQUIRE(!boxrig_terminal_text_recognizer_event_peek(sample_terminal, &event));
+            finite_recognition_pending = false;
+            finite_recognition_presentation_pending = true;
+        }
     }
     if (result == 0 && policy == sample_policy && !*more_work_out &&
         pending_overlay_stage > overlay_stage) {
@@ -3206,6 +3238,14 @@ boxrig_ui_status __wrap_boxrig_ui_view_consume_dirty(
     if (status == BOXRIG_UI_OK && view == sample_view && dirty &&
         !boxrig_ui_view_frame_requested(view)) {
         completed_frames++;
+        if (finite_recognition_presentation_pending) {
+            finite_recognition_presentation_pending = false;
+            fprintf(stderr, "PASS finite PTY recognition resumes=%zu annotations=1 events=0 presented=1\n",
+                finite_recognition_resumes);
+            /* Acknowledge only after the sample has presented the decoration.
+             * The child has produced no extra bytes to restart recognition. */
+            REQUIRE(boxrig_terminal_send_bytes(sample_terminal, (const uint8_t *)"q", 1) == BOXRIG_STATUS_OK);
+        }
         if (overlay_stage == 1u && !initial_overlay_presented) {
             boxrig_composition_view composition;
 

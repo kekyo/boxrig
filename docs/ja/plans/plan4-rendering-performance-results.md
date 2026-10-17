@@ -96,16 +96,69 @@ GTKの点滅や追加入力による偶然の再開を避け、sourceが実行�
 修正前のGTK3とGTK4は、認識とframeがそれぞれ2回進んだ後に停止しました。
 いずれも`more_work=true`のため、完了を要求する検証に失敗します。
 これが段階2で使用するREDです。
-現在は専用targetの`make test-gtk-sample-recognition`で実行し、修正後に全体テストへ登録します。
+専用targetの`make test-gtk-sample-recognition`で実行します。
+段階2の修正後に全体テストへ登録しました。
 
 試験作成中には、GTK4の初期allocationが完了する前に測定を始める失敗もありました。
 それは認識停止の証拠に含めず、表示とlayoutの初期化完了を待つように試験を修正しました。
 詳細は`build/test-results/plan4/sample-gtk3-red.log`と`sample-gtk4-red.log`にあります。
 
+## 段階2の成果物
+
+GTK3とGTK4の付属ターミナルに、認識とイベントの未完了状態を保持するフラグを追加しました。
+認識だけが残ったdispatchはidle優先度で続行し、frameを要求しません。
+その経路ではセッション同期、フォント設定、スクロールバー設定を繰り返さず、認識とイベント通知を進めます。
+装飾などによる実際の描画要求は、従来のview通知に従います。
+
+実際のGSourceを独立したmain contextで動かす試験では、次を確認しました。
+
+- 有限の本文と末尾URLは17回の認識再開で完了し、frameは1〜2回でした。
+- URLのない本文でも17回で完了し、frameは1回でした。
+- 未mapではframeを呼ばずに完了しました。
+- 認識済みの96件のイベントは、2回のdispatchで空になりました。
+- 認識無効時と完了後は、sourceのready時刻が解除され、prepareでも実行待ちになりませんでした。
+- 通常優先度のsourceがidleの認識続行より先に実行されました。
+- 未完了のsourceを破棄するとcallbackが残りませんでした。
+
+試験用のPTY子プロセスから250行と末尾URLを送り、その後の出力を止める試験も追加しました。
+GTK3、GTK4とも51回の再開で認識とイベント消費が完了しています。
+URL装飾を含む画像のdirtyが受理された後にだけ子プロセスへ終了を通知し、実際のサンプルの終了処理も通しました。
+GTK3／GTK4の既存sample試験、連続出力中の入力・描画、閉じ忘れた同期出力からの復帰も成功しています。
+
+実行コマンドは`make -j4 test-gtk-sample-recognition`と`build/tests/test_example_text_policy`です。
+既存シナリオは`build/tests/test_gtk3_sample`、`test_gtk4_sample`、`test_frontend_sample_x11`の`--continuous-output`、`--sync-recovery`をXvfbで実行しました。
+実行ログは`build/test-results/plan4/sample-expanded-green-4.log`、`text-policy-green.log`、`sample-gtk*.log`です。
+試験拡張時には、描画の合流を許さずframeを必ず2回とした検証と、認識無効時の通常dispatchまで認識専用と扱った検証が失敗しました。
+frameの上限と認識専用経路を検証する形に直し、製品コードへの追加修正は行っていません。
+
+## 認識を完了する付属アプリの基準値
+
+段階1と同じbtop入力を実PTYから送り、各状態の表示と認識・イベント消費を確認してから次へ進めました。
+GTK3 OpenGL、X11実GPU、CPU 2、190列×66行、16 DIPの条件です。
+3試行とも初期状態と40更新を順に確認し、最後の本文hashも一致しました。
+途中のPTY分割でも認識が進むため、APIへ一括投入した段階1とwork量は異なります。
+
+| 指標 | 3試行の中央値の範囲 | 各試行のp95の範囲 |
+| --- | ---: | ---: |
+| PTY書込み→widget draw終了 | 30.964〜44.701 ms | 62.071〜64.243 ms |
+| PTY書込み→60 fps録画での状態検出 | 49.794〜49.822 ms | 82.913〜95.429 ms |
+
+認識CPU時間は試行全体で100.476〜119.658 ms、再開は2,848〜3,364回でした。
+認識とイベントキューは全試行で完了し、GL surface描画は各44回です。
+周波数の中央値は5.176〜5.200 GHzでした。
+この表のdraw終了はGTK合成完了とは異なり、録画の検出時間にも取得・転送の遅延が入ります。
+停止していた旧sampleの短い認識時間との性能比較には使いません。
+
+[段階2の基準値JSON](plan4-measurements/step2-sample-baseline.json)に分布、認識結果、PID、実行ファイルhash、生ログを保存しました。
+一時ドライバーは`/tmp/boxrig-plan4-stage2/`にあります。
+`node /tmp/boxrig-plan4-stage2/build.mjs`で現在のsampleソースと現在の静的ライブラリーを接続し、
+`DISPLAY=:1 PROBE_CPU=2 PROBE_FRAME_STATS=1 RENDER_PROBE_LABEL=baseline4- node /tmp/boxrig-plan4-stage2/replay.mjs sample --host`などで実行しました。
+過去のelder-terms用共有ライブラリーは読み込んでいません。
+詳細測定前の試行と、計測コードのインデント警告を修正したビルド履歴も`build/test-results/plan4/stage2-profile-*.log`へ残しました。
+
 ## 残る作業
 
-段階2〜9は未完了です。
-次に認識・イベント処理の未完了状態を描画要求から分離します。
+段階1・2の完了条件を確認しました。段階3〜9は未完了です。
 RGB表示、CPU描画の削減、認識の順次走査と行再利用は、計画の順に実施します。
 snapshotの分割は、段階7後の負荷を測って着手を判断します。
 全体テスト`make -j1 test`、実アプリでの比較、動画・実機確認も最後に必要です。
