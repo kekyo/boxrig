@@ -522,6 +522,7 @@ typedef struct boxrig_text_workload_counters {
     size_t recognizer_line_comparisons;
     size_t recognizer_cached_empty_lines;
     size_t recognizer_reused_lines;
+    size_t text_sync_fragments;
 } boxrig_text_workload_counters;
 
 #ifdef BOXRIG_MEASURE_TEXT_WORKLOADS

@@ -1524,7 +1524,8 @@ boxrig_status boxrig_terminal_resume_text_recognizers(
     }
     *work_used_out = 0u;
     *more_work_out = false;
-    boxrig_screen_text_sync(&terminal->screen);
+    /* Public text mutations publish synchronized line metadata before returning.
+     * Rechecking the complete history here would bypass the resume budget. */
     state = terminal->text_recognizer_state;
     while (work_used < work_budget &&
            visited < state->recognizer_capacity) {

@@ -626,6 +626,7 @@ static bool sync_document(
         for (fragment_index = line_start;
              fragment_index < line_end;
              fragment_index++) {
+            TEXT_WORKLOAD_ADD(text_sync_fragments, 1);
             const boxrig_text_fragment_metadata *candidate =
                 document_fragment_metadata(
                     screen,

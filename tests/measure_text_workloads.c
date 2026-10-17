@@ -1341,7 +1341,7 @@ static void print_result(const workload_result *result)
         "snapshot_projection_cells=%zu snapshot_projection_bytes=%zu "
         "snapshot_position_comparisons=%zu recognizer_decoded_scalars=%zu "
         "recognizer_line_comparisons=%zu recognizer_cached_empty_lines=%zu "
-        "recognizer_reused_lines=%zu\n",
+        "recognizer_reused_lines=%zu text_sync_fragments=%zu\n",
         result->name,
         result->fragments,
         result->projected_bytes,
@@ -1370,7 +1370,8 @@ static void print_result(const workload_result *result)
         result->text.recognizer_decoded_scalars,
         result->text.recognizer_line_comparisons,
         result->text.recognizer_cached_empty_lines,
-        result->text.recognizer_reused_lines);
+        result->text.recognizer_reused_lines,
+        result->text.text_sync_fragments);
 }
 
 static bool measure_recognizer_retained_matches(
@@ -1541,6 +1542,37 @@ cleanup:
     return passed;
 }
 
+static bool check_recognizer_resume_budget(void)
+{
+    boxrig_terminal_config config = workload_config(1, 1, 1023);
+    boxrig_terminal *terminal = NULL;
+    boxrig_text_recognizer_limits limits = boxrig_text_recognizer_limits_default();
+    uint64_t id;
+    bool passed = false;
+    configure_recognizers(&config, 1, 2, 2);
+    if (boxrig_terminal_create(&config, &terminal) != BOXRIG_STATUS_OK ||
+        !feed_repeated_byte(terminal, 'a', 1024) ||
+        !register_recognizer(terminal, (const uint8_t *)"a+", 2, limits, &id)) goto cleanup;
+    for (size_t dispatch = 0; dispatch < 64; dispatch++) {
+        boxrig_text_workload_counters counters;
+        boxrig_text_workload_counters_reset();
+        size_t used;
+        bool more;
+        if (boxrig_terminal_resume_text_recognizers(terminal, 1, &used, &more) != BOXRIG_STATUS_OK ||
+            used != 1 || !more) goto cleanup;
+        boxrig_text_workload_counters_read(&counters);
+        if (counters.text_sync_fragments != 0) {
+            fprintf(stderr, "budget 1 visited %zu synchronization fragments\n",
+                counters.text_sync_fragments);
+            goto cleanup;
+        }
+    }
+    passed = true;
+cleanup:
+    boxrig_terminal_destroy(terminal);
+    return passed;
+}
+
 static bool run_self_test(void)
 {
     workload_result result;
@@ -1658,6 +1690,9 @@ static bool run_self_test(void)
         result.text.recognizer_cached_empty_lines > 2048 ||
         result.text.recognizer_line_comparisons > 8194 * 32) {
         return fail_step("self-test", "cache eviction preserves recognition with one result slot");
+    }
+    if (!check_recognizer_resume_budget()) {
+        return fail_step("self-test", "resuming does not repeat terminal text synchronization");
     }
     printf("PASS bounded text workload measurement harness\n");
     return true;
