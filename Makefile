@@ -5828,3 +5828,100 @@ test-fcitx4-display: $(GTK3_EXAMPLE_BINARY) $(WAYLAND_EXAMPLE_BINARY)
 	done
 	$(XVFB_RUN) -a -s '-screen 0 1280x800x24' env BOXRIG_TEST_FCITX4_DISPLAY=1 GDK_BACKEND=x11 GTK_IM_MODULE=gtk-im-context-simple GTK_A11Y=none NO_AT_BRIDGE=1 GIO_USE_VFS=local LIBGL_ALWAYS_SOFTWARE=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4_real.sh node tests/ime/test_display.mjs $(GTK3_EXAMPLE_BINARY) gtk3 cairo $(BUILD_DIR)/test-results/fcitx4-display/gtk3-system
 	$(XVFB_RUN) -a -s '-screen 0 1280x800x24' env BOXRIG_TEST_FCITX4_DISPLAY=1 BOXRIG_TEST_FCITX4_CLIENT=1 GDK_BACKEND=x11 GTK_IM_MODULE=gtk-im-context-simple GTK_A11Y=none NO_AT_BRIDGE=1 GIO_USE_VFS=local LIBGL_ALWAYS_SOFTWARE=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4_real.sh node tests/ime/test_display.mjs $(GTK3_EXAMPLE_BINARY) gtk3 cairo $(BUILD_DIR)/test-results/fcitx4-display/gtk3-client
+
+# Real sample GSource regression, using an isolated GLib main context.
+SAMPLE_RECOGNITION_SOURCES := tests/gtk/test_sample_recognition.c \
+	examples/boxrig_term/common/text_policy.c \
+	examples/boxrig_term/common/font_demo.c \
+	examples/boxrig_term/common/scrollbar_demo.c
+
+$(BUILD_DIR)/tests/test_gtk3_sample_recognition: $(SAMPLE_RECOGNITION_SOURCES) \
+		examples/boxrig_term/gtk3/event_source.c examples/boxrig_term/gtk3/application_internal.h \
+		examples/boxrig_term/gtk3/event_source_policy.c $(GTK3_LIBRARY) $(SESSION_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK3_CPPFLAGS) \
+		$(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) -ffunction-sections -fdata-sections \
+		$(SAMPLE_RECOGNITION_SOURCES) examples/boxrig_term/gtk3/event_source_policy.c \
+		$(GTK3_LIBRARY) $(SESSION_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK3_LIBS) \
+		-Wl,--gc-sections,--wrap=boxrig_term_text_policy_resume $(SANITIZERS) -o $@
+
+$(BUILD_DIR)/tests/test_gtk4_sample_recognition: $(SAMPLE_RECOGNITION_SOURCES) \
+		examples/boxrig_term/gtk4/event_source.c examples/boxrig_term/gtk4/application_internal.h \
+		examples/boxrig_term/gtk4/event_source_policy.c $(GTK4_LIBRARY) $(SESSION_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK4_CPPFLAGS) \
+		$(CFLAGS) $(GTK4_PROJECT_CFLAGS) $(SANITIZERS) -ffunction-sections -fdata-sections \
+		$(SAMPLE_RECOGNITION_SOURCES) examples/boxrig_term/gtk4/event_source_policy.c \
+		$(GTK4_LIBRARY) $(SESSION_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK4_LIBS) \
+		-Wl,--gc-sections,--wrap=boxrig_term_text_policy_resume $(SANITIZERS) -o $@
+
+.PHONY: test-gtk-sample-recognition
+test-gtk-sample-recognition: $(BUILD_DIR)/tests/test_gtk3_sample_recognition $(BUILD_DIR)/tests/test_gtk4_sample_recognition
+	$(XVFB_RUN) -a env GDK_BACKEND=x11 NO_AT_BRIDGE=1 ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(BUILD_DIR)/tests/test_gtk3_sample_recognition
+	$(XVFB_RUN) -a env GDK_BACKEND=x11 GSK_RENDERER=cairo $(GTK4_TEST_IM_ENV) ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(BUILD_DIR)/tests/test_gtk4_sample_recognition
+
+
+# Separate optimized diagnostic objects; production archives have no clock hooks.
+RENDER_MEASUREMENT_DIR := $(BUILD_DIR)/render-measurement
+RENDER_MEASUREMENT_FLAGS := -DBOXRIG_MEASURE_RENDERING -DBOXRIG_MEASURE_TEXT_WORKLOADS
+RENDER_MEASUREMENT_WRAPS := -Wl,--wrap=boxrig_terminal_create_text_snapshot \
+	-Wl,--wrap=boxrig_screen_text_sync \
+	-Wl,--wrap=boxrig_terminal_text_recognizer_event_consume \
+	-Wl,--wrap=boxrig_ogl_text_provider_shape_row \
+	-Wl,--wrap=boxrig_gtk_gl_surface_draw -Wl,--wrap=boxrig_gtk_gl_surface_present \
+	-Wl,--wrap=boxrig_pango_cairo_renderer_draw_view_composition
+
+$(RENDER_MEASUREMENT_DIR):
+	mkdir -p $@
+
+$(RENDER_MEASUREMENT_DIR)/renderer.o: src/opengl/renderer.c src/measurement.h $(OPENGL_RENDERER_HEADERS) | $(RENDER_MEASUREMENT_DIR)
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(OPENGL_RENDERER_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) \
+		$(RENDER_MEASUREMENT_FLAGS) -c $< -o $@
+
+$(RENDER_MEASUREMENT_DIR)/terminal_widget.o: src/gtk3/terminal_widget.c src/measurement.h $(GTK3_HEADERS) | $(RENDER_MEASUREMENT_DIR)
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK3_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) \
+		$(RENDER_MEASUREMENT_FLAGS) -c $< -o $@
+
+$(RENDER_MEASUREMENT_DIR)/pangocairo_renderer.o: src/pangocairo/renderer.c src/measurement.h src/pangocairo/renderer.h src/pangocairo/renderer_private.h | $(RENDER_MEASUREMENT_DIR)
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(PANGO_CAIRO_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) \
+		-Wno-deprecated-declarations $(RENDER_MEASUREMENT_FLAGS) -c $< -o $@
+
+.PHONY: rendering-measurement-version
+rendering-measurement-version:
+
+$(RENDER_MEASUREMENT_DIR)/replay: tests/rendering/replay.c tests/rendering/measurement.c \
+		tests/rendering/measurement.h src/measurement.h examples/boxrig_term/common/text_policy.c \
+		$(RENDER_MEASUREMENT_DIR)/renderer.o $(RENDER_MEASUREMENT_DIR)/terminal_widget.o \
+		$(RENDER_MEASUREMENT_DIR)/pangocairo_renderer.o \
+		$(GTK3_LIBRARY) $(UI_LIBRARY) $(TEXT_MEASUREMENT_LIBRARY) rendering-measurement-version | $(RENDER_MEASUREMENT_DIR)
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK3_CPPFLAGS) -Isrc -D_GNU_SOURCE $(CFLAGS) $(PROJECT_CFLAGS) \
+		$(RENDER_MEASUREMENT_FLAGS) -DBOXRIG_MEASURE_REVISION='"$(shell git describe --always --dirty)"' \
+		tests/rendering/replay.c tests/rendering/measurement.c examples/boxrig_term/common/text_policy.c \
+		$(RENDER_MEASUREMENT_DIR)/terminal_widget.o $(RENDER_MEASUREMENT_DIR)/renderer.o $(RENDER_MEASUREMENT_DIR)/pangocairo_renderer.o \
+		$(GTK3_LIBRARY) $(UI_LIBRARY) $(TEXT_MEASUREMENT_LIBRARY) $(GTK3_LIBS) \
+		$(RENDER_MEASUREMENT_WRAPS) -Wl,--export-dynamic -ldl -o $@
+
+.PHONY: measure-rendering
+measure-rendering: $(RENDER_MEASUREMENT_DIR)/replay $(RENDER_MEASUREMENT_DIR)/replay-control
+	$(RENDER_MEASUREMENT_DIR)/replay core synthetic detail
+	$(XVFB_RUN) -a env GDK_BACKEND=x11 NO_AT_BRIDGE=1 $(RENDER_MEASUREMENT_DIR)/replay cairo synthetic detail
+	$(XVFB_RUN) -a env GDK_BACKEND=x11 NO_AT_BRIDGE=1 $(RENDER_MEASUREMENT_DIR)/replay opengl synthetic detail
+
+$(RENDER_MEASUREMENT_DIR)/replay-control: tests/rendering/replay.c tests/rendering/measurement.c \
+		tests/rendering/measurement.h src/measurement.h examples/boxrig_term/common/text_policy.c \
+		$(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) rendering-measurement-version | $(RENDER_MEASUREMENT_DIR)
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK3_CPPFLAGS) -Isrc -D_GNU_SOURCE $(CFLAGS) $(PROJECT_CFLAGS) \
+		-DBOXRIG_MEASURE_RENDERING -DBOXRIG_MEASURE_REVISION='"$(shell git describe --always --dirty)"' \
+		tests/rendering/replay.c tests/rendering/measurement.c examples/boxrig_term/common/text_policy.c \
+		$(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK3_LIBS) $(RENDER_MEASUREMENT_WRAPS) \
+		-Wl,--export-dynamic -ldl -o $@
+
+$(BUILD_DIR)/gtk3/terminal_widget.o $(BUILD_DIR)/opengl/renderer.o: src/measurement.h
+$(BUILD_DIR)/gtk3/pangocairo_renderer.o $(BUILD_DIR)/gtk4/pangocairo_renderer.o $(BUILD_DIR)/wayland/pangocairo_renderer.o: src/measurement.h
+
+.PHONY: test-rendering-measurement
+test: test-rendering-measurement
+test-rendering-measurement: $(RENDER_MEASUREMENT_DIR)/replay $(RENDER_MEASUREMENT_DIR)/replay-control
+	mkdir -p $(BUILD_DIR)/test-results/render-measurement
+	$(RENDER_MEASUREMENT_DIR)/replay core synthetic detail > $(BUILD_DIR)/test-results/render-measurement/core.jsonl
+	$(RENDER_MEASUREMENT_DIR)/replay-control core synthetic control > $(BUILD_DIR)/test-results/render-measurement/core-control.jsonl
+	$(XVFB_RUN) -a -s '-screen 0 2048x1600x24' env GDK_BACKEND=x11 NO_AT_BRIDGE=1 LIBGL_ALWAYS_SOFTWARE=1 $(RENDER_MEASUREMENT_DIR)/replay cairo synthetic detail > $(BUILD_DIR)/test-results/render-measurement/cairo.jsonl
+	$(XVFB_RUN) -a -s '-screen 0 2048x1600x24' env GDK_BACKEND=x11 NO_AT_BRIDGE=1 LIBGL_ALWAYS_SOFTWARE=1 $(RENDER_MEASUREMENT_DIR)/replay opengl synthetic detail > $(BUILD_DIR)/test-results/render-measurement/opengl.jsonl

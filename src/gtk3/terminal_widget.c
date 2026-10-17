@@ -5,6 +5,7 @@
  */
 
 #include "boxrig/gtk3/terminal_widget.h"
+#include "../measurement.h"
 #include "../ui/scrollbar_visibility.h"
 
 #include "boxrig/ui/lifecycle.h"
@@ -1227,10 +1228,12 @@ static cairo_surface_t *create_presentation_surface(
         output_height > INT_MAX) {
         return NULL;
     }
+    BOXRIG_MEASURE_BEGIN(allocate_time);
     copy = cairo_image_surface_create(
         CAIRO_FORMAT_ARGB32,
         (int)output_width,
         (int)output_height);
+    BOXRIG_MEASURE_END(BOXRIG_MEASURE_CAIRO_ALLOCATE, allocate_time);
     if (copy == NULL ||
         cairo_surface_status(copy) != CAIRO_STATUS_SUCCESS) {
         if (copy != NULL) {
@@ -1238,11 +1241,13 @@ static cairo_surface_t *create_presentation_surface(
         }
         return NULL;
     }
+    BOXRIG_MEASURE_BEGIN(copy_time);
     copy_cairo = cairo_create(copy);
     cairo_surface_flush(source);
     cairo_set_operator(copy_cairo, CAIRO_OPERATOR_SOURCE);
     cairo_set_source_surface(copy_cairo, source, 0.0, 0.0);
     cairo_paint(copy_cairo);
+    BOXRIG_MEASURE_END(BOXRIG_MEASURE_CAIRO_COPY, copy_time);
     if (cairo_status(copy_cairo) != CAIRO_STATUS_SUCCESS) {
         cairo_destroy(copy_cairo);
         cairo_surface_destroy(copy);

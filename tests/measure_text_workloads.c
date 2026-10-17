@@ -1337,7 +1337,9 @@ static void print_result(const workload_result *result)
         "recognizer_prepare_steps=%zu "
         "recognizer_unbudgeted_prepare_steps=%zu "
         "recognizer_cursor_creations=%zu "
-        "recognizer_match_identity_comparisons=%zu\n",
+        "recognizer_match_identity_comparisons=%zu "
+        "snapshot_projection_cells=%zu snapshot_projection_bytes=%zu "
+        "snapshot_position_comparisons=%zu\n",
         result->name,
         result->fragments,
         result->projected_bytes,
@@ -1359,7 +1361,10 @@ static void print_result(const workload_result *result)
         result->text.recognizer_prepare_steps,
         result->text.recognizer_unbudgeted_prepare_steps,
         result->text.recognizer_cursor_creations,
-        result->text.recognizer_match_identity_comparisons);
+        result->text.recognizer_match_identity_comparisons,
+        result->text.snapshot_projection_cells,
+        result->text.snapshot_projection_bytes,
+        result->text.snapshot_position_comparisons);
 }
 
 static bool measure_recognizer_retained_matches(
@@ -1534,6 +1539,10 @@ static bool run_self_test(void)
     if (result.text.visited_cells > result.fragments * 64 * 2) {
         return fail_step("self-test", "copy snapshot cell-visit budget");
     }
+    if (result.text.snapshot_projection_cells != result.fragments * 64 * 2 ||
+        result.text.snapshot_projection_bytes != result.projected_bytes * 2) {
+        return fail_step("self-test", "snapshot sizing and writing counters");
+    }
     if (!measure_recognizer_long_line(8, &result) ||
         result.fragments != 8 || result.projected_bytes != 8 ||
         result.recognizers != 1 || result.events != 1 ||
@@ -1544,6 +1553,9 @@ static bool run_self_test(void)
         result.text.recognizer_unbudgeted_prepare_steps != 0 ||
         result.text.recognizer_cursor_creations != 1) {
         return fail_step("self-test", "recognizer long-line metrics");
+    }
+    if (result.text.snapshot_position_comparisons == 0) {
+        return fail_step("self-test", "snapshot boundary comparison counter");
     }
     if (!measure_recognizer_many_patterns(3, 4, &result) ||
         result.fragments != 4 || result.projected_bytes != 4 ||

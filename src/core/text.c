@@ -12,6 +12,8 @@
 
 #ifdef BOXRIG_MEASURE_TEXT_WORKLOADS
 static boxrig_text_workload_counters text_workload_counters;
+#define TEXT_WORKLOAD_ADD(field, count) \
+    text_workload_add(&text_workload_counters.field, count)
 
 static void text_workload_add(
     size_t *counter,
@@ -90,6 +92,7 @@ void boxrig_text_workload_counters_read(
     }
 }
 #else
+#define TEXT_WORKLOAD_ADD(field, count) ((void)(count))
 #define text_workload_visit_cells(count) ((void)(count))
 #define text_workload_visit_bytes(count) ((void)(count))
 #define text_workload_observe_event_queue(count) ((void)(count))
@@ -1111,6 +1114,7 @@ static void projection_add_bytes(
             length);
     }
     text_workload_visit_bytes(length);
+    TEXT_WORKLOAD_ADD(snapshot_projection_bytes, length);
     sink->byte_count += length;
 }
 
@@ -1164,6 +1168,7 @@ static void project_logical_line(
             size_t blank_column;
 
             text_workload_visit_cells(1);
+            TEXT_WORKLOAD_ADD(snapshot_projection_cells, 1);
             if (cell->continuation || cell->text_length == 0) {
                 continue;
             }
@@ -1730,6 +1735,7 @@ boxrig_status boxrig_text_snapshot_position_at_byte_offset(
     while (first < past) {
         size_t middle = first + (past - first) / 2u;
 
+        TEXT_WORKLOAD_ADD(snapshot_position_comparisons, 1);
         if (snapshot->points[middle].byte_offset < byte_offset) {
             first = middle + 1u;
         } else {

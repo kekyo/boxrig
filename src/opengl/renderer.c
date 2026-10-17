@@ -6,6 +6,7 @@
 
 #include "renderer.h"
 #include "text_provider.h"
+#include "../measurement.h"
 
 #include "boxrig/ui/image.h"
 #include "boxrig/ui/scrollbar.h"
@@ -554,13 +555,16 @@ static int update_row_shape(
     uint64_t shape_signature;
     uint64_t presentation_signature;
 
-    if (terminal_row_signatures(
+    BOXRIG_MEASURE_BEGIN(signature_time);
+    int signature_status = terminal_row_signatures(
             renderer,
             terminal,
             row,
             renderer->cached_columns,
             &shape_signature,
-            &presentation_signature) == -1) {
+            &presentation_signature);
+    BOXRIG_MEASURE_END(BOXRIG_MEASURE_ROW_SIGNATURE, signature_time);
+    if (signature_status == -1) {
         return -1;
     }
     *changed_out = !cache->valid ||

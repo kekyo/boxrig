@@ -9,6 +9,7 @@
 #include "boxrig/ui/image.h"
 #include "boxrig/ui/scrollbar.h"
 #include "renderer_private.h"
+#include "../measurement.h"
 #include "../ui/view_private.h"
 
 #include <cairo/cairo.h>
@@ -3398,6 +3399,7 @@ static int shape_terminal_row(
     boxrig_text_direction base_direction;
     int result = -1;
 
+    BOXRIG_MEASURE_BEGIN(shape_time);
     if (renderer->render_statistics.row_shape_count != SIZE_MAX) {
         renderer->render_statistics.row_shape_count++;
     }
@@ -3450,6 +3452,7 @@ cleanup:
     if (result == -1) {
         row_shape_destroy(shape);
     }
+    BOXRIG_MEASURE_END(BOXRIG_MEASURE_SHAPE, shape_time);
     return result;
 }
 
@@ -3464,12 +3467,15 @@ static int update_model_row(
     uint64_t content_signature;
     bool old_layout_compatible;
 
-    if (terminal_row_signature(
+    BOXRIG_MEASURE_BEGIN(signature_time);
+    int signature_status = terminal_row_signature(
             renderer,
             terminal,
             row,
             renderer->cached_columns,
-            &content_signature) == -1) {
+            &content_signature);
+    BOXRIG_MEASURE_END(BOXRIG_MEASURE_ROW_SIGNATURE, signature_time);
+    if (signature_status == -1) {
         return -1;
     }
     if (cached_row_matches(renderer, cache, content_signature)) {

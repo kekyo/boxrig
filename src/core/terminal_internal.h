@@ -505,7 +505,6 @@ boxrig_status boxrig_text_recognizer_initialize(
     boxrig_terminal *terminal,
     const boxrig_terminal_config *config);
 void boxrig_text_recognizer_destroy(boxrig_terminal *terminal);
-#ifdef BOXRIG_MEASURE_TEXT_WORKLOADS
 typedef struct boxrig_text_workload_counters {
     size_t visited_cells;
     size_t visited_bytes;
@@ -516,8 +515,12 @@ typedef struct boxrig_text_workload_counters {
     size_t recognizer_unbudgeted_prepare_steps;
     size_t recognizer_cursor_creations;
     size_t recognizer_match_identity_comparisons;
+    size_t snapshot_projection_cells;
+    size_t snapshot_projection_bytes;
+    size_t snapshot_position_comparisons;
 } boxrig_text_workload_counters;
 
+#ifdef BOXRIG_MEASURE_TEXT_WORKLOADS
 void boxrig_text_workload_counters_reset(void);
 void boxrig_text_workload_counters_read(
     boxrig_text_workload_counters *counters_out);

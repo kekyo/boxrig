@@ -1,5 +1,7 @@
 # 描画遅延と本文認識の負荷を減らす計画
 
+実装の進行と実行結果は[検証記録](plan4-rendering-performance-results.md)に保存しています。以下は計画保存時点の調査と受入条件です。
+
 elder-termsで残っている描画遅延について、boxrig側で改善できる範囲を整理します。優先するのはGTK3でのOpenGL画像の合成待ちと、CPU側の描画準備です。本文認識はCPU負荷の削減対象として扱います。実装例の認識が途中で止まる問題を先に直し、同じ仕事を完了した状態で性能を比較します。
 
 調査日は2026年10月17日です。対象はboxrigの`develop`、`6402257d9e848b13a3ae1f67779b59560b8ed629`です。測定値はelder-termsの`66ebf3ffe4e173401f9b8c4f02b315f534ef3e2c`に保存した[plan3](../../../../elder-terms/docs/ja/plans/plan3-rendering-performance.md)から引き継ぎました。このリンクは、両リポジトリを同じ親ディレクトリに置いた構成を前提とします。測定時のboxrig固定参照は`1d379548fd0de1ff7b15725cad90f4e1136d732b`です。
