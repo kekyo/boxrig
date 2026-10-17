@@ -20,6 +20,11 @@ typedef struct replay {
     boxrig_ui_model *model;
     BoxrigGtk3TerminalWidget *widget;
     GtkWidget *window;
+    GtkWidget *activity;
+    guint activity_timer;
+    bool activity_lit;
+    size_t activity_switches;
+    size_t activity_paints[2];
     boxrig_term_text_policy *policy;
     bool frame_requested;
     uint64_t painted;
@@ -205,6 +210,25 @@ static char *snapshot_hash(replay *test)
     return hash;
 }
 
+static gboolean draw_activity(GtkWidget *widget, cairo_t *cairo, gpointer data)
+{
+    (void)widget;
+    replay *test = data;
+    test->activity_paints[test->activity_lit ? 1 : 0]++;
+    cairo_set_source_rgb(cairo, 0, test->activity_lit ? 1 : 0, 0);
+    cairo_paint(cairo);
+    return FALSE;
+}
+
+static gboolean blink_activity(gpointer data)
+{
+    replay *test = data;
+    test->activity_lit = !test->activity_lit;
+    test->activity_switches++;
+    gtk_widget_queue_draw(test->activity);
+    return G_SOURCE_CONTINUE;
+}
+
 static void initialize(replay *test, const char *backend)
 {
     memset(test, 0, sizeof(*test));
@@ -252,7 +276,18 @@ static void initialize(replay *test, const char *backend)
     g_object_ref_sink(test->window);
     gtk_window_set_decorated(GTK_WINDOW(test->window), false);
     gtk_widget_set_size_request(GTK_WIDGET(test->widget), 190 * metrics.cell_width, 66 * metrics.cell_height);
-    gtk_container_add(GTK_CONTAINER(test->window), GTK_WIDGET(test->widget));
+    if (getenv("BOXRIG_MEASURE_BLINK") != NULL) {
+        GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+        gtk_container_add(GTK_CONTAINER(test->window), box);
+        gtk_box_pack_start(GTK_BOX(box), GTK_WIDGET(test->widget), FALSE, FALSE, 0);
+        test->activity = gtk_drawing_area_new();
+        gtk_widget_set_size_request(test->activity, 20, 24);
+        gtk_box_pack_start(GTK_BOX(box), test->activity, FALSE, FALSE, 0);
+        g_signal_connect(test->activity, "draw", G_CALLBACK(draw_activity), test);
+        test->activity_timer = g_timeout_add(150, blink_activity, test);
+    } else {
+        gtk_container_add(GTK_CONTAINER(test->window), GTK_WIDGET(test->widget));
+    }
     gtk_widget_show_all(test->window);
     CHECK(WIDGET(set_visible)(test->widget, true) == BOXRIG_UI_OK);
     GdkFrameClock *clock = gtk_widget_get_frame_clock(test->window);
@@ -318,6 +353,9 @@ int main(int argc, char **argv)
         BOXRIG_MEASURE_REVISION, (long)getpid(), argv[1], measurement_detail ? "true" : "false",
         input_hash, input_frames, gtk_get_major_version(), gtk_get_minor_version(), gtk_get_micro_version());
     g_free(input_hash);
+    printf("{\"kind\":\"presentation\",\"force_rgba\":%s,\"activity_blink\":%s}\n",
+        getenv("BOXRIG_MEASURE_RGBA") != NULL ? "true" : "false",
+        getenv("BOXRIG_MEASURE_BLINK") != NULL ? "true" : "false");
     replay test;
     initialize(&test, argv[1]);
     uint64_t process_start = measurement_clock(CLOCK_PROCESS_CPUTIME_ID);
@@ -401,8 +439,14 @@ int main(int argc, char **argv)
         printf(",\"text_sha256\":\"%s\"}\n", hash);
         g_free(hash);
     }
-    printf("{\"kind\":\"complete\",\"updates\":41,\"process_cpu_ms\":%.6f,\"matches\":%zu}\n",
-        (measurement_clock(CLOCK_PROCESS_CPUTIME_ID) - process_start) / 1e6, count_matches());
+    printf("{\"kind\":\"complete\",\"updates\":41,\"process_cpu_ms\":%.6f,\"matches\":%zu,"
+        "\"activity_switches\":%zu,\"activity_on_paints\":%zu,\"activity_off_paints\":%zu}\n",
+        (measurement_clock(CLOCK_PROCESS_CPUTIME_ID) - process_start) / 1e6, count_matches(),
+        test.activity_switches, test.activity_paints[1], test.activity_paints[0]);
+    if (test.activity_timer != 0) {
+        CHECK(test.activity_switches > 0 && test.activity_paints[0] > 0 && test.activity_paints[1] > 0);
+        CHECK(g_source_remove(test.activity_timer));
+    }
     boxrig_term_text_policy_destroy(test.policy);
     if (test.window != NULL) {
         CHECK(WIDGET(quiesce)(test.widget) == BOXRIG_UI_OK);

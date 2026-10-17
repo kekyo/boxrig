@@ -11,6 +11,10 @@
  * presentation and ordinary destruction. No native window or swap is owned. */
 typedef struct boxrig_gtk_gl_surface boxrig_gtk_gl_surface;
 
+/* Conservative complete-image guarantee for the built-in renderer. Unknown
+ * or application background composition stays on the alpha-bearing path. */
+bool boxrig_gtk_gl_surface_can_present_opaque(const boxrig_ui_view *view);
+
 /* Uses runtime and text/rendering options from config. initial_target is not
  * used: allocation creates the RGBA target from the transfer dimensions and
  * encoding, and only that actual target is passed to the renderer. */
@@ -30,6 +34,10 @@ boxrig_ui_status boxrig_gtk_gl_surface_draw(boxrig_gtk_gl_surface *surface,
  * complete image. The retained image and runtime stay premultiplied RGBA. */
 boxrig_ui_status boxrig_gtk_gl_surface_present(boxrig_gtk_gl_surface *surface,
     const boxrig_gtk_gl_destination *destination, boxrig_gtk_render_state *state);
+
+/* Describes the last presentation failure. Internal frame completion and
+ * context failures cannot be recovered by changing the GTK destination. */
+bool boxrig_gtk_gl_surface_destination_failed(const boxrig_gtk_gl_surface *surface);
 
 boxrig_ui_status boxrig_gtk_gl_surface_get_target(
     const boxrig_gtk_gl_surface *surface, boxrig_gl_target *target_out);

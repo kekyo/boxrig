@@ -72,6 +72,8 @@ struct _BoxrigGtk3TerminalWidget {
 #if BOXRIG_GTK_OPENGL
     bool gl_desktop_only;
     bool gl_retry_desktop;
+    bool gl_rgb_disabled;
+    bool gl_retry_rgba;
     boxrig_gtk_gl_surface *gl_surface;
     uint64_t gl_font_revision;
     boxrig_text_direction_policy gl_direction_policy;
@@ -671,7 +673,7 @@ static bool input_geometry_ready(const BoxrigGtk3TerminalWidget *widget);
 static void gl_failed(BoxrigGtk3TerminalWidget *widget)
 {
     GdkGLContext *context = gtk_gl_area_get_context(GTK_GL_AREA(widget->gl_area));
-    if (widget->gl_surface == NULL && !widget->gl_desktop_only &&
+    if (!widget->gl_retry_rgba && widget->gl_surface == NULL && !widget->gl_desktop_only &&
         widget->render_state.status == BOXRIG_UI_UNAVAILABLE &&
         context != NULL && gdk_gl_context_get_use_es(context))
         widget->gl_retry_desktop = true;
@@ -681,10 +683,21 @@ static void gl_failed(BoxrigGtk3TerminalWidget *widget)
     if (widget->render_state.active_backend == BOXRIG_GTK_RENDER_BACKEND_OPENGL)
         widget->render_state.active_backend = BOXRIG_GTK_RENDER_BACKEND_NONE;
     widget->render_state.pending = widget->render_state.active_backend == BOXRIG_GTK_RENDER_BACKEND_NONE &&
-        (widget->gl_retry_desktop ||
+        (widget->gl_retry_rgba || widget->gl_retry_desktop ||
          widget->render_state.requested_policy == BOXRIG_GTK_RENDER_OPENGL_PREFERRED);
     invalidate_complete_presentation(widget);
     request_application_frame(widget);
+}
+
+static void gl_transfer_failed(BoxrigGtk3TerminalWidget *widget, bool destination_failed)
+{
+    /* A failed RGB destination gets one RGBA attempt in the same context.
+     * Renderer/resource and context failures still use the existing policy. */
+    if (destination_failed && !gtk_gl_area_get_has_alpha(GTK_GL_AREA(widget->gl_area))) {
+        widget->gl_rgb_disabled = true;
+        widget->gl_retry_rgba = true;
+    }
+    gl_failed(widget);
 }
 
 static void gl_realize(GtkGLArea *area, gpointer data)
@@ -699,6 +712,7 @@ static void gl_realize(GtkGLArea *area, gpointer data)
         return;
     }
     widget->render_state.context_generation++;
+    widget->gl_rgb_disabled = false;
     widget->render_state.pending = true;
     widget->gl_pending = true;
     request_application_frame(widget);
@@ -745,9 +759,19 @@ static gboolean render_gl_frame(GtkGLArea *area, GdkGLContext *context, gpointer
     boxrig_gtk_gl_destination destination;
     uint64_t generation = widget->render_state.target_generation;
     if (generation == 0) generation = 1;
+    bool has_alpha = widget->gl_rgb_disabled ||
+        !boxrig_gtk_gl_surface_can_present_opaque(widget->view);
+    bool format_changed = gtk_gl_area_get_has_alpha(area) != has_alpha;
+    if (format_changed) {
+        /* GTK made this context current for render. Changing has-alpha deletes
+         * its old buffers, so attach the replacement before describing the FBO. */
+        gtk_gl_area_set_has_alpha(area, has_alpha);
+        gtk_gl_area_attach_buffers(area);
+        generation++;
+    }
     if (boxrig_gtk_gl_area_describe(area, widget->render_state.context_generation,
             generation, &config.runtime, &destination, &widget->render_state) != BOXRIG_UI_OK) {
-        gl_failed(widget);
+        gl_transfer_failed(widget, widget->render_state.reason == BOXRIG_GTK_RENDER_REASON_CAPABILITY);
         return TRUE;
     }
     boxrig_font_effective_metrics metrics;
@@ -801,12 +825,17 @@ static gboolean render_gl_frame(GtkGLArea *area, GdkGLContext *context, gpointer
         invalidate_complete_presentation(widget);
     }
     boxrig_gtk_gl_surface *surface = replace ? candidate : widget->gl_surface;
-    bool changed = replace || widget->gl_pending || boxrig_ui_view_frame_requested(widget->view);
-    if ((changed && boxrig_gtk_gl_surface_draw(surface, widget->view,
-            boxrig_gtk3_input_composition(widget->input), &widget->render_state) != BOXRIG_UI_OK) ||
-        boxrig_gtk_gl_surface_present(surface, &destination, &widget->render_state) != BOXRIG_UI_OK) {
+    bool changed = replace || format_changed || widget->gl_pending || boxrig_ui_view_frame_requested(widget->view);
+    if (changed && boxrig_gtk_gl_surface_draw(surface, widget->view,
+            boxrig_gtk3_input_composition(widget->input), &widget->render_state) != BOXRIG_UI_OK) {
         boxrig_gtk_gl_surface_destroy(&candidate);
         gl_failed(widget);
+        return TRUE;
+    }
+    if (boxrig_gtk_gl_surface_present(surface, &destination, &widget->render_state) != BOXRIG_UI_OK) {
+        bool destination_failed = boxrig_gtk_gl_surface_destination_failed(surface);
+        boxrig_gtk_gl_surface_destroy(&candidate);
+        gl_transfer_failed(widget, destination_failed);
         return TRUE;
     }
     if (replace) {
@@ -1785,13 +1814,20 @@ static gboolean boxrig_gtk3_terminal_widget_draw(
         return FALSE;
     }
     if ((uses_gl(widget) || widget->gl_presented) && widget->gl_area != NULL) {
-        /* GLArea composites with OVER, whereas the retained terminal surface
-         * replaces the host background. Clear the draw clip so both renderers
-         * preserve the terminal's alpha instead of blending it with the host. */
-        cairo_save(cairo);
-        cairo_set_operator(cairo, CAIRO_OPERATOR_CLEAR);
-        cairo_paint(cairo);
-        cairo_restore(cairo);
+        /* RGBA GLArea composites with OVER, whereas the retained terminal
+         * replaces the host background. Include a pending transition back to
+         * RGBA: its new buffers are attached at the ensuing render boundary. */
+        bool clear = true;
+#if BOXRIG_GTK_OPENGL
+        clear = gtk_gl_area_get_has_alpha(GTK_GL_AREA(widget->gl_area)) ||
+            !boxrig_gtk_gl_surface_can_present_opaque(widget->view);
+#endif
+        if (clear) {
+            cairo_save(cairo);
+            cairo_set_operator(cairo, CAIRO_OPERATOR_CLEAR);
+            cairo_paint(cairo);
+            cairo_restore(cairo);
+        }
         gtk_container_propagate_draw(GTK_CONTAINER(widget), widget->gl_area, cairo);
     }
     if (!widget->gl_presented && widget->presentation != NULL) {
@@ -3299,6 +3335,15 @@ boxrig_ui_status boxrig_gtk3_terminal_widget_frame(
         return BOXRIG_UI_BUSY;
     }
 #if BOXRIG_GTK_OPENGL
+    if (widget->gl_failed && widget->gl_retry_rgba) {
+        widget->gl_failed = false;
+        widget->gl_retry_rgba = false;
+        widget->render_state.status = BOXRIG_UI_OK;
+        widget->render_state.reason = BOXRIG_GTK_RENDER_REASON_REQUESTED;
+        widget->render_state.gl_code = 0;
+        widget->render_state.reset_status = 0;
+        widget->render_state.message[0] = '\0';
+    }
     if (widget->gl_failed && widget->gl_retry_desktop) {
         /* Retry outside GTK's render signal so the failed area's resources
          * are released under their original context before replacing it. */

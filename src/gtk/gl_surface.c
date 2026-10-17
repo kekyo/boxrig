@@ -21,7 +21,24 @@ struct boxrig_gtk_gl_surface {
     bool srgb_write_control;
     bool pending;
     bool complete;
+    bool opaque;
+    bool destination_failed;
 };
+
+bool boxrig_gtk_gl_surface_can_present_opaque(const boxrig_ui_view *view)
+{
+    boxrig_ui_transparency_state transparency;
+    if (view == NULL || boxrig_ui_view_get_transparency(view, &transparency) != BOXRIG_UI_OK ||
+        transparency.effective != BOXRIG_UI_TRANSPARENCY_EFFECTIVE_OPAQUE ||
+        transparency.effective_background_opacity != 255) return false;
+    /* The renderer fills the entire target, including fractional-cell margins,
+     * with alpha 255. Row and IME replacements use that same alpha; selection,
+     * glyph, cursor and candidate overlays cannot reduce it. Keep application
+     * backgrounds out of this first optimization even when they happen to be
+     * hidden behind that opaque base. No pixel readback is needed. */
+    return boxrig_ui_view_get_background_color(view).alpha == 0 &&
+        boxrig_ui_view_get_background_image(view).pixels == NULL;
+}
 
 static bool current(const boxrig_gtk_gl_surface *surface)
 {
@@ -171,6 +188,7 @@ boxrig_ui_status boxrig_gtk_gl_surface_draw(boxrig_gtk_gl_surface *surface,
             "Retained GL frame preparation failed", GL_NO_ERROR);
     }
     surface->pending = true;
+    surface->opaque = boxrig_gtk_gl_surface_can_present_opaque(view);
     return BOXRIG_UI_OK;
 }
 
@@ -187,6 +205,7 @@ boxrig_ui_status boxrig_gtk_gl_surface_present(boxrig_gtk_gl_surface *surface,
     const boxrig_gtk_gl_destination *destination, boxrig_gtk_render_state *state)
 {
     if (surface == NULL || destination == NULL || state == NULL) return BOXRIG_UI_INVALID_ARGUMENT;
+    surface->destination_failed = false;
     if (!current(surface)) {
         return failure(state, BOXRIG_GTK_RENDER_REASON_CONTEXT_LOST,
             "Retained GL surface context or thread changed", GL_NO_ERROR);
@@ -198,8 +217,10 @@ boxrig_ui_status boxrig_gtk_gl_surface_present(boxrig_gtk_gl_surface *surface,
     if (destination->draw_framebuffer == 0 || destination->width != surface->target.width ||
         destination->height != surface->target.height || destination->samples != 0 ||
         destination->generation < surface->target.generation ||
+        (destination->alpha_bits == 0 && !surface->opaque) ||
         (destination->alpha_bits != 0 && destination->alpha_bits != 8) ||
         destination->srgb != (surface->target.format == BOXRIG_GL_TARGET_SRGB8_ALPHA8)) {
+        surface->destination_failed = true;
         abort_frame(surface);
         return failure(state, BOXRIG_GTK_RENDER_REASON_CAPABILITY,
             "GTK and retained GL target properties do not match", GL_NO_ERROR);
@@ -232,6 +253,7 @@ boxrig_ui_status boxrig_gtk_gl_surface_present(boxrig_gtk_gl_surface *surface,
     glBindFramebuffer(GL_READ_FRAMEBUFFER, (GLuint)previous_read);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, (GLuint)previous_draw);
     if (!complete || error != GL_NO_ERROR) {
+        surface->destination_failed = true;
         abort_frame(surface);
         return failure(state, BOXRIG_GTK_RENDER_REASON_DRAW,
             "Could not transfer the complete image to GTK", error);
@@ -245,6 +267,11 @@ boxrig_ui_status boxrig_gtk_gl_surface_present(boxrig_gtk_gl_surface *surface,
     surface->pending = false;
     surface->complete = true;
     return BOXRIG_UI_OK;
+}
+
+bool boxrig_gtk_gl_surface_destination_failed(const boxrig_gtk_gl_surface *surface)
+{
+    return surface != NULL && surface->destination_failed;
 }
 
 boxrig_ui_status boxrig_gtk_gl_surface_get_target(

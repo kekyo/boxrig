@@ -13,6 +13,7 @@ typedef boxrig_gtk4_terminal_widget_config widget_config;
 #endif
 #include "gtk/gl_surface.h"
 #include "pangocairo/renderer.h"
+#include <epoxy/gl.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -149,6 +150,24 @@ boxrig_ui_status __wrap_boxrig_gtk_gl_surface_present(boxrig_gtk_gl_surface *sur
         gdk_gl_context_clear_current();
     }
     boxrig_ui_status status = __real_boxrig_gtk_gl_surface_present(surface, destination, state);
+    if (status == BOXRIG_UI_OK && destination->alpha_bits == 0) {
+        /* Selection, preedit and the scrollbar coexist in this fixture. The
+         * RGB optimization must keep the entire retained image opaque. */
+        boxrig_gl_target retained;
+        CHECK(boxrig_gtk_gl_surface_get_target(surface, &retained) == BOXRIG_UI_OK);
+        GLint previous;
+        glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &previous);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, retained.draw_framebuffer);
+        size_t count = (size_t)retained.width * retained.height;
+        uint8_t *pixels = malloc(count * 4);
+        CHECK(pixels != NULL);
+        glReadPixels(0, 0, (GLsizei)retained.width, (GLsizei)retained.height,
+            GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+        CHECK(glGetError() == GL_NO_ERROR);
+        for (size_t pixel = 0; pixel < count; pixel++) CHECK(pixels[pixel * 4 + 3] == 255);
+        free(pixels);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, (GLuint)previous);
+    }
     if (context != NULL) gdk_gl_context_make_current(context);
     if (status != BOXRIG_UI_OK) {
         CHECK(boxrig_ui_view_frame_requested(observed_view));

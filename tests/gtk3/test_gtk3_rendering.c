@@ -2,6 +2,8 @@
 #include "boxrig/gtk3.h"
 #include "../../src/gtk/gl_surface.h"
 
+#include <epoxy/gl.h>
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,6 +17,54 @@ static bool fail_es_context;
 static bool fail_es_renderer;
 static unsigned int rejected_es_contexts;
 static unsigned int rejected_es_renderers;
+static unsigned int expected_alpha;
+static unsigned int presented_rgb;
+static unsigned int presented_rgba;
+static bool fail_rgb_transfer;
+static bool fail_rgba_transfer;
+static unsigned int rejected_transfers;
+static boxrig_ui_view *observed_view;
+
+boxrig_ui_status __real_boxrig_gtk_gl_surface_present(boxrig_gtk_gl_surface *,
+    const boxrig_gtk_gl_destination *, boxrig_gtk_render_state *);
+boxrig_ui_status __wrap_boxrig_gtk_gl_surface_present(boxrig_gtk_gl_surface *surface,
+    const boxrig_gtk_gl_destination *destination, boxrig_gtk_render_state *state)
+{
+    CHECK(destination->alpha_bits == expected_alpha);
+    if ((fail_rgb_transfer && destination->alpha_bits == 0) ||
+        (fail_rgba_transfer && destination->alpha_bits == 8)) {
+        fail_rgb_transfer = fail_rgba_transfer = false;
+        rejected_transfers++;
+        boxrig_gtk_gl_destination invalid = *destination;
+        invalid.generation = 0;
+        CHECK(__real_boxrig_gtk_gl_surface_present(surface, &invalid, state) != BOXRIG_UI_OK);
+        CHECK(boxrig_ui_view_frame_requested(observed_view));
+        expected_alpha = 8;
+        return state->status;
+    }
+    boxrig_ui_status status = __real_boxrig_gtk_gl_surface_present(surface, destination, state);
+    if (status != BOXRIG_UI_OK) return status;
+    if (destination->alpha_bits == 0) {
+        presented_rgb++;
+        boxrig_gl_target retained;
+        CHECK(boxrig_gtk_gl_surface_get_target(surface, &retained) == BOXRIG_UI_OK);
+        GLint previous;
+        glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &previous);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, retained.draw_framebuffer);
+        size_t count = (size_t)retained.width * retained.height;
+        uint8_t *pixels = malloc(count * 4);
+        CHECK(pixels != NULL);
+        glReadPixels(0, 0, (GLsizei)retained.width, (GLsizei)retained.height,
+            GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+        CHECK(glGetError() == GL_NO_ERROR);
+        for (size_t pixel = 0; pixel < count; pixel++) CHECK(pixels[pixel * 4 + 3] == 255);
+        free(pixels);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, (GLuint)previous);
+    } else {
+        presented_rgba++;
+    }
+    return status;
+}
 static unsigned int context_attempts;
 static boxrig_terminal *resize_before_render;
 static size_t accessible_rows_after_render;
@@ -207,6 +257,8 @@ int main(int argc, char **argv)
     fail_context = strcmp(argv[2], "context") == 0;
     fail_es_context = strcmp(argv[2], "es-context") == 0;
     fail_es_renderer = strcmp(argv[2], "es-renderer") == 0;
+    fail_rgb_transfer = strcmp(argv[2], "rgb-transfer") == 0;
+    bool rgba_transfer_failure = strcmp(argv[2], "rgba-transfer") == 0;
     boxrig_gtk3_terminal_widget_config config = boxrig_gtk3_terminal_widget_config_default();
     config.accessibility_enabled = true;
     CHECK(config.render_policy == BOXRIG_GTK_RENDER_CAIRO);
@@ -225,6 +277,7 @@ int main(int argc, char **argv)
         &test.widget, &state) == BOXRIG_UI_OK);
     CHECK(state.requested_policy == config.render_policy);
     CHECK(state.active_backend == BOXRIG_GTK_RENDER_BACKEND_NONE);
+    observed_view = boxrig_gtk3_terminal_widget_view(test.widget);
     g_signal_connect_after(test.widget, "draw", G_CALLBACK(drawn), &test);
     boxrig_font_effective_metrics metrics;
     CHECK(boxrig_gtk3_terminal_widget_get_effective_metrics(test.widget, &metrics) == BOXRIG_FONT_CATALOG_OK);
@@ -311,6 +364,9 @@ int main(int argc, char **argv)
         transparency.request = BOXRIG_UI_TRANSPARENCY_REQUIRED;
         transparency.requested_scopes = BOXRIG_UI_TRANSPARENCY_VIEW_SURFACE;
         transparency.background_opacity = 64;
+        target_generation = state.target_generation;
+        expected_alpha = 8;
+        fail_rgba_transfer = rgba_transfer_failure;
         test.generation = boxrig_gtk3_terminal_widget_presentation_generation(test.widget);
         CHECK(boxrig_gtk3_terminal_widget_set_transparency(test.widget, &transparency) == BOXRIG_UI_OK);
         await_frame(&test);
@@ -318,6 +374,57 @@ int main(int argc, char **argv)
         cairo_surface_t *alpha = capture(GTK_WIDGET(test.widget));
         CHECK(((uint32_t *)cairo_image_surface_get_data(alpha))[0] == 0x400a141eu);
         cairo_surface_destroy(alpha);
+        CHECK(boxrig_gtk3_terminal_widget_get_render_state(test.widget, &state) == BOXRIG_UI_OK);
+        if (presented_rgb > 0 && !rgba_transfer_failure)
+            CHECK(state.target_generation > target_generation);
+        if (rgba_transfer_failure) {
+            CHECK(rejected_transfers == 1 && state.active_backend == BOXRIG_GTK_RENDER_BACKEND_CAIRO);
+            test.generation = boxrig_gtk3_terminal_widget_presentation_generation(test.widget);
+            CHECK(boxrig_gtk3_terminal_widget_set_render_policy(test.widget,
+                BOXRIG_GTK_RENDER_OPENGL_REQUIRED) == BOXRIG_UI_OK);
+            await_frame(&test);
+            CHECK(!test.failed);
+            CHECK(boxrig_gtk3_terminal_widget_get_render_state(test.widget, &state) == BOXRIG_UI_OK);
+            CHECK(state.active_backend == BOXRIG_GTK_RENDER_BACKEND_OPENGL);
+        }
+        if (config.render_policy != BOXRIG_GTK_RENDER_CAIRO && !unavailable) {
+            CHECK(presented_rgba > 0);
+            if (strcmp(argv[2], "rgb-transfer") == 0) CHECK(rejected_transfers == 1);
+            else CHECK(presented_rgb > 0);
+        }
+        test.generation = boxrig_gtk3_terminal_widget_presentation_generation(test.widget);
+        transparency = boxrig_ui_transparency_config_default();
+        expected_alpha = strcmp(argv[2], "rgb-transfer") == 0 ? 8 : 0;
+        CHECK(boxrig_gtk3_terminal_widget_set_transparency(test.widget, &transparency) == BOXRIG_UI_OK);
+        await_frame(&test);
+        CHECK(!test.failed);
+        cairo_surface_t *opaque = capture(GTK_WIDGET(test.widget));
+        CHECK(((uint32_t *)cairo_image_surface_get_data(opaque))[0] == 0xff285078u);
+        cairo_surface_destroy(opaque);
+        CHECK(boxrig_gtk3_terminal_widget_get_render_state(test.widget, &state) == BOXRIG_UI_OK);
+        if (state.active_backend == BOXRIG_GTK_RENDER_BACKEND_OPENGL) {
+            /* Application backgrounds stay conservative even if the current
+             * opaque terminal happens to hide them. */
+            expected_alpha = 8;
+            test.generation = boxrig_gtk3_terminal_widget_presentation_generation(test.widget);
+            CHECK(boxrig_ui_view_set_background_color(observed_view,
+                (boxrig_ui_rgba){30, 70, 100, 90}) == BOXRIG_UI_OK);
+            await_frame(&test);
+            CHECK(!test.failed);
+            const uint8_t pixel[] = {250, 30, 90, 100};
+            boxrig_ui_background_image background = {1, 1, 4, sizeof(pixel), pixel, 255,
+                BOXRIG_UI_BACKGROUND_CONTAIN};
+            test.generation = boxrig_gtk3_terminal_widget_presentation_generation(test.widget);
+            CHECK(boxrig_ui_view_set_background_color(observed_view, (boxrig_ui_rgba){0}) == BOXRIG_UI_OK);
+            CHECK(boxrig_ui_view_set_background_image(observed_view, &background) == BOXRIG_UI_OK);
+            await_frame(&test);
+            CHECK(!test.failed);
+            expected_alpha = strcmp(argv[2], "rgb-transfer") == 0 ? 8 : 0;
+            test.generation = boxrig_gtk3_terminal_widget_presentation_generation(test.widget);
+            CHECK(boxrig_ui_view_set_background_image(observed_view, NULL) == BOXRIG_UI_OK);
+            await_frame(&test);
+            CHECK(!test.failed);
+        }
         if (state.active_backend == BOXRIG_GTK_RENDER_BACKEND_OPENGL) {
             /* Complete a host resize between queued work and GTK rendering. */
             resize_before_render = test.terminal;

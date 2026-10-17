@@ -20,6 +20,14 @@ size_t measurement_gl_draws;
 size_t measurement_gtk_compositions;
 uint64_t measurement_last_composition;
 
+bool __real_boxrig_gtk_gl_surface_can_present_opaque(const boxrig_ui_view *);
+bool __wrap_boxrig_gtk_gl_surface_can_present_opaque(const boxrig_ui_view *view)
+{
+    /* Diagnostic-only control: no public or production environment setting. */
+    if (getenv("BOXRIG_MEASURE_RGBA") != NULL) return false;
+    return __real_boxrig_gtk_gl_surface_can_present_opaque(view);
+}
+
 uint64_t measurement_clock(int clock_id)
 {
     struct timespec value;
