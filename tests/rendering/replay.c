@@ -428,6 +428,9 @@ int main(int argc, char **argv)
             "\"projection_cells\":%zu,\"projection_bytes\":%zu,\"position_comparisons\":%zu,"
             "\"prepare_steps\":%zu,\"decoded_scalars\":%zu,\"line_comparisons\":%zu,"
             "\"cached_empty_lines\":%zu,\"reused_lines\":%zu,"
+            "\"text_sync_fragments\":%zu,\"text_sync_cells\":%zu,\"text_sync_bytes\":%zu,"
+            "\"projection_metadata_fragments\":%zu,\"projection_cache_comparisons\":%zu,"
+            "\"commit_steps\":%zu,\"released_results\":%zu,"
             "\"gl_draws\":%zu,\"signature_cells_total\":%zu,\"shape_rows_total\":%zu,",
             update, update == 0 ? "true" : "false", elapsed / 1e6, cpu / 1e6,
             measurement_last_composition > elapsed_start ? (measurement_last_composition - elapsed_start) / 1e6 : 0,
@@ -436,6 +439,9 @@ int main(int argc, char **argv)
             counters.snapshot_position_comparisons, counters.recognizer_prepare_steps,
             counters.recognizer_decoded_scalars, counters.recognizer_line_comparisons,
             counters.recognizer_cached_empty_lines, counters.recognizer_reused_lines,
+            counters.text_sync_fragments, counters.text_sync_cells, counters.text_sync_bytes,
+            counters.projection_metadata_fragments, counters.recognizer_projection_cache_comparisons,
+            counters.recognizer_commit_steps, counters.recognizer_released_results,
             measurement_gl_draws, measurement_gl_statistics.row_signature_cell_count,
             measurement_gl_statistics.row_shape_count);
         measurement_print();

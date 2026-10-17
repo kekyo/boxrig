@@ -43,6 +43,7 @@ typedef struct boxrig_text_fragment_metadata {
     uint64_t content_hash_a;
     uint64_t content_hash_b;
     size_t projected_length;
+    size_t projected_end_column;
     bool needs_sync;
     bool newly_created;
 } boxrig_text_fragment_metadata;
@@ -523,6 +524,12 @@ typedef struct boxrig_text_workload_counters {
     size_t recognizer_cached_empty_lines;
     size_t recognizer_reused_lines;
     size_t text_sync_fragments;
+    size_t text_sync_cells;
+    size_t text_sync_bytes;
+    size_t projection_metadata_fragments;
+    size_t recognizer_projection_cache_comparisons;
+    size_t recognizer_commit_steps;
+    size_t recognizer_released_results;
 } boxrig_text_workload_counters;
 
 #ifdef BOXRIG_MEASURE_TEXT_WORKLOADS
@@ -537,6 +544,9 @@ void boxrig_text_workload_observe_recognizer_decode(void);
 void boxrig_text_workload_observe_recognizer_line_comparison(void);
 void boxrig_text_workload_observe_recognizer_cache(size_t entries);
 void boxrig_text_workload_observe_recognizer_reuse(void);
+void boxrig_text_workload_observe_projection_cache_comparison(void);
+void boxrig_text_workload_observe_recognizer_commit_step(void);
+void boxrig_text_workload_observe_recognizer_release(size_t count);
 #else
 #define boxrig_text_workload_observe_recognizer_event_queue(count) \
     ((void)(count))
@@ -549,19 +559,40 @@ void boxrig_text_workload_observe_recognizer_reuse(void);
 #define boxrig_text_workload_observe_recognizer_line_comparison() ((void)0)
 #define boxrig_text_workload_observe_recognizer_cache(entries) ((void)(entries))
 #define boxrig_text_workload_observe_recognizer_reuse() ((void)0)
+#define boxrig_text_workload_observe_projection_cache_comparison() ((void)0)
+#define boxrig_text_workload_observe_recognizer_commit_step() ((void)0)
+#define boxrig_text_workload_observe_recognizer_release(count) ((void)(count))
 #endif
-/* Complete logical-line projection in an ordinary owned snapshot. Sparse row
- * snapshots deliberately do not expose this internal recognition index. */
-typedef struct boxrig_text_snapshot_line_view {
-    size_t byte_start;
-    size_t byte_end;
-    size_t point_start;
+/* Copied metadata for a whole logical line. Enumerating one fragment never
+ * visits its cells. Re-enumerate after a text/layout mutation before resuming
+ * a projection; first_fragment may change while the line identity stays valid. */
+typedef struct boxrig_text_projection_line {
     boxrig_text_position start;
     boxrig_text_position end;
-} boxrig_text_snapshot_line_view;
-boxrig_status boxrig_text_snapshot_get_line(
-    const boxrig_text_snapshot *snapshot, size_t line_index,
-    boxrig_text_snapshot_line_view *line_out);
+    size_t byte_length;
+    size_t first_fragment;
+    size_t fragment_count;
+    size_t columns;
+} boxrig_text_projection_line;
+typedef struct boxrig_text_line_projection boxrig_text_line_projection;
+size_t boxrig_text_document_fragment_count(
+    const boxrig_terminal *terminal, boxrig_text_screen screen);
+boxrig_status boxrig_text_projection_line_step(
+    const boxrig_terminal *terminal, boxrig_text_screen screen,
+    size_t *next_fragment, boxrig_text_projection_line *line, bool *complete);
+boxrig_status boxrig_text_line_projection_create(
+    boxrig_terminal *terminal, const boxrig_text_projection_line *line,
+    boxrig_text_line_projection **projection_out);
+/* One work unit visits at most one cell and copies at most four bytes, or
+ * emits one boundary/space. No cell or text pointer survives this call. */
+boxrig_status boxrig_text_line_projection_resume(
+    const boxrig_terminal *terminal, const boxrig_text_projection_line *line,
+    boxrig_text_line_projection *projection, size_t budget,
+    size_t *used_out, bool *complete_out);
+/* Borrowed from the projection, available only after construction completes. */
+const boxrig_text_snapshot *boxrig_text_line_projection_snapshot(
+    const boxrig_text_line_projection *projection);
+void boxrig_text_line_projection_destroy(boxrig_text_line_projection *projection);
 
 /* Forward-only snapshot lookup. Initialize point_index to zero for each new
  * snapshot and request nondecreasing byte offsets. Each call compares at most

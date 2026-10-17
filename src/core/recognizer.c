@@ -29,8 +29,18 @@ typedef struct boxrig_text_recognizer_match {
     size_t retained_bytes;
 } boxrig_text_recognizer_match;
 
+/* Optional owned projections survive restarts caused by other lines. Both the
+ * number of entries and their aggregate projected bytes are bounded. */
+#define LINE_PROJECTION_CACHE_CAPACITY 64u
+typedef struct boxrig_text_recognizer_projection {
+    boxrig_text_projection_line line;
+    boxrig_text_line_projection *projection;
+    uint64_t age;
+} boxrig_text_recognizer_projection;
+
 typedef enum boxrig_text_recognizer_phase {
     BOXRIG_TEXT_RECOGNIZER_LINE_START = 0,
+    BOXRIG_TEXT_RECOGNIZER_LINE_PROJECT,
     BOXRIG_TEXT_RECOGNIZER_LINE_ALLOCATE,
     BOXRIG_TEXT_RECOGNIZER_LINE_DECODE,
     BOXRIG_TEXT_RECOGNIZER_LINE_BOUNDARY,
@@ -46,10 +56,18 @@ typedef struct boxrig_text_recognizer_entry {
     boxrig_regex_program *program;
     boxrig_text_recognizer_limits limits;
     boxrig_text_recognizer_scope scope;
-    boxrig_text_snapshot *snapshots[2];
-    size_t snapshot_count;
-    size_t snapshot_index;
-    size_t snapshot_line_index;
+    const boxrig_text_snapshot *snapshot;
+    boxrig_text_recognizer_projection *projections;
+    boxrig_text_line_projection *active_projection;
+    size_t projection_bytes;
+    uint64_t projection_age;
+    boxrig_text_projection_line projection_line;
+    boxrig_text_screen scan_screen;
+    size_t next_fragment;
+    size_t scan_bytes;
+    size_t scan_lines;
+    bool screen_has_line;
+    bool line_ready;
     size_t snapshot_point_index;
     uint64_t scan_text_revision;
     uint64_t scan_layout_revision;
@@ -158,6 +176,7 @@ static void advance_line(boxrig_text_recognizer_entry *recognizer);
 
 static void release_results(boxrig_text_recognizer_match *results, size_t count)
 {
+    boxrig_text_workload_observe_recognizer_release(count);
     for (size_t i = 0u; i < count; i++) {
         boxrig_regex_result_destroy(results[i].captures);
         results[i].captures = NULL;
@@ -166,15 +185,13 @@ static void release_results(boxrig_text_recognizer_match *results, size_t count)
 
 static void destroy_scan(boxrig_text_recognizer_entry *recognizer)
 {
-    size_t index;
-
-    for (index = 0u; index < 2u; index++) {
-        boxrig_text_snapshot_destroy(recognizer->snapshots[index]);
-        recognizer->snapshots[index] = NULL;
-    }
-    recognizer->snapshot_count = 0u;
-    recognizer->snapshot_index = 0u;
-    recognizer->snapshot_line_index = 0u;
+    recognizer->snapshot = NULL;
+    recognizer->active_projection = NULL;
+    recognizer->next_fragment = 0;
+    recognizer->scan_bytes = 0;
+    recognizer->scan_lines = 0;
+    recognizer->screen_has_line = false;
+    recognizer->line_ready = false;
     recognizer->snapshot_point_index = 0u;
     recognizer->line_scalar_count = 0u;
     recognizer->line_byte_start = 0u;
@@ -219,6 +236,11 @@ static void destroy_recognizer(boxrig_text_recognizer_entry *recognizer)
     free(recognizer->staging_results);
     free(recognizer->staging_lines);
     free(recognizer->staging_line_index);
+    if (recognizer->projections != NULL) {
+        for (size_t index = 0; index < LINE_PROJECTION_CACHE_CAPACITY; index++)
+            boxrig_text_line_projection_destroy(recognizer->projections[index].projection);
+        free(recognizer->projections);
+    }
     memset(recognizer, 0, sizeof(*recognizer));
 }
 
@@ -391,83 +413,54 @@ static bool publish_event(
     return true;
 }
 
-static boxrig_status create_snapshot(
-    boxrig_terminal *terminal,
-    boxrig_text_recognizer_entry *recognizer,
-    boxrig_text_screen screen,
-    boxrig_text_snapshot **snapshot_out)
+static boxrig_status count_scan_line(boxrig_text_recognizer_entry *recognizer,
+    const boxrig_text_projection_line *line)
 {
-    boxrig_text_snapshot_options options;
+    size_t separator = recognizer->screen_has_line ? 1 : 0;
+    size_t remaining = recognizer->limits.snapshot_byte_capacity - recognizer->scan_bytes;
+    if (separator > remaining || line->byte_length > remaining - separator ||
+        recognizer->scan_lines == recognizer->limits.snapshot_line_capacity)
+        return BOXRIG_STATUS_LIMIT_EXCEEDED;
+    recognizer->scan_bytes += separator + line->byte_length;
+    recognizer->scan_lines++;
+    recognizer->screen_has_line = true;
+    return BOXRIG_STATUS_OK;
+}
 
-    options.screen = screen;
-    options.range = NULL;
-    options.byte_capacity = recognizer->limits.snapshot_byte_capacity;
-    options.line_capacity = recognizer->limits.snapshot_line_capacity;
-    return boxrig_terminal_create_text_snapshot(
-        terminal,
-        &options,
-        snapshot_out);
+/* Registration/rescan preserve their synchronous capacity check, using only
+ * metadata. Ordinary budgeted resumes enumerate one physical fragment at a time. */
+static boxrig_status validate_scan_capacity(const boxrig_terminal *terminal,
+    boxrig_text_recognizer_entry *recognizer)
+{
+    recognizer->scan_bytes = 0;
+    recognizer->scan_lines = 0;
+    for (int screen = BOXRIG_TEXT_SCREEN_PRIMARY; screen <= BOXRIG_TEXT_SCREEN_ALTERNATE; screen++) {
+        if ((screen == BOXRIG_TEXT_SCREEN_PRIMARY && recognizer->scope == BOXRIG_TEXT_RECOGNIZER_SCOPE_ALTERNATE) ||
+            (screen == BOXRIG_TEXT_SCREEN_ALTERNATE && recognizer->scope == BOXRIG_TEXT_RECOGNIZER_SCOPE_PRIMARY)) continue;
+        recognizer->screen_has_line = false;
+        size_t fragment = 0;
+        boxrig_text_projection_line line = {0};
+        while (fragment < boxrig_text_document_fragment_count(terminal, (boxrig_text_screen)screen)) {
+            bool complete;
+            boxrig_status status = boxrig_text_projection_line_step(terminal,
+                (boxrig_text_screen)screen, &fragment, &line, &complete);
+            if (status == BOXRIG_STATUS_OK && complete) status = count_scan_line(recognizer, &line);
+            if (status != BOXRIG_STATUS_OK) return status;
+        }
+    }
+    return BOXRIG_STATUS_OK;
 }
 
 static boxrig_status prepare_scan(
     boxrig_terminal *terminal,
     boxrig_text_recognizer_entry *recognizer)
 {
-    boxrig_status status;
-    size_t total_bytes = 0u;
-    size_t total_lines = 0u;
-    size_t index;
-
     destroy_scan(recognizer);
-    if (recognizer->scope == BOXRIG_TEXT_RECOGNIZER_SCOPE_PRIMARY ||
-        recognizer->scope == BOXRIG_TEXT_RECOGNIZER_SCOPE_BOTH) {
-        status = create_snapshot(
-            terminal,
-            recognizer,
-            BOXRIG_TEXT_SCREEN_PRIMARY,
-            &recognizer->snapshots[recognizer->snapshot_count]);
-        if (status != BOXRIG_STATUS_OK) {
-            destroy_scan(recognizer);
-            return status;
-        }
-        recognizer->snapshot_count++;
-    }
-    if (recognizer->scope == BOXRIG_TEXT_RECOGNIZER_SCOPE_ALTERNATE ||
-        recognizer->scope == BOXRIG_TEXT_RECOGNIZER_SCOPE_BOTH) {
-        status = create_snapshot(
-            terminal,
-            recognizer,
-            BOXRIG_TEXT_SCREEN_ALTERNATE,
-            &recognizer->snapshots[recognizer->snapshot_count]);
-        if (status != BOXRIG_STATUS_OK) {
-            destroy_scan(recognizer);
-            return status;
-        }
-        recognizer->snapshot_count++;
-    }
-    for (index = 0u; index < recognizer->snapshot_count; index++) {
-        size_t byte_length = 0u;
-        size_t line_count =
-            boxrig_text_snapshot_line_count(recognizer->snapshots[index]);
-
-        (void)boxrig_text_snapshot_data(
-            recognizer->snapshots[index],
-            &byte_length);
-        if (byte_length > recognizer->limits.snapshot_byte_capacity -
-                              total_bytes ||
-            line_count > recognizer->limits.snapshot_line_capacity -
-                             total_lines) {
-            destroy_scan(recognizer);
-            return BOXRIG_STATUS_LIMIT_EXCEEDED;
-        }
-        total_bytes += byte_length;
-        total_lines += line_count;
-    }
-    recognizer->scan_text_revision =
-        boxrig_terminal_text_revision(terminal);
+    if (terminal->screen.text_identity_limit) return BOXRIG_STATUS_LIMIT_EXCEEDED;
+    recognizer->scan_text_revision = terminal->screen.text_revision;
     recognizer->scan_layout_revision = terminal->screen.text_layout_revision;
-    recognizer->snapshot_index = 0u;
-    recognizer->snapshot_line_index = 0u;
+    recognizer->scan_screen = recognizer->scope == BOXRIG_TEXT_RECOGNIZER_SCOPE_ALTERNATE
+        ? BOXRIG_TEXT_SCREEN_ALTERNATE : BOXRIG_TEXT_SCREEN_PRIMARY;
     recognizer->phase = BOXRIG_TEXT_RECOGNIZER_LINE_START;
     recognizer->complete = false;
     recognizer->incomplete = false;
@@ -671,23 +664,93 @@ static void remember_empty_line(boxrig_text_recognizer_entry *recognizer)
     boxrig_text_workload_observe_recognizer_cache(recognizer->empty_line_count);
 }
 
-static boxrig_status begin_line(boxrig_text_recognizer_entry *recognizer)
+static bool same_owned_projection(const boxrig_text_projection_line *left,
+    const boxrig_text_projection_line *right)
+{
+    return left->start.screen == right->start.screen &&
+        line_id_equal(left->start.line_id, right->start.line_id) &&
+        left->start.line_revision == right->start.line_revision &&
+        left->end.column == right->end.column && left->byte_length == right->byte_length &&
+        left->columns == right->columns;
+}
+
+static void discard_projection(boxrig_text_recognizer_entry *recognizer, size_t index)
+{
+    boxrig_text_recognizer_projection *entry = &recognizer->projections[index];
+    if (entry->projection == NULL) return;
+    recognizer->projection_bytes -= entry->line.byte_length;
+    boxrig_text_line_projection_destroy(entry->projection);
+    memset(entry, 0, sizeof(*entry));
+}
+
+static boxrig_status select_projection(boxrig_terminal *terminal,
+    boxrig_text_recognizer_entry *recognizer)
+{
+    if (recognizer->projections == NULL) {
+        recognizer->projections = calloc(LINE_PROJECTION_CACHE_CAPACITY, sizeof(*recognizer->projections));
+        if (recognizer->projections == NULL) return BOXRIG_STATUS_OUT_OF_MEMORY;
+    }
+    if (recognizer->projection_age == UINT64_MAX) {
+        for (size_t index = 0; index < LINE_PROJECTION_CACHE_CAPACITY; index++)
+            recognizer->projections[index].age = 0;
+        recognizer->projection_age = 0;
+    }
+    uint64_t age = ++recognizer->projection_age;
+    size_t chosen = LINE_PROJECTION_CACHE_CAPACITY;
+    for (size_t index = 0; index < LINE_PROJECTION_CACHE_CAPACITY; index++) {
+        boxrig_text_recognizer_projection *entry = &recognizer->projections[index];
+        boxrig_text_workload_observe_projection_cache_comparison();
+        if (entry->projection != NULL && same_owned_projection(&entry->line, &recognizer->projection_line)) {
+            entry->age = age;
+            recognizer->active_projection = entry->projection;
+            recognizer->snapshot = boxrig_text_line_projection_snapshot(entry->projection);
+            return BOXRIG_STATUS_OK;
+        }
+        if (entry->projection != NULL && entry->line.start.screen == recognizer->projection_line.start.screen &&
+            line_id_equal(entry->line.start.line_id, recognizer->projection_line.start.line_id))
+            discard_projection(recognizer, index);
+        if (entry->projection == NULL) chosen = index;
+    }
+    while (chosen == LINE_PROJECTION_CACHE_CAPACITY ||
+        recognizer->projection_line.byte_length > recognizer->limits.snapshot_byte_capacity - recognizer->projection_bytes) {
+        size_t oldest = LINE_PROJECTION_CACHE_CAPACITY;
+        for (size_t index = 0; index < LINE_PROJECTION_CACHE_CAPACITY; index++) {
+            boxrig_text_workload_observe_projection_cache_comparison();
+            if (recognizer->projections[index].projection != NULL &&
+                (oldest == LINE_PROJECTION_CACHE_CAPACITY || recognizer->projections[index].age < recognizer->projections[oldest].age))
+                oldest = index;
+        }
+        if (oldest == LINE_PROJECTION_CACHE_CAPACITY) return BOXRIG_STATUS_LIMIT_EXCEEDED;
+        discard_projection(recognizer, oldest);
+        chosen = oldest;
+    }
+    boxrig_text_recognizer_projection *entry = &recognizer->projections[chosen];
+    boxrig_status status = boxrig_text_line_projection_create(terminal,
+        &recognizer->projection_line, &entry->projection);
+    if (status != BOXRIG_STATUS_OK) return status;
+    entry->line = recognizer->projection_line;
+    entry->age = age;
+    recognizer->projection_bytes += entry->line.byte_length;
+    recognizer->active_projection = entry->projection;
+    recognizer->snapshot = NULL;
+    return BOXRIG_STATUS_OK;
+}
+
+static boxrig_status begin_line(boxrig_terminal *terminal, boxrig_text_recognizer_entry *recognizer)
 {
     boxrig_text_workload_observe_recognizer_cache(recognizer->empty_line_count);
-    boxrig_text_snapshot_line_view line;
-    boxrig_status status = boxrig_text_snapshot_get_line(recognizer->snapshots[recognizer->snapshot_index],
-        recognizer->snapshot_line_index, &line);
-    if (status != BOXRIG_STATUS_OK) return status;
-    if (line.byte_end - line.byte_start > recognizer->limits.line_byte_capacity ||
+    const boxrig_text_projection_line line = recognizer->projection_line;
+    boxrig_status status;
+    if (line.byte_length > recognizer->limits.line_byte_capacity ||
         !line_id_equal(line.start.line_id, line.end.line_id) ||
         line.end.column < line.start.column ||
         line.end.column - line.start.column > recognizer->limits.line_column_capacity)
         return BOXRIG_STATUS_LIMIT_EXCEEDED;
     recognizer->line_scalar_count = 0u;
-    recognizer->line_byte_start = line.byte_start;
-    recognizer->line_byte_end = line.byte_end;
-    recognizer->snapshot_point_index = line.point_start;
-    recognizer->line_prepare_byte_offset = line.byte_start;
+    recognizer->line_byte_start = 0;
+    recognizer->line_byte_end = line.byte_length;
+    recognizer->snapshot_point_index = 0;
+    recognizer->line_prepare_byte_offset = 0;
     recognizer->line_prepare_boundary_index = 0u;
     recognizer->line_start_position = line.start;
     recognizer->line_end_position = line.end;
@@ -697,7 +760,7 @@ static boxrig_status begin_line(boxrig_text_recognizer_entry *recognizer)
     recognizer->scan_line.screen = line.start.screen;
     recognizer->scan_line.line_id = line.start.line_id;
     recognizer->scan_line.line_revision = line.start.line_revision;
-    recognizer->scan_line.byte_length = line.byte_end - line.byte_start;
+    recognizer->scan_line.byte_length = line.byte_length;
     recognizer->scan_line.start_column = line.start.column;
     recognizer->scan_line.end_column = line.end.column;
     recognizer->scan_line_retained = false;
@@ -718,15 +781,19 @@ static boxrig_status begin_line(boxrig_text_recognizer_entry *recognizer)
         }
         advance_line(recognizer);
         boxrig_text_workload_observe_recognizer_reuse();
-    } else recognizer->phase = BOXRIG_TEXT_RECOGNIZER_LINE_ALLOCATE;
+    } else {
+        status = select_projection(terminal, recognizer);
+        if (status != BOXRIG_STATUS_OK) return status;
+        recognizer->phase = recognizer->snapshot == NULL
+            ? BOXRIG_TEXT_RECOGNIZER_LINE_PROJECT : BOXRIG_TEXT_RECOGNIZER_LINE_ALLOCATE;
+    }
     return BOXRIG_STATUS_OK;
 }
 
 static boxrig_status prepare_line_step(
     boxrig_text_recognizer_entry *recognizer)
 {
-    boxrig_text_snapshot *snapshot =
-        recognizer->snapshots[recognizer->snapshot_index];
+    const boxrig_text_snapshot *snapshot = recognizer->snapshot;
     const uint8_t *bytes;
     size_t byte_length;
     boxrig_status status;
@@ -848,8 +915,7 @@ static boxrig_status append_match(
 {
     boxrig_text_recognizer_line *line;
     boxrig_text_recognition_result *result;
-    boxrig_text_snapshot *snapshot =
-        recognizer->snapshots[recognizer->snapshot_index];
+    const boxrig_text_snapshot *snapshot = recognizer->snapshot;
     boxrig_status status;
 
     if (match->start >= match->end ||
@@ -897,6 +963,8 @@ static boxrig_status append_match(
     if (status != BOXRIG_STATUS_OK) {
         return status;
     }
+    result->range.start.text_revision = recognizer->scan_text_revision;
+    result->range.end.text_revision = recognizer->scan_text_revision;
     result->screen = result->range.start.screen;
     size_t snapshot_length;
     const uint8_t *bytes = boxrig_text_snapshot_data(snapshot, &snapshot_length);
@@ -942,7 +1010,9 @@ static boxrig_status reuse_line_step(boxrig_text_recognizer_entry *recognizer)
 
 static void advance_line(boxrig_text_recognizer_entry *recognizer)
 {
-    recognizer->snapshot_line_index++;
+    recognizer->line_ready = false;
+    recognizer->snapshot = NULL;
+    recognizer->active_projection = NULL;
     memset(&recognizer->scan_line, 0, sizeof(recognizer->scan_line));
     recognizer->scan_line_retained = false;
     recognizer->line_start_position_valid = false;
@@ -1027,6 +1097,7 @@ static bool line_results_equal(
         return false;
     }
     for (index = 0u; index < current->result_count; index++) {
+        boxrig_text_workload_observe_recognizer_commit_step();
         if (!range_location_equal(
                 &recognizer->current_results[
                     current->result_start + index].value.range,
@@ -1065,12 +1136,15 @@ static boxrig_status commit_scan(
             &recognizer->staging_line_index_capacity, recognizer->staging_line_count,
             recognizer->limits.dirty_line_capacity, sizeof(*recognizer->staging_line_index)))
         return BOXRIG_STATUS_OUT_OF_MEMORY;
-    for (index = 0; index < recognizer->staging_line_count; index++)
+    for (index = 0; index < recognizer->staging_line_count; index++) {
+        boxrig_text_workload_observe_recognizer_commit_step();
         recognizer->staging_line_index[index] = &recognizer->staging_lines[index];
+    }
     if (recognizer->staging_line_count > 1)
         qsort(recognizer->staging_line_index, recognizer->staging_line_count,
             sizeof(*recognizer->staging_line_index), compare_line_index);
     for (index = 0u; index < recognizer->staging_result_count; index++) {
+        boxrig_text_workload_observe_recognizer_commit_step();
         boxrig_text_recognition_result *result =
             &recognizer->staging_results[index].value;
         uint64_t match_id = result->match_id != 0 ? result->match_id : previous_match_id(recognizer, result);
@@ -1090,6 +1164,7 @@ static boxrig_status commit_scan(
         result->text_revision = recognizer->scan_text_revision;
     }
     for (index = 0u; index < recognizer->staging_line_count; index++) {
+        boxrig_text_workload_observe_recognizer_commit_step();
         const boxrig_text_recognizer_line *line =
             &recognizer->staging_lines[index];
         const boxrig_text_recognizer_line *old_line = find_line(
@@ -1132,6 +1207,7 @@ static boxrig_status commit_scan(
         }
     }
     for (index = 0u; index < recognizer->current_line_count; index++) {
+        boxrig_text_workload_observe_recognizer_commit_step();
         const boxrig_text_recognizer_line *old_line =
             &recognizer->current_lines[index];
 
@@ -1230,24 +1306,29 @@ static boxrig_status resume_recognizer(
     while (work_used < work_budget &&
            recognizer->phase != BOXRIG_TEXT_RECOGNIZER_COMPLETE) {
         if (recognizer->phase == BOXRIG_TEXT_RECOGNIZER_LINE_START) {
-            boxrig_text_snapshot *snapshot;
-            size_t line_count;
-
-            if (recognizer->snapshot_index == recognizer->snapshot_count) {
-                recognizer->phase = BOXRIG_TEXT_RECOGNIZER_COMMIT;
-                continue;
-            }
-            snapshot = recognizer->snapshots[recognizer->snapshot_index];
-            line_count = boxrig_text_snapshot_line_count(snapshot);
-            if (recognizer->snapshot_line_index == line_count) {
-                recognizer->snapshot_index++;
-                recognizer->snapshot_line_index = 0u;
-                recognizer->snapshot_point_index = 0u;
+            if (!recognizer->line_ready && recognizer->next_fragment == boxrig_text_document_fragment_count(terminal, recognizer->scan_screen)) {
+                if (recognizer->scope == BOXRIG_TEXT_RECOGNIZER_SCOPE_BOTH &&
+                    recognizer->scan_screen == BOXRIG_TEXT_SCREEN_PRIMARY) {
+                    recognizer->scan_screen = BOXRIG_TEXT_SCREEN_ALTERNATE;
+                    recognizer->next_fragment = 0;
+                    recognizer->screen_has_line = false;
+                } else recognizer->phase = BOXRIG_TEXT_RECOGNIZER_COMMIT;
                 continue;
             }
             work_used++;
             boxrig_text_workload_observe_recognizer_prepare_step(true);
-            boxrig_status status = begin_line(recognizer);
+            boxrig_status status = BOXRIG_STATUS_OK;
+            if (!recognizer->line_ready) {
+                status = boxrig_text_projection_line_step(terminal,
+                    recognizer->scan_screen, &recognizer->next_fragment,
+                    &recognizer->projection_line, &recognizer->line_ready);
+                if (status == BOXRIG_STATUS_OK && recognizer->line_ready)
+                    status = count_scan_line(recognizer, &recognizer->projection_line);
+            }
+            /* Keep the enumerated line pending if allocation fails. Retrying
+             * must neither skip it nor count its capacity a second time. */
+            if (status == BOXRIG_STATUS_OK && recognizer->line_ready)
+                status = begin_line(terminal, recognizer);
             if (status == BOXRIG_STATUS_LIMIT_EXCEEDED) {
                 make_incomplete(terminal, recognizer);
                 break;
@@ -1255,6 +1336,25 @@ static boxrig_status resume_recognizer(
             if (status != BOXRIG_STATUS_OK) {
                 *work_used_out = work_used;
                 return status;
+            }
+        } else if (recognizer->phase == BOXRIG_TEXT_RECOGNIZER_LINE_PROJECT) {
+            size_t projection_work;
+            bool complete;
+            boxrig_status status = boxrig_text_line_projection_resume(terminal,
+                &recognizer->projection_line, recognizer->active_projection,
+                work_budget - work_used, &projection_work, &complete);
+            work_used += projection_work;
+            if (status == BOXRIG_STATUS_LIMIT_EXCEEDED) {
+                make_incomplete(terminal, recognizer);
+                break;
+            }
+            if (status != BOXRIG_STATUS_OK) {
+                *work_used_out = work_used;
+                return status;
+            }
+            if (complete) {
+                recognizer->snapshot = boxrig_text_line_projection_snapshot(recognizer->active_projection);
+                recognizer->phase = BOXRIG_TEXT_RECOGNIZER_LINE_ALLOCATE;
             }
         } else if (recognizer->phase >=
                        BOXRIG_TEXT_RECOGNIZER_LINE_ALLOCATE &&
@@ -1447,7 +1547,8 @@ boxrig_status boxrig_terminal_register_compiled_text_recognizer(
     }
     candidate.program = program;
     boxrig_screen_text_sync(&terminal->screen);
-    status = prepare_scan(terminal, &candidate);
+    status = validate_scan_capacity(terminal, &candidate);
+    if (status == BOXRIG_STATUS_OK) status = prepare_scan(terminal, &candidate);
     if (status != BOXRIG_STATUS_OK) {
         destroy_recognizer(&candidate);
         return status;
@@ -1903,7 +2004,8 @@ boxrig_status boxrig_terminal_rescan_text_recognizer(
     if (recognizer == NULL || !recognizer->needs_rescan) {
         return BOXRIG_STATUS_INVALID_ARGUMENT;
     }
-    status = prepare_scan(terminal, recognizer);
+    status = validate_scan_capacity(terminal, recognizer);
+    if (status == BOXRIG_STATUS_OK) status = prepare_scan(terminal, recognizer);
     if (status != BOXRIG_STATUS_OK) {
         return status;
     }

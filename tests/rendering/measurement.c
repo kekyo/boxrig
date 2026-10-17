@@ -88,6 +88,30 @@ boxrig_status __wrap_boxrig_terminal_create_text_snapshot(const boxrig_terminal 
     return status;
 }
 
+boxrig_status __real_boxrig_text_line_projection_create(boxrig_terminal *,
+    const boxrig_text_projection_line *, boxrig_text_line_projection **);
+boxrig_status __wrap_boxrig_text_line_projection_create(boxrig_terminal *terminal,
+    const boxrig_text_projection_line *line, boxrig_text_line_projection **projection)
+{
+    BOXRIG_MEASURE_BEGIN(start);
+    boxrig_status status = __real_boxrig_text_line_projection_create(terminal, line, projection);
+    BOXRIG_MEASURE_END(BOXRIG_MEASURE_SNAPSHOT, start);
+    return status;
+}
+
+boxrig_status __real_boxrig_text_line_projection_resume(const boxrig_terminal *,
+    const boxrig_text_projection_line *, boxrig_text_line_projection *, size_t, size_t *, bool *);
+boxrig_status __wrap_boxrig_text_line_projection_resume(const boxrig_terminal *terminal,
+    const boxrig_text_projection_line *line, boxrig_text_line_projection *projection,
+    size_t budget, size_t *used, bool *complete)
+{
+    BOXRIG_MEASURE_BEGIN(start);
+    boxrig_status status = __real_boxrig_text_line_projection_resume(terminal,
+        line, projection, budget, used, complete);
+    BOXRIG_MEASURE_END(BOXRIG_MEASURE_SNAPSHOT, start);
+    return status;
+}
+
 void __real_boxrig_screen_text_sync(boxrig_screen *);
 void __wrap_boxrig_screen_text_sync(boxrig_screen *screen)
 {

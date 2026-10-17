@@ -398,6 +398,8 @@ static bool dispatch_monitors(
 
     while (more) {
         size_t used = 0;
+        boxrig_text_workload_counters before, after;
+        boxrig_text_workload_counters_read(&before);
 
         if (boxrig_terminal_dispatch_text_monitors(
                 terminal,
@@ -407,6 +409,11 @@ static bool dispatch_monitors(
             used > budget || work > SIZE_MAX - used) {
             return false;
         }
+        boxrig_text_workload_counters_read(&after);
+        if (after.snapshot_projection_cells - before.snapshot_projection_cells > used ||
+            after.snapshot_projection_bytes - before.snapshot_projection_bytes > used * 4 ||
+            after.projection_metadata_fragments - before.projection_metadata_fragments > used)
+            return fail_step("recognizer", "projection exceeds its resume budget");
         work += used;
         dispatches++;
     }
@@ -1341,7 +1348,9 @@ static void print_result(const workload_result *result)
         "snapshot_projection_cells=%zu snapshot_projection_bytes=%zu "
         "snapshot_position_comparisons=%zu recognizer_decoded_scalars=%zu "
         "recognizer_line_comparisons=%zu recognizer_cached_empty_lines=%zu "
-        "recognizer_reused_lines=%zu text_sync_fragments=%zu\n",
+        "recognizer_reused_lines=%zu text_sync_fragments=%zu "
+        "text_sync_cells=%zu text_sync_bytes=%zu projection_metadata_fragments=%zu "
+        "projection_cache_comparisons=%zu recognizer_commit_steps=%zu recognizer_released_results=%zu\n",
         result->name,
         result->fragments,
         result->projected_bytes,
@@ -1371,7 +1380,11 @@ static void print_result(const workload_result *result)
         result->text.recognizer_line_comparisons,
         result->text.recognizer_cached_empty_lines,
         result->text.recognizer_reused_lines,
-        result->text.text_sync_fragments);
+        result->text.text_sync_fragments,
+        result->text.text_sync_cells, result->text.text_sync_bytes,
+        result->text.projection_metadata_fragments,
+        result->text.recognizer_projection_cache_comparisons,
+        result->text.recognizer_commit_steps, result->text.recognizer_released_results);
 }
 
 static bool measure_recognizer_retained_matches(
@@ -1553,21 +1566,72 @@ static bool check_recognizer_resume_budget(void)
     if (boxrig_terminal_create(&config, &terminal) != BOXRIG_STATUS_OK ||
         !feed_repeated_byte(terminal, 'a', 1024) ||
         !register_recognizer(terminal, (const uint8_t *)"a+", 2, limits, &id)) goto cleanup;
-    for (size_t dispatch = 0; dispatch < 64; dispatch++) {
+    bool more = true;
+    size_t projected_cells = 0;
+    size_t projected_bytes = 0;
+    size_t dispatch = 0;
+    while (more && dispatch++ < 100000) {
         boxrig_text_workload_counters counters;
         boxrig_text_workload_counters_reset();
         size_t used;
-        bool more;
         if (boxrig_terminal_resume_text_recognizers(terminal, 1, &used, &more) != BOXRIG_STATUS_OK ||
-            used != 1 || !more) goto cleanup;
+            used > 1 || (more && used == 0)) goto cleanup;
         boxrig_text_workload_counters_read(&counters);
         if (counters.text_sync_fragments != 0) {
             fprintf(stderr, "budget 1 visited %zu synchronization fragments\n",
                 counters.text_sync_fragments);
             goto cleanup;
         }
+        if (counters.snapshot_projection_cells > used || counters.snapshot_projection_bytes > 4 * used)
+            goto cleanup;
+        projected_cells += counters.snapshot_projection_cells;
+        projected_bytes += counters.snapshot_projection_bytes;
     }
-    passed = true;
+    passed = !more && projected_cells == 2048 && projected_bytes == 1024;
+cleanup:
+    boxrig_terminal_destroy(terminal);
+    return passed;
+}
+
+static bool check_projection_survives_other_line_updates(void)
+{
+    boxrig_terminal_config config = workload_config(3, 256, 0);
+    configure_recognizers(&config, 1, 2, 2);
+    boxrig_terminal *terminal = NULL;
+    uint64_t id;
+    bool passed = false;
+    if (boxrig_terminal_create(&config, &terminal) != BOXRIG_STATUS_OK ||
+        !feed_bytes(terminal, (const uint8_t *)"none0\r\n", 7) ||
+        !feed_repeated_byte(terminal, 'a', 128)) goto cleanup;
+    boxrig_text_workload_counters_reset();
+    if (!register_recognizer(terminal, (const uint8_t *)"a+", 2,
+            boxrig_text_recognizer_limits_default(), &id)) goto cleanup;
+    boxrig_text_workload_counters counters;
+    boxrig_text_workload_counters_read(&counters);
+    if (counters.snapshot_projection_cells != 0 || counters.snapshot_projection_bytes != 0)
+        goto cleanup;
+    bool more = true;
+    size_t updates = 0;
+    for (size_t dispatch = 0; more && dispatch < 100000; dispatch++) {
+        size_t used;
+        if (boxrig_terminal_resume_text_recognizers(terminal, 1, &used, &more) != BOXRIG_STATUS_OK ||
+            used > 1 || (more && used == 0)) goto cleanup;
+        boxrig_text_workload_counters_read(&counters);
+        if (updates < 4 && counters.snapshot_projection_bytes >= (updates + 1) * 16) {
+            /* The first insertion moves the unfinished line to a new physical
+             * row. Later rewrites precede it in document order. */
+            if (updates == 0 && !feed_bytes(terminal, (const uint8_t *)"\033[H\033[L", 6)) goto cleanup;
+            uint8_t input[] = "\033[2;1Hnone0";
+            input[sizeof(input) - 2] += (uint8_t)++updates;
+            if (!feed_bytes(terminal, input, sizeof(input) - 1)) goto cleanup;
+        }
+    }
+    size_t events, matches;
+    passed = !more && updates == 4 && counters.snapshot_projection_bytes == 153 &&
+        counters.snapshot_projection_cells == 306 &&
+        consume_recognizer_results(terminal, &events, &matches) && events == 1 && matches == 1;
+    if (!passed) fprintf(stderr, "unrelated updates projected %zu cells and %zu bytes\n",
+        counters.snapshot_projection_cells, counters.snapshot_projection_bytes);
 cleanup:
     boxrig_terminal_destroy(terminal);
     return passed;
@@ -1694,6 +1758,14 @@ static bool run_self_test(void)
     if (!check_recognizer_resume_budget()) {
         return fail_step("self-test", "resuming does not repeat terminal text synchronization");
     }
+    if (!measure_recognizer_retained_matches(32, &result) ||
+        result.text.snapshot_projection_cells > 80) {
+        fprintf(stderr, "one changed line projected %zu cells\n",
+            result.text.snapshot_projection_cells);
+        return fail_step("self-test", "unchanged lines do not need projection");
+    }
+    if (!check_projection_survives_other_line_updates())
+        return fail_step("self-test", "unrelated updates preserve partial projection");
     printf("PASS bounded text workload measurement harness\n");
     return true;
 }

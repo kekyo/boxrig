@@ -5878,6 +5878,7 @@ test-gtk-sample-recognition: $(BUILD_DIR)/tests/test_gtk3_sample_recognition $(B
 RENDER_MEASUREMENT_DIR := $(BUILD_DIR)/render-measurement
 RENDER_MEASUREMENT_FLAGS := -DBOXRIG_MEASURE_RENDERING -DBOXRIG_MEASURE_TEXT_WORKLOADS
 RENDER_MEASUREMENT_WRAPS := -Wl,--wrap=boxrig_terminal_create_text_snapshot \
+    -Wl,--wrap=boxrig_text_line_projection_create -Wl,--wrap=boxrig_text_line_projection_resume \
 	-Wl,--wrap=boxrig_screen_text_sync \
 	-Wl,--wrap=boxrig_terminal_text_recognizer_event_consume \
 	-Wl,--wrap=boxrig_ogl_text_provider_shape_row \
