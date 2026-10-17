@@ -135,7 +135,8 @@ boxrig_ui_status __wrap_boxrig_gtk_gl_surface_present(boxrig_gtk_gl_surface *sur
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, (GLuint)previous);
         printf("{\"kind\":\"target\",\"width\":%u,\"height\":%u,\"format\":%d,"
             "\"encoding\":%d,\"alpha_bits\":%d,\"samples\":%u,\"generation\":%llu}\n",
-            target->width, target->height, target->srgb ? GL_SRGB8_ALPHA8 : GL_RGBA8, encoding,
+            target->width, target->height,
+            target->srgb ? (alpha == 0 ? GL_SRGB8 : GL_SRGB8_ALPHA8) : (alpha == 0 ? GL_RGB8 : GL_RGBA8), encoding,
             alpha, target->samples, (unsigned long long)target->generation);
         generation = target->generation;
     }

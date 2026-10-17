@@ -26,6 +26,8 @@ boxrig_ui_status boxrig_gtk_gl_surface_draw(boxrig_gtk_gl_surface *surface,
     boxrig_ui_view *view, boxrig_composition *composition,
     boxrig_gtk_render_state *state);
 
+/* RGB transfer is permitted only when the caller can guarantee an opaque
+ * complete image. The retained image and runtime stay premultiplied RGBA. */
 boxrig_ui_status boxrig_gtk_gl_surface_present(boxrig_gtk_gl_surface *surface,
     const boxrig_gtk_gl_destination *destination, boxrig_gtk_render_state *state);
 

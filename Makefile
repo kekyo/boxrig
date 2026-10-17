@@ -4759,9 +4759,7 @@ $(BUILD_DIR)/tests/gtk4_gl_surface: tests/gtk/test_gl_surface.c src/gtk/gl_surfa
 
 test-gtk-gl-surface: $(BUILD_DIR)/tests/gtk3_gl_surface $(BUILD_DIR)/tests/gtk4_gl_surface
 	$(XVFB_RUN) -a env GDK_BACKEND=x11 NO_AT_BRIDGE=1 GTK_A11Y=none LIBGL_ALWAYS_SOFTWARE=1 ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 \
-		UBSAN_OPTIONS=halt_on_error=1 $(BUILD_DIR)/tests/gtk3_gl_surface
-	$(XVFB_RUN) -a env GDK_BACKEND=x11 NO_AT_BRIDGE=1 GTK_A11Y=none LIBGL_ALWAYS_SOFTWARE=1 ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 \
-		UBSAN_OPTIONS=halt_on_error=1 $(BUILD_DIR)/tests/gtk4_gl_surface
+		UBSAN_OPTIONS=halt_on_error=1 bash tests/gtk/run_gl_surface.sh $(BUILD_DIR)
 
 test: test-gtk-gl-surface
 

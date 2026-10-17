@@ -72,7 +72,7 @@ boxrig_ui_status boxrig_gtk_gl_surface_create(
         destination->height > INT_MAX || destination->samples != 0 ||
         destination->generation == 0 || config->runtime.context_generation == 0 ||
         config->runtime.target_generation != destination->generation ||
-        destination->alpha_bits != 8) {
+        (destination->alpha_bits != 0 && destination->alpha_bits != 8)) {
         return BOXRIG_UI_INVALID_ARGUMENT;
     }
     *surface_out = NULL;
@@ -197,7 +197,8 @@ boxrig_ui_status boxrig_gtk_gl_surface_present(boxrig_gtk_gl_surface *surface,
     }
     if (destination->draw_framebuffer == 0 || destination->width != surface->target.width ||
         destination->height != surface->target.height || destination->samples != 0 ||
-        destination->alpha_bits != 8 ||
+        destination->generation < surface->target.generation ||
+        (destination->alpha_bits != 0 && destination->alpha_bits != 8) ||
         destination->srgb != (surface->target.format == BOXRIG_GL_TARGET_SRGB8_ALPHA8)) {
         abort_frame(surface);
         return failure(state, BOXRIG_GTK_RENDER_REASON_CAPABILITY,

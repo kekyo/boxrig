@@ -16,6 +16,7 @@ typedef struct fixture {
     boxrig_ui_model *model;
     boxrig_ui_view *view;
     bool done;
+    bool rgb;
 } fixture;
 
 static void feed(fixture *test, const char *text)
@@ -50,8 +51,16 @@ static gboolean render(GtkGLArea *area, GdkGLContext *context, gpointer data)
     if (test->done) return TRUE;
     boxrig_gtk_render_state state = {0};
     boxrig_ogl_renderer_config config = boxrig_ogl_renderer_config_default();
+    GLint actual_alpha = -1;
+    glGetFramebufferAttachmentParameteriv(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+        GL_FRAMEBUFFER_ATTACHMENT_ALPHA_SIZE, &actual_alpha);
+    fprintf(stderr, "GTK %d actual alpha bits=%d rgb=%d\n", GTK_MAJOR_VERSION, actual_alpha, test->rgb);
+    CHECK(actual_alpha == (test->rgb ? 0 : 8));
     boxrig_gtk_gl_destination destination;
     CHECK(boxrig_gtk_gl_area_describe(area, 1, 1, &config.runtime, &destination, &state) == BOXRIG_UI_OK);
+    CHECK(destination.alpha_bits == (test->rgb ? 0u : 8u));
+    const char *api = getenv("BOXRIG_TEST_GL_API");
+    if (api != NULL) CHECK(state.is_gles == (strcmp(api, "gles") == 0));
     printf("GL vendor=%s renderer=%s version=%s\n", glGetString(GL_VENDOR),
         glGetString(GL_RENDERER), glGetString(GL_VERSION));
     boxrig_gtk_gl_surface *surface = NULL;
@@ -60,6 +69,10 @@ static gboolean render(GtkGLArea *area, GdkGLContext *context, gpointer data)
     CHECK(boxrig_gtk_gl_surface_get_target(surface, &retained) == BOXRIG_UI_OK);
     CHECK(retained.draw_framebuffer != destination.draw_framebuffer);
     glBindFramebuffer(GL_READ_FRAMEBUFFER, retained.draw_framebuffer);
+    GLint retained_alpha = -1;
+    glGetFramebufferAttachmentParameteriv(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+        GL_FRAMEBUFFER_ATTACHMENT_ALPHA_SIZE, &retained_alpha);
+    CHECK(retained_alpha == 8 && retained.format == BOXRIG_GL_TARGET_RGBA8);
     GLint texture = 0;
     glGetFramebufferAttachmentParameteriv(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
         GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, &texture);
@@ -67,9 +80,19 @@ static gboolean render(GtkGLArea *area, GdkGLContext *context, gpointer data)
 
     CHECK(boxrig_gtk_gl_surface_draw(surface, test->view, NULL, &state) == BOXRIG_UI_OK);
     CHECK(boxrig_ui_view_frame_requested(test->view));
+    boxrig_gtk_gl_destination retained_destination = destination;
+    retained_destination.draw_framebuffer = retained.draw_framebuffer;
+    retained_destination.alpha_bits = 8;
+    uint8_t *retained_pixels = capture(&retained_destination);
+    for (size_t pixel = 0; pixel < (size_t)destination.width * destination.height; pixel++)
+        CHECK(retained_pixels[pixel * 4 + 3] == 255);
     CHECK(boxrig_gtk_gl_surface_present(surface, &destination, &state) == BOXRIG_UI_OK);
     CHECK(!boxrig_ui_view_frame_requested(test->view));
     uint8_t *before = capture(&destination);
+    CHECK(memcmp(before, retained_pixels, (size_t)destination.width * destination.height * 4) == 0);
+    free(retained_pixels);
+    for (size_t pixel = 0; pixel < (size_t)destination.width * destination.height; pixel++)
+        CHECK(before[pixel * 4 + 3] == 255);
     boxrig_ogl_render_statistics baseline;
     CHECK(boxrig_gtk_gl_surface_get_statistics(surface, &baseline) == 0);
     CHECK(baseline.draw_batch_count > 0 && baseline.grayscale_glyph_upload_count > 0);
@@ -118,12 +141,22 @@ static gboolean render(GtkGLArea *area, GdkGLContext *context, gpointer data)
     CHECK(boxrig_gtk_gl_surface_present(surface, &destination, &state) == BOXRIG_UI_OK);
     CHECK(!boxrig_ui_view_frame_requested(test->view));
 
+    /* A stale destination must not consume a newly prepared frame. */
+    feed(test, "\033[4;1Hstale target");
+    CHECK(boxrig_gtk_gl_surface_draw(surface, test->view, NULL, &state) == BOXRIG_UI_OK);
+    boxrig_gtk_gl_destination invalid = destination;
+    invalid.generation = 0;
+    CHECK(boxrig_gtk_gl_surface_present(surface, &invalid, &state) != BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_frame_requested(test->view));
+    CHECK(boxrig_gtk_gl_surface_draw(surface, test->view, NULL, &state) == BOXRIG_UI_OK);
+    CHECK(boxrig_gtk_gl_surface_present(surface, &destination, &state) == BOXRIG_UI_OK);
+
     /* An incomplete destination must not accept successfully prepared dirty. */
     feed(test, "\033[4;1Hretry");
     CHECK(boxrig_gtk_gl_surface_draw(surface, test->view, NULL, &state) == BOXRIG_UI_OK);
     GLuint incomplete = 0;
     glGenFramebuffers(1, &incomplete);
-    boxrig_gtk_gl_destination invalid = destination;
+    invalid = destination;
     invalid.draw_framebuffer = incomplete;
     CHECK(boxrig_gtk_gl_surface_present(surface, &invalid, &state) != BOXRIG_UI_OK);
     CHECK(boxrig_ui_view_frame_requested(test->view));
@@ -142,12 +175,67 @@ static gboolean render(GtkGLArea *area, GdkGLContext *context, gpointer data)
     transparency.requested_scopes = BOXRIG_UI_TRANSPARENCY_VIEW_SURFACE;
     transparency.background_opacity = 64;
     CHECK(boxrig_ui_view_set_transparency_config(test->view, &transparency) == BOXRIG_UI_OK);
+#if GTK_MAJOR_VERSION == 3
+    if (test->rgb) {
+        /* Recreate real GTK buffers before restoring alpha presentation. */
+        gtk_gl_area_set_has_alpha(area, TRUE);
+        gtk_gl_area_attach_buffers(area);
+        CHECK(boxrig_gtk_gl_area_describe(area, 1, 2, &config.runtime,
+            &destination, &state) == BOXRIG_UI_OK);
+        CHECK(destination.alpha_bits == 8 && destination.generation == 2);
+    }
+#endif
     CHECK(boxrig_gtk_gl_surface_draw(surface, test->view, NULL, &state) == BOXRIG_UI_OK);
     CHECK(boxrig_gtk_gl_surface_present(surface, &destination, &state) == BOXRIG_UI_OK);
     uint8_t *transparent = capture(&destination);
     CHECK(transparent[3] == 64);
     CHECK(transparent[0] == 4 && transparent[1] == 4 && transparent[2] == 4);
     free(transparent);
+
+    transparency = boxrig_ui_transparency_config_default();
+    CHECK(boxrig_ui_view_set_transparency_config(test->view, &transparency) == BOXRIG_UI_OK);
+    const GLint formats[] = {GL_RGBA8, GL_RGB8, GL_SRGB8_ALPHA8, GL_SRGB8};
+    for (size_t format = 0; format < G_N_ELEMENTS(formats); format++) {
+        bool rgb = format % 2 != 0;
+        GLuint buffer, output_texture;
+        glGenFramebuffers(1, &buffer);
+        glGenTextures(1, &output_texture);
+        glBindTexture(GL_TEXTURE_2D, output_texture);
+        glTexImage2D(GL_TEXTURE_2D, 0, formats[format], (GLsizei)destination.width,
+            (GLsizei)destination.height, 0, rgb ? GL_RGB : GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glBindFramebuffer(GL_FRAMEBUFFER, buffer);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, output_texture, 0);
+        bool supported = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+        CHECK(glGetError() == GL_NO_ERROR);
+        /* GLES 3.0 does not require RGB sRGB textures to be color renderable. */
+        if (!supported) {
+            CHECK(state.is_gles && formats[format] == GL_SRGB8);
+            printf("UNAVAILABLE GLES SRGB8 framebuffer; linear RGB8 and SRGB8_ALPHA8 remain required\n");
+        } else {
+            boxrig_gtk_gl_destination output = destination;
+            output.draw_framebuffer = buffer;
+            output.srgb = format >= 2;
+            output.alpha_bits = rgb ? 0 : 8;
+            output.generation = format + 3;
+            boxrig_ogl_renderer_config transfer_config = config;
+            transfer_config.runtime.target_generation = output.generation;
+            boxrig_gtk_gl_surface *transfer = NULL;
+            CHECK(boxrig_gtk_gl_surface_create(&transfer_config, &output, &transfer, &state) == BOXRIG_UI_OK);
+            CHECK(boxrig_gtk_gl_surface_draw(transfer, test->view, NULL, &state) == BOXRIG_UI_OK);
+            CHECK(boxrig_gtk_gl_surface_present(transfer, &output, &state) == BOXRIG_UI_OK);
+            uint8_t *pixels = capture(&output);
+            size_t at = (size_t)(output.height - 1) * output.width * 4;
+            const int expected[] = {40, 80, 120, 255};
+            for (size_t channel = 0; channel < 3; channel++)
+                CHECK(abs((int)pixels[at + channel] - expected[channel]) <= 3);
+            CHECK(pixels[at + 3] == 255);
+            free(pixels);
+            boxrig_gtk_gl_surface_destroy(&transfer);
+            printf("PASS transfer format=0x%x alpha=%u srgb=%d\n", formats[format], output.alpha_bits, output.srgb);
+        }
+        glDeleteFramebuffers(1, &buffer);
+        glDeleteTextures(1, &output_texture);
+    }
 
     boxrig_gtk_gl_surface_destroy(&surface);
     CHECK(surface == NULL);
@@ -170,8 +258,9 @@ static gboolean deadline(gpointer data)
     abort();
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
+    CHECK(argc == 1 || (argc == 2 && strcmp(argv[1], "rgb") == 0));
 #if GTK_MAJOR_VERSION == 3
     CHECK(gtk_init_check(NULL, NULL));
     GtkWidget *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
@@ -181,6 +270,7 @@ int main(void)
 #endif
     g_object_ref_sink(window);
     fixture test = {0};
+    test.rgb = argc == 2;
     boxrig_terminal_config terminal_config = boxrig_terminal_config_default();
     terminal_config.rows = 4;
     terminal_config.columns = 40;
@@ -190,6 +280,11 @@ int main(void)
     CHECK(boxrig_ui_view_create(test.model, &view_config, &test.view) == BOXRIG_UI_OK);
     feed(&test, "\033[?25l\033[38;2;255;255;255;48;2;40;80;120m unchanged row \033[0m\r\nlocal update");
     GtkWidget *area = boxrig_gtk_gl_area_new();
+#if GTK_MAJOR_VERSION == 3
+    if (test.rgb) gtk_gl_area_set_has_alpha(GTK_GL_AREA(area), FALSE);
+#else
+    CHECK(!test.rgb);
+#endif
     gtk_widget_set_size_request(area, 480, 160);
     g_signal_connect(area, "render", G_CALLBACK(render), &test);
 #if GTK_MAJOR_VERSION == 3

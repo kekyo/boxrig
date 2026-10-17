@@ -156,7 +156,7 @@ GTK3 OpenGL、X11実GPU、CPU 2、190列×66行、16 DIPの条件です。
 過去のelder-terms用共有ライブラリーは読み込んでいません。
 詳細測定前の試行と、計測コードのインデント警告を修正したビルド履歴も`build/test-results/plan4/stage2-profile-*.log`へ残しました。
 
-## 段階3の進行
+## 段階3の成果物
 
 GTKの実表示先を、FBO・寸法・encoding・alpha bit数・sample数・世代の専用記述に分離しました。
 GL surfaceはその寸法とencodingからRGBA保持画像を確保し、実際の保持画像だけを公開rendererへ渡します。
@@ -165,9 +165,31 @@ GTK3／GTK4のRGBA保持画像、差分描画、失敗後の再試行とdirtyの
 `NO_AT_BRIDGE=1 GTK_A11Y=none LIBGL_ALWAYS_SOFTWARE=1 make -j1 test-gtk-gl-surface test-gtk3-rendering test-gtk4-rendering`は成功しています。
 ログは`build/test-results/plan4/stage3-refactor-rgba.log`です。
 
+続いて、実GTK3のalpha 0bitの表示先を拒否することをREDとして確認し、RGB8への転送を追加しました。
+保持画像はalpha 8bitのままです。
+OpenGLとGLESの両方で、保持画像と転送後の全画素一致、余白のalpha 255、変更行だけの再描画、失敗後の再試行を確認しています。
+GTKがRGBからRGBAへbufferを作り直した後も、透明画素を正しく表示できました。
+世代0の表示先でdirtyを受理する問題もREDで確認し、無効な世代の転送を拒否するようにしました。
+
+`make -j4 test-gtk-gl-surface`は、MesaのOpenGL 4.5／GLES 3.2、GTK3のRGB／RGBA、GTK4のRGBAで成功しました。
+線形とsRGBの保存形式で既知の色を調べ、二重変換やalpha破棄による暗化がないことを確認しています。
+この環境のGLESではSRGB8単独のFBOを作れません。
+その組合せは非対応として記録し、RGB8とSRGB8_ALPHA8の成功とは区別しました。
+GLESの転送条件は[Khronosのリファレンス](https://github.com/KhronosGroup/OpenGL-Refpages/blob/main/es3.0/glBlitFramebuffer.xml)を参照しています。
+
+X11実GPUのNVIDIA RTX 3090でもRGB転送とsRGBを確認しました。
+そのコマンドは`DISPLAY=:1 GDK_BACKEND=x11 GDK_GL= NO_AT_BRIDGE=1 GTK_A11Y=none BOXRIG_TEST_GL_API=gl ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 build/tests/gtk3_gl_surface rgb`です。
+`NO_AT_BRIDGE=1 GTK_A11Y=none LIBGL_ALWAYS_SOFTWARE=1 make -j1 test-gtk-render-switch`も成功し、
+X11と入れ子のWaylandでGTK3／GTK4の切り替え、選択、preedit、故障からの復帰を維持しています。
+REDとGREENのログは`stage3-rgb-red.log`、`stage3-generation-red.log`、`stage3-transfer-green.log`、`stage3-nvidia-rgb.log`、`stage3-render-switch.log`です。
+試験追加時の変数宣言漏れによるビルド失敗は、製品動作のREDに含めていません。
+
+段階3では表示形式を変えるための接続だけを追加しました。
+通常のwidgetはまだRGBAを使い、性能改善は主張しません。
+
 ## 残る作業
 
-段階1・2の完了条件を確認しました。段階3〜9は未完了です。
+段階1〜3の完了条件を確認しました。段階4〜9は未完了です。
 RGB表示、CPU描画の削減、認識の順次走査と行再利用は、計画の順に実施します。
 snapshotの分割は、段階7後の負荷を測って着手を判断します。
 全体テスト`make -j1 test`、実アプリでの比較、動画・実機確認も最後に必要です。
