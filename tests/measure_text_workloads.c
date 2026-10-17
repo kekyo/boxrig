@@ -1339,7 +1339,9 @@ static void print_result(const workload_result *result)
         "recognizer_cursor_creations=%zu "
         "recognizer_match_identity_comparisons=%zu "
         "snapshot_projection_cells=%zu snapshot_projection_bytes=%zu "
-        "snapshot_position_comparisons=%zu\n",
+        "snapshot_position_comparisons=%zu recognizer_decoded_scalars=%zu "
+        "recognizer_line_comparisons=%zu recognizer_cached_empty_lines=%zu "
+        "recognizer_reused_lines=%zu\n",
         result->name,
         result->fragments,
         result->projected_bytes,
@@ -1364,7 +1366,11 @@ static void print_result(const workload_result *result)
         result->text.recognizer_match_identity_comparisons,
         result->text.snapshot_projection_cells,
         result->text.snapshot_projection_bytes,
-        result->text.snapshot_position_comparisons);
+        result->text.snapshot_position_comparisons,
+        result->text.recognizer_decoded_scalars,
+        result->text.recognizer_line_comparisons,
+        result->text.recognizer_cached_empty_lines,
+        result->text.recognizer_reused_lines);
 }
 
 static bool measure_recognizer_retained_matches(
@@ -1495,6 +1501,46 @@ cleanup:
     return passed;
 }
 
+static bool measure_recognizer_empty_lines(size_t line_count, workload_result *result)
+{
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    config.rows = 1;
+    config.columns = 80;
+    config.scrollback_capacity = line_count;
+    boxrig_text_recognizer_limits limits = boxrig_text_recognizer_limits_default();
+    limits.dirty_line_capacity = 1;
+    limits.result_capacity = 1;
+    boxrig_terminal *terminal = NULL;
+    uint64_t id;
+    size_t work, dispatches;
+    bool passed = false;
+    memset(result, 0, sizeof(*result));
+    result->name = "recognizer-empty-lines";
+    if (boxrig_terminal_create(&config, &terminal) != BOXRIG_STATUS_OK) goto cleanup;
+    for (size_t line = 0; line < line_count; line++) {
+        if (!feed_bytes(terminal, (const uint8_t *)"none\r\n", 6)) goto cleanup;
+    }
+    if (!register_recognizer(terminal, (const uint8_t *)"hit", 3, limits, &id) ||
+        !resume_recognizers(terminal, 31, &work, &dispatches) ||
+        boxrig_terminal_text_recognizer_event_peek(terminal, NULL)) goto cleanup;
+    boxrig_text_workload_counters_reset();
+    allocation_measurement_begin();
+    if (!feed_bytes(terminal, (const uint8_t *)"hit", 3) ||
+        !resume_recognizers(terminal, 31, &result->work_units, &result->dispatches) ||
+        !consume_recognizer_results(terminal, &result->events, &result->matches)) goto cleanup;
+    boxrig_text_workload_counters_read(&result->text);
+    result->allocations = allocation_measurement_end();
+    result->fragments = boxrig_terminal_text_fragment_count(terminal, BOXRIG_TEXT_SCREEN_PRIMARY);
+    result->recognizers = 1;
+    result->input_bytes = 3;
+    passed = result->events == 1 && result->matches == 1 &&
+        !boxrig_terminal_text_recognizer_needs_rescan(terminal, id);
+cleanup:
+    if (allocation_tracking) result->allocations = allocation_measurement_end();
+    boxrig_terminal_destroy(terminal);
+    return passed;
+}
+
 static bool run_self_test(void)
 {
     workload_result result;
@@ -1595,6 +1641,24 @@ static bool run_self_test(void)
         result.text.recognizer_match_identity_comparisons > 32) {
         return fail_step("self-test", "retained match identity comparison budget");
     }
+    if (result.text.recognizer_prepare_steps > 2 * 32 + 64 ||
+        result.text.recognizer_decoded_scalars != 3 ||
+        result.text.recognizer_reused_lines != 32 ||
+        result.text.recognizer_line_comparisons > 32 * 64) {
+        return fail_step("self-test", "unchanged matching lines are not prepared again");
+    }
+    if (!measure_recognizer_empty_lines(128, &result) ||
+        result.text.recognizer_prepare_steps > 2 * 128 + 64 ||
+        result.text.recognizer_decoded_scalars != 3 ||
+        result.text.recognizer_reused_lines != 128 ||
+        result.text.recognizer_line_comparisons > 128 * 16) {
+        return fail_step("self-test", "unchanged nonmatching lines are not prepared again");
+    }
+    if (!measure_recognizer_empty_lines(8193, &result) ||
+        result.text.recognizer_cached_empty_lines > 2048 ||
+        result.text.recognizer_line_comparisons > 8194 * 32) {
+        return fail_step("self-test", "cache eviction preserves recognition with one result slot");
+    }
     printf("PASS bounded text workload measurement harness\n");
     return true;
 }
@@ -1611,7 +1675,7 @@ int main(int argc, char **argv)
             "many-matches|continuous-output|large-copy-paste|"
             "recognizer-long-line|recognizer-many-patterns|"
             "recognizer-continuous-output|recognizer-off-viewport|"
-            "recognizer-retained-matches\n",
+            "recognizer-retained-matches|recognizer-empty-lines\n",
             argv[0]);
         return 1;
     }
@@ -1638,6 +1702,8 @@ int main(int argc, char **argv)
         passed = measure_recognizer_continuous_output(4096, &result);
     } else if (strcmp(argv[1], "recognizer-retained-matches") == 0) {
         passed = measure_recognizer_retained_matches(1024, &result);
+    } else if (strcmp(argv[1], "recognizer-empty-lines") == 0) {
+        passed = measure_recognizer_empty_lines(1024, &result);
     } else if (strcmp(argv[1], "recognizer-off-viewport") == 0) {
         passed = measure_recognizer_off_viewport(262143, &result);
     } else {

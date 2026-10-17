@@ -6324,7 +6324,25 @@ static bool test_snapshot_sequential_positions(void)
             /* Neither lookup may depend on the terminal or its mutable cells. */
             boxrig_terminal_destroy(terminal);
             size_t length;
-            (void)boxrig_text_snapshot_data(snapshot, &length);
+            const uint8_t *bytes = boxrig_text_snapshot_data(snapshot, &length);
+            size_t next_byte = 0;
+            for (size_t line = 0; line < boxrig_text_snapshot_line_count(snapshot); line++) {
+                boxrig_text_snapshot_line_view projected;
+                CHECK(boxrig_text_snapshot_get_line(snapshot, line, &projected) == BOXRIG_STATUS_OK);
+                CHECK(projected.byte_start == next_byte && projected.byte_end <= length);
+                boxrig_text_position start, end;
+                CHECK(boxrig_text_snapshot_position_at_byte_offset(snapshot, projected.byte_start, &start) == BOXRIG_STATUS_OK);
+                CHECK(boxrig_text_snapshot_position_at_byte_offset(snapshot, projected.byte_end, &end) == BOXRIG_STATUS_OK);
+                CHECK(start.column == projected.start.column && end.column == projected.end.column &&
+                    start.line_id.serial == projected.start.line_id.serial &&
+                    end.line_id.serial == projected.end.line_id.serial &&
+                    start.line_revision == projected.start.line_revision &&
+                    end.line_revision == projected.end.line_revision);
+                if (line + 1 < boxrig_text_snapshot_line_count(snapshot)) {
+                    CHECK(projected.byte_end < length && bytes[projected.byte_end] == '\n');
+                    next_byte = projected.byte_end + 1;
+                } else CHECK(projected.byte_end == length);
+            }
             for (int sparse = 0; sparse < 2; sparse++) {
                 size_t point = 0;
                 for (size_t offset = sparse ? length : 0; offset <= length; offset++) {
@@ -8201,6 +8219,109 @@ static bool test_text_recognizer_current_results_and_lifecycle(void)
     return true;
 }
 
+static bool test_text_recognizer_reused_captures(void)
+{
+    static const uint8_t text[] = "\xe7\x95\x8c e\xcc\x81 hit";
+    static const uint8_t pattern[] = "(\xe7\x95\x8c) (e\xcc\x81) (?<tail>hit)";
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    config.rows = 3;
+    config.columns = 12;
+    boxrig_terminal *terminal = NULL;
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    size_t consumed;
+    CHECK(boxrig_terminal_feed(terminal, text, sizeof(text) - 1, &consumed) == BOXRIG_STATUS_OK);
+    boxrig_text_recognizer_options options = {0};
+    options.scope = BOXRIG_TEXT_RECOGNIZER_SCOPE_BOTH;
+    options.pattern = pattern;
+    options.pattern_length = sizeof(pattern) - 1;
+    options.limits = boxrig_text_recognizer_limits_default();
+    boxrig_text_regex_diagnostic diagnostic;
+    uint64_t id;
+    CHECK(boxrig_terminal_register_text_recognizer(terminal, &options, &diagnostic, &id) == BOXRIG_STATUS_OK);
+    CHECK(resume_all_text_recognizers(terminal, 1));
+    boxrig_text_recognizer_event original, changed;
+    CHECK(boxrig_terminal_text_recognizer_event_peek(terminal, &original));
+    boxrig_text_recognition_result before, after;
+    size_t required;
+    CHECK(boxrig_terminal_query_text_recognizer_line_results(terminal, id, original.screen,
+        original.line_id, original.line_revision, original.result_set_revision,
+        &before, 1, &required) == BOXRIG_STATUS_OK && required == 1);
+    boxrig_regex_result *captures[2] = {NULL, NULL};
+    CHECK(boxrig_terminal_text_recognizer_result(terminal, id, before.match_id,
+        before.result_set_revision, &captures[0]) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_text_recognizer_event_consume(terminal) == BOXRIG_STATUS_OK);
+    CHECK(!boxrig_terminal_text_recognizer_event_peek(terminal, NULL));
+    CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)"\033[3;1H", 6, &consumed) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_feed(terminal, text, sizeof(text) - 1, &consumed) == BOXRIG_STATUS_OK);
+    size_t used;
+    bool more;
+    CHECK(boxrig_terminal_resume_text_recognizers(terminal, 1, &used, &more) == BOXRIG_STATUS_OK);
+    CHECK(used <= 1 && more);
+    /* Invalidate a partially prepared scan while keeping the first match. */
+    CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)"\033[2;1Hnone", 10, &consumed) == BOXRIG_STATUS_OK);
+    CHECK(resume_all_text_recognizers(terminal, 1));
+    CHECK(boxrig_terminal_text_recognizer_event_peek(terminal, &changed));
+    CHECK(changed.kind == BOXRIG_TEXT_RECOGNIZER_EVENT_LINE_REPLACED && changed.result_count == 1);
+    CHECK(!text_line_id_equals(changed.line_id, original.line_id));
+    CHECK(boxrig_terminal_query_text_recognizer_line_results(terminal, id, original.screen,
+        original.line_id, original.line_revision, changed.result_set_revision,
+        &after, 1, &required) == BOXRIG_STATUS_OK && required == 1);
+    CHECK(after.match_id == before.match_id && after.result_set_revision != before.result_set_revision);
+    CHECK(after.text_revision == boxrig_terminal_text_revision(terminal));
+    CHECK(after.range.start.text_revision == after.text_revision && after.range.end.text_revision == after.text_revision);
+    CHECK(after.range.start.column == before.range.start.column && after.range.end.column == before.range.end.column);
+    CHECK(boxrig_terminal_text_recognizer_result(terminal, id, after.match_id,
+        after.result_set_revision, &captures[1]) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_unregister_text_recognizer(terminal, id) == BOXRIG_STATUS_OK);
+    boxrig_terminal_destroy(terminal);
+    for (size_t copy = 0; copy < 2; copy++) {
+        size_t length;
+        const uint8_t *bytes = boxrig_regex_result_data(captures[copy], &length);
+        CHECK(length == sizeof(text) - 1 && memcmp(bytes, text, length) == 0);
+        CHECK(boxrig_regex_result_group_count(captures[copy]) == 3);
+        boxrig_regex_capture group;
+        CHECK(boxrig_regex_result_get_capture(captures[copy], 2, &group) == BOXRIG_STATUS_OK);
+        CHECK(group.participated && group.start == 4 && group.end == 7);
+        CHECK(boxrig_regex_result_get_named_capture(captures[copy], "tail", &group) == BOXRIG_STATUS_OK);
+        CHECK(group.participated && group.start == 8 && group.end == 11);
+        boxrig_regex_result_destroy(captures[copy]);
+    }
+    return true;
+}
+
+static bool test_text_recognizer_document_event_order(void)
+{
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    config.rows = 4;
+    config.columns = 16;
+    boxrig_terminal *terminal = NULL;
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    static const uint8_t input[] = "hit1\r\nhit2\r\nhit3\033[H\033[Lhit0";
+    size_t consumed;
+    CHECK(boxrig_terminal_feed(terminal, input, sizeof(input) - 1, &consumed) == BOXRIG_STATUS_OK);
+    boxrig_text_recognizer_options options = {0};
+    options.scope = BOXRIG_TEXT_RECOGNIZER_SCOPE_PRIMARY;
+    options.pattern = (const uint8_t *)"(hit)[0-9]";
+    options.pattern_length = strlen((const char *)options.pattern);
+    options.limits = boxrig_text_recognizer_limits_default();
+    boxrig_text_regex_diagnostic diagnostic;
+    uint64_t id;
+    CHECK(boxrig_terminal_register_text_recognizer(terminal, &options, &diagnostic, &id) == BOXRIG_STATUS_OK);
+    CHECK(resume_all_text_recognizers(terminal, 1));
+    for (size_t row = 0; row < 4; row++) {
+        boxrig_text_fragment_view fragment;
+        CHECK(boxrig_terminal_get_text_fragment(terminal, BOXRIG_TEXT_SCREEN_PRIMARY, row, &fragment) == BOXRIG_STATUS_OK);
+        boxrig_text_recognizer_event event;
+        CHECK(boxrig_terminal_text_recognizer_event_peek(terminal, &event));
+        CHECK(event.kind == BOXRIG_TEXT_RECOGNIZER_EVENT_LINE_REPLACED && event.result_count == 1);
+        CHECK(text_line_id_equals(event.line_id, fragment.line_id));
+        CHECK(boxrig_terminal_text_recognizer_event_consume(terminal) == BOXRIG_STATUS_OK);
+    }
+    CHECK(!boxrig_terminal_text_recognizer_event_peek(terminal, NULL));
+    boxrig_terminal_destroy(terminal);
+    return true;
+}
+
 static bool test_text_recognizer_scopes_eviction_and_recovery(void)
 {
     static const uint8_t both_input[] =
@@ -10004,6 +10125,10 @@ int main(void)
          test_text_recognizer_regex_reference_semantics},
         {"text recognizer current results and lifecycle",
          test_text_recognizer_current_results_and_lifecycle},
+        {"text recognizer events follow document order",
+         test_text_recognizer_document_event_order},
+        {"reused recognition keeps owned captures and current positions",
+         test_text_recognizer_reused_captures},
         {"text recognizer scopes eviction and recovery",
          test_text_recognizer_scopes_eviction_and_recovery},
         {"text recognition hit query", test_text_recognition_hit_query},

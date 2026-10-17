@@ -426,12 +426,16 @@ int main(int argc, char **argv)
             "\"events\":%zu,\"matches\":%zu,\"input_bytes\":%zu,\"processor\":%d,\"khz\":%ld,"
             "\"more_work\":false,\"events_pending\":false,"
             "\"projection_cells\":%zu,\"projection_bytes\":%zu,\"position_comparisons\":%zu,"
-            "\"prepare_steps\":%zu,\"gl_draws\":%zu,\"signature_cells_total\":%zu,\"shape_rows_total\":%zu,",
+            "\"prepare_steps\":%zu,\"decoded_scalars\":%zu,\"line_comparisons\":%zu,"
+            "\"cached_empty_lines\":%zu,\"reused_lines\":%zu,"
+            "\"gl_draws\":%zu,\"signature_cells_total\":%zu,\"shape_rows_total\":%zu,",
             update, update == 0 ? "true" : "false", elapsed / 1e6, cpu / 1e6,
             measurement_last_composition > elapsed_start ? (measurement_last_composition - elapsed_start) / 1e6 : 0,
             state.active_backend, test.resumes, test.work, events, matches, test.input_bytes, processor, khz,
             counters.snapshot_projection_cells, counters.snapshot_projection_bytes,
             counters.snapshot_position_comparisons, counters.recognizer_prepare_steps,
+            counters.recognizer_decoded_scalars, counters.recognizer_line_comparisons,
+            counters.recognizer_cached_empty_lines, counters.recognizer_reused_lines,
             measurement_gl_draws, measurement_gl_statistics.row_signature_cell_count,
             measurement_gl_statistics.row_shape_count);
         measurement_print();

@@ -518,6 +518,10 @@ typedef struct boxrig_text_workload_counters {
     size_t snapshot_projection_cells;
     size_t snapshot_projection_bytes;
     size_t snapshot_position_comparisons;
+    size_t recognizer_decoded_scalars;
+    size_t recognizer_line_comparisons;
+    size_t recognizer_cached_empty_lines;
+    size_t recognizer_reused_lines;
 } boxrig_text_workload_counters;
 
 #ifdef BOXRIG_MEASURE_TEXT_WORKLOADS
@@ -528,6 +532,10 @@ void boxrig_text_workload_observe_recognizer_event_queue(size_t count);
 void boxrig_text_workload_observe_recognizer_prepare_step(bool budgeted);
 void boxrig_text_workload_observe_recognizer_cursor_creation(void);
 void boxrig_text_workload_observe_recognizer_match_identity_comparison(void);
+void boxrig_text_workload_observe_recognizer_decode(void);
+void boxrig_text_workload_observe_recognizer_line_comparison(void);
+void boxrig_text_workload_observe_recognizer_cache(size_t entries);
+void boxrig_text_workload_observe_recognizer_reuse(void);
 #else
 #define boxrig_text_workload_observe_recognizer_event_queue(count) \
     ((void)(count))
@@ -536,7 +544,24 @@ void boxrig_text_workload_observe_recognizer_match_identity_comparison(void);
 #define boxrig_text_workload_observe_recognizer_cursor_creation() ((void)0)
 #define boxrig_text_workload_observe_recognizer_match_identity_comparison() \
     ((void)0)
+#define boxrig_text_workload_observe_recognizer_decode() ((void)0)
+#define boxrig_text_workload_observe_recognizer_line_comparison() ((void)0)
+#define boxrig_text_workload_observe_recognizer_cache(entries) ((void)(entries))
+#define boxrig_text_workload_observe_recognizer_reuse() ((void)0)
 #endif
+/* Complete logical-line projection in an ordinary owned snapshot. Sparse row
+ * snapshots deliberately do not expose this internal recognition index. */
+typedef struct boxrig_text_snapshot_line_view {
+    size_t byte_start;
+    size_t byte_end;
+    size_t point_start;
+    boxrig_text_position start;
+    boxrig_text_position end;
+} boxrig_text_snapshot_line_view;
+boxrig_status boxrig_text_snapshot_get_line(
+    const boxrig_text_snapshot *snapshot, size_t line_index,
+    boxrig_text_snapshot_line_view *line_out);
+
 /* Forward-only snapshot lookup. Initialize point_index to zero for each new
  * snapshot and request nondecreasing byte offsets. Each call compares at most
  * one point; WOULD_BLOCK means that one point was advanced and the caller must
