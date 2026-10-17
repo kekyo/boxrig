@@ -156,6 +156,15 @@ GTK3 OpenGL、X11実GPU、CPU 2、190列×66行、16 DIPの条件です。
 過去のelder-terms用共有ライブラリーは読み込んでいません。
 詳細測定前の試行と、計測コードのインデント警告を修正したビルド履歴も`build/test-results/plan4/stage2-profile-*.log`へ残しました。
 
+## 段階3の進行
+
+GTKの実表示先を、FBO・寸法・encoding・alpha bit数・sample数・世代の専用記述に分離しました。
+GL surfaceはその寸法とencodingからRGBA保持画像を確保し、実際の保持画像だけを公開rendererへ渡します。
+この時点ではRGBの受け入れを広げていません。
+GTK3／GTK4のRGBA保持画像、差分描画、失敗後の再試行とdirtyの受理、描画方式の設定とcontext故障を確認しました。
+`NO_AT_BRIDGE=1 GTK_A11Y=none LIBGL_ALWAYS_SOFTWARE=1 make -j1 test-gtk-gl-surface test-gtk3-rendering test-gtk4-rendering`は成功しています。
+ログは`build/test-results/plan4/stage3-refactor-rgba.log`です。
+
 ## 残る作業
 
 段階1・2の完了条件を確認しました。段階3〜9は未完了です。

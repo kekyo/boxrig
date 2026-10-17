@@ -27,7 +27,7 @@ static void feed(fixture *test, const char *text)
     CHECK(boxrig_ui_model_synchronize(test->model) == BOXRIG_UI_OK);
 }
 
-static uint8_t *capture(const boxrig_gl_target *target)
+static uint8_t *capture(const boxrig_gtk_gl_destination *target)
 {
     uint8_t *pixels = malloc((size_t)target->width * target->height * 4);
     CHECK(pixels != NULL);
@@ -50,12 +50,12 @@ static gboolean render(GtkGLArea *area, GdkGLContext *context, gpointer data)
     if (test->done) return TRUE;
     boxrig_gtk_render_state state = {0};
     boxrig_ogl_renderer_config config = boxrig_ogl_renderer_config_default();
-    CHECK(boxrig_gtk_gl_area_describe(area, 1, 1, &config, &state) == BOXRIG_UI_OK);
+    boxrig_gtk_gl_destination destination;
+    CHECK(boxrig_gtk_gl_area_describe(area, 1, 1, &config.runtime, &destination, &state) == BOXRIG_UI_OK);
     printf("GL vendor=%s renderer=%s version=%s\n", glGetString(GL_VENDOR),
         glGetString(GL_RENDERER), glGetString(GL_VERSION));
-    boxrig_gl_target destination = config.initial_target;
     boxrig_gtk_gl_surface *surface = NULL;
-    CHECK(boxrig_gtk_gl_surface_create(&config, &surface, &state) == BOXRIG_UI_OK);
+    CHECK(boxrig_gtk_gl_surface_create(&config, &destination, &surface, &state) == BOXRIG_UI_OK);
     boxrig_gl_target retained;
     CHECK(boxrig_gtk_gl_surface_get_target(surface, &retained) == BOXRIG_UI_OK);
     CHECK(retained.draw_framebuffer != destination.draw_framebuffer);
@@ -123,7 +123,7 @@ static gboolean render(GtkGLArea *area, GdkGLContext *context, gpointer data)
     CHECK(boxrig_gtk_gl_surface_draw(surface, test->view, NULL, &state) == BOXRIG_UI_OK);
     GLuint incomplete = 0;
     glGenFramebuffers(1, &incomplete);
-    boxrig_gl_target invalid = destination;
+    boxrig_gtk_gl_destination invalid = destination;
     invalid.draw_framebuffer = incomplete;
     CHECK(boxrig_gtk_gl_surface_present(surface, &invalid, &state) != BOXRIG_UI_OK);
     CHECK(boxrig_ui_view_frame_requested(test->view));

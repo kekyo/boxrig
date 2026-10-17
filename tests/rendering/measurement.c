@@ -119,9 +119,9 @@ boxrig_ui_status __wrap_boxrig_gtk_gl_surface_draw(boxrig_gtk_gl_surface *surfac
 }
 
 boxrig_ui_status __real_boxrig_gtk_gl_surface_present(boxrig_gtk_gl_surface *,
-    const boxrig_gl_target *, boxrig_gtk_render_state *);
+    const boxrig_gtk_gl_destination *, boxrig_gtk_render_state *);
 boxrig_ui_status __wrap_boxrig_gtk_gl_surface_present(boxrig_gtk_gl_surface *surface,
-    const boxrig_gl_target *target, boxrig_gtk_render_state *state)
+    const boxrig_gtk_gl_destination *target, boxrig_gtk_render_state *state)
 {
     static uint64_t generation;
     if (generation != target->generation) {
@@ -135,7 +135,7 @@ boxrig_ui_status __wrap_boxrig_gtk_gl_surface_present(boxrig_gtk_gl_surface *sur
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, (GLuint)previous);
         printf("{\"kind\":\"target\",\"width\":%u,\"height\":%u,\"format\":%d,"
             "\"encoding\":%d,\"alpha_bits\":%d,\"samples\":%u,\"generation\":%llu}\n",
-            target->width, target->height, target->format, encoding,
+            target->width, target->height, target->srgb ? GL_SRGB8_ALPHA8 : GL_RGBA8, encoding,
             alpha, target->samples, (unsigned long long)target->generation);
         generation = target->generation;
     }

@@ -177,8 +177,16 @@ static gboolean render(GtkGLArea *area, GdkGLContext *context, gpointer data)
     config.rendering_policy.output_scale = (float)
         gtk_widget_get_scale_factor(GTK_WIDGET(area));
     (void)context;
-    CHECK(boxrig_gtk_gl_area_describe(area, 1, app->frames + 1, &config,
-        &app->state) == BOXRIG_UI_OK);
+    boxrig_gtk_gl_destination destination;
+    CHECK(boxrig_gtk_gl_area_describe(area, 1, app->frames + 1, &config.runtime,
+        &destination, &app->state) == BOXRIG_UI_OK);
+    /* This driver deliberately renders directly into a verified RGBA target.
+     * Product widgets use a separate retained surface instead. */
+    CHECK(destination.alpha_bits == 8);
+    config.initial_target = (boxrig_gl_target){destination.draw_framebuffer,
+        destination.width, destination.height, destination.generation,
+        destination.srgb ? BOXRIG_GL_TARGET_SRGB8_ALPHA8 : BOXRIG_GL_TARGET_RGBA8,
+        BOXRIG_GL_ALPHA_PREMULTIPLIED, BOXRIG_GL_TARGET_ORIGIN_LOWER_LEFT, 0};
     CHECK(config.initial_target.draw_framebuffer != 0);
     CHECK(config.initial_target.samples == 0);
     CHECK(app->state.is_gles == !epoxy_is_desktop_gl());

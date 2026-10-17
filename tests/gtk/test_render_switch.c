@@ -41,7 +41,7 @@ static bool probe_reentry;
 GtkWidget *__real_gtk_gl_area_new(void);
 /** @copydoc boxrig_gtk_gl_surface_create */
 boxrig_ui_status __real_boxrig_gtk_gl_surface_create(const boxrig_ogl_renderer_config *config,
-    boxrig_gtk_gl_surface **surface_out, boxrig_gtk_render_state *state);
+    const boxrig_gtk_gl_destination *destination, boxrig_gtk_gl_surface **surface_out, boxrig_gtk_render_state *state);
 /** @copydoc boxrig_gtk_gl_surface_destroy */
 void __real_boxrig_gtk_gl_surface_destroy(boxrig_gtk_gl_surface **surface);
 /** @copydoc boxrig_gtk_gl_surface_draw */
@@ -49,7 +49,7 @@ boxrig_ui_status __real_boxrig_gtk_gl_surface_draw(boxrig_gtk_gl_surface *surfac
     boxrig_ui_view *view, boxrig_composition *composition, boxrig_gtk_render_state *state);
 /** @copydoc boxrig_gtk_gl_surface_present */
 boxrig_ui_status __real_boxrig_gtk_gl_surface_present(boxrig_gtk_gl_surface *surface,
-    const boxrig_gl_target *destination, boxrig_gtk_render_state *state);
+    const boxrig_gtk_gl_destination *destination, boxrig_gtk_render_state *state);
 /** @copydoc boxrig_pango_cairo_renderer_draw_view_composition */
 int __real_boxrig_pango_cairo_renderer_draw_view_composition(boxrig_pango_cairo_renderer *renderer,
     boxrig_ui_view *view, boxrig_composition *composition);
@@ -80,7 +80,7 @@ GtkWidget *__wrap_gtk_gl_area_new(void)
 
 /** Tracks successfully created retained surfaces across switches. */
 boxrig_ui_status __wrap_boxrig_gtk_gl_surface_create(const boxrig_ogl_renderer_config *config,
-    boxrig_gtk_gl_surface **surface_out, boxrig_gtk_render_state *state)
+    const boxrig_gtk_gl_destination *destination, boxrig_gtk_gl_surface **surface_out, boxrig_gtk_render_state *state)
 {
     if (fail_resource) {
         fail_resource = false;
@@ -90,7 +90,7 @@ boxrig_ui_status __wrap_boxrig_gtk_gl_surface_create(const boxrig_ogl_renderer_c
         snprintf(state->message, sizeof(state->message), "Injected retained resource failure");
         return state->status;
     }
-    boxrig_ui_status status = __real_boxrig_gtk_gl_surface_create(config, surface_out, state);
+    boxrig_ui_status status = __real_boxrig_gtk_gl_surface_create(config, destination, surface_out, state);
     if (status == BOXRIG_UI_OK) {
         CHECK(created_surfaces < G_N_ELEMENTS(surfaces));
         surfaces[created_surfaces++] = *surface_out;
@@ -139,7 +139,7 @@ boxrig_ui_status __wrap_boxrig_gtk_gl_surface_draw(boxrig_gtk_gl_surface *surfac
 
 /** Simulates loss of the current context at the presentation boundary. */
 boxrig_ui_status __wrap_boxrig_gtk_gl_surface_present(boxrig_gtk_gl_surface *surface,
-    const boxrig_gl_target *destination, boxrig_gtk_render_state *state)
+    const boxrig_gtk_gl_destination *destination, boxrig_gtk_render_state *state)
 {
     GdkGLContext *context = NULL;
     if (lose_current_context) {

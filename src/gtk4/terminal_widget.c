@@ -776,14 +776,14 @@ static gboolean render_gl_frame(GtkGLArea *area, GdkGLContext *context, gpointer
         return TRUE;
     }
     boxrig_ogl_renderer_config config = boxrig_ogl_renderer_config_default();
+    boxrig_gtk_gl_destination destination;
     uint64_t generation = widget->render_state.target_generation;
     if (generation == 0) generation = 1;
     if (boxrig_gtk_gl_area_describe(area, widget->render_state.context_generation,
-            generation, &config, &widget->render_state) != BOXRIG_UI_OK) {
+            generation, &config.runtime, &destination, &widget->render_state) != BOXRIG_UI_OK) {
         gl_failed(widget);
         return TRUE;
     }
-    boxrig_gl_target destination = config.initial_target;
     boxrig_font_effective_metrics metrics;
     if (boxrig_pango_cairo_renderer_get_effective_metrics(widget->renderer, &metrics) != BOXRIG_FONT_CATALOG_OK) {
         boxrig_gtk_gl_area_record_error(&widget->render_state,
@@ -794,7 +794,8 @@ static gboolean render_gl_frame(GtkGLArea *area, GdkGLContext *context, gpointer
     boxrig_gl_target previous = {0};
     (void)boxrig_gtk_gl_surface_get_target(widget->gl_surface, &previous);
     bool replace = widget->gl_surface == NULL || previous.width != destination.width ||
-        previous.height != destination.height || previous.format != destination.format ||
+        previous.height != destination.height ||
+        (previous.format == BOXRIG_GL_TARGET_SRGB8_ALPHA8) != destination.srgb ||
         widget->gl_font_revision != metrics.layout_revision ||
         widget->gl_direction_policy != widget->direction_policy;
     boxrig_gtk_gl_surface *candidate = NULL;
@@ -823,9 +824,9 @@ static gboolean render_gl_frame(GtkGLArea *area, GdkGLContext *context, gpointer
         config.effective_metrics = &metrics;
         config.rendering_policy = widget->rendering_policy;
         config.direction_policy = widget->direction_policy;
-        config.initial_target.generation = generation + 1;
+        destination.generation = generation + 1;
         config.runtime.target_generation = generation + 1;
-        boxrig_ui_status status = boxrig_gtk_gl_surface_create(&config, &candidate, &widget->render_state);
+        boxrig_ui_status status = boxrig_gtk_gl_surface_create(&config, &destination, &candidate, &widget->render_state);
         boxrig_pango_cairo_renderer_font_selection_destroy(&font);
         if (status != BOXRIG_UI_OK) {
             gl_failed(widget);
@@ -847,7 +848,7 @@ static gboolean render_gl_frame(GtkGLArea *area, GdkGLContext *context, gpointer
         widget->gl_surface = candidate;
         widget->gl_font_revision = metrics.layout_revision;
         widget->gl_direction_policy = widget->direction_policy;
-        widget->render_state.target_generation = config.initial_target.generation;
+        widget->render_state.target_generation = destination.generation;
     }
     widget->gl_pending = false;
     widget->gl_presented = true;

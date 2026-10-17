@@ -207,9 +207,10 @@ void boxrig_gtk_gl_area_record_diagnostic(boxrig_gtk_render_state *state,
 
 boxrig_ui_status boxrig_gtk_gl_area_describe(
     GtkGLArea *area, uint64_t context_generation, uint64_t target_generation,
-    boxrig_ogl_renderer_config *config, boxrig_gtk_render_state *state)
+    boxrig_gl_runtime_config *runtime, boxrig_gtk_gl_destination *destination,
+    boxrig_gtk_render_state *state)
 {
-    if (area == NULL || config == NULL || state == NULL ||
+    if (area == NULL || runtime == NULL || destination == NULL || state == NULL ||
         context_generation == 0 || target_generation == 0) return BOXRIG_UI_INVALID_ARGUMENT;
     const GError *error = gtk_gl_area_get_error(area);
     boxrig_gl_current_context current;
@@ -256,12 +257,11 @@ boxrig_ui_status boxrig_gtk_gl_area_describe(
             BOXRIG_UI_UNAVAILABLE, "GTK GL framebuffer encoding could not be established");
         return state->status;
     }
-    config->runtime = (boxrig_gl_runtime_config){NULL, boxrig_gtk_gl_area_resolve,
+    *runtime = (boxrig_gl_runtime_config){NULL, boxrig_gtk_gl_area_resolve,
         area, current_context, context_generation, target_generation};
-    config->initial_target = (boxrig_gl_target){(uint32_t)framebuffer,
+    *destination = (boxrig_gtk_gl_destination){(uint32_t)framebuffer,
         (uint32_t)viewport[2], (uint32_t)viewport[3], target_generation,
-        encoding == GL_SRGB ? BOXRIG_GL_TARGET_SRGB8_ALPHA8 : BOXRIG_GL_TARGET_RGBA8,
-        BOXRIG_GL_ALPHA_PREMULTIPLIED, BOXRIG_GL_TARGET_ORIGIN_LOWER_LEFT, 0};
+        encoding == GL_SRGB, 8, 0};
     state->context_generation = context_generation;
     state->target_generation = target_generation;
     state->is_gles = is_gles;

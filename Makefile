@@ -4749,9 +4749,19 @@ $(BUILD_DIR)/tests/gtk3_gl_surface: tests/gtk/test_gl_surface.c src/gtk/gl_surfa
 		$(OPENGL_RENDERER_LIBRARY) $(UI_LIBRARY) $(LIBRARY) \
 		$(GTK3_LIBS) $$(pkg-config --libs epoxy) -lm -o $@
 
-test-gtk-gl-surface: $(BUILD_DIR)/tests/gtk3_gl_surface
-	$(XVFB_RUN) -a env GDK_BACKEND=x11 ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 \
+$(BUILD_DIR)/tests/gtk4_gl_surface: tests/gtk/test_gl_surface.c src/gtk/gl_surface.c \
+		src/gtk/gl_surface.h src/gtk/gl_area.c src/gtk/gl_area.h include/boxrig/gtk/rendering.h \
+		$(OPENGL_RENDERER_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) -Iinclude -Isrc $(GTK4_CPPFLAGS) $$(pkg-config --cflags epoxy) \
+		$(CFLAGS) $(GTK4_PROJECT_CFLAGS) $(SANITIZERS) $< src/gtk/gl_area.c src/gtk/gl_surface.c \
+		$(OPENGL_RENDERER_LIBRARY) $(UI_LIBRARY) $(LIBRARY) \
+		$(GTK4_LIBS) $$(pkg-config --libs epoxy) -lm -o $@
+
+test-gtk-gl-surface: $(BUILD_DIR)/tests/gtk3_gl_surface $(BUILD_DIR)/tests/gtk4_gl_surface
+	$(XVFB_RUN) -a env GDK_BACKEND=x11 NO_AT_BRIDGE=1 GTK_A11Y=none LIBGL_ALWAYS_SOFTWARE=1 ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 \
 		UBSAN_OPTIONS=halt_on_error=1 $(BUILD_DIR)/tests/gtk3_gl_surface
+	$(XVFB_RUN) -a env GDK_BACKEND=x11 NO_AT_BRIDGE=1 GTK_A11Y=none LIBGL_ALWAYS_SOFTWARE=1 ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 \
+		UBSAN_OPTIONS=halt_on_error=1 $(BUILD_DIR)/tests/gtk4_gl_surface
 
 test: test-gtk-gl-surface
 
@@ -5928,3 +5938,8 @@ test-rendering-measurement: $(RENDER_MEASUREMENT_DIR)/replay $(RENDER_MEASUREMEN
 	$(RENDER_MEASUREMENT_DIR)/replay-control core synthetic control > $(BUILD_DIR)/test-results/render-measurement/core-control.jsonl
 	$(XVFB_RUN) -a -s '-screen 0 2048x1600x24' env GDK_BACKEND=x11 NO_AT_BRIDGE=1 LIBGL_ALWAYS_SOFTWARE=1 $(RENDER_MEASUREMENT_DIR)/replay cairo synthetic detail > $(BUILD_DIR)/test-results/render-measurement/cairo.jsonl
 	$(XVFB_RUN) -a -s '-screen 0 2048x1600x24' env GDK_BACKEND=x11 NO_AT_BRIDGE=1 LIBGL_ALWAYS_SOFTWARE=1 $(RENDER_MEASUREMENT_DIR)/replay opengl synthetic detail > $(BUILD_DIR)/test-results/render-measurement/opengl.jsonl
+
+# Both the adapters and diagnostic clients share the private transfer descriptor.
+$(GTK3_OBJECTS) $(GTK4_OBJECTS) $(RENDER_MEASUREMENT_DIR)/terminal_widget.o \
+$(BUILD_DIR)/tests/gtk3_gl_surface $(BUILD_DIR)/tests/gtk4_gl_surface \
+$(BUILD_DIR)/tests/gtk3_gl_driver $(BUILD_DIR)/tests/gtk4_gl_driver: src/gtk/gl_destination.h

@@ -39,9 +39,9 @@ gboolean __wrap_gdk_gl_context_realize(GdkGLContext *context, GError **error)
 }
 
 boxrig_ui_status __real_boxrig_gtk_gl_surface_create(const boxrig_ogl_renderer_config *,
-    boxrig_gtk_gl_surface **, boxrig_gtk_render_state *);
+    const boxrig_gtk_gl_destination *, boxrig_gtk_gl_surface **, boxrig_gtk_render_state *);
 boxrig_ui_status __wrap_boxrig_gtk_gl_surface_create(const boxrig_ogl_renderer_config *config,
-    boxrig_gtk_gl_surface **surface, boxrig_gtk_render_state *state)
+    const boxrig_gtk_gl_destination *destination, boxrig_gtk_gl_surface **surface, boxrig_gtk_render_state *state)
 {
     if (fail_es_renderer && state->is_gles) {
         rejected_es_renderers++;
@@ -50,7 +50,7 @@ boxrig_ui_status __wrap_boxrig_gtk_gl_surface_create(const boxrig_ogl_renderer_c
         state->reason = BOXRIG_GTK_RENDER_REASON_RESOURCE;
         return state->status;
     }
-    return __real_boxrig_gtk_gl_surface_create(config, surface, state);
+    return __real_boxrig_gtk_gl_surface_create(config, destination, surface, state);
 }
 
 static gboolean before_render(GtkGLArea *area, GdkGLContext *context, gpointer data)

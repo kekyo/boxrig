@@ -61,18 +61,18 @@ void boxrig_gtk_gl_surface_destroy(boxrig_gtk_gl_surface **surface_pointer)
 }
 
 boxrig_ui_status boxrig_gtk_gl_surface_create(
-    const boxrig_ogl_renderer_config *config, boxrig_gtk_gl_surface **surface_out,
+    const boxrig_ogl_renderer_config *config, const boxrig_gtk_gl_destination *destination,
+    boxrig_gtk_gl_surface **surface_out,
     boxrig_gtk_render_state *state)
 {
-    if (config == NULL || surface_out == NULL || state == NULL ||
+    if (config == NULL || destination == NULL || surface_out == NULL || state == NULL ||
         config->runtime.query_current_context == NULL ||
-        config->runtime.resolve == NULL || config->initial_target.width == 0 ||
-        config->initial_target.height == 0 || config->initial_target.width > INT_MAX ||
-        config->initial_target.height > INT_MAX || config->initial_target.samples != 0 ||
-        config->initial_target.generation == 0 || config->runtime.context_generation == 0 ||
-        config->runtime.target_generation != config->initial_target.generation ||
-        (config->initial_target.format != BOXRIG_GL_TARGET_RGBA8 &&
-         config->initial_target.format != BOXRIG_GL_TARGET_SRGB8_ALPHA8)) {
+        config->runtime.resolve == NULL || destination->width == 0 ||
+        destination->height == 0 || destination->width > INT_MAX ||
+        destination->height > INT_MAX || destination->samples != 0 ||
+        destination->generation == 0 || config->runtime.context_generation == 0 ||
+        config->runtime.target_generation != destination->generation ||
+        destination->alpha_bits != 8) {
         return BOXRIG_UI_INVALID_ARGUMENT;
     }
     *surface_out = NULL;
@@ -88,10 +88,12 @@ boxrig_ui_status boxrig_gtk_gl_surface_create(
         return failure(state, BOXRIG_GTK_RENDER_REASON_CONTEXT,
             "GTK GL context is not current", GL_NO_ERROR);
     }
-    surface->target = config->initial_target;
+    surface->target = (boxrig_gl_target){0, destination->width, destination->height,
+        destination->generation,
+        destination->srgb ? BOXRIG_GL_TARGET_SRGB8_ALPHA8 : BOXRIG_GL_TARGET_RGBA8,
+        BOXRIG_GL_ALPHA_PREMULTIPLIED, BOXRIG_GL_TARGET_ORIGIN_LOWER_LEFT, 0};
     surface->srgb_write_control = epoxy_is_desktop_gl() ||
         epoxy_has_gl_extension("GL_EXT_sRGB_write_control");
-    surface->target.draw_framebuffer = 0;
     GLint previous_texture = 0, previous_read = 0, previous_draw = 0, previous_unpack = 0;
     glGetIntegerv(GL_TEXTURE_BINDING_2D, &previous_texture);
     glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &previous_read);
@@ -182,7 +184,7 @@ static void abort_frame(boxrig_gtk_gl_surface *surface)
 }
 
 boxrig_ui_status boxrig_gtk_gl_surface_present(boxrig_gtk_gl_surface *surface,
-    const boxrig_gl_target *destination, boxrig_gtk_render_state *state)
+    const boxrig_gtk_gl_destination *destination, boxrig_gtk_render_state *state)
 {
     if (surface == NULL || destination == NULL || state == NULL) return BOXRIG_UI_INVALID_ARGUMENT;
     if (!current(surface)) {
@@ -195,8 +197,8 @@ boxrig_ui_status boxrig_gtk_gl_surface_present(boxrig_gtk_gl_surface *surface,
     }
     if (destination->draw_framebuffer == 0 || destination->width != surface->target.width ||
         destination->height != surface->target.height || destination->samples != 0 ||
-        destination->alpha_mode != surface->target.alpha_mode ||
-        destination->format != surface->target.format) {
+        destination->alpha_bits != 8 ||
+        destination->srgb != (surface->target.format == BOXRIG_GL_TARGET_SRGB8_ALPHA8)) {
         abort_frame(surface);
         return failure(state, BOXRIG_GTK_RENDER_REASON_CAPABILITY,
             "GTK and retained GL target properties do not match", GL_NO_ERROR);
@@ -213,7 +215,7 @@ boxrig_ui_status boxrig_gtk_gl_surface_present(boxrig_gtk_gl_surface *surface,
         glDisable(GL_SCISSOR_TEST);
         /* GLES without EXT_sRGB_write_control always converts sRGB targets. */
         if (surface->srgb_write_control) {
-            if (destination->format == BOXRIG_GL_TARGET_SRGB8_ALPHA8) glEnable(GL_FRAMEBUFFER_SRGB);
+            if (destination->srgb) glEnable(GL_FRAMEBUFFER_SRGB);
             else glDisable(GL_FRAMEBUFFER_SRGB);
         }
         glBlitFramebuffer(0, 0, (GLint)surface->target.width, (GLint)surface->target.height,
