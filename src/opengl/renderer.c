@@ -335,21 +335,10 @@ static int terminal_row_signatures(
         presentation_hash = hash_u64(
             presentation_hash,
             cell.continuation ? 1u : 0u);
-        presentation_hash = hash_u64(presentation_hash, cell.attributes);
-        presentation_hash = hash_u64(
-            presentation_hash,
-            cell.underline_style);
-        presentation_hash = hash_u64(
-            presentation_hash,
-            cell.protected_cell ? 1u : 0u);
-        presentation_hash = color_hash(renderer, presentation_hash, cell.foreground);
-        presentation_hash = color_hash(renderer, presentation_hash, cell.background);
-        presentation_hash = color_hash(
-            renderer,
-            presentation_hash,
-            cell.underline_color);
         render_style = cell_render_style_key(renderer, &cell);
         hyperlink = cell_hyperlink_key(&cell);
+        /* The style key already includes every attribute and color. Reuse it
+         * for presentation as well as the shaping boundary comparison. */
         presentation_hash = hash_u64(presentation_hash, render_style);
         presentation_hash = hash_u64(presentation_hash, hyperlink);
         if (!cell.continuation) {

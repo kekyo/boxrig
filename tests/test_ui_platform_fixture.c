@@ -2525,7 +2525,7 @@ static bool opengl_4k_terminal_grid_fixture(void)
     fprintf(stderr, "OpenGL 4K color hash work: %zu bytes for %zu cells\n",
         before.row_color_hash_byte_count, cell_count);
     CHECK(before.row_color_hash_byte_count >= cell_count * 3);
-    CHECK(before.row_color_hash_byte_count <= cell_count * 48);
+    CHECK(before.row_color_hash_byte_count <= cell_count * 24);
     CHECK(before.glyph_lookup_comparison_count <= cell_count * 4);
     fprintf(stderr, "OpenGL 4K cold work: %zu font keys, %zu cluster comparisons, %zu cells\n",
         before.font_key_count, before.cluster_lookup_comparison_count, cell_count);
@@ -2549,7 +2549,7 @@ static bool opengl_4k_terminal_grid_fixture(void)
     CHECK(after.row_signature_cell_count - before.row_signature_cell_count ==
           cell_count);
     CHECK(after.row_color_hash_byte_count - before.row_color_hash_byte_count <=
-          cell_count * 48);
+          cell_count * 24);
     CHECK(after.row_shape_count == before.row_shape_count);
     CHECK(after.font_key_count == before.font_key_count);
     for (index = 0; index < 2; index++) {
@@ -2697,7 +2697,7 @@ static bool opengl_4k_terminal_grid_fixture(void)
             CHECK(boxrig_ogl_renderer_get_render_statistics(renderer.renderer, &after) == 0);
             CHECK(after.row_shape_count == before.row_shape_count);
             CHECK(after.row_color_hash_byte_count - before.row_color_hash_byte_count <=
-                  cell_count * 48);
+                  cell_count * 24);
             CHECK(boxrig_terminal_get_cell(terminal, 0, 95, &probe) == BOXRIG_STATUS_OK);
             CHECK(probe.text_length == 1 && probe.text[0] == ' ');
             CHECK(probe.background.kind == BOXRIG_COLOR_RGB &&
