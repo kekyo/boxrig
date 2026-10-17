@@ -1,0 +1,933 @@
+{
+  "main_recipe_errors": [
+    "make: [Makefile:1303: test] Error 1 (ignored)",
+    "make: [Makefile:1304: test] Error 1 (ignored)",
+    "make: [Makefile:1305: test] Error 1 (ignored)",
+    "make: [Makefile:1306: test] Error 1 (ignored)",
+    "make: [Makefile:1307: test] Error 1 (ignored)",
+    "make: [Makefile:1308: test] Error 1 (ignored)",
+    "make: [Makefile:1309: test] Error 1 (ignored)",
+    "make: [Makefile:1310: test] Error 1 (ignored)",
+    "make: [Makefile:1311: test] Error 1 (ignored)",
+    "make: [Makefile:1312: test] Error 1 (ignored)",
+    "make: [Makefile:1313: test] Error 1 (ignored)",
+    "make: [Makefile:1314: test] Error 1 (ignored)"
+  ],
+  "skip_reports": [
+    "SKIP ES renderer failure: driver does not provide ES",
+    "SKIP WGL ES shader rejection: driver has no usable ES context",
+    "SKIP Win32 more Ctrl-C: Wine ConPTY does not reliably translate ETX to a console control event",
+    "SKIP Win32 ConPTY graphics: Wine does not preserve Kitty APC output",
+    "SKIP D3D11 raster acceptance: resource creation returned 0x88982f80; physical P2 requires success",
+    "SKIP native D3D11 acceptance: creation returned 0x80004001; physical P2 requires success",
+    "SKIP managed D3D11 prerequisite unavailable: 88982f80",
+    "UNAVAILABLE GLES SRGB8 framebuffer; linear RGB8 and SRGB8_ALPHA8 remain required"
+  ],
+  "expected_negative_probe": "The sample ownership probe deliberately prints seven FAIL diagnostics, then verifies those invalid destruction orders are rejected and exits successfully.",
+  "date": "2026-10-17",
+  "revision": "ce805b3",
+  "baseline": "c389357",
+  "live": [
+    {
+      "prefix": "btop-final-host-sample",
+      "pid": "16791",
+      "result": {
+        "state": "upstream opengl",
+        "bounds": {
+          "x": 46,
+          "y": 1147,
+          "width": 1900,
+          "height": 1452
+        },
+        "output": {
+          "exitCode": 0,
+          "exitSignal": null,
+          "stderr": "Verified backend: opengl policy=2 reason=1\nMarker geometry: 4952 1957\nGrid geometry: 66 190 cell=10,22 font=16.00\nMarker geometry: 1036 1895\nGrid geometry: 66 190 cell=10,22 font=16.00\nRender counter: frames=600 clean=206 elapsed_ms=4.670\n",
+          "stderrTruncated": false,
+          "stdout": "boxrig_term: ime-policy=0 ime-route=gtk ime-reason=explicit-module gtk=3.24.41 display=GdkX11Display module=gtk-im-context-simple registry=0/0 text-input-version=0 direct-state=0 direct-backend=none direct-selection=explicit ambiguous=0 conflicting-hints=0 compatibility-alias=0 contexts=0 errors=0 candidate-policy=auto candidate-owner=system candidate-reason=standard-input candidate-revision=0 candidate-count=0 candidate-cursor=0 candidate-visible=0 auxiliary-visible=0\nboxrig_term: frontend=gtk3\nboxrig_term: window-system=x11\nboxrig_term: renderer=opengl\nboxrig_term: graphics-api=OpenGL\nboxrig_term: render-policy=2 render-backend=2 render-pending=0 render-reason=1 render-status=0 \n",
+          "stdoutTruncated": false
+        }
+      },
+      "executable": {
+        "path": "/tmp/boxrig-plan4-stage9/sample-live",
+        "sha256": "14bd0d412e8e7df409f0e33bc7f05034f8aa3eb5a71d361e948e35bde669a5e7",
+        "bytes": 8291640
+      },
+      "libraries": [],
+      "artifacts": [
+        {
+          "path": "/tmp/boxrig-plan4-stage9/btop-final-host-sample-returned.png",
+          "sha256": "5809d36f5f44eb9d43bf5ef2f303c7681d5f790076bab359ed10226cb52d6344",
+          "bytes": 337741
+        },
+        {
+          "path": "/tmp/boxrig-plan4-stage9/btop-final-host-sample-scrolled.png",
+          "sha256": "a434f31d242ca1940dc347c574177246ec36b46f3d9c8f8b72087a820e0a81e3",
+          "bytes": 348953
+        },
+        {
+          "path": "/tmp/boxrig-plan4-stage9/btop-final-host-sample.environment.json",
+          "sha256": "2f0ac84f7f9c32c069f3c57a3486ab06031294c4d2673c62c62ccd3580118af5",
+          "bytes": 170
+        },
+        {
+          "path": "/tmp/boxrig-plan4-stage9/btop-final-host-sample.json",
+          "sha256": "4881181cdcf16ea450edf7d3827e84e9f88a5809d3d66652096504d2569e248e",
+          "bytes": 1215
+        },
+        {
+          "path": "/tmp/boxrig-plan4-stage9/btop-final-host-sample.maps",
+          "sha256": "551540951485d2843d5cf9e2f0a2717f2073cb2be5dabea995906cde3d2dbb9c",
+          "bytes": 84764
+        },
+        {
+          "path": "/tmp/boxrig-plan4-stage9/btop-final-host-sample.mkv",
+          "sha256": "bda384e5b3234cc6486575541ad77375ecd64e287fb4fc1f2d4b59b28f044d0b",
+          "bytes": 74435266
+        },
+        {
+          "path": "/tmp/boxrig-plan4-stage9/btop-final-host-sample.png",
+          "sha256": "2e378beb07d87e2f49b2bf13e1d1ceaf4186d7aebf35e5c88d1b4721fe3b4f88",
+          "bytes": 330683
+        }
+      ],
+      "visual_inspection": "Process list changed with wheel scrolling; normal q exit."
+    },
+    {
+      "prefix": "btop-final-host-elder",
+      "pid": "97610",
+      "result": {
+        "state": "backend=opengl grid=190x66 font=16.00 history=10000 cell=10x22 scale=1 ready=1 a11y=off",
+        "bounds": {
+          "x": 66,
+          "y": 1170,
+          "width": 1900,
+          "height": 1452
+        },
+        "output": {
+          "exitCode": 0,
+          "exitSignal": null,
+          "stderr": "Verified backend: opengl policy=1 reason=1\nMarker geometry: 4946 1907\nGrid geometry: 24 80 cell=10,22 font=16.00\nMarker geometry: 1056 1918\nGrid geometry: 66 190 cell=10,22 font=16.00\nRender counter: frames=427 clean=109 elapsed_ms=4.765\n",
+          "stderrTruncated": false,
+          "stdout": "",
+          "stdoutTruncated": false
+        }
+      },
+      "executable": {
+        "path": "/tmp/boxrig-plan4-stage9/elder-after",
+        "sha256": "a5e2640206d0cb4b130f65f0a8143ea896ccf18622fcafa7974ea8cc2d0cb8ff",
+        "bytes": 53747992
+      },
+      "libraries": [
+        {
+          "path": "/tmp/boxrig-plan4-stage9/after-lib/libboxrig-posix.so.0",
+          "sha256": "9d36651718d8bf0ef8fb84c18dcbf39ba7a281407e66ccfbf523791ffab77e89",
+          "bytes": 82176
+        },
+        {
+          "path": "/tmp/boxrig-plan4-stage9/after-lib/libboxrig-ui.so.0",
+          "sha256": "d737aae886cc80cc41c3d01573dc949ec09fa7391a60a4130e4584c9a5a1c9b1",
+          "bytes": 675824
+        },
+        {
+          "path": "/tmp/boxrig-plan4-stage9/after-lib/libboxrig-gtk3.so.0",
+          "sha256": "fb72f48e33b2605c3ac15ce835b862ab9a0e53b7c3bbff2772f3d7846d029c64",
+          "bytes": 1539216
+        },
+        {
+          "path": "/tmp/boxrig-plan4-stage9/after-lib/libboxrig-session.so.0",
+          "sha256": "381b18ed891d99bb7cb3c5f8200c3237d20870217f0b782c003a6a286d23f805",
+          "bytes": 25784
+        },
+        {
+          "path": "/tmp/boxrig-plan4-stage9/after-lib/libboxrig.so.0",
+          "sha256": "217ff19db0bbf629975a4dd9da8409c64e25ab6ec0dfbc7f1a3575829690941f",
+          "bytes": 2703344
+        }
+      ],
+      "artifacts": [
+        {
+          "path": "/tmp/boxrig-plan4-stage9/btop-final-host-elder-returned.png",
+          "sha256": "6c7e8c7256d843e26b62829307e42cf52610ee03aef7b952af1f39d0848c7637",
+          "bytes": 327310
+        },
+        {
+          "path": "/tmp/boxrig-plan4-stage9/btop-final-host-elder-scrolled.png",
+          "sha256": "5564b3b7ac90191f6413fc94683147836b14eed456f54b51ea8ea4d8c3105b77",
+          "bytes": 355254
+        },
+        {
+          "path": "/tmp/boxrig-plan4-stage9/btop-final-host-elder.environment.json",
+          "sha256": "e40dea007c614307a40bd58a38735acdf30d891c870a71d2d8ec260fe9316499",
+          "bytes": 242
+        },
+        {
+          "path": "/tmp/boxrig-plan4-stage9/btop-final-host-elder.json",
+          "sha256": "f04ecf612f717c18521c251861c46b8a757b067ac4d199ef31fafa1bd717152d",
+          "bytes": 590
+        },
+        {
+          "path": "/tmp/boxrig-plan4-stage9/btop-final-host-elder.maps",
+          "sha256": "f744f7643a9fec9a26b8e9b3b0f7d5310281c26963f7e0310314d45842d56ad5",
+          "bytes": 95895
+        },
+        {
+          "path": "/tmp/boxrig-plan4-stage9/btop-final-host-elder.mkv",
+          "sha256": "4677443dcc388897170c147ec2a77ce86019c7b48487513019e63b3ef367e632",
+          "bytes": 74761821
+        },
+        {
+          "path": "/tmp/boxrig-plan4-stage9/btop-final-host-elder.png",
+          "sha256": "aad2cc0c9bd43b1caf04f234931f86a93abade4000d4c16f8b96c75b2d177806",
+          "bytes": 318592
+        }
+      ],
+      "visual_inspection": "Process list changed with wheel scrolling; normal q exit."
+    },
+    {
+      "prefix": "bash-sample",
+      "pid": "33519",
+      "result": {
+        "version": "sample",
+        "binary": "/tmp/boxrig-plan4-stage9/sample-bash",
+        "pid": "33519",
+        "bounds": {
+          "x": 46,
+          "y": 1147,
+          "width": 1900,
+          "height": 1452
+        },
+        "lines": 20000,
+        "input": true,
+        "bulk": true,
+        "inputAfterBulk": true,
+        "output": {
+          "exitCode": 0,
+          "exitSignal": null,
+          "stderr": "Verified backend: opengl policy=2 reason=1\nMarker geometry: 4952 1957\nGrid geometry: 66 190 cell=10,22 font=16.00\nMarker geometry: 1036 1895\nGrid geometry: 66 190 cell=10,22 font=16.00\nRender counter: frames=399 clean=71 elapsed_ms=2.486\n",
+          "stderrTruncated": false,
+          "stdout": "boxrig_term: ime-policy=0 ime-route=gtk ime-reason=explicit-module gtk=3.24.41 display=GdkX11Display module=gtk-im-context-simple registry=0/0 text-input-version=0 direct-state=0 direct-backend=none direct-selection=explicit ambiguous=0 conflicting-hints=0 compatibility-alias=0 contexts=0 errors=0 candidate-policy=auto candidate-owner=system candidate-reason=standard-input candidate-revision=0 candidate-count=0 candidate-cursor=0 candidate-visible=0 auxiliary-visible=0\nboxrig_term: frontend=gtk3\nboxrig_term: window-system=x11\nboxrig_term: renderer=opengl\nboxrig_term: graphics-api=OpenGL\nboxrig_term: render-policy=2 render-backend=2 render-pending=0 render-reason=1 render-status=0 \n",
+          "stdoutTruncated": false
+        }
+      },
+      "executable": {
+        "path": "/tmp/boxrig-plan4-stage9/sample-bash",
+        "sha256": "65986410af0ad6692e943a4944c98cf7301f33afc512d20f6271b3e5be2d4c0c",
+        "bytes": 8291648
+      },
+      "libraries": [],
+      "artifacts": [
+        {
+          "path": "/tmp/boxrig-plan4-stage9/bash-sample-bulk.png",
+          "sha256": "2c4c1a6eaaad51743c6f28ffcf60f16037a203f8a67436c4f41438949b01747e",
+          "bytes": 73325
+        },
+        {
+          "path": "/tmp/boxrig-plan4-stage9/bash-sample-input.png",
+          "sha256": "d04a3754e2d714b905475b32135caab117cc888d27b1656b2531a07cf8450255",
+          "bytes": 15115
+        },
+        {
+          "path": "/tmp/boxrig-plan4-stage9/bash-sample.json",
+          "sha256": "9be27e2c04f7f0a9d50824f85808b68c6cf06dd5b860e04954a55e31abcff028",
+          "bytes": 1354
+        },
+        {
+          "path": "/tmp/boxrig-plan4-stage9/bash-sample.maps",
+          "sha256": "79474c5a600faac38ffaae93123358c88d065eccc547d7d0c62f41ce75f147d4",
+          "bytes": 84059
+        },
+        {
+          "path": "/tmp/boxrig-plan4-stage9/bash-sample.mkv",
+          "sha256": "e62a4e9bc45cd3dfd65dcd06eb32686945b51bd97186af4d0276a1be25f13c3d",
+          "bytes": 188459
+        }
+      ],
+      "visual_inspection": "Final lines, bulk completion marker and prompt visible; input before and after bulk verified by presented owned snapshots."
+    },
+    {
+      "prefix": "bash-settled-elder",
+      "pid": "113310",
+      "result": {
+        "version": "elder",
+        "binary": "/tmp/boxrig-plan4-stage9/elder-bash",
+        "pid": "113310",
+        "bounds": {
+          "x": 70,
+          "y": 1158,
+          "width": 1900,
+          "height": 1452
+        },
+        "lines": 20000,
+        "input": true,
+        "bulk": true,
+        "inputAfterBulk": true,
+        "output": {
+          "exitCode": 0,
+          "exitSignal": null,
+          "stderr": "Verified backend: opengl policy=1 reason=1\nMarker geometry: 1044 1913\nGrid geometry: 24 80 cell=10,22 font=16.00\nMarker geometry: 1060 1906\nGrid geometry: 66 190 cell=10,22 font=16.00\nRender counter: frames=329 clean=25 elapsed_ms=2.869\n",
+          "stderrTruncated": false,
+          "stdout": "",
+          "stdoutTruncated": false
+        }
+      },
+      "executable": {
+        "path": "/tmp/boxrig-plan4-stage9/elder-bash",
+        "sha256": "8b18eddd04a6c18a9be51f7521d2e545770295e92efc388a25136f2db237e7ff",
+        "bytes": 53747864
+      },
+      "libraries": [
+        {
+          "path": "/tmp/boxrig-plan4-stage9/after-lib/libboxrig-session.so.0",
+          "sha256": "381b18ed891d99bb7cb3c5f8200c3237d20870217f0b782c003a6a286d23f805",
+          "bytes": 25784
+        },
+        {
+          "path": "/tmp/boxrig-plan4-stage9/after-lib/libboxrig-posix.so.0",
+          "sha256": "9d36651718d8bf0ef8fb84c18dcbf39ba7a281407e66ccfbf523791ffab77e89",
+          "bytes": 82176
+        },
+        {
+          "path": "/tmp/boxrig-plan4-stage9/after-lib/libboxrig-ui.so.0",
+          "sha256": "d737aae886cc80cc41c3d01573dc949ec09fa7391a60a4130e4584c9a5a1c9b1",
+          "bytes": 675824
+        },
+        {
+          "path": "/tmp/boxrig-plan4-stage9/after-lib/libboxrig-gtk3.so.0",
+          "sha256": "fb72f48e33b2605c3ac15ce835b862ab9a0e53b7c3bbff2772f3d7846d029c64",
+          "bytes": 1539216
+        },
+        {
+          "path": "/tmp/boxrig-plan4-stage9/after-lib/libboxrig.so.0",
+          "sha256": "217ff19db0bbf629975a4dd9da8409c64e25ab6ec0dfbc7f1a3575829690941f",
+          "bytes": 2703344
+        }
+      ],
+      "artifacts": [
+        {
+          "path": "/tmp/boxrig-plan4-stage9/bash-settled-elder-before-bulk.png",
+          "sha256": "93c1293db229326b8942d0d1ea5423ffab5b11d1955c97c35f82ec2f38b186b1",
+          "bytes": 73340
+        },
+        {
+          "path": "/tmp/boxrig-plan4-stage9/bash-settled-elder-before-input.png",
+          "sha256": "4a4092d1bc6cdb1e04f06d49f1bcad9fb0fbc401800d154959e28e7f006a6960",
+          "bytes": 18813
+        },
+        {
+          "path": "/tmp/boxrig-plan4-stage9/bash-settled-elder-before.json",
+          "sha256": "2edfd0a3f6bcca0b72d242cd7b883e123f5bd09637cb7f9d1edf8dff02e4f5ae",
+          "bytes": 669
+        },
+        {
+          "path": "/tmp/boxrig-plan4-stage9/bash-settled-elder-before.maps",
+          "sha256": "0095c4693e67698c4de0cd044bc28da1d09894e9a26517ddc087eb89733239b8",
+          "bytes": 95118
+        },
+        {
+          "path": "/tmp/boxrig-plan4-stage9/bash-settled-elder-before.mkv",
+          "sha256": "5164cce5ebb39fa9a56f3d769bcaf455e977f56cb54c6d417b451fb385f7441c",
+          "bytes": 376583
+        },
+        {
+          "path": "/tmp/boxrig-plan4-stage9/bash-settled-elder-bulk.png",
+          "sha256": "93c1293db229326b8942d0d1ea5423ffab5b11d1955c97c35f82ec2f38b186b1",
+          "bytes": 73340
+        },
+        {
+          "path": "/tmp/boxrig-plan4-stage9/bash-settled-elder-input.png",
+          "sha256": "4a4092d1bc6cdb1e04f06d49f1bcad9fb0fbc401800d154959e28e7f006a6960",
+          "bytes": 18813
+        },
+        {
+          "path": "/tmp/boxrig-plan4-stage9/bash-settled-elder.json",
+          "sha256": "d6d794afcaeaffa623d8735f6be06677c8e8657f1446c6d6cbe934c3cff02da0",
+          "bytes": 656
+        },
+        {
+          "path": "/tmp/boxrig-plan4-stage9/bash-settled-elder.maps",
+          "sha256": "522ff6ffcfb0b665e9d5afb5087f6fbaf4ee8f63baf9efcbc3575966c074c80b",
+          "bytes": 95009
+        },
+        {
+          "path": "/tmp/boxrig-plan4-stage9/bash-settled-elder.mkv",
+          "sha256": "34977d50ed53522549607d93ba16e1579619a9cef30b4e8b8eaa4106011a79b0",
+          "bytes": 297585
+        }
+      ],
+      "visual_inspection": "Final lines, bulk completion marker and prompt visible; input before and after bulk verified by presented owned snapshots."
+    }
+  ],
+  "logs": [
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-baseline-build.log",
+      "sha256": "e31c6143ecb116c7419dbb8a10f71e5886620776ea33b36c44a092be71f3a9f1",
+      "bytes": 27111
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-baseline-first-frame-build.log",
+      "sha256": "772c6e0a0af156186dcd18f892e9ebf1b0277e8b52d40f0e8de8cb8fb4c00983",
+      "bytes": 347
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-baseline-first-frame.log",
+      "sha256": "c433993375e732b94fca341757714a5007fcf2ca46dfdcab1c36bce7ec1ee1a0",
+      "bytes": 130
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-baseline-gtk3-opengl-wayland.log",
+      "sha256": "c7f2427ad3e59e3a906e67ce98643ae72010181c0bef9bf0277b6fba9f1b7f4c",
+      "bytes": 1010
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-baseline-gtk3-wayland.log",
+      "sha256": "235cfdfa1ade7717cf81512b1bf02c55cdbe679f450163e4521cbf85fef7af73",
+      "bytes": 5946
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-baseline-opacity-build.log",
+      "sha256": "b911907fc463b878e197952dfa6be2f43179d03955930b26184cc7cb1e8aa3e5",
+      "bytes": 6465
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-baseline-opacity.log",
+      "sha256": "aaf3ba9735bc870fc18869085e669148143922401a2e2758edb7ee11c6cffabb",
+      "bytes": 65
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-baseline-pointer-debug.log",
+      "sha256": "b64506574ef9d54be7de335addb9e2be7b5db6bd2d4a098129cdf1090b0a2e67",
+      "bytes": 10778
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-baseline-sanitized-build.log",
+      "sha256": "a36905952ebcd99715394c3e28f38cf27b6526d2030ad3b9dd6f381bbd77a4a0",
+      "bytes": 13640
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-baseline-sanitized-core.log",
+      "sha256": "74f41e4bc1630898c95d1fa70db9a43b7c83747890fe9954b86217adfd540572",
+      "bytes": 1300
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-baseline-win32-blink.log",
+      "sha256": "ac5474c244cda0e0414aa385ff1ec946f12faaea4e39cbd33e1bbe6643e382b1",
+      "bytes": 923
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-baseline-win32-build.log",
+      "sha256": "79eb3a3b1dfb7243cbae949b29bd1aaf0ff39cb1cf9e55f1db604fae79364e7d",
+      "bytes": 25770
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-bash-build.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-bash-current-elder-retry.log",
+      "sha256": "fe8500a96c0adcd12f3b9a8d5fe90288863f0386956f30c2df06f26bc93bcec8",
+      "bytes": 109
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-bash-current-elder.log",
+      "sha256": "0c57e511ca388b42366fcdd11333c8f2468bf407a6c4714da192564099f032d5",
+      "bytes": 2386
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-bash-settled.log",
+      "sha256": "d6f4196dfcb92a921c0c9a762ac7932b2cf2e81a782cca137439d893aed81d81",
+      "bytes": 223
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-bash-smoke.log",
+      "sha256": "3f27bddc2cd26087d606f8cae0228e314bf49d21f5eeff4e7b9d7881ebcc8dcd",
+      "bytes": 217
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-btop-current-elder.log",
+      "sha256": "1453d19facc8ee02df4b5d114eb8b8d1757464467f47ad67cc1a3d7f02f7efd7",
+      "bytes": 793
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-btop-final-retry.log",
+      "sha256": "366ad951eb0a86ad3ae4d8320c0a585f6bfb73f7d5a81acb20fdd498dac976a5",
+      "bytes": 2137
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-btop-final-smoke.log",
+      "sha256": "20a641f74a2bc389ff9629cb39e2ba2749b2dddafbedbd05a7a687c580c759f8",
+      "bytes": 465
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-btop-keys-smoke.log",
+      "sha256": "8a4cb7753e2df159551e47074e37250f5d6a09c161fae3087a8b94f8affb239a",
+      "bytes": 792
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-btop-smoke.log",
+      "sha256": "ec429e923dcc569996efac70a7d256cc265dc6c5a99449976b2ebf3473b26a7b",
+      "bytes": 2126
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-btop-visible-retry.log",
+      "sha256": "66ba4f962c611d1abc4449cd9ab0b045ef107aa26e9f92b077d89ffcd346507c",
+      "bytes": 797
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-btop-visible-retry2.log",
+      "sha256": "02c9d7d838b520b273a8715d1e28f7264d7f6b99a9aabfc24401a70822a26e51",
+      "bytes": 2137
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-btop-visible-smoke.log",
+      "sha256": "4a3ca91c24607a2d2359a0ef901892aa75b3b7246b14783935521bc1386e55ad",
+      "bytes": 1173
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-captured-result-index.json",
+      "sha256": "18b1763a71529149a148582d9999a13b342391046496a725bbe0fe2f2b1432d5",
+      "bytes": 6926
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-comparison-pilot.log",
+      "sha256": "6ae5f3db44f066eb9419115589589d188ae2bd988154adecc4ffc397bcf54406",
+      "bytes": 1523
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-conpty-assets.log",
+      "sha256": "579d9e3ac69a306467b1ea56aa22ee8439e7fbcb3fd7fc6183c4c87528894da2",
+      "bytes": 6332
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-continue-command.json",
+      "sha256": "524bf3562de191fc2c7b854c8be5fbdf77f103399a3022f1ebf363a71a0f4490",
+      "bytes": 1856
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-doc-lint-final.log",
+      "sha256": "2752021733c357400bd9c9665e301fa1bdb22e2c4e1d3b7a7fc3a3fc1c999430",
+      "bytes": 3832
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-doc-lint.log",
+      "sha256": "024675647ecc4e08a94b0eb6dd4480afda417aba8b6b253362630ccc06064ebc",
+      "bytes": 3728
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-dpi-amd64.log",
+      "sha256": "19bd4eb1ede7a8ef309350371524c5aaed841ef203c79c1dd464c03d1e41cf53",
+      "bytes": 125
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-dpi-diagnosis.json",
+      "sha256": "7eaf0b452b618df21d9e183620d83ef63137e85669414a80dfd2680ef6ec88b6",
+      "bytes": 482
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-dpi-i686.log",
+      "sha256": "8c9e5b082045cd243c0d15d9d0aca29941bc2eb41e902c2291d9b6f3bd63d882",
+      "bytes": 117
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-elder-build.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-elder-current-link.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-elder-link-final.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-final-before-probe-build.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-final-probe-build.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-full-test.log",
+      "sha256": "cfee896f12e6c76c13bb15564f66fc8c64f2d56a3350e941b88ca0059f4a4c5d",
+      "bytes": 396646
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-gl-info.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-gtk3-opengl-rest-gestament.log",
+      "sha256": "a59a0c66a4244ca1db1cb7a800a515c873e5093eac534c6f1550da5025783ac3",
+      "bytes": 733
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-gtk3-opengl-rest-render.log",
+      "sha256": "45e7f2ba153977753b8313de36f7bb04158744b9d0ca547611ff1c3e060e4988",
+      "bytes": 458
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-gtk3-opengl-rest-sample-wayland-retry.log",
+      "sha256": "98d5c7731d48b15a8a14d968c2c4e7a87bbd411c332f2fef9e456af0b0b2e8b6",
+      "bytes": 434
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-gtk3-opengl-rest-sample-wayland.log",
+      "sha256": "bf390c81ccefdc643e9be94a730bf8a72bda9450f0878088aa9ad0f85157b25f",
+      "bytes": 75
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-gtk3-opengl-rest-sample-x11.log",
+      "sha256": "c73d394f8d010fe14dd795958c97d9b419b8800f8d774a4bd7ecec2cf7038205",
+      "bytes": 152
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-gtk3-opengl-rest.json",
+      "sha256": "cf63a387f958577ab378aa39a837e225bf147e6094a7cdd45ba9163a09870c06",
+      "bytes": 1779
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-gtk3-opengl-sample-x11-backtrace.log",
+      "sha256": "786b60056b0fc12e84cf24cf7f51811ed90cb70386c1da92baf5e80a35ac105b",
+      "bytes": 2130
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-gtk3-wayland-reproduce.log",
+      "sha256": "46e20b5d1743db90a4de49af90ad3e0983113e9d8132205c53ab95f79fbc6e38",
+      "bytes": 5946
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-gtk3-wayland-seat-backtrace.log",
+      "sha256": "58b9e0d51015b6974a9b6c1c180bf30ef2fb88c811ef645b337649fd3b166e0d",
+      "bytes": 6608
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-gtk3-wayland-seat.log",
+      "sha256": "e9cd8b6d6c91396ede69b8e441b0222518f8f12a7777c83787e6352f011c466b",
+      "bytes": 145
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-ime-clause-gtk4-wayland.log",
+      "sha256": "5733c606bae523fc56a1e49370468bcb00d27ea6df59933e6448a7d274dfbb32",
+      "bytes": 513
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-ime-clause-gtk4-x11-scale2.log",
+      "sha256": "5a70bb6a2f2d20c69871bbda943b421e3b647496e284220a9c308b9ab1875763",
+      "bytes": 647
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-ime-clause-gtk4-x11.log",
+      "sha256": "587eb75207d00c6b2762c9fc687e2d228f16024848f565fc774d8916bda1bb8a",
+      "bytes": 714
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-ime-clause-posix.log",
+      "sha256": "4d2c253d9eb9afa66e4995f4932b7a2a0cb27fc5bceca332ee8622f79ac20d1d",
+      "bytes": 54
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-link-activation-recapture.log",
+      "sha256": "29b708e541f76fb8d2b97fff7196813571cc66933d2bdc471e6e26c2e62a04b9",
+      "bytes": 1611
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-main-command.json",
+      "sha256": "22cf1f4d5fb5e7847249762d472bee0208c7cc21e4f86a997f4934ccd663ba4a",
+      "bytes": 25902
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-main-exit.json",
+      "sha256": "565b440549f31d74b04002ef1a1f8103c6c3d4fef97fd36b6405fafba9510c9a",
+      "bytes": 36
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-main-tests-exit.json",
+      "sha256": "89062f08a8761626482961fa5d1443edc59d319ec2bdd938517a48d2a41f9f4e",
+      "bytes": 94
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-main-tests.log",
+      "sha256": "547243e52b77373174ee6cc043a8ae0a8cc8dc59efd001d0748b095436f48613",
+      "bytes": 129103
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-matrix-extra.log",
+      "sha256": "772c2e95d2428e8a7e9e8d6adbebd5d192b77065186ec199452347053d145ac1",
+      "bytes": 18213
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-matrix-finish.log",
+      "sha256": "89b10d2da2bc735f042cf692716536e90972022595efa9257c0f3f5665f3386c",
+      "bytes": 4143
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-matrix-gpu-after.log",
+      "sha256": "02044fdbc3b13a37e89942d51f8dfb0f8b99fef4042c452c05c63dd7a6127a1c",
+      "bytes": 45
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-matrix-gpu-before.log",
+      "sha256": "748dfa7ef431b9ab884a12d89f5f09aafea5eee62c1812697f966233271d9ceb",
+      "bytes": 104
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-matrix-opaque.log",
+      "sha256": "caa93115360b711e3c53ffa61d38cd8c399ba317654793b189f93a35881479e2",
+      "bytes": 7375
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-matrix.log",
+      "sha256": "9e6414480d792df3cf218b967c9d57f3f0f83847154cbd05204c7ec2df7b8cc4",
+      "bytes": 13956
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-normal-build-exit.json",
+      "sha256": "952f8b083c6b6a2fbf027b7137ee5783a7a5f5363a2e639a934cf66b2163b657",
+      "bytes": 53
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-normal-build.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-opaque-before-build.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-opaque-build.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-p2-final-policies.log",
+      "sha256": "df639945bb82cf112d69d61ab9546e4af6e551d5be970d6d97f35b4ddffcff99",
+      "bytes": 4141
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-p2-focus-peer-build.log",
+      "sha256": "b3a5eeb54e667dae805b0a278994f1854b604b068a9bbed5026693b9dccfc4f8",
+      "bytes": 491
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-p2-format.log",
+      "sha256": "4426f20384dce59f36fe0a155d877e763ef67551984e95d072b990ee82fe105d",
+      "bytes": 39
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-p2-install.log",
+      "sha256": "27c2b80a495e86d00286234db9e1217cd2a9a28d5e26d3e23c544bfe98c40591",
+      "bytes": 222
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-p2-native.log",
+      "sha256": "a26371d769a78acbfeea6405c64cf2f72c2fcdd60a5ce1ffb03d8e80cf35740b",
+      "bytes": 764
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-p2-policies-opengl.log",
+      "sha256": "79c68aa6b2f081ea5e65f14d0e4f44dee6ed667ef200d193f134c7b03f8bc80c",
+      "bytes": 3598
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-p2-videos-retry.log",
+      "sha256": "414c1db280959623419042817f65d58e93d8f838069c8a78b3c35bfd02ccbbe0",
+      "bytes": 19437
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-p2-videos.log",
+      "sha256": "06731a0413872b3b9209c3b3fdca95afd3ff4e04d06848ccb0dd58b0762d25a8",
+      "bytes": 26855
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-physical-amd64-test_terminal.log",
+      "sha256": "084e167614bba28165dc96b3a5204482a2f72f3cec4edbbf9cbdc7d968745127",
+      "bytes": 4898
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-physical-amd64-test_win32_animation.log",
+      "sha256": "660354f1a7308435281ca9e1cb2e6a7e2c129b0624db1f55adfc2b3cc1e06cd0",
+      "bytes": 92
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-physical-amd64-test_win32_blink.log",
+      "sha256": "4cc15dbad4661faef756e6badd1117c67ff49cdb634d278b43922c6ee2518c37",
+      "bytes": 812
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-physical-amd64-test_win32_opengl_component.log",
+      "sha256": "68f9537c4779fd96bf7b42aea11516e9e10f49d20429c151dac9d60c53a3c6fe",
+      "bytes": 263
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-physical-i686-test_terminal.log",
+      "sha256": "084e167614bba28165dc96b3a5204482a2f72f3cec4edbbf9cbdc7d968745127",
+      "bytes": 4898
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-physical-i686-test_win32_animation.log",
+      "sha256": "660354f1a7308435281ca9e1cb2e6a7e2c129b0624db1f55adfc2b3cc1e06cd0",
+      "bytes": 92
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-physical-i686-test_win32_blink.log",
+      "sha256": "4cc15dbad4661faef756e6badd1117c67ff49cdb634d278b43922c6ee2518c37",
+      "bytes": 812
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-physical-i686-test_win32_opengl_component.log",
+      "sha256": "68f9537c4779fd96bf7b42aea11516e9e10f49d20429c151dac9d60c53a3c6fe",
+      "bytes": 263
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-remaining-after-native-exit.json",
+      "sha256": "09b86cf8c8cb2abeea5b58be6f18d12d3620ef484e8939cf2795d16d06c9c18c",
+      "bytes": 349
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-remaining-after-native.log",
+      "sha256": "f7c3ce3a480845eb276d94a85d60c25f7b77c9dd3250de48a973d900e689538b",
+      "bytes": 1068298
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-remaining-tests.log",
+      "sha256": "f0730947d39b1ab733bb256e9d7af88f1fcb8a0d7d70da5f2b2b7b6c4bbacf17",
+      "bytes": 421515
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-sample-before-build.log",
+      "sha256": "b03315dd3bbcbf62146e176d3011f41a22c6e4ad3ebdfa33c520aed2c2e7db2e",
+      "bytes": 29515
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-sample-before-link.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-sample-build.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-sample-link-final.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-shared-build.log",
+      "sha256": "0bb95f874c20b6fe50b3dbb9af54ff78bcae1e3059173d8afc9ed572ae258cfc",
+      "bytes": 30959
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-summary.log",
+      "sha256": "fceb059c7d68a3cb55969f0f5d191b5bd1d9000f6cec940b608a47bb71ebb7ae",
+      "bytes": 22167
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-video-order.log",
+      "sha256": "dbe1b464ad66ff11a2bf12fce39e4584b59bb13793a8638d1fe3f4b31646acbf",
+      "bytes": 11991
+    },
+    {
+      "path": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-wine-opacity-mapped.log",
+      "sha256": "aaf3ba9735bc870fc18869085e669148143922401a2e2758edb7ee11c6cffabb",
+      "bytes": 65
+    }
+  ],
+  "known_failures": [
+    {
+      "case": "GTK3 Wayland shutdown",
+      "current": "stage9-full-test.log",
+      "baseline": [
+        "stage9-baseline-gtk3-wayland.log",
+        "stage9-baseline-gtk3-opengl-wayland.log"
+      ],
+      "result": "Both abort in Cairo static-data cleanup after functional checks. See Cairo cleanup API preconditions.",
+      "source": "https://www.cairographics.org/manual/cairo-Error-handling.html#cairo-debug-reset-static-data"
+    },
+    {
+      "case": "Wine native blink",
+      "current": "stage9-remaining-tests.log",
+      "baseline": "stage9-baseline-win32-blink.log",
+      "result": "Both fail the GDI pixel darkness assertion. Same current binary succeeds on physical Windows, both ABIs."
+    },
+    {
+      "case": "Wine DPI V2 rejection in sample test startup",
+      "current": "stage9-remaining-after-native.log",
+      "baseline": [
+        "stage9-baseline-opacity.log",
+        "stage9-baseline-first-frame.log"
+      ],
+      "result": "Wine 9.0 returns NULL for SetThreadDpiAwarenessContext(PER_MONITOR_AWARE_V2) before scenario dispatch in both ABIs. The test source is identical to baseline. This also explains all 12 final main-recipe failures. See stage9-dpi-diagnosis.json."
+    },
+    {
+      "case": "Whole-core UBSan",
+      "baseline": "stage9-baseline-sanitized-core.log",
+      "result": "Existing notification.c memchr call receives NULL with zero length. Focused recognition tests pass with all objects instrumented; whole-core sanitizer is not fully verified."
+    }
+  ],
+  "physical_policies": {
+    "initial": 6,
+    "additional": 12,
+    "result": "passed",
+    "final_log": "stage9-p2-final-policies.log"
+  },
+  "dpi_diagnosis": {
+    "wine": "9.0 (Ubuntu 9.0~repack-4build3)",
+    "baseline_source_identical": true,
+    "source_sha256": "18305a805aa5b1eb434a261dc8b88dea565839903797d69bf6727e1e289f69dc",
+    "results": [
+      {
+        "arch": "amd64",
+        "exit_code": 1,
+        "log": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-dpi-amd64.log"
+      },
+      {
+        "arch": "i686",
+        "exit_code": 1,
+        "log": "/home/kouji/Projects/boxrig/build/test-results/plan4/stage9-dpi-i686.log"
+      }
+    ]
+  },
+  "phases": {
+    "main_recipe": {
+      "exit_code": 0,
+      "ignore_errors": true,
+      "failure_count": 12
+    },
+    "normal_build": {
+      "exit_code": 0,
+      "command": "make -j1 all"
+    },
+    "literal_full_test": {
+      "exit_code": 2,
+      "command": "make -j1 test"
+    },
+    "remaining_prerequisites": {
+      "exit_code": 2,
+      "failures": [
+        "test-win32-opacity-policy",
+        "test-win32-sample-first-frame-fence",
+        "test-gtk3-opengl"
+      ]
+    }
+  },
+  "notes": [
+    "The full test command was attempted, then remaining prerequisites and the main recipe were executed separately after failures. Exit zero from make -i is not an all-pass result.",
+    "Some output between native-copy and native-interaction was lost during log capture; per-scenario result JSON confirms complete native-link and continuous-output scenarios. test-link-activation was rerun with redirected logging.",
+    "All make test phases have ended. The main recipe has 12 ignored Wine DPI-startup failures. All 12 corresponding physical Windows policies pass (stage9-p2-final-policies.log).",
+    "The optional gestament real-window-manager test was not enabled; separate btop and bash host-window-manager scenarios were executed.",
+    "Unexecuted Win32 blink/animation/policy commands after the first Wine failure were covered by the same binaries on physical Windows."
+  ]
+}
