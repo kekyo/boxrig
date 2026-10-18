@@ -82,7 +82,9 @@ printf '%b\n' \
 {
     printf 'boxrig_binary=%s\n' "$boxrig_binary"
     printf 'private_config=%s\n' "$XDG_CONFIG_HOME"
-    printf 'boxrig_revision=%s\n' "$(git -C "$project_root" rev-parse HEAD)"
+    printf 'workspace_revision=%s\n' "$(git -C "$project_root" rev-parse HEAD)"
+    printf 'boxrig_binary_sha256=%s\n' "$(sha256sum -- "$boxrig_binary")"
+    printf 'boxrig_auto_urls=%s\n' "${BOXRIG_AUTO_URLS:-default}"
     printf 'gnome_terminal_version=%s\n' "$(gnome-terminal --version)"
     printf 'font=%s\n' "$(gsettings get "$profile_schema" font)"
     printf 'font_match=%s\n' "$(fc-match -f '%{family}|%{style}|%{file}\n' monospace | head -n 1)"

@@ -46,7 +46,8 @@ typedef struct boxrig_text_recognizer_entry {
     size_t snapshot_count;
     size_t snapshot_index;
     size_t snapshot_line_index;
-    size_t snapshot_byte_offset;
+    size_t document_line_counts[2];
+    size_t next_fragment_indices[2];
     uint64_t scan_text_revision;
     uint64_t scan_layout_revision;
     int32_t *line_scalars;
@@ -162,7 +163,11 @@ static void destroy_scan(boxrig_text_recognizer_entry *recognizer)
     recognizer->snapshot_count = 0u;
     recognizer->snapshot_index = 0u;
     recognizer->snapshot_line_index = 0u;
-    recognizer->snapshot_byte_offset = 0u;
+
+    memset(recognizer->document_line_counts, 0,
+           sizeof(recognizer->document_line_counts));
+    memset(recognizer->next_fragment_indices, 0,
+           sizeof(recognizer->next_fragment_indices));
     recognizer->line_scalar_count = 0u;
     recognizer->line_byte_start = 0u;
     recognizer->line_byte_end = 0u;
@@ -375,24 +380,6 @@ static bool publish_event(
     return true;
 }
 
-static boxrig_status create_snapshot(
-    boxrig_terminal *terminal,
-    boxrig_text_recognizer_entry *recognizer,
-    boxrig_text_screen screen,
-    boxrig_text_snapshot **snapshot_out)
-{
-    boxrig_text_snapshot_options options;
-
-    options.screen = screen;
-    options.range = NULL;
-    options.byte_capacity = recognizer->limits.snapshot_byte_capacity;
-    options.line_capacity = recognizer->limits.snapshot_line_capacity;
-    return boxrig_terminal_create_text_snapshot(
-        terminal,
-        &options,
-        snapshot_out);
-}
-
 static boxrig_status prepare_scan(
     boxrig_terminal *terminal,
     boxrig_text_recognizer_entry *recognizer)
@@ -400,59 +387,54 @@ static boxrig_status prepare_scan(
     boxrig_status status;
     size_t total_bytes = 0u;
     size_t total_lines = 0u;
-    size_t index;
+    size_t count = 0u;
 
     destroy_scan(recognizer);
     if (recognizer->scope == BOXRIG_TEXT_RECOGNIZER_SCOPE_PRIMARY ||
         recognizer->scope == BOXRIG_TEXT_RECOGNIZER_SCOPE_BOTH) {
-        status = create_snapshot(
-            terminal,
-            recognizer,
-            BOXRIG_TEXT_SCREEN_PRIMARY,
-            &recognizer->snapshots[recognizer->snapshot_count]);
+        size_t bytes = 0u;
+        size_t lines = 0u;
+
+        status = boxrig_screen_text_document_size(
+            &terminal->screen, BOXRIG_TEXT_SCREEN_PRIMARY,
+            &bytes, &lines);
         if (status != BOXRIG_STATUS_OK) {
-            destroy_scan(recognizer);
             return status;
         }
-        recognizer->snapshot_count++;
+        if (bytes > recognizer->limits.snapshot_byte_capacity - total_bytes ||
+            lines > recognizer->limits.snapshot_line_capacity - total_lines) {
+            return BOXRIG_STATUS_LIMIT_EXCEEDED;
+        }
+        total_bytes += bytes;
+        total_lines += lines;
+        recognizer->document_line_counts[count++] = lines;
     }
     if (recognizer->scope == BOXRIG_TEXT_RECOGNIZER_SCOPE_ALTERNATE ||
         recognizer->scope == BOXRIG_TEXT_RECOGNIZER_SCOPE_BOTH) {
-        status = create_snapshot(
-            terminal,
-            recognizer,
-            BOXRIG_TEXT_SCREEN_ALTERNATE,
-            &recognizer->snapshots[recognizer->snapshot_count]);
+        size_t bytes = 0u;
+        size_t lines = 0u;
+
+        status = boxrig_screen_text_document_size(
+            &terminal->screen, BOXRIG_TEXT_SCREEN_ALTERNATE,
+            &bytes, &lines);
         if (status != BOXRIG_STATUS_OK) {
-            destroy_scan(recognizer);
             return status;
         }
-        recognizer->snapshot_count++;
-    }
-    for (index = 0u; index < recognizer->snapshot_count; index++) {
-        size_t byte_length = 0u;
-        size_t line_count =
-            boxrig_text_snapshot_line_count(recognizer->snapshots[index]);
-
-        (void)boxrig_text_snapshot_data(
-            recognizer->snapshots[index],
-            &byte_length);
-        if (byte_length > recognizer->limits.snapshot_byte_capacity -
-                              total_bytes ||
-            line_count > recognizer->limits.snapshot_line_capacity -
-                             total_lines) {
-            destroy_scan(recognizer);
+        if (bytes > recognizer->limits.snapshot_byte_capacity - total_bytes ||
+            lines > recognizer->limits.snapshot_line_capacity - total_lines) {
             return BOXRIG_STATUS_LIMIT_EXCEEDED;
         }
-        total_bytes += byte_length;
-        total_lines += line_count;
+        total_bytes += bytes;
+        total_lines += lines;
+        recognizer->document_line_counts[count++] = lines;
     }
+    recognizer->snapshot_count = count;
     recognizer->scan_text_revision =
         boxrig_terminal_text_revision(terminal);
     recognizer->scan_layout_revision = terminal->screen.text_layout_revision;
     recognizer->snapshot_index = 0u;
     recognizer->snapshot_line_index = 0u;
-    recognizer->snapshot_byte_offset = 0u;
+
     recognizer->phase = BOXRIG_TEXT_RECOGNIZER_LINE_START;
     recognizer->complete = false;
     recognizer->incomplete = false;
@@ -601,9 +583,9 @@ static boxrig_status reset_match_cursor(
 static void begin_line(boxrig_text_recognizer_entry *recognizer)
 {
     recognizer->line_scalar_count = 0u;
-    recognizer->line_byte_start = recognizer->snapshot_byte_offset;
-    recognizer->line_byte_end = recognizer->snapshot_byte_offset;
-    recognizer->line_prepare_byte_offset = recognizer->snapshot_byte_offset;
+    recognizer->line_byte_start = 0u;
+    recognizer->line_byte_end = 0u;
+    recognizer->line_prepare_byte_offset = 0u;
     recognizer->line_prepare_boundary_index = 0u;
     recognizer->line_start_position_valid = false;
     recognizer->line_end_position_valid = false;
@@ -817,16 +799,8 @@ static boxrig_status append_match(
 
 static void advance_line(boxrig_text_recognizer_entry *recognizer)
 {
-    boxrig_text_snapshot *snapshot =
-        recognizer->snapshots[recognizer->snapshot_index];
-    size_t byte_length;
-
-    (void)boxrig_text_snapshot_data(snapshot, &byte_length);
     recognizer->snapshot_line_index++;
-    recognizer->snapshot_byte_offset =
-        recognizer->line_byte_end < byte_length
-            ? recognizer->line_byte_end + 1u
-            : recognizer->line_byte_end;
+
     memset(&recognizer->scan_line, 0, sizeof(recognizer->scan_line));
     recognizer->scan_line_retained = false;
     recognizer->line_start_position_valid = false;
@@ -1077,20 +1051,39 @@ static boxrig_status resume_recognizer(
     while (work_used < work_budget &&
            recognizer->phase != BOXRIG_TEXT_RECOGNIZER_COMPLETE) {
         if (recognizer->phase == BOXRIG_TEXT_RECOGNIZER_LINE_START) {
-            boxrig_text_snapshot *snapshot;
-            size_t line_count;
+            boxrig_status status;
+            boxrig_text_screen screen;
 
             if (recognizer->snapshot_index == recognizer->snapshot_count) {
                 recognizer->phase = BOXRIG_TEXT_RECOGNIZER_COMMIT;
                 continue;
             }
-            snapshot = recognizer->snapshots[recognizer->snapshot_index];
-            line_count = boxrig_text_snapshot_line_count(snapshot);
-            if (recognizer->snapshot_line_index == line_count) {
+            if (recognizer->snapshot_line_index ==
+                recognizer->document_line_counts[
+                    recognizer->snapshot_index]) {
                 recognizer->snapshot_index++;
                 recognizer->snapshot_line_index = 0u;
-                recognizer->snapshot_byte_offset = 0u;
                 continue;
+            }
+            screen = recognizer->scope == BOXRIG_TEXT_RECOGNIZER_SCOPE_ALTERNATE ||
+                         (recognizer->scope == BOXRIG_TEXT_RECOGNIZER_SCOPE_BOTH &&
+                          recognizer->snapshot_index == 1u)
+                         ? BOXRIG_TEXT_SCREEN_ALTERNATE
+                         : BOXRIG_TEXT_SCREEN_PRIMARY;
+            status = boxrig_terminal_reuse_text_line_snapshot(
+                terminal, screen,
+                recognizer->next_fragment_indices[
+                    recognizer->snapshot_index],
+                &recognizer->snapshots[recognizer->snapshot_index],
+                &recognizer->next_fragment_indices[
+                    recognizer->snapshot_index]);
+            if (status == BOXRIG_STATUS_LIMIT_EXCEEDED) {
+                make_incomplete(terminal, recognizer);
+                break;
+            }
+            if (status != BOXRIG_STATUS_OK) {
+                *work_used_out = work_used;
+                return status;
             }
             begin_line(recognizer);
         } else if (recognizer->phase >=
@@ -1727,6 +1720,7 @@ boxrig_status boxrig_terminal_rescan_text_recognizer(
     if (recognizer == NULL || !recognizer->needs_rescan) {
         return BOXRIG_STATUS_INVALID_ARGUMENT;
     }
+    boxrig_screen_text_sync(&terminal->screen);
     status = prepare_scan(terminal, recognizer);
     if (status != BOXRIG_STATUS_OK) {
         return status;

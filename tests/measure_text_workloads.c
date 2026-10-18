@@ -29,6 +29,8 @@ typedef struct allocation_measurement {
     size_t calls;
     size_t current_bytes;
     size_t peak_bytes;
+    double elapsed_seconds;
+    double cpu_seconds;
 } allocation_measurement;
 
 typedef struct workload_result {
@@ -58,6 +60,8 @@ typedef struct workload_result {
 static allocation_measurement allocation_state;
 static uint64_t allocation_generation;
 static bool allocation_tracking;
+static struct timespec allocation_start_wall;
+static struct timespec allocation_start_cpu;
 
 void *__real_malloc(size_t size);
 void *__real_calloc(size_t count, size_t size);
@@ -180,14 +184,32 @@ static void allocation_measurement_begin(void)
         allocation_generation = 1;
     }
     memset(&allocation_state, 0, sizeof(allocation_state));
+    if (clock_gettime(CLOCK_MONOTONIC, &allocation_start_wall) != 0 ||
+        clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &allocation_start_cpu) != 0) {
+        perror("start workload timing");
+        exit(EXIT_FAILURE);
+    }
     allocation_tracking = true;
 }
 
 static allocation_measurement allocation_measurement_end(void)
 {
     allocation_measurement result = allocation_state;
+    struct timespec end_wall;
+    struct timespec end_cpu;
 
     allocation_tracking = false;
+    if (clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &end_cpu) != 0 ||
+        clock_gettime(CLOCK_MONOTONIC, &end_wall) != 0) {
+        perror("finish workload timing");
+        exit(EXIT_FAILURE);
+    }
+    result.elapsed_seconds =
+        (double)(end_wall.tv_sec - allocation_start_wall.tv_sec) +
+        (double)(end_wall.tv_nsec - allocation_start_wall.tv_nsec) / 1e9;
+    result.cpu_seconds =
+        (double)(end_cpu.tv_sec - allocation_start_cpu.tv_sec) +
+        (double)(end_cpu.tv_nsec - allocation_start_cpu.tv_nsec) / 1e9;
     return result;
 }
 
@@ -1350,7 +1372,8 @@ static void print_result(const workload_result *result)
         "recognizer_match_identity_comparisons=%zu "
         "synced_fragments=%zu placeholder_cells=%zu "
         "rows=%zu columns=%zu history_rows=%zu chunk_bytes=%zu "
-        "feed_calls=%zu graphics_mode=%zu elapsed_seconds=%.9f cpu_seconds=%.9f\n",
+        "feed_calls=%zu graphics_mode=%zu elapsed_seconds=%.9f cpu_seconds=%.9f "
+        "allocation_elapsed_seconds=%.9f allocation_cpu_seconds=%.9f\n",
         result->name,
         result->fragments,
         result->projected_bytes,
@@ -1382,7 +1405,9 @@ static void print_result(const workload_result *result)
         result->feed_calls,
         result->graphics_mode,
         result->elapsed_seconds,
-        result->cpu_seconds);
+        result->cpu_seconds,
+        result->allocations.elapsed_seconds,
+        result->allocations.cpu_seconds);
 }
 
 static bool measure_recognizer_retained_matches(

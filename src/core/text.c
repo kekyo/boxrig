@@ -124,6 +124,7 @@ typedef struct boxrig_text_snapshot_point {
 struct boxrig_text_snapshot {
     uint8_t *bytes;
     size_t byte_length;
+    size_t byte_capacity;
     boxrig_text_snapshot_point *points;
     size_t point_count;
     size_t point_capacity;
@@ -1357,6 +1358,129 @@ static void *snapshot_allocate(boxrig_screen *screen, size_t size)
         }
     }
     return malloc(size == 0 ? 1 : size);
+}
+
+boxrig_status boxrig_screen_text_document_size(
+    const boxrig_screen *screen,
+    boxrig_text_screen text_screen,
+    size_t *bytes_out,
+    size_t *lines_out)
+{
+    size_t fragment_count;
+    size_t line_start = 0;
+    size_t bytes = 0;
+    size_t lines = 0;
+
+    if (screen == NULL || !text_screen_valid(text_screen) ||
+        bytes_out == NULL || lines_out == NULL) {
+        return BOXRIG_STATUS_INVALID_ARGUMENT;
+    }
+    fragment_count = document_fragment_count(screen, text_screen);
+    while (line_start < fragment_count) {
+        const boxrig_text_fragment_metadata *metadata =
+            document_fragment_metadata(screen, text_screen, line_start);
+        size_t line_end = logical_line_end(screen, text_screen, line_start);
+        size_t separator = line_end < fragment_count ? 1u : 0u;
+
+        if (lines == SIZE_MAX ||
+            metadata->projected_length > SIZE_MAX - bytes ||
+            separator > SIZE_MAX - bytes - metadata->projected_length) {
+            return BOXRIG_STATUS_LIMIT_EXCEEDED;
+        }
+        bytes += metadata->projected_length + separator;
+        lines++;
+        line_start = line_end;
+    }
+    *bytes_out = bytes;
+    *lines_out = lines;
+    return BOXRIG_STATUS_OK;
+}
+
+boxrig_status boxrig_terminal_reuse_text_line_snapshot(
+    const boxrig_terminal *terminal,
+    boxrig_text_screen text_screen,
+    size_t fragment_index,
+    boxrig_text_snapshot **snapshot_inout,
+    size_t *next_fragment_out)
+{
+    boxrig_text_projection_sink measure;
+    boxrig_text_projection_sink writer;
+    boxrig_text_snapshot *snapshot;
+    boxrig_screen *screen;
+    size_t fragment_count;
+    size_t line_end;
+    size_t end_column;
+
+    if (terminal == NULL || !text_screen_valid(text_screen) ||
+        snapshot_inout == NULL || next_fragment_out == NULL) {
+        return BOXRIG_STATUS_INVALID_ARGUMENT;
+    }
+    screen = (boxrig_screen *)&terminal->screen;
+    fragment_count = document_fragment_count(screen, text_screen);
+    if (fragment_index >= fragment_count) {
+        return BOXRIG_STATUS_INVALID_ARGUMENT;
+    }
+    line_end = logical_line_end(screen, text_screen, fragment_index);
+    if (line_end - fragment_index > SIZE_MAX / screen->columns) {
+        return BOXRIG_STATUS_LIMIT_EXCEEDED;
+    }
+    end_column = (line_end - fragment_index) * screen->columns;
+    memset(&measure, 0, sizeof(measure));
+    measure.screen = text_screen;
+    measure.text_revision = screen->text_revision;
+    project_range(screen, text_screen, fragment_index, fragment_index,
+                  0, end_column, &measure);
+    if (measure.overflow ||
+        measure.point_count > SIZE_MAX / sizeof(*snapshot->points)) {
+        return BOXRIG_STATUS_LIMIT_EXCEEDED;
+    }
+    snapshot = *snapshot_inout;
+    if (snapshot == NULL) {
+        snapshot = snapshot_allocate(screen, sizeof(*snapshot));
+        if (snapshot == NULL) {
+            return BOXRIG_STATUS_OUT_OF_MEMORY;
+        }
+        memset(snapshot, 0, sizeof(*snapshot));
+        *snapshot_inout = snapshot;
+    }
+    if (measure.byte_count > snapshot->byte_capacity) {
+        uint8_t *bytes = snapshot_allocate(screen, measure.byte_count);
+
+        if (bytes == NULL) {
+            return BOXRIG_STATUS_OUT_OF_MEMORY;
+        }
+        free(snapshot->bytes);
+        snapshot->bytes = bytes;
+        snapshot->byte_capacity = measure.byte_count;
+    }
+    if (measure.point_count > snapshot->point_capacity) {
+        boxrig_text_snapshot_point *points = snapshot_allocate(
+            screen, measure.point_count * sizeof(*points));
+
+        if (points == NULL) {
+            return BOXRIG_STATUS_OUT_OF_MEMORY;
+        }
+        free(snapshot->points);
+        snapshot->points = points;
+        snapshot->point_capacity = measure.point_count;
+    }
+    snapshot->screen = text_screen;
+    snapshot->revision = screen->text_revision;
+    snapshot->line_count = 1;
+    memset(&writer, 0, sizeof(writer));
+    writer.snapshot = snapshot;
+    writer.screen = text_screen;
+    writer.text_revision = snapshot->revision;
+    project_range(screen, text_screen, fragment_index, fragment_index,
+                  0, end_column, &writer);
+    if (writer.overflow || writer.byte_count != measure.byte_count ||
+        writer.point_count != measure.point_count) {
+        return BOXRIG_STATUS_LIMIT_EXCEEDED;
+    }
+    snapshot->byte_length = writer.byte_count;
+    snapshot->point_count = writer.point_count;
+    *next_fragment_out = line_end;
+    return BOXRIG_STATUS_OK;
 }
 
 static boxrig_status project_preserved_range(

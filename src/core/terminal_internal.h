@@ -343,6 +343,17 @@ void boxrig_screen_text_reset_fragment(
     boxrig_screen *screen,
     boxrig_text_fragment_metadata *fragment);
 void boxrig_screen_text_sync(boxrig_screen *screen);
+boxrig_status boxrig_screen_text_document_size(
+    const boxrig_screen *screen,
+    boxrig_text_screen text_screen,
+    size_t *bytes_out,
+    size_t *lines_out);
+boxrig_status boxrig_terminal_reuse_text_line_snapshot(
+    const boxrig_terminal *terminal,
+    boxrig_text_screen text_screen,
+    size_t fragment_index,
+    boxrig_text_snapshot **snapshot_inout,
+    size_t *next_fragment_out);
 void boxrig_screen_reset(boxrig_screen *screen);
 void boxrig_screen_update_synchronized_output_time(
     boxrig_screen *screen,
