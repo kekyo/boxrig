@@ -1152,6 +1152,21 @@ $(BUILD_DIR)/tests/test_pangocairo_colors: tests/pangocairo/test_pangocairo_colo
 		src/pangocairo/renderer.c $(PANGO_CANDIDATE_OBJECT) $(UI_LIBRARY) $(LIBRARY) \
 		$(PANGO_CAIRO_LIBS) $(SANITIZERS) -o $@
 
+.PHONY: test-pangocairo-backgrounds
+test: test-pangocairo-backgrounds
+test-pangocairo-backgrounds: $(BUILD_DIR)/tests/measure_pangocairo_backgrounds
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $< self-test
+
+$(BUILD_DIR)/tests/measure_pangocairo_backgrounds: tests/pangocairo/measure_backgrounds.c \
+		src/pangocairo/renderer.c src/pangocairo/renderer.h \
+		src/pangocairo/renderer_private.h src/ui/view_private.h src/ui/color_private.h \
+		$(PANGO_CANDIDATE_OBJECT) $(UI_HEADERS) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) -Isrc $(POSIX_CPPFLAGS) \
+		$(PANGO_CAIRO_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) \
+		tests/pangocairo/measure_backgrounds.c src/pangocairo/renderer.c \
+		$(PANGO_CANDIDATE_OBJECT) $(UI_LIBRARY) $(LIBRARY) \
+		$(PANGO_CAIRO_LIBS) $(SANITIZERS) -Wl,--wrap=cairo_fill -o $@
+
 $(BUILD_DIR)/tests/test_opengl_colors: tests/test_opengl_colors.c \
 		tests/color_renderer_fixture.c tests/color_renderer_fixture.h \
 		tests/opengl_host.c tests/opengl_host.h src/opengl/renderer.h \
