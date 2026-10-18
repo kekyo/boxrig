@@ -32,6 +32,16 @@ static void text_workload_visit_bytes(size_t count)
     text_workload_add(&text_workload_counters.visited_bytes, count);
 }
 
+static void text_workload_sync_fragment(void)
+{
+    text_workload_add(&text_workload_counters.synced_fragments, 1u);
+}
+
+void boxrig_text_workload_observe_placeholder_cell(void)
+{
+    text_workload_add(&text_workload_counters.placeholder_cells, 1u);
+}
+
 static void text_workload_observe_event_queue(size_t count)
 {
     if (text_workload_counters.monitor_event_queue_high_water < count) {
@@ -92,6 +102,7 @@ void boxrig_text_workload_counters_read(
 #else
 #define text_workload_visit_cells(count) ((void)(count))
 #define text_workload_visit_bytes(count) ((void)(count))
+#define text_workload_sync_fragment() ((void)0)
 #define text_workload_observe_event_queue(count) ((void)(count))
 #define text_workload_observe_staging_queue(count) ((void)(count))
 #endif
@@ -595,6 +606,7 @@ static bool sync_document(
         for (fragment_index = line_start;
              fragment_index < line_end;
              fragment_index++) {
+            text_workload_sync_fragment();
             const boxrig_text_fragment_metadata *candidate =
                 document_fragment_metadata(
                     screen,

@@ -510,6 +510,8 @@ void boxrig_text_recognizer_destroy(boxrig_terminal *terminal);
 typedef struct boxrig_text_workload_counters {
     size_t visited_cells;
     size_t visited_bytes;
+    size_t synced_fragments;
+    size_t placeholder_cells;
     size_t monitor_event_queue_high_water;
     size_t monitor_staging_queue_high_water;
     size_t recognizer_event_queue_high_water;
@@ -522,11 +524,13 @@ typedef struct boxrig_text_workload_counters {
 void boxrig_text_workload_counters_reset(void);
 void boxrig_text_workload_counters_read(
     boxrig_text_workload_counters *counters_out);
+void boxrig_text_workload_observe_placeholder_cell(void);
 void boxrig_text_workload_observe_recognizer_event_queue(size_t count);
 void boxrig_text_workload_observe_recognizer_prepare_step(bool budgeted);
 void boxrig_text_workload_observe_recognizer_cursor_creation(void);
 void boxrig_text_workload_observe_recognizer_match_identity_comparison(void);
 #else
+#define boxrig_text_workload_observe_placeholder_cell() ((void)0)
 #define boxrig_text_workload_observe_recognizer_event_queue(count) \
     ((void)(count))
 #define boxrig_text_workload_observe_recognizer_prepare_step(budgeted) \

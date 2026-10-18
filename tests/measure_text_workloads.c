@@ -7,12 +7,14 @@
 #include "boxrig/terminal.h"
 #include "terminal_internal.h"
 
+#include <errno.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/resource.h>
+#include <time.h>
 
 typedef union allocation_header {
     struct {
@@ -40,6 +42,14 @@ typedef struct workload_result {
     size_t matches;
     size_t input_bytes;
     size_t paste_chunks;
+    size_t rows;
+    size_t columns;
+    size_t history_rows;
+    size_t chunk_bytes;
+    size_t feed_calls;
+    size_t graphics_mode;
+    double elapsed_seconds;
+    double cpu_seconds;
     boxrig_text_workload_counters text;
     allocation_measurement allocations;
     long peak_rss_kib;
@@ -1337,7 +1347,10 @@ static void print_result(const workload_result *result)
         "recognizer_prepare_steps=%zu "
         "recognizer_unbudgeted_prepare_steps=%zu "
         "recognizer_cursor_creations=%zu "
-        "recognizer_match_identity_comparisons=%zu\n",
+        "recognizer_match_identity_comparisons=%zu "
+        "synced_fragments=%zu placeholder_cells=%zu "
+        "rows=%zu columns=%zu history_rows=%zu chunk_bytes=%zu "
+        "feed_calls=%zu graphics_mode=%zu elapsed_seconds=%.9f cpu_seconds=%.9f\n",
         result->name,
         result->fragments,
         result->projected_bytes,
@@ -1359,7 +1372,17 @@ static void print_result(const workload_result *result)
         result->text.recognizer_prepare_steps,
         result->text.recognizer_unbudgeted_prepare_steps,
         result->text.recognizer_cursor_creations,
-        result->text.recognizer_match_identity_comparisons);
+        result->text.recognizer_match_identity_comparisons,
+        result->text.synced_fragments,
+        result->text.placeholder_cells,
+        result->rows,
+        result->columns,
+        result->history_rows,
+        result->chunk_bytes,
+        result->feed_calls,
+        result->graphics_mode,
+        result->elapsed_seconds,
+        result->cpu_seconds);
 }
 
 static bool measure_recognizer_retained_matches(
@@ -1581,11 +1604,193 @@ static bool run_self_test(void)
     return true;
 }
 
+static bool parse_size(const char *text, size_t *value_out)
+{
+    char *end = NULL;
+    errno = 0;
+    unsigned long long value = strtoull(text, &end, 10);
+    if (text[0] < '0' || text[0] > '9' || *end != '\0' ||
+        errno != 0 || value > SIZE_MAX) {
+        return false;
+    }
+    *value_out = (size_t)value;
+    return true;
+}
+
+static double timespec_seconds(struct timespec end, struct timespec start)
+{
+    return (double)(end.tv_sec - start.tv_sec) +
+           (double)(end.tv_nsec - start.tv_nsec) / 1000000000.0;
+}
+
+static bool measure_input_workload(
+    const char *name,
+    size_t rows,
+    size_t columns,
+    size_t history,
+    size_t chunk_bytes,
+    size_t feed_calls,
+    size_t graphics_mode,
+    workload_result *result)
+{
+    static const uint8_t ascii[] =
+        "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ\r\n";
+    static const uint8_t utf8[] = "\xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e e\xcc\x81\r\n";
+    static const uint8_t overwrite[] = "\rX";
+    /* Virtual placement allocates placeholder storage. Enabling graphics alone
+     * does not, so these are deliberately separate measurement conditions. */
+    static const uint8_t virtual_image[] =
+        "\033_Ga=T,f=24,s=1,v=1,i=1,p=1,c=1,r=1,U=1,q=2;////\033\\";
+    const uint8_t *record;
+    size_t record_length;
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    boxrig_terminal *terminal = NULL;
+    uint8_t *bytes = NULL;
+    bool passed = false;
+    struct timespec start_wall, end_wall, start_cpu, end_cpu;
+
+    if (strcmp(name, "input-ascii") == 0) {
+        record = ascii;
+        record_length = sizeof(ascii) - 1;
+    } else if (strcmp(name, "input-utf8") == 0) {
+        record = utf8;
+        record_length = sizeof(utf8) - 1;
+    } else if (strcmp(name, "input-overwrite") == 0) {
+        record = overwrite;
+        record_length = sizeof(overwrite) - 1;
+    } else {
+        return fail_step(name, "unknown input workload");
+    }
+    if (rows == 0 || rows > 1000 || columns == 0 || columns > 1000 ||
+        history > BOXRIG_SCROLLBACK_CAPACITY_MAX || chunk_bytes == 0 ||
+        feed_calls == 0 || feed_calls > (64u * 1024u * 1024u) / chunk_bytes ||
+        graphics_mode > 2) {
+        return fail_step(name, "invalid input workload dimensions");
+    }
+    size_t length = chunk_bytes * feed_calls;
+    config.rows = rows;
+    config.columns = columns;
+    config.scrollback_capacity = history;
+    if (graphics_mode == 0) {
+        config.graphics_storage_capacity = 0;
+        config.graphics_decode_capacity = 0;
+        config.graphics_image_capacity = 0;
+        config.graphics_placement_capacity = 0;
+        config.graphics_transport_name_capacity = 0;
+        config.graphics_animation_storage_capacity = 0;
+        config.graphics_frame_capacity = 0;
+    }
+    memset(result, 0, sizeof(*result));
+    result->name = name;
+    result->rows = rows;
+    result->columns = columns;
+    result->chunk_bytes = chunk_bytes;
+    result->feed_calls = feed_calls;
+    result->graphics_mode = graphics_mode;
+    bytes = malloc(length);
+    if (bytes == NULL ||
+        boxrig_terminal_create(&config, &terminal) != BOXRIG_STATUS_OK) {
+        goto cleanup;
+    }
+    for (size_t index = 0; index < length; index++) {
+        bytes[index] = record[index % record_length];
+    }
+    if (!feed_repeated_record(terminal, (const uint8_t *)"\r\n", 2,
+                              history + rows) ||
+        boxrig_terminal_scrollback_rows(terminal) != history ||
+        !feed_bytes(terminal, (const uint8_t *)"\rX", 2)) {
+        goto cleanup;
+    }
+    if (graphics_mode == 2 &&
+        (boxrig_terminal_set_cell_pixel_geometry(terminal, 7, 14) !=
+             BOXRIG_STATUS_OK ||
+         !feed_bytes(terminal, virtual_image, sizeof(virtual_image) - 1) ||
+         boxrig_terminal_image_count(terminal) != 1)) {
+        goto cleanup;
+    }
+
+    /* Setup, input generation and terminal destruction are outside the timed
+     * region. Finish input is included so a split final UTF-8 unit is resolved. */
+    boxrig_text_workload_counters_reset();
+    allocation_measurement_begin();
+    if (clock_gettime(CLOCK_MONOTONIC, &start_wall) != 0 ||
+        clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &start_cpu) != 0) {
+        goto cleanup;
+    }
+    for (size_t offset = 0; offset < length; offset += chunk_bytes) {
+        if (!feed_bytes(terminal, bytes + offset, chunk_bytes)) {
+            goto cleanup;
+        }
+    }
+    if (boxrig_terminal_finish_input(terminal) != BOXRIG_STATUS_OK ||
+        clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &end_cpu) != 0 ||
+        clock_gettime(CLOCK_MONOTONIC, &end_wall) != 0) {
+        goto cleanup;
+    }
+    result->elapsed_seconds = timespec_seconds(end_wall, start_wall);
+    result->cpu_seconds = timespec_seconds(end_cpu, start_cpu);
+    result->input_bytes = length;
+    result->history_rows = boxrig_terminal_scrollback_rows(terminal);
+    result->fragments = boxrig_terminal_text_fragment_count(
+        terminal, BOXRIG_TEXT_SCREEN_PRIMARY);
+    boxrig_text_workload_counters_read(&result->text);
+    result->allocations = allocation_measurement_end();
+    result->peak_rss_kib = peak_rss_kib();
+    passed = result->history_rows == history;
+
+cleanup:
+    if (allocation_tracking) {
+        (void)allocation_measurement_end();
+    }
+    boxrig_terminal_destroy(terminal);
+    free(bytes);
+    return passed || fail_step(name, "input workload execution");
+}
+
+static bool run_input_self_test(void)
+{
+    static const char *names[] = {
+        "input-ascii", "input-utf8", "input-overwrite"
+    };
+    workload_result result;
+
+    for (size_t mode = 0; mode <= 2; mode++) {
+        for (size_t index = 0; index < sizeof(names) / sizeof(names[0]); index++) {
+            /* Single-byte feeds exercise split UTF-8 and control sequences. */
+            if (!measure_input_workload(names[index], 24, 80, 4, 1, 128,
+                                        mode, &result) ||
+                result.input_bytes != 128 || result.history_rows != 4 ||
+                result.fragments != 28 || result.elapsed_seconds < 0.0 ||
+                result.cpu_seconds < 0.0 ||
+                (mode < 2 && result.text.placeholder_cells != 0)) {
+                return fail_step("self-test", "input workload metrics");
+            }
+        }
+    }
+    printf("PASS terminal input workload measurement harness\n");
+    return true;
+}
+
 int main(int argc, char **argv)
 {
     workload_result result;
     bool passed;
 
+    if (argc == 8) {
+        size_t values[6];
+        for (size_t index = 0; index < 6; index++) {
+            if (!parse_size(argv[index + 2], &values[index])) {
+                (void)fail_step(argv[1], "invalid numeric argument");
+                return 1;
+            }
+        }
+        if (!measure_input_workload(argv[1], values[0], values[1], values[2],
+                                    values[3], values[4], values[5], &result)) {
+            return 1;
+        }
+        print_result(&result);
+        return 0;
+    }
     if (argc != 2) {
         fprintf(
             stderr,
@@ -1593,12 +1798,15 @@ int main(int argc, char **argv)
             "many-matches|continuous-output|large-copy-paste|"
             "recognizer-long-line|recognizer-many-patterns|"
             "recognizer-continuous-output|recognizer-off-viewport|"
-            "recognizer-retained-matches\n",
-            argv[0]);
+            "recognizer-retained-matches\n"
+            "       %s input-ascii|input-utf8|input-overwrite "
+            "ROWS COLUMNS HISTORY CHUNK_BYTES FEED_CALLS GRAPHICS_MODE\n"
+            "       GRAPHICS_MODE: 0=disabled 1=default 2=virtual-image\n",
+            argv[0], argv[0]);
         return 1;
     }
     if (strcmp(argv[1], "self-test") == 0) {
-        return run_self_test() ? 0 : 1;
+        return run_self_test() && run_input_self_test() ? 0 : 1;
     }
     if (strcmp(argv[1], "maximum-scrollback") == 0) {
         passed = measure_maximum_scrollback(

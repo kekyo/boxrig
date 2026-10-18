@@ -3439,6 +3439,7 @@ static void refresh_derived_placements(boxrig_terminal *terminal)
         for (row = 0; row < terminal->screen.rows; row++) {
             previous.valid = false;
             for (column = 0; column < terminal->screen.columns; column++) {
+                boxrig_text_workload_observe_placeholder_cell();
                 const boxrig_cell *cell = boxrig_screen_view_cell(
                     &terminal->screen,
                     row,
