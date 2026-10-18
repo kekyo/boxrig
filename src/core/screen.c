@@ -1283,9 +1283,11 @@ boxrig_status boxrig_screen_resize_with_markers(
     replacement.cursor_blinking = screen->cursor_blinking;
     replacement.last_printed_text = screen->last_printed_text;
     replacement.last_printed_length = screen->last_printed_length;
+    replacement.last_printed_capacity = screen->last_printed_capacity;
     replacement.last_printed_width = screen->last_printed_width;
     screen->last_printed_text = NULL;
     screen->last_printed_length = 0;
+    screen->last_printed_capacity = 0;
     screen->last_printed_width = 0;
     replacement.style = screen->style;
     replacement.active_hyperlink = screen->active_hyperlink;
@@ -1455,6 +1457,7 @@ void boxrig_screen_reset(boxrig_screen *screen)
     free(screen->last_printed_text);
     screen->last_printed_text = NULL;
     screen->last_printed_length = 0;
+    screen->last_printed_capacity = 0;
     screen->last_printed_width = 0;
     clear_history(screen);
     screen->style = default_style();
@@ -1882,6 +1885,7 @@ void boxrig_screen_soft_reset(boxrig_screen *screen)
     free(screen->last_printed_text);
     screen->last_printed_text = NULL;
     screen->last_printed_length = 0;
+    screen->last_printed_capacity = 0;
     screen->last_printed_width = 0;
     screen->style = default_style();
     screen->cursor_visible = true;
@@ -1927,17 +1931,24 @@ static void update_last_printed(
     size_t text_length,
     uint8_t column_width)
 {
-    char *replacement = NULL;
+    if (text_length == 0) {
+        free(screen->last_printed_text);
+        screen->last_printed_text = NULL;
+        screen->last_printed_length = 0;
+        screen->last_printed_capacity = 0;
+        screen->last_printed_width = column_width;
+        return;
+    }
+    if (text_length > screen->last_printed_capacity) {
+        char *replacement = realloc(screen->last_printed_text, text_length);
 
-    if (text_length != 0) {
-        replacement = malloc(text_length);
         if (replacement == NULL) {
             return;
         }
-        memcpy(replacement, text, text_length);
+        screen->last_printed_text = replacement;
+        screen->last_printed_capacity = text_length;
     }
-    free(screen->last_printed_text);
-    screen->last_printed_text = replacement;
+    memcpy(screen->last_printed_text, text, text_length);
     screen->last_printed_length = text_length;
     screen->last_printed_width = column_width;
 }

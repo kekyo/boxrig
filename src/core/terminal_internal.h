@@ -239,6 +239,7 @@ typedef struct boxrig_screen {
     boxrig_cursor_column_mode cursor_column_mode;
     char *last_printed_text;
     size_t last_printed_length;
+    size_t last_printed_capacity;
     uint8_t last_printed_width;
     bool grapheme_active;
     boxrig_screen_buffer *grapheme_buffer;
