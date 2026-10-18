@@ -7801,6 +7801,128 @@ static bool recognizer_match_text_equals(
     return true;
 }
 
+static bool test_recognizer_relocated_unchanged_text_position(void)
+{
+    for (int completed = 0; completed < 2; completed++) {
+        boxrig_terminal_config config = boxrig_terminal_config_default();
+        config.rows = 1;
+        config.columns = 16;
+        boxrig_terminal *terminal = NULL;
+        CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+        size_t consumed = 0;
+        CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)"hit", 3, &consumed) == BOXRIG_STATUS_OK);
+        uint64_t revision = boxrig_terminal_text_revision(terminal);
+        boxrig_text_recognizer_options options = {0};
+        options.scope = BOXRIG_TEXT_RECOGNIZER_SCOPE_PRIMARY;
+        options.pattern = (const uint8_t *)"hit";
+        options.pattern_length = 3;
+        options.limits = boxrig_text_recognizer_limits_default();
+        boxrig_text_regex_diagnostic diagnostic;
+        uint64_t id = 0;
+        CHECK(boxrig_terminal_register_text_recognizer(terminal, &options, &diagnostic, &id) == BOXRIG_STATUS_OK);
+        if (completed) {
+            CHECK(resume_all_text_recognizers(terminal, 1));
+            CHECK(recognizer_match_text_equals(terminal, id, (const uint8_t *)"hit", 3));
+        } else {
+            size_t used = 0;
+            bool more = false;
+            CHECK(boxrig_terminal_resume_text_recognizers(terminal, 3, &used, &more) == BOXRIG_STATUS_OK);
+            CHECK(used == 3 && more);
+        }
+        static const uint8_t shift[] = "\r\033[2K\033[4Ghit";
+        CHECK(boxrig_terminal_feed(terminal, shift, sizeof(shift) - 1, &consumed) == BOXRIG_STATUS_OK);
+        CHECK(boxrig_terminal_text_revision(terminal) == revision);
+        CHECK(resume_all_text_recognizers(terminal, 1));
+        boxrig_text_recognizer_event event;
+        bool found = false;
+        while (boxrig_terminal_text_recognizer_event_peek(terminal, &event)) {
+            if (event.recognizer_id == id &&
+                event.kind == BOXRIG_TEXT_RECOGNIZER_EVENT_LINE_REPLACED &&
+                event.result_count == 1) {
+                boxrig_text_recognition_result result;
+                size_t required = 0;
+                CHECK(boxrig_terminal_query_text_recognizer_line_results(terminal, id,
+                    event.screen, event.line_id, event.line_revision, event.result_set_revision,
+                    &result, 1, &required) == BOXRIG_STATUS_OK);
+                CHECK(required == 1 && result.range.end.column == 6);
+                found = true;
+            }
+            CHECK(boxrig_terminal_text_recognizer_event_consume(terminal) == BOXRIG_STATUS_OK);
+        }
+        CHECK(found);
+        boxrig_terminal_destroy(terminal);
+    }
+    return true;
+}
+
+static bool test_alternate_resize_updates_text_identity(void)
+{
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    boxrig_terminal *terminal = NULL;
+    size_t consumed = 0;
+    boxrig_text_fragment_view before;
+    boxrig_text_fragment_view after;
+    boxrig_text_snapshot_options options = {0};
+    boxrig_text_snapshot *snapshot = NULL;
+    size_t length = 0;
+    const uint8_t *bytes;
+
+    config.rows = 1;
+    config.columns = 12;
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    static const uint8_t input[] = "\x1b[?1049hABCDEFGHIJ";
+    CHECK(boxrig_terminal_feed(terminal, input, sizeof(input) - 1,
+        &consumed) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_get_text_fragment(terminal,
+        BOXRIG_TEXT_SCREEN_ALTERNATE, 0, &before) == BOXRIG_STATUS_OK);
+    uint64_t revision = boxrig_terminal_text_revision(terminal);
+    CHECK(boxrig_terminal_resize(terminal, 1, 5) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_get_text_fragment(terminal,
+        BOXRIG_TEXT_SCREEN_ALTERNATE, 0, &after) == BOXRIG_STATUS_OK);
+    CHECK(after.line_id.epoch == before.line_id.epoch &&
+        after.line_id.serial == before.line_id.serial);
+    CHECK(after.line_revision > before.line_revision);
+    CHECK(boxrig_terminal_text_revision(terminal) > revision);
+    options.screen = BOXRIG_TEXT_SCREEN_ALTERNATE;
+    options.byte_capacity = 5;
+    options.line_capacity = 1;
+    CHECK(boxrig_terminal_create_text_snapshot(terminal, &options,
+        &snapshot) == BOXRIG_STATUS_OK);
+    bytes = boxrig_text_snapshot_data(snapshot, &length);
+    CHECK(length == 5 && memcmp(bytes, "ABCDE", 5) == 0);
+    boxrig_text_snapshot_destroy(snapshot);
+    boxrig_terminal_destroy(terminal);
+    return true;
+}
+
+static bool test_primary_reflow_updates_wide_padding_identity(void)
+{
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    boxrig_terminal *terminal = NULL;
+    size_t consumed = 0;
+    boxrig_text_fragment_view before;
+    boxrig_text_fragment_view after;
+
+    config.rows = 3;
+    config.columns = 5;
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    static const uint8_t input[] = "abcd\xe7\x95\x8c";
+    CHECK(boxrig_terminal_feed(terminal, input, sizeof(input) - 1,
+        &consumed) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_get_text_fragment(terminal,
+        BOXRIG_TEXT_SCREEN_PRIMARY, 0, &before) == BOXRIG_STATUS_OK);
+    uint64_t revision = boxrig_terminal_text_revision(terminal);
+    CHECK(boxrig_terminal_resize(terminal, 3, 6) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_get_text_fragment(terminal,
+        BOXRIG_TEXT_SCREEN_PRIMARY, 0, &after) == BOXRIG_STATUS_OK);
+    CHECK(after.line_id.epoch == before.line_id.epoch &&
+        after.line_id.serial == before.line_id.serial);
+    CHECK(after.line_revision > before.line_revision);
+    CHECK(boxrig_terminal_text_revision(terminal) > revision);
+    boxrig_terminal_destroy(terminal);
+    return true;
+}
+
 static bool test_text_recognizer_regex_reference_semantics(void)
 {
     static const uint8_t input[] =
@@ -9936,6 +10058,12 @@ int main(void)
          test_literal_search_stale_and_reflow},
         {"bounded regex recognizer reference semantics",
          test_text_recognizer_regex_reference_semantics},
+        {"recognizer follows unchanged text moved to new columns",
+         test_recognizer_relocated_unchanged_text_position},
+        {"alternate resize updates projected text identity",
+         test_alternate_resize_updates_text_identity},
+        {"primary reflow updates wide padding text identity",
+         test_primary_reflow_updates_wide_padding_identity},
         {"text recognizer current results and lifecycle",
          test_text_recognizer_current_results_and_lifecycle},
         {"text recognizer scopes eviction and recovery",

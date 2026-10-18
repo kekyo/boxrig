@@ -100,6 +100,7 @@ typedef struct boxrig_text_line_metrics {
     uint64_t hash_a;
     uint64_t hash_b;
     size_t byte_length;
+    size_t projected_end_column;
     bool has_text;
     bool overflow;
 } boxrig_text_line_metrics;
@@ -526,6 +527,7 @@ static boxrig_text_line_metrics measure_logical_line(
             previous_end = logical_column + width;
         }
     }
+    metrics.projected_end_column = previous_end;
     return metrics;
 }
 
@@ -660,6 +662,13 @@ static bool sync_document(
                 line_revision++;
             }
             changed = true;
+        } else if (!newly_created &&
+                   first->projected_end_column != metrics.projected_end_column) {
+            /* The text is unchanged, but its terminal positions moved. */
+            screen->text_layout_revision++;
+            if (screen->text_layout_revision == 0) {
+                screen->text_layout_revision = 1;
+            }
         }
         if (newly_created) {
             changed = true;
@@ -680,6 +689,7 @@ static bool sync_document(
             destination->content_hash_a = metrics.hash_a;
             destination->content_hash_b = metrics.hash_b;
             destination->projected_length = metrics.byte_length;
+            destination->projected_end_column = metrics.projected_end_column;
             destination->needs_sync = false;
             destination->newly_created = false;
         }

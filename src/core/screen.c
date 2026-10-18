@@ -583,6 +583,8 @@ static boxrig_status copy_buffer_for_resize(
         destination->line_soft_wrapped[row] =
             source->line_soft_wrapped[row];
         destination->text_fragments[row] = source->text_fragments[row];
+        /* Cropping and wide-cell repair can change the projected line. */
+        destination->text_fragments[row].needs_sync = true;
         repair_buffer_wide_cells(destination, columns, row, style);
     }
     destination->cursor.row = clamp_index(source->cursor.row, rows);
@@ -996,6 +998,8 @@ static boxrig_status build_reflowed_primary(
                         source_logical_start);
                 reflow->rows[destination_row].text.logical_column_offset =
                     (destination_row - logical_start) * columns;
+                /* Reflow can move a wide grapheme past a padding column. */
+                reflow->rows[destination_row].text.needs_sync = true;
             }
             for (line_marker_index = line_marker_start;
                  line_marker_index < marker_index;

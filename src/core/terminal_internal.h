@@ -43,6 +43,7 @@ typedef struct boxrig_text_fragment_metadata {
     uint64_t content_hash_a;
     uint64_t content_hash_b;
     size_t projected_length;
+    size_t projected_end_column;
     bool needs_sync;
     bool newly_created;
 } boxrig_text_fragment_metadata;
