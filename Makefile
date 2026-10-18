@@ -2295,7 +2295,15 @@ $(TEXT_WORKLOAD_MEASUREMENT_BINARY): tests/measure_text_workloads.c \
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) \
 		$(PROJECT_CFLAGS) -DBOXRIG_MEASURE_TEXT_WORKLOADS $< \
 		$(TEXT_MEASUREMENT_LIBRARY) -Wl,--wrap=malloc \
-		-Wl,--wrap=calloc -Wl,--wrap=realloc -Wl,--wrap=free -o $@
+		-Wl,--wrap=calloc -Wl,--wrap=realloc -Wl,--wrap=free \
+		-Wl,--wrap=memmove -o $@
+
+$(TEXT_MEASUREMENT_BUILD_DIR)/measure_text_workloads_unwrapped: \
+		tests/measure_text_workloads.c $(TEXT_MEASUREMENT_LIBRARY) | \
+		$(TEXT_MEASUREMENT_BUILD_DIR)
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) \
+		$(PROJECT_CFLAGS) -DBOXRIG_MEASURE_TEXT_WORKLOADS \
+		-DBOXRIG_MEASURE_UNWRAPPED $< $(TEXT_MEASUREMENT_LIBRARY) -o $@
 
 $(PARSER_TEST_BINARY): tests/test_parser.c src/core/parser.c src/core/parser.h | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) tests/test_parser.c src/core/parser.c $(SANITIZERS) -o $@

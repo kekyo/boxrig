@@ -27,8 +27,13 @@ typedef union allocation_header {
 
 typedef struct allocation_measurement {
     size_t calls;
+    size_t frees;
     size_t current_bytes;
     size_t peak_bytes;
+    size_t live_bytes_before;
+    size_t live_bytes_after;
+    size_t live_peak_bytes;
+    size_t memmove_bytes;
     double elapsed_seconds;
     double cpu_seconds;
 } allocation_measurement;
@@ -62,11 +67,37 @@ static uint64_t allocation_generation;
 static bool allocation_tracking;
 static struct timespec allocation_start_wall;
 static struct timespec allocation_start_cpu;
+static size_t allocation_live_bytes;
+
+/* The timing-only executable links the same workload to ordinary allocation
+ * functions. Its allocation/copy metrics are unavailable, rather than zero
+ * measurements; the output identifies that build explicitly. */
+#ifdef BOXRIG_MEASURE_UNWRAPPED
+#define __real_malloc malloc
+#define __real_calloc calloc
+#define __real_realloc realloc
+#define __real_free free
+#define __real_memmove memmove
+#define ALLOCATION_INSTRUMENTED 0
+#else
+#define ALLOCATION_INSTRUMENTED 1
+#endif
 
 void *__real_malloc(size_t size);
 void *__real_calloc(size_t count, size_t size);
 void *__real_realloc(void *pointer, size_t size);
 void __real_free(void *pointer);
+void *__real_memmove(void *destination, const void *source, size_t size);
+
+void *__wrap_memmove(void *destination, const void *source, size_t size)
+{
+    if (allocation_tracking) {
+        allocation_state.memmove_bytes =
+            size > SIZE_MAX - allocation_state.memmove_bytes
+                ? SIZE_MAX : allocation_state.memmove_bytes + size;
+    }
+    return __real_memmove(destination, source, size);
+}
 
 static size_t saturating_add(size_t left, size_t right)
 {
@@ -75,6 +106,7 @@ static size_t saturating_add(size_t left, size_t right)
 
 static void record_allocation(allocation_header *header, size_t size)
 {
+    allocation_live_bytes += size;
     header->value.size = size;
     header->value.generation = allocation_tracking
                                    ? allocation_generation
@@ -90,6 +122,9 @@ static void record_allocation(allocation_header *header, size_t size)
             allocation_state.current_bytes) {
             allocation_state.peak_bytes =
                 allocation_state.current_bytes;
+        }
+        if (allocation_state.live_peak_bytes < allocation_live_bytes) {
+            allocation_state.live_peak_bytes = allocation_live_bytes;
         }
     }
 }
@@ -141,7 +176,12 @@ void *__wrap_realloc(void *pointer, size_t size)
     }
     header = (allocation_header *)pointer - 1;
     if (size == 0) {
-        if (header->value.generation == allocation_generation) {
+        if (allocation_tracking) {
+            allocation_state.frees++;
+        }
+        allocation_live_bytes -= header->value.size;
+        if (allocation_generation != 0 &&
+            header->value.generation == allocation_generation) {
             allocation_state.current_bytes -= header->value.size;
         }
         __real_free(header);
@@ -156,7 +196,9 @@ void *__wrap_realloc(void *pointer, size_t size)
     if (replacement == NULL) {
         return NULL;
     }
-    if (previous_generation == allocation_generation) {
+    allocation_live_bytes -= previous_size;
+    if (allocation_generation != 0 &&
+        previous_generation == allocation_generation) {
         allocation_state.current_bytes -= previous_size;
     }
     record_allocation(replacement, size);
@@ -171,7 +213,12 @@ void __wrap_free(void *pointer)
         return;
     }
     header = (allocation_header *)pointer - 1;
-    if (header->value.generation == allocation_generation) {
+    if (allocation_tracking) {
+        allocation_state.frees++;
+    }
+    allocation_live_bytes -= header->value.size;
+    if (allocation_generation != 0 &&
+        header->value.generation == allocation_generation) {
         allocation_state.current_bytes -= header->value.size;
     }
     __real_free(header);
@@ -184,6 +231,8 @@ static void allocation_measurement_begin(void)
         allocation_generation = 1;
     }
     memset(&allocation_state, 0, sizeof(allocation_state));
+    allocation_state.live_bytes_before = allocation_live_bytes;
+    allocation_state.live_peak_bytes = allocation_live_bytes;
     if (clock_gettime(CLOCK_MONOTONIC, &allocation_start_wall) != 0 ||
         clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &allocation_start_cpu) != 0) {
         perror("start workload timing");
@@ -199,6 +248,7 @@ static allocation_measurement allocation_measurement_end(void)
     struct timespec end_cpu;
 
     allocation_tracking = false;
+    result.live_bytes_after = allocation_live_bytes;
     if (clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &end_cpu) != 0 ||
         clock_gettime(CLOCK_MONOTONIC, &end_wall) != 0) {
         perror("finish workload timing");
@@ -1373,7 +1423,10 @@ static void print_result(const workload_result *result)
         "synced_fragments=%zu placeholder_cells=%zu "
         "rows=%zu columns=%zu history_rows=%zu chunk_bytes=%zu "
         "feed_calls=%zu graphics_mode=%zu elapsed_seconds=%.9f cpu_seconds=%.9f "
-        "allocation_elapsed_seconds=%.9f allocation_cpu_seconds=%.9f\n",
+        "allocation_elapsed_seconds=%.9f allocation_cpu_seconds=%.9f "
+        "frees=%zu allocation_retained_bytes=%zu "
+        "live_bytes_before=%zu live_bytes_after=%zu live_peak_bytes=%zu "
+        "memmove_bytes=%zu cell_size_bytes=%zu allocation_instrumented=%d\n",
         result->name,
         result->fragments,
         result->projected_bytes,
@@ -1407,7 +1460,14 @@ static void print_result(const workload_result *result)
         result->elapsed_seconds,
         result->cpu_seconds,
         result->allocations.elapsed_seconds,
-        result->allocations.cpu_seconds);
+        result->allocations.cpu_seconds,
+        result->allocations.frees,
+        result->allocations.current_bytes,
+        result->allocations.live_bytes_before,
+        result->allocations.live_bytes_after,
+        result->allocations.live_peak_bytes,
+        result->allocations.memmove_bytes,
+        sizeof(boxrig_cell), ALLOCATION_INSTRUMENTED);
 }
 
 static bool measure_recognizer_retained_matches(
@@ -1538,10 +1598,52 @@ cleanup:
     return passed;
 }
 
+static bool run_allocation_self_test(void)
+{
+    size_t initial_live_bytes = allocation_live_bytes;
+    void *retained = __wrap_malloc(16);
+    void *old = __wrap_malloc(8);
+    uint8_t source[16] = {1, 2, 3};
+    uint8_t destination[16] = {0};
+
+    if (retained == NULL || old == NULL) {
+        return fail_step("self-test", "allocation fixture");
+    }
+    allocation_measurement_begin();
+    void *temporary = __wrap_malloc(24);
+    retained = __wrap_realloc(retained, 32);
+    void *zeroed = __wrap_calloc(2, 8);
+    if (temporary == NULL || retained == NULL || zeroed == NULL) {
+        return fail_step("self-test", "allocation growth fixture");
+    }
+    __wrap_free(old);
+    __wrap_free(temporary);
+    __wrap_free(NULL);
+    zeroed = __wrap_realloc(zeroed, 0);
+    __wrap_memmove(destination, source, sizeof(source));
+    allocation_measurement result = allocation_measurement_end();
+    __wrap_free(retained);
+    if (zeroed != NULL || memcmp(destination, source, sizeof(source)) != 0 ||
+        result.calls != 3 || result.frees != 3 ||
+        result.current_bytes != 32 || result.peak_bytes != 72 ||
+        result.live_bytes_before != initial_live_bytes + 24 ||
+        result.live_bytes_after != initial_live_bytes + 32 ||
+        result.live_peak_bytes != initial_live_bytes + 80 ||
+        result.memmove_bytes != sizeof(source) ||
+        allocation_live_bytes != initial_live_bytes) {
+        return fail_step("self-test", "allocation lifetime and copy metrics");
+    }
+    puts("PASS allocation lifetime and copy measurement");
+    return true;
+}
+
 static bool run_self_test(void)
 {
     workload_result result;
 
+    if (!run_allocation_self_test()) {
+        return false;
+    }
     if (!measure_maximum_scrollback(4, &result) ||
         result.fragments != 5 || result.projected_bytes != 4 ||
         result.text.visited_cells != 5 ||
@@ -1662,6 +1764,8 @@ static bool measure_input_workload(
         "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ\r\n";
     static const uint8_t utf8[] = "\xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e e\xcc\x81\r\n";
     static const uint8_t overwrite[] = "\rX";
+    static const uint8_t log[] =
+        "\x1b[32mINFO\x1b[0m task=123 status=complete elapsed=42ms\r\n";
     /* Virtual placement allocates placeholder storage. Enabling graphics alone
      * does not, so these are deliberately separate measurement conditions. */
     static const uint8_t virtual_image[] =
@@ -1683,6 +1787,9 @@ static bool measure_input_workload(
     } else if (strcmp(name, "input-overwrite") == 0) {
         record = overwrite;
         record_length = sizeof(overwrite) - 1;
+    } else if (strcmp(name, "input-log") == 0) {
+        record = log;
+        record_length = sizeof(log) - 1;
     } else {
         return fail_step(name, "unknown input workload");
     }
@@ -1775,7 +1882,7 @@ cleanup:
 static bool run_input_self_test(void)
 {
     static const char *names[] = {
-        "input-ascii", "input-utf8", "input-overwrite"
+        "input-ascii", "input-utf8", "input-log", "input-overwrite"
     };
     workload_result result;
 
@@ -1871,13 +1978,17 @@ int main(int argc, char **argv)
             "recognizer-long-line|recognizer-many-patterns|"
             "recognizer-continuous-output|recognizer-off-viewport|"
             "recognizer-retained-matches\n"
-            "       %s input-ascii|input-utf8|input-overwrite "
+            "       %s input-ascii|input-utf8|input-log|input-overwrite "
             "ROWS COLUMNS HISTORY CHUNK_BYTES FEED_CALLS GRAPHICS_MODE\n"
             "       GRAPHICS_MODE: 0=disabled 1=default 2=virtual-image\n",
             argv[0], argv[0]);
         return 1;
     }
     if (strcmp(argv[1], "self-test") == 0) {
+        if (!ALLOCATION_INSTRUMENTED) {
+            (void)fail_step("self-test", "requires instrumented executable");
+            return 1;
+        }
         return run_self_test() && run_input_self_test() &&
                run_history_sync_budget_test() &&
                run_placeholder_sync_budget_test() ? 0 : 1;
