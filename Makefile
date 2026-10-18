@@ -1108,6 +1108,14 @@ test-recognizer-projection: $(BUILD_DIR)/tests/test_recognizer_projection
 $(BUILD_DIR)/tests/test_recognizer_projection: tests/test_recognizer_projection.c $(CORE_HEADERS) $(TEXT_MEASUREMENT_LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) -DBOXRIG_MEASURE_TEXT_WORKLOADS $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(TEXT_MEASUREMENT_LIBRARY) $(SANITIZERS) -o $@
 
+.PHONY: test-recognizer-reuse
+test: test-recognizer-reuse
+test-recognizer-reuse: $(BUILD_DIR)/tests/test_recognizer_reuse
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
+
+$(BUILD_DIR)/tests/test_recognizer_reuse: tests/test_recognizer_reuse.c $(CORE_HEADERS) $(TEXT_MEASUREMENT_LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) -DBOXRIG_MEASURE_TEXT_WORKLOADS $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(TEXT_MEASUREMENT_LIBRARY) $(SANITIZERS) -Wl,--wrap=calloc -o $@
+
 .PHONY: test-last-printed-storage
 test: test-last-printed-storage
 test-last-printed-storage: $(BUILD_DIR)/tests/test_last_printed_storage
