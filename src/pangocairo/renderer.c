@@ -3811,16 +3811,20 @@ static int draw_visual_backgrounds(
     const boxrig_terminal *terminal,
     size_t row,
     const boxrig_text_layout *layout,
+    size_t first_column,
+    size_t column_count,
     bool default_pass)
 {
     size_t visual_column;
-    size_t columns = boxrig_text_layout_column_count(layout);
-    size_t run_start = 0;
+    size_t end_column = first_column + column_count;
+    size_t run_start = first_column;
     unsigned long run_background = 0;
     uint8_t run_opacity = 0;
     bool run_active = false;
 
-    for (visual_column = 0; visual_column < columns; visual_column++) {
+    /* draw_terminal_row has validated this visual interval before clipping. */
+    for (visual_column = first_column;
+         visual_column < end_column; visual_column++) {
         size_t logical_column;
         boxrig_cell_view cell;
         unsigned long background = renderer->default_background;
@@ -3855,7 +3859,7 @@ static int draw_visual_backgrounds(
             run_active = true;
         }
     }
-    if (run_active && fill_background_run(renderer, row, run_start, columns,
+    if (run_active && fill_background_run(renderer, row, run_start, end_column,
             run_background, run_opacity) == -1) {
         return -1;
     }
@@ -4432,7 +4436,9 @@ static int draw_terminal_row(
             renderer,
             terminal,
             row,
-            shape->layout, true) == -1) {
+            shape->layout,
+            visual_column,
+            visual_column_count, true) == -1) {
         goto cleanup;
     }
     cairo_set_operator(renderer->cairo, CAIRO_OPERATOR_OVER);
@@ -4449,7 +4455,9 @@ static int draw_terminal_row(
             renderer,
             terminal,
             row,
-            shape->layout, false) == -1 ||
+            shape->layout,
+            visual_column,
+            visual_column_count, false) == -1 ||
         composite_image_layer(
             renderer,
             terminal,
