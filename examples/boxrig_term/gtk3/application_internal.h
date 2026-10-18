@@ -104,6 +104,8 @@ typedef struct boxrig_term_gtk3_application {
     bool render_policy_pending;
     boxrig_gtk_render_policy pending_render_policy;
     bool frame_requested;
+    /* Recognition and queued result events can outlive the last frame. */
+    bool recognition_pending;
     bool host_items_pending;
     bool enable_background_opacity;
     double pointer_x;

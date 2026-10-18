@@ -18,12 +18,14 @@
  * @param host_items_pending Whether native host work remains queued.
  * @param widget_can_frame Whether the widget can currently produce a frame.
  * @param frame_requested Whether a frame has been requested.
+ * @param recognition_pending Whether recognition or result events remain.
  * @return `true` when dispatch must run again without blocking.
  */
 bool boxrig_term_gtk3_dispatch_needs_immediate_wake(
     bool host_items_pending,
     bool widget_can_frame,
-    bool frame_requested);
+    bool frame_requested,
+    bool recognition_pending);
 
 /**
  * Determines whether an attached descriptor needs a new event mask.

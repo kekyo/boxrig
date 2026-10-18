@@ -5828,3 +5828,35 @@ test-fcitx4-display: $(GTK3_EXAMPLE_BINARY) $(WAYLAND_EXAMPLE_BINARY)
 	done
 	$(XVFB_RUN) -a -s '-screen 0 1280x800x24' env BOXRIG_TEST_FCITX4_DISPLAY=1 GDK_BACKEND=x11 GTK_IM_MODULE=gtk-im-context-simple GTK_A11Y=none NO_AT_BRIDGE=1 GIO_USE_VFS=local LIBGL_ALWAYS_SOFTWARE=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4_real.sh node tests/ime/test_display.mjs $(GTK3_EXAMPLE_BINARY) gtk3 cairo $(BUILD_DIR)/test-results/fcitx4-display/gtk3-system
 	$(XVFB_RUN) -a -s '-screen 0 1280x800x24' env BOXRIG_TEST_FCITX4_DISPLAY=1 BOXRIG_TEST_FCITX4_CLIENT=1 GDK_BACKEND=x11 GTK_IM_MODULE=gtk-im-context-simple GTK_A11Y=none NO_AT_BRIDGE=1 GIO_USE_VFS=local LIBGL_ALWAYS_SOFTWARE=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4_real.sh node tests/ime/test_display.mjs $(GTK3_EXAMPLE_BINARY) gtk3 cairo $(BUILD_DIR)/test-results/fcitx4-display/gtk3-client
+
+# Real sample GSource regression, using an isolated GLib main context.
+SAMPLE_RECOGNITION_SOURCES := tests/gtk/test_sample_recognition.c \
+	examples/boxrig_term/common/text_policy.c \
+	examples/boxrig_term/common/font_demo.c \
+	examples/boxrig_term/common/scrollbar_demo.c
+
+$(BUILD_DIR)/tests/test_gtk3_sample_recognition: $(SAMPLE_RECOGNITION_SOURCES) \
+		examples/boxrig_term/gtk3/event_source.c examples/boxrig_term/gtk3/application_internal.h \
+		examples/boxrig_term/gtk3/event_source_policy.c $(GTK3_LIBRARY) $(SESSION_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK3_CPPFLAGS) \
+		$(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) -ffunction-sections -fdata-sections \
+		$(SAMPLE_RECOGNITION_SOURCES) examples/boxrig_term/gtk3/event_source_policy.c \
+		$(GTK3_LIBRARY) $(SESSION_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK3_LIBS) \
+		-Wl,--gc-sections,--wrap=boxrig_term_text_policy_resume $(SANITIZERS) -o $@
+
+$(BUILD_DIR)/tests/test_gtk4_sample_recognition: $(SAMPLE_RECOGNITION_SOURCES) \
+		examples/boxrig_term/gtk4/event_source.c examples/boxrig_term/gtk4/application_internal.h \
+		examples/boxrig_term/gtk4/event_source_policy.c $(GTK4_LIBRARY) $(SESSION_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK4_CPPFLAGS) \
+		$(CFLAGS) $(GTK4_PROJECT_CFLAGS) $(SANITIZERS) -ffunction-sections -fdata-sections \
+		$(SAMPLE_RECOGNITION_SOURCES) examples/boxrig_term/gtk4/event_source_policy.c \
+		$(GTK4_LIBRARY) $(SESSION_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK4_LIBS) \
+		-Wl,--gc-sections,--wrap=boxrig_term_text_policy_resume $(SANITIZERS) -o $@
+
+.PHONY: test-gtk-sample-recognition
+test: test-gtk-sample-recognition
+test-gtk-sample-recognition: $(BUILD_DIR)/tests/test_gtk3_sample_recognition $(BUILD_DIR)/tests/test_gtk4_sample_recognition $(FRONTEND_SAMPLE_GTK3_PROBE_BINARY) $(FRONTEND_SAMPLE_GTK4_PROBE_BINARY)
+	$(XVFB_RUN) -a env GDK_BACKEND=x11 LIBGL_ALWAYS_SOFTWARE=1 NO_AT_BRIDGE=1 GTK_A11Y=none ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(BUILD_DIR)/tests/test_gtk3_sample_recognition
+	$(XVFB_RUN) -a env GDK_BACKEND=x11 LIBGL_ALWAYS_SOFTWARE=1 NO_AT_BRIDGE=1 GTK_A11Y=none GSK_RENDERER=cairo $(GTK4_TEST_IM_ENV) ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(BUILD_DIR)/tests/test_gtk4_sample_recognition
+	$(XVFB_RUN) -a env GDK_BACKEND=x11 LIBGL_ALWAYS_SOFTWARE=1 NO_AT_BRIDGE=1 GTK_A11Y=none node tests/gtk/run_sample_recognition.mjs $(FRONTEND_SAMPLE_GTK3_PROBE_BINARY)
+	$(XVFB_RUN) -a env GDK_BACKEND=x11 LIBGL_ALWAYS_SOFTWARE=1 NO_AT_BRIDGE=1 GTK_A11Y=none $(GTK4_TEST_IM_ENV) node tests/gtk/run_sample_recognition.mjs $(FRONTEND_SAMPLE_GTK4_PROBE_BINARY)
