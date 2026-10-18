@@ -271,3 +271,11 @@ ASCIIでは確保と解放がそれぞれ約101万回、色付きログでは約
 確保・解放の削減、コアCPU時間、通常実アプリのDSRで改善を確認し、生存量・コピー量の増加と対象テストの退行はなかったため、所有権移管を採用する。今回の変更だけで履歴ありASCIIのGNOMEとの差が解消したとは判断しない。
 
 コアの条件と生データは build/plan4-2-results/stage1/core/、追加31対は build/plan4-2-results/stage1/unchanged-path-repeat/ に保存した。実アプリの設定と生データは build/plan4-2-results/stage1/ の phase-empty、phase-full、phase-baseline-repeat-empty、phase-baseline-repeat-full にある。再実行は第0段階と同じスクリプトを使い、起動の制限時間を120秒に設定する。
+
+### 第2段階の検証で見つかった通知本文の問題
+
+第2段階のセル保存方式を変更したビルドで端末テストをASan・UBSan付きで実行した際、OSC 99通知の本文が空の条件で、通知本文を正規化する関数がNULLのバイト列をmemchrへ渡すことを検出した。本文の長さは0でも、memchrへ渡す引数にはNULLを使えない。既存の通知処理にある問題かを確かめるため、第1段階のコミット fefccbe の通知コードと内部ヘッダーを別の保存領域に取り出し、通知コードだけをUBSan付きでコンパイルした。残りのコア処理には、第0段階の5faae9b相当に再リンクした build/plan4-2-results/baseline/phase-rebuild/libboxrig.a を使った。分割されたタイトルのみの通知を送ると、修正前コードのnormalize_bodyで同じエラーを再現した。したがって、第2段階のセル保存方式が原因ではない。
+
+補足修正として、空の本文を持つ通知が機能上は受理され、タイトルと長さ0の本文が取得できることを単独の回帰テストで確認する。修正前は同じテストをUBSan付きで実行して失敗を確認し、その後、本文が空ならNULLをmemchrへ渡さずに正規化を終了する最小の変更を行う。修正後は同じテストを通し、本文がある既存の通知も退行しないことを確認する。独立した修正として第2段階の性能比較から分けてコミットする。
+
+単独の回帰テストでは、分割して送ったタイトルが「Second」として届き、本文の長さが0であることを検証した。修正前は通知コードをASan・UBSan付きで直接リンクした実行でnormalize_bodyのNULL引数エラーを再現し、修正後は同じ入力で成功した。変更は本文長が0の場合にmemchrを呼ばず成功を返す条件だけである。再現時に使った各ファイルのSHA-256とコマンドは build/plan4-2-results/stage2/notification-baseline/reproduction.txt に保存した。再現ログと回帰テストのRED/GREENログは同じディレクトリーの red-title-only.log、build/plan4-2-results/stage2/notification-empty-red.log、notification-empty-green-final.log にある。既存の通知全体を含む端末テストと全体テストは後続の検証で確認する。

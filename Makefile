@@ -5940,3 +5940,11 @@ include tests/performance/phase_probe.mk
 test: test-performance-phases
 test-performance-phases: $(PHASE_STATE_TEST)
 	$(PHASE_STATE_TEST)
+
+.PHONY: test-notification-empty-body
+test: test-notification-empty-body
+test-notification-empty-body: $(BUILD_DIR)/tests/test_notification_empty_body
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
+
+$(BUILD_DIR)/tests/test_notification_empty_body: tests/test_notification_empty_body.c src/core/notification.c $(CORE_HEADERS) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) -fno-sanitize-recover=undefined tests/test_notification_empty_body.c src/core/notification.c $(LIBRARY) $(SANITIZERS) -o $@
