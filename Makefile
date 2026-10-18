@@ -209,11 +209,13 @@ TEXT_MEASUREMENT_RECOGNIZER_OBJECT := \
 	$(TEXT_MEASUREMENT_BUILD_DIR)/recognizer.o
 TEXT_MEASUREMENT_GRAPHICS_OBJECT := \
 	$(TEXT_MEASUREMENT_BUILD_DIR)/graphics_protocol.o
+TEXT_MEASUREMENT_INTERPRETER_OBJECT := \
+	$(TEXT_MEASUREMENT_BUILD_DIR)/interpreter.o
 TEXT_MEASUREMENT_CORE_OBJECTS := $(filter-out \
 	$(BUILD_DIR)/core/text.o $(BUILD_DIR)/core/recognizer.o \
-	$(BUILD_DIR)/core/graphics_protocol.o,$(CORE_OBJECTS)) \
+	$(BUILD_DIR)/core/graphics_protocol.o $(BUILD_DIR)/core/interpreter.o,$(CORE_OBJECTS)) \
 	$(TEXT_MEASUREMENT_TEXT_OBJECT) $(TEXT_MEASUREMENT_RECOGNIZER_OBJECT) \
-	$(TEXT_MEASUREMENT_GRAPHICS_OBJECT)
+	$(TEXT_MEASUREMENT_GRAPHICS_OBJECT) $(TEXT_MEASUREMENT_INTERPRETER_OBJECT)
 UI_SOURCES := $(wildcard src/ui/*.c)
 UI_OBJECTS := $(patsubst src/ui/%.c,$(BUILD_DIR)/ui/%.o,$(UI_SOURCES))
 UI_HEADERS := include/boxrig/ui.h $(wildcard include/boxrig/ui/*.h)
@@ -2296,6 +2298,11 @@ $(TEXT_MEASUREMENT_RECOGNIZER_OBJECT): src/core/recognizer.c \
 		$(PROJECT_CFLAGS) -DBOXRIG_MEASURE_TEXT_WORKLOADS -c $< -o $@
 
 $(TEXT_MEASUREMENT_GRAPHICS_OBJECT): src/core/graphics_protocol.c \
+		$(CORE_HEADERS) | $(TEXT_MEASUREMENT_BUILD_DIR)
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) \
+		$(PROJECT_CFLAGS) -DBOXRIG_MEASURE_TEXT_WORKLOADS -c $< -o $@
+
+$(TEXT_MEASUREMENT_INTERPRETER_OBJECT): src/core/interpreter.c \
 		$(CORE_HEADERS) | $(TEXT_MEASUREMENT_BUILD_DIR)
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) \
 		$(PROJECT_CFLAGS) -DBOXRIG_MEASURE_TEXT_WORKLOADS -c $< -o $@
@@ -5964,3 +5971,11 @@ test-screen-row-rotation: $(BUILD_DIR)/tests/test_screen_row_rotation
 
 $(BUILD_DIR)/tests/test_screen_row_rotation: tests/test_screen_row_rotation.c $(CORE_HEADERS) $(LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(LIBRARY) $(SANITIZERS) -Wl,--wrap=calloc -Wl,--wrap=memmove -Wl,--wrap=boxrig_screen_view_cell -o $@
+
+.PHONY: test-ascii-runs
+test: test-ascii-runs
+test-ascii-runs: $(BUILD_DIR)/tests/test_ascii_runs
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
+
+$(BUILD_DIR)/tests/test_ascii_runs: tests/test_ascii_runs.c $(CORE_HEADERS) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(LIBRARY) $(SANITIZERS) -Wl,--wrap=boxrig_unicode_cluster_analyzer_accept -Wl,--wrap=malloc -o $@

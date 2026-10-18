@@ -413,6 +413,12 @@ bool boxrig_screen_translate_byte(
 boxrig_status boxrig_screen_put_codepoint(
     boxrig_screen *screen,
     int32_t codepoint);
+/* Consumes a printable-ASCII span within the current row when its state is
+ * equivalent to separate scalar writes. Returns zero to use that path. */
+size_t boxrig_screen_put_ascii_run(
+    boxrig_screen *screen,
+    const uint8_t *bytes,
+    size_t length);
 void boxrig_screen_end_text(boxrig_screen *screen);
 void boxrig_screen_move_cursor_for_image(
     boxrig_screen *screen,
@@ -546,6 +552,8 @@ typedef struct boxrig_text_workload_counters {
     size_t visited_bytes;
     size_t synced_fragments;
     size_t placeholder_cells;
+    size_t ascii_batches;
+    size_t ascii_batch_bytes;
     size_t monitor_event_queue_high_water;
     size_t monitor_staging_queue_high_water;
     size_t recognizer_event_queue_high_water;
@@ -559,12 +567,14 @@ void boxrig_text_workload_counters_reset(void);
 void boxrig_text_workload_counters_read(
     boxrig_text_workload_counters *counters_out);
 void boxrig_text_workload_observe_placeholder_cell(void);
+void boxrig_text_workload_observe_ascii_batch(size_t count);
 void boxrig_text_workload_observe_recognizer_event_queue(size_t count);
 void boxrig_text_workload_observe_recognizer_prepare_step(bool budgeted);
 void boxrig_text_workload_observe_recognizer_cursor_creation(void);
 void boxrig_text_workload_observe_recognizer_match_identity_comparison(void);
 #else
 #define boxrig_text_workload_observe_placeholder_cell() ((void)0)
+#define boxrig_text_workload_observe_ascii_batch(count) ((void)(count))
 #define boxrig_text_workload_observe_recognizer_event_queue(count) \
     ((void)(count))
 #define boxrig_text_workload_observe_recognizer_prepare_step(budgeted) \

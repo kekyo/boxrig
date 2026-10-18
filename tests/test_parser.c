@@ -45,6 +45,10 @@ typedef struct action_log {
     size_t dcs_unhook_count;
     size_t dcs_cancel_count;
     size_t print_count;
+    size_t print_run_count;
+    size_t largest_print_run;
+    size_t run_block_after;
+    bool block_run;
 } action_log;
 
 static void log_byte(action_log *log, uint8_t byte)
@@ -78,6 +82,39 @@ static boxrig_status record_print(void *context, uint8_t byte)
         log->print_count++;
     }
     return status;
+}
+
+static boxrig_status record_print_run(
+    void *context,
+    const uint8_t *bytes,
+    size_t length,
+    size_t *consumed_out)
+{
+    action_log *log = context;
+
+    log->print_run_count++;
+    if (length > log->largest_print_run) {
+        log->largest_print_run = length;
+    }
+    *consumed_out = 0;
+    while (*consumed_out < length) {
+        if (log->block_run && log->print_count == log->run_block_after) {
+            log->block_run = false;
+            return BOXRIG_STATUS_WOULD_BLOCK;
+        }
+        uint8_t byte = bytes[*consumed_out];
+
+        if (byte < 0x20 || byte > 0x7e) {
+            return BOXRIG_STATUS_INVALID_ARGUMENT;
+        }
+        boxrig_status status = record_print(context, byte);
+
+        if (status != BOXRIG_STATUS_OK) {
+            return status;
+        }
+        (*consumed_out)++;
+    }
+    return BOXRIG_STATUS_OK;
 }
 
 static boxrig_status record_flush_print(void *context)
@@ -271,6 +308,7 @@ static boxrig_parser_actions actions_for(action_log *log)
 
     actions.context = log;
     actions.print = record_print;
+    actions.print_run = NULL;
     actions.flush_print = record_flush_print;
     actions.execute = record_execute;
     actions.dispatch_escape = record_escape;
@@ -807,12 +845,115 @@ static bool test_bounded_dcs_fragmentation_fuzz(void)
     return true;
 }
 
+static bool test_ascii_runs_preserve_boundaries_and_retry(void)
+{
+    static const uint8_t prefix[] = "\r";
+    static const uint8_t input[] =
+        "ABCD\r\nEF\x1b[31mGH\x7fIJ\xc3\xa9KL";
+    action_log expected = {0};
+    boxrig_parser reference;
+    boxrig_parser_actions actions = actions_for(&expected);
+    size_t consumed = 0;
+
+    boxrig_parser_initialize(&reference, &actions, 64);
+    CHECK(boxrig_parser_feed(&reference, prefix, 1, &consumed) ==
+          BOXRIG_STATUS_OK);
+    CHECK(boxrig_parser_feed(&reference, input, sizeof(input) - 1, &consumed) ==
+          BOXRIG_STATUS_OK);
+    for (size_t split = 0; split <= sizeof(input) - 1; split++) {
+        action_log actual = {0};
+        boxrig_parser parser;
+
+        actions = actions_for(&actual);
+        actions.print_run = record_print_run;
+        boxrig_parser_initialize(&parser, &actions, 64);
+        CHECK(boxrig_parser_feed(&parser, prefix, 1, &consumed) ==
+              BOXRIG_STATUS_OK);
+        CHECK(boxrig_parser_feed(&parser, input, split, &consumed) ==
+              BOXRIG_STATUS_OK);
+        CHECK(consumed == split);
+        CHECK(boxrig_parser_feed(&parser, input + split,
+                                 sizeof(input) - 1 - split, &consumed) ==
+              BOXRIG_STATUS_OK);
+        CHECK(consumed == sizeof(input) - 1 - split);
+        CHECK(logs_equal(&expected, &actual));
+        CHECK(actual.print_run_count != 0);
+    }
+    for (size_t accepted = 0; accepted < 4; accepted++) {
+        action_log actual = {0};
+        boxrig_parser parser;
+
+        actual.block_run = true;
+        actual.run_block_after = accepted;
+        actions = actions_for(&actual);
+        actions.print_run = record_print_run;
+        boxrig_parser_initialize(&parser, &actions, 64);
+        CHECK(boxrig_parser_feed(&parser, prefix, 1, &consumed) ==
+              BOXRIG_STATUS_OK);
+        CHECK(parser.last_input_was_cr);
+        CHECK(boxrig_parser_feed(&parser, input, sizeof(input) - 1, &consumed) ==
+              BOXRIG_STATUS_WOULD_BLOCK);
+        CHECK(consumed == accepted);
+        CHECK(parser.last_input_was_cr == (accepted == 0));
+        CHECK(boxrig_parser_feed(&parser, input + accepted,
+                                 sizeof(input) - 1 - accepted, &consumed) ==
+              BOXRIG_STATUS_OK);
+        CHECK(consumed == sizeof(input) - 1 - accepted);
+        CHECK(logs_equal(&expected, &actual));
+        CHECK(!parser.last_input_was_cr);
+    }
+    return true;
+}
+
+static bool test_ascii_run_retry_has_bounded_lookahead(void)
+{
+    uint8_t input[16384];
+    action_log expected = {0};
+    action_log actual = {0};
+    boxrig_parser reference;
+    boxrig_parser parser;
+    boxrig_parser_actions actions = actions_for(&expected);
+    size_t consumed = 0;
+
+    for (size_t index = 0; index < sizeof(input); index++) {
+        input[index] = (uint8_t)(0x20 + index % 95);
+    }
+    boxrig_parser_initialize(&reference, &actions, 64);
+    CHECK(boxrig_parser_feed(&reference, input, sizeof(input), &consumed) ==
+          BOXRIG_STATUS_OK);
+    CHECK(consumed == sizeof(input));
+    actions = actions_for(&actual);
+    actions.print_run = record_print_run;
+    boxrig_parser_initialize(&parser, &actions, 64);
+    for (size_t offset = 0; offset < sizeof(input); offset += consumed) {
+        actual.block_run = true;
+        actual.run_block_after = actual.print_count + 1;
+        boxrig_status status = boxrig_parser_feed(
+            &parser, input + offset, sizeof(input) - offset, &consumed);
+
+        CHECK(status == (offset + 1 < sizeof(input) ?
+              BOXRIG_STATUS_WOULD_BLOCK : BOXRIG_STATUS_OK));
+        CHECK(consumed == 1);
+        /* A retry must not rescan all remaining input before making progress. */
+        CHECK(actual.largest_print_run <= 4096);
+    }
+    CHECK(actual.print_count == expected.print_count);
+    CHECK(actual.hash == expected.hash);
+    CHECK(actual.action_count == expected.action_count);
+    CHECK(logs_equal(&expected, &actual));
+    return true;
+}
+
 int main(void)
 {
     static const struct {
         const char *name;
         bool (*run)(void);
     } tests[] = {
+        {"ASCII run boundaries and retry",
+         test_ascii_runs_preserve_boundaries_and_retry},
+        {"ASCII run retry has bounded lookahead",
+         test_ascii_run_retry_has_bounded_lookahead},
         {"DCS selector and lifecycle", test_dcs_selector_and_lifecycle},
         {"DCS CAN and SUB unhook active commands",
          test_dcs_cancel_and_sub_are_unhooked},

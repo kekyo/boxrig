@@ -649,6 +649,36 @@ boxrig_status boxrig_parser_feed(
             case BOXRIG_PARSER_GROUND:
                 if (byte == 0x7f) {
                     status = BOXRIG_STATUS_OK;
+                } else if (byte < 0x7f && parser->actions.print_run != NULL &&
+                           length - consumed > 1 &&
+                           bytes[consumed + 1] >= 0x20 &&
+                           bytes[consumed + 1] <= 0x7e) {
+                    size_t run_length = 2;
+                    size_t accepted = 0;
+
+                    /* Bound repeated lookahead when a consumer must retry
+                     * near the beginning of a long printable run. */
+                    while (run_length < 1024 &&
+                           run_length < length - consumed &&
+                           bytes[consumed + run_length] >= 0x20 &&
+                           bytes[consumed + run_length] <= 0x7e) {
+                        run_length++;
+                    }
+                    status = parser->actions.print_run(
+                        parser->actions.context,
+                        bytes + consumed,
+                        run_length,
+                        &accepted);
+                    consumed += accepted;
+                    if (accepted != 0) {
+                        parser->ground_print_flushed = false;
+                        parser->last_input_was_cr = false;
+                    }
+                    if (status != BOXRIG_STATUS_OK) {
+                        *consumed_out = consumed;
+                        return status;
+                    }
+                    continue;
                 } else {
                     status = parser->actions.print(
                         parser->actions.context,

@@ -58,6 +58,42 @@ static boxrig_status interpreter_print(void *context, uint8_t byte)
         byte, emit_codepoint, terminal);
 }
 
+static boxrig_status interpreter_print_run(
+    void *context,
+    const uint8_t *bytes,
+    size_t length,
+    size_t *consumed_out)
+{
+    boxrig_terminal *terminal = context;
+
+    *consumed_out = 0;
+    while (*consumed_out < length) {
+        if (terminal->encoding == BOXRIG_ENCODING_UTF8 &&
+            terminal->decoder.utf8.length == 0) {
+            size_t placed = boxrig_screen_put_ascii_run(
+                &terminal->screen,
+                bytes + *consumed_out,
+                length - *consumed_out);
+
+            if (placed != 0) {
+                boxrig_text_workload_observe_ascii_batch(placed);
+                *consumed_out += placed;
+                continue;
+            }
+        }
+        /* A partial encoded character or unsupported screen state keeps the
+         * ordinary decoder, grapheme and per-character notification behavior. */
+        boxrig_status status = interpreter_print(
+            terminal, bytes[*consumed_out]);
+
+        if (status != BOXRIG_STATUS_OK) {
+            return status;
+        }
+        (*consumed_out)++;
+    }
+    return BOXRIG_STATUS_OK;
+}
+
 static boxrig_status interpreter_flush_print(void *context)
 {
     boxrig_terminal *terminal = context;
@@ -1693,6 +1729,7 @@ boxrig_parser_actions boxrig_interpreter_actions(boxrig_terminal *terminal)
 
     actions.context = terminal;
     actions.print = interpreter_print;
+    actions.print_run = interpreter_print_run;
     actions.flush_print = interpreter_flush_print;
     actions.execute = interpreter_execute;
     actions.dispatch_escape = interpreter_dispatch_escape;

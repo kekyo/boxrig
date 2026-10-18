@@ -1421,6 +1421,7 @@ static void print_result(const workload_result *result)
         "recognizer_cursor_creations=%zu "
         "recognizer_match_identity_comparisons=%zu "
         "synced_fragments=%zu placeholder_cells=%zu "
+        "ascii_batches=%zu ascii_batch_bytes=%zu "
         "rows=%zu columns=%zu history_rows=%zu chunk_bytes=%zu "
         "feed_calls=%zu graphics_mode=%zu elapsed_seconds=%.9f cpu_seconds=%.9f "
         "allocation_elapsed_seconds=%.9f allocation_cpu_seconds=%.9f "
@@ -1451,6 +1452,8 @@ static void print_result(const workload_result *result)
         result->text.recognizer_match_identity_comparisons,
         result->text.synced_fragments,
         result->text.placeholder_cells,
+        result->text.ascii_batches,
+        result->text.ascii_batch_bytes,
         result->rows,
         result->columns,
         result->history_rows,
@@ -1908,6 +1911,15 @@ static bool run_input_self_test(void)
                 (mode < 2 && result.text.placeholder_cells != 0)) {
                 return fail_step("self-test", "input workload metrics");
             }
+        }
+        if (!measure_input_workload("input-ascii", 24, 80, 4, 64, 8,
+                                    mode, &result) ||
+            (mode < 2 && (result.text.ascii_batches == 0 ||
+                         result.text.ascii_batch_bytes == 0)) ||
+            (mode == 2 && (result.text.ascii_batches != 0 ||
+                          result.text.ascii_batch_bytes != 0)) ||
+            result.text.ascii_batch_bytes > result.input_bytes) {
+            return fail_step("self-test", "ASCII batching metrics");
         }
     }
     printf("PASS terminal input workload measurement harness\n");

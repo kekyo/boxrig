@@ -2312,6 +2312,95 @@ boxrig_status boxrig_screen_put_codepoint(
     return BOXRIG_STATUS_OK;
 }
 
+size_t boxrig_screen_put_ascii_run(
+    boxrig_screen *screen,
+    const uint8_t *bytes,
+    size_t length)
+{
+    boxrig_cell *row_cells;
+    const boxrig_cell *anchor;
+    size_t row;
+    size_t start;
+    size_t count;
+    size_t end;
+    size_t dirty_start;
+    size_t dirty_end;
+
+    if (screen == NULL || bytes == NULL || length == 0 ||
+        screen->insert_mode || screen->left_right_margin_mode ||
+        screen->line_drawing_character_sets[screen->active_character_set] ||
+        screen->wrap_pending || screen->columns <= 2 ||
+        screen->graphics_sink.text_row_changed != NULL ||
+        screen->last_printed_capacity == 0 ||
+        screen->last_printed_text == NULL ||
+        (screen->owner != NULL &&
+         boxrig_terminal_text_monitor_count(screen->owner) != 0) ||
+        !grapheme_cell_is_valid(screen) ||
+        screen->grapheme_row != screen->cursor_row ||
+        screen->grapheme_column + 1 != screen->cursor_column) {
+        return 0;
+    }
+    anchor = cell_at(screen, screen->grapheme_row, screen->grapheme_column);
+    if (anchor->text_length != 1 || anchor->column_width != 1 ||
+        (uint8_t)boxrig_cell_text(anchor)[0] < 0x20 ||
+        (uint8_t)boxrig_cell_text(anchor)[0] > 0x7e) {
+        return 0;
+    }
+    row = screen->cursor_row;
+    start = screen->cursor_column;
+    count = length < screen->columns - start
+                ? length
+                : screen->columns - start;
+    end = start + count;
+    row_cells = screen->active->row_cells[row];
+    dirty_start = start;
+    dirty_end = end;
+
+    /* Only the two cells crossing the run boundary need separate erasure.
+     * Replacing every cell through erase_cell_range would also clear the
+     * row's soft-wrap flag when the run covers its full width. */
+    boxrig_screen_end_text(screen);
+    mark_cursor(screen);
+    if (row_cells[start].continuation) {
+        set_blank(&row_cells[start - 1], screen->style);
+        dirty_start = start - 1;
+    }
+    if (end < screen->columns && row_cells[end].continuation) {
+        set_blank(&row_cells[end], screen->style);
+        dirty_end = end + 1;
+    }
+    for (size_t index = 0; index < count; index++) {
+        boxrig_cell *cell = &row_cells[start + index];
+
+        set_blank(cell, screen->style);
+        cell->text_storage.bytes[0] = (char)bytes[index];
+        cell->text_length = 1;
+        cell->hyperlink_handle = screen->active_hyperlink;
+        cell->style = screen->style;
+    }
+    mark_interval(screen, row, dirty_start, dirty_end);
+    screen->grapheme_row = row;
+    screen->grapheme_column = end - 1;
+    screen->grapheme_buffer = screen->active;
+    boxrig_unicode_cluster_analyzer_initialize(&screen->grapheme_analyzer);
+    (void)boxrig_unicode_cluster_analyzer_accept(
+        &screen->grapheme_analyzer,
+        (int32_t)bytes[count - 1],
+        screen->ambiguous_width == BOXRIG_AMBIGUOUS_WIDTH_WIDE);
+    screen->grapheme_active = true;
+    screen->last_printed_text[0] = (char)bytes[count - 1];
+    screen->last_printed_length = 1;
+    screen->last_printed_width = 1;
+    if (end < screen->columns) {
+        screen->cursor_column = end;
+    } else {
+        screen->cursor_column = screen->columns - 1;
+        screen->wrap_pending = screen->auto_wrap;
+    }
+    mark_cursor(screen);
+    return count;
+}
+
 void boxrig_screen_put_byte(boxrig_screen *screen, uint8_t byte)
 {
     (void)boxrig_screen_put_codepoint(screen, (int32_t)byte);

@@ -42,6 +42,12 @@ void boxrig_text_workload_observe_placeholder_cell(void)
     text_workload_add(&text_workload_counters.placeholder_cells, 1u);
 }
 
+void boxrig_text_workload_observe_ascii_batch(size_t count)
+{
+    text_workload_add(&text_workload_counters.ascii_batches, 1u);
+    text_workload_add(&text_workload_counters.ascii_batch_bytes, count);
+}
+
 static void text_workload_observe_event_queue(size_t count)
 {
     if (text_workload_counters.monitor_event_queue_high_water < count) {
