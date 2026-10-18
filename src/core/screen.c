@@ -1612,7 +1612,7 @@ void boxrig_screen_delete_rows(
 
 static void push_history_row(boxrig_screen *screen, size_t row)
 {
-    boxrig_cell *cells_copy;
+    boxrig_cell *history_cells;
     size_t column;
     size_t slot;
     bool discarded = false;
@@ -1620,21 +1620,21 @@ static void push_history_row(boxrig_screen *screen, size_t row)
     if (screen->history_capacity == 0) {
         return;
     }
-    cells_copy = calloc(screen->columns, sizeof(*cells_copy));
-    if (cells_copy == NULL) {
+    history_cells = calloc(screen->columns, sizeof(*history_cells));
+    if (history_cells == NULL) {
         return;
     }
+    /* The source row will be erased by the following scroll. Allocate the
+     * complete destination before moving ownership so failure leaves both
+     * the existing history and the source row intact. */
     for (column = 0; column < screen->columns; column++) {
-        if (clone_cell(
-                &cells_copy[column],
-                buffer_cell_at(
-                    &screen->primary,
-                    screen->columns,
-                    row,
-                    column)) != BOXRIG_STATUS_OK) {
-            destroy_cells(cells_copy, screen->columns);
-            return;
-        }
+        move_cell(
+            &history_cells[column],
+            buffer_cell_at(
+                &screen->primary,
+                screen->columns,
+                row,
+                column));
     }
     if (screen->history_count < screen->history_capacity) {
         slot = (screen->history_start + screen->history_count) %
@@ -1650,7 +1650,7 @@ static void push_history_row(boxrig_screen *screen, size_t row)
         discarded = true;
     }
     destroy_cells(screen->history[slot].cell_storage, screen->columns);
-    screen->history[slot].cell_storage = cells_copy;
+    screen->history[slot].cell_storage = history_cells;
     screen->history[slot].soft_wrapped =
         screen->primary.line_soft_wrapped[row];
     screen->history[slot].text = screen->primary.text_fragments[row];
