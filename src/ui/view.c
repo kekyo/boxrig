@@ -1355,13 +1355,15 @@ static void mark_logical_range_dirty(
             continue;
         }
         if (entry->layout == NULL) {
+            /* Overlay dirty uses visual columns. Without a retained mapping,
+             * invalidate the whole row instead of forwarding logical columns. */
             mark_dirty(
                 view,
                 BOXRIG_UI_DIRTY_OVERLAY,
                 row,
                 1,
-                logical_column,
-                logical_count);
+                0,
+                view->column_count);
         } else {
             size_t visual = 0;
 
