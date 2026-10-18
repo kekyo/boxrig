@@ -3454,7 +3454,8 @@ static void advance_initial_monitor_scan(
         const boxrig_text_snapshot *snapshot =
             monitor->snapshots[monitor->scan_snapshot_index];
 
-        while (monitor->scan_byte_offset < snapshot->byte_length &&
+        while (!monitor->needs_rescan &&
+               monitor->scan_byte_offset < snapshot->byte_length &&
                work_used < work_budget) {
             uint8_t byte =
                 snapshot->bytes[monitor->scan_byte_offset];

@@ -2274,8 +2274,8 @@ $(MINGW_AMD64_WIN32_OBJECTS) $(MINGW_I686_WIN32_OBJECTS): \
 	src/ui/view_private.h src/ui/color_private.h \
 	src/win32/host_private.h src/win32/renderer_private.h src/win32/system_library.h src/win32/dpi.h src/win32/transparency_private.h $(CONPTY_HEADER) Makefile
 
-$(TEST_BINARY): tests/test_terminal.c $(LIBRARY) | $(BUILD_DIR)/tests
-	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(LIBRARY) $(SANITIZERS) -o $@
+$(TEST_BINARY): tests/test_terminal.c $(CORE_SOURCES) $(CORE_HEADERS) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) tests/test_terminal.c $(CORE_SOURCES) $(LIBRARY) $(SANITIZERS) -o $@
 
 $(TEXT_MEASUREMENT_TEXT_OBJECT): src/core/text.c $(CORE_HEADERS) | \
 		$(TEXT_MEASUREMENT_BUILD_DIR)
