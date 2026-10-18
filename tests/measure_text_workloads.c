@@ -1796,6 +1796,28 @@ static bool run_history_sync_budget_test(void)
     return passed;
 }
 
+static bool run_placeholder_sync_budget_test(void)
+{
+    workload_result result;
+
+    /* A text edit on one row after a virtual image was installed must not
+     * rescan every other row, including when renderer dirty is still pending. */
+    if (!measure_input_workload("input-overwrite", 24, 80, 0, 2, 32,
+                                2, &result) ||
+        result.text.placeholder_cells > 80u * 33u) {
+        print_result(&result);
+        return fail_step("self-test", "placeholder row sync budget");
+    }
+    if (!measure_input_workload("input-overwrite", 80, 240, 0, 2, 32,
+                                2, &result) ||
+        result.text.placeholder_cells > 240u * 33u) {
+        print_result(&result);
+        return fail_step("self-test", "wide placeholder row sync budget");
+    }
+    printf("PASS bounded placeholder row synchronization\n");
+    return true;
+}
+
 int main(int argc, char **argv)
 {
     workload_result result;
@@ -1832,7 +1854,8 @@ int main(int argc, char **argv)
     }
     if (strcmp(argv[1], "self-test") == 0) {
         return run_self_test() && run_input_self_test() &&
-               run_history_sync_budget_test() ? 0 : 1;
+               run_history_sync_budget_test() &&
+               run_placeholder_sync_budget_test() ? 0 : 1;
     }
     if (strcmp(argv[1], "maximum-scrollback") == 0) {
         passed = measure_maximum_scrollback(

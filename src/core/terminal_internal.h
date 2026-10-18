@@ -180,6 +180,7 @@ typedef struct boxrig_screen_reflow_marker {
 } boxrig_screen_reflow_marker;
 
 typedef struct boxrig_screen_graphics_sink {
+    void (*text_row_changed)(boxrig_terminal *terminal, size_t row);
     void (*scroll_will_change)(
         boxrig_terminal *terminal,
         size_t top,

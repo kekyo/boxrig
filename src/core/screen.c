@@ -215,6 +215,9 @@ static void mark_interval(
         screen->dirty_end[row] = end;
     }
     screen->active->text_fragments[row].needs_sync = true;
+    if (screen->graphics_sink.text_row_changed != NULL) {
+        screen->graphics_sink.text_row_changed(screen->owner, row);
+    }
 }
 
 static void mark_cursor(boxrig_screen *screen)
@@ -234,6 +237,9 @@ void boxrig_screen_mark_all(boxrig_screen *screen)
         screen->dirty_start[row] = 0;
         screen->dirty_end[row] = screen->columns;
         screen->active->text_fragments[row].needs_sync = true;
+        if (screen->graphics_sink.text_row_changed != NULL) {
+            screen->graphics_sink.text_row_changed(screen->owner, row);
+        }
     }
 }
 
