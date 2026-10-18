@@ -824,6 +824,7 @@ static gboolean render_gl_frame(GtkGLArea *area, GdkGLContext *context, gpointer
         config.rendering_policy = widget->rendering_policy;
         config.direction_policy = widget->direction_policy;
         config.initial_target.generation = generation + 1;
+        destination.generation = config.initial_target.generation;
         config.runtime.target_generation = generation + 1;
         boxrig_ui_status status = boxrig_gtk_gl_surface_create(&config, &candidate, &widget->render_state);
         boxrig_pango_cairo_renderer_font_selection_destroy(&font);

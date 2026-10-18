@@ -195,6 +195,7 @@ boxrig_ui_status boxrig_gtk_gl_surface_present(boxrig_gtk_gl_surface *surface,
     }
     if (destination->draw_framebuffer == 0 || destination->width != surface->target.width ||
         destination->height != surface->target.height || destination->samples != 0 ||
+        destination->generation < surface->target.generation ||
         destination->alpha_mode != surface->target.alpha_mode ||
         destination->format != surface->target.format) {
         abort_frame(surface);
