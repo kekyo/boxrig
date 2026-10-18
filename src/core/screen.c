@@ -1522,26 +1522,32 @@ static void move_rows(
 {
     size_t row;
     size_t column;
+    boxrig_cell *row_cells = screen->active->cell_storage;
 
     if (count == 0 || destination == source) {
         return;
     }
-    if (destination < source) {
-        for (row = 0; row < count; row++) {
+    /* Free only destinations that are not also sources of the move. */
+    for (row = destination; row < destination + count; row++) {
+        if (row < source || row >= source + count) {
             for (column = 0; column < screen->columns; column++) {
-                move_cell(
-                    cell_at(screen, destination + row, column),
-                    cell_at(screen, source + row, column));
+                cell_destroy(&row_cells[row * screen->columns + column]);
             }
         }
-    } else {
-        row = count;
-        while (row > 0) {
-            row--;
+    }
+    memmove(
+        &row_cells[destination * screen->columns],
+        &row_cells[source * screen->columns],
+        count * screen->columns * sizeof(*row_cells));
+    /* These source slots now alias the moved text, so clear them without
+     * releasing their pointers. The caller erases their row metadata. */
+    for (row = source; row < source + count; row++) {
+        if (row < destination || row >= destination + count) {
+            boxrig_cell *vacated = &row_cells[row * screen->columns];
+
+            memset(vacated, 0, screen->columns * sizeof(*vacated));
             for (column = 0; column < screen->columns; column++) {
-                move_cell(
-                    cell_at(screen, destination + row, column),
-                    cell_at(screen, source + row, column));
+                vacated[column].column_width = 1;
             }
         }
     }

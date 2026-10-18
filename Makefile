@@ -1114,6 +1114,14 @@ test-last-printed-storage: $(BUILD_DIR)/tests/test_last_printed_storage
 $(BUILD_DIR)/tests/test_last_printed_storage: tests/test_last_printed_storage.c $(CORE_HEADERS) $(LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(LIBRARY) $(SANITIZERS) -Wl,--wrap=malloc -Wl,--wrap=realloc -o $@
 
+.PHONY: test-screen-row-move
+test: test-screen-row-move
+test-screen-row-move: $(BUILD_DIR)/tests/test_screen_row_move
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
+
+$(BUILD_DIR)/tests/test_screen_row_move: tests/test_screen_row_move.c $(CORE_HEADERS) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(LIBRARY) $(SANITIZERS) -Wl,--wrap=free -o $@
+
 .PHONY: test-colors
 test-colors: $(BUILD_DIR)/tests/test_color $(BUILD_DIR)/tests/color-filter-example $(BUILD_DIR)/tests/test_x11_colors \
 	$(BUILD_DIR)/tests/test_pangocairo_colors $(BUILD_DIR)/tests/test_opengl_colors \
