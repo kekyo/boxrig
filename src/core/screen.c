@@ -430,6 +430,7 @@ boxrig_status boxrig_screen_set_scrollback_capacity(
     screen->history_capacity = row_capacity;
     screen->history_start = 0;
     screen->history_count = retained_count;
+    screen->text_history_sync_start = 0;
     if (discarded_count != 0) {
         if (retained_count != 0) {
             screen->history[0].text.needs_sync = true;
@@ -1422,6 +1423,7 @@ static void clear_history(boxrig_screen *screen)
     }
     screen->history_start = 0;
     screen->history_count = 0;
+    screen->text_history_sync_start = 0;
     screen->viewport_offset = 0;
     screen->viewport_anchor_column = 0;
     if (screen->rows != 0) {
@@ -1627,6 +1629,9 @@ static void push_history_row(boxrig_screen *screen, size_t row)
         slot = screen->history_start;
         screen->history_start = (screen->history_start + 1) %
                                 screen->history_capacity;
+        if (screen->text_history_sync_start != 0) {
+            screen->text_history_sync_start--;
+        }
         discarded = true;
     }
     destroy_cells(screen->history[slot].cell_storage, screen->columns);

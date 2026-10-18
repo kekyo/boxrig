@@ -585,9 +585,38 @@ static bool sync_document(
 {
     size_t fragment_count = document_fragment_count(screen, text_screen);
     size_t line_start = 0;
+    size_t tail_start = 0;
     bool changed = false;
 
+    if (text_screen == BOXRIG_TEXT_SCREEN_PRIMARY &&
+        screen->text_history_sync_start != 0) {
+        size_t clean_history = screen->text_history_sync_start;
+
+        if (clean_history > screen->history_count) {
+            clean_history = screen->history_count;
+        }
+        if (clean_history != 0) {
+            /* Include the preceding logical line: an edit on the visible side
+             * can split or join a line at the history boundary. */
+            tail_start = clean_history - 1;
+            while (tail_start != 0 && document_fragment_soft_wrapped(
+                       screen, text_screen, tail_start - 1)) {
+                tail_start--;
+            }
+            const boxrig_text_fragment_metadata *head =
+                document_fragment_metadata(screen, text_screen, 0);
+            if (!head->needs_sync && !head->newly_created) {
+                line_start = tail_start;
+            }
+        }
+    }
     while (line_start < fragment_count) {
+        /* Dropping full history can truncate the first logical line without
+         * changing the middle. Keep that head separate from the changed tail.
+         * A long wrapped head may already overlap the tail; never revisit it. */
+        if (line_start != 0 && line_start < tail_start) {
+            line_start = tail_start;
+        }
         size_t line_end = logical_line_end(screen, text_screen, line_start);
         const boxrig_text_fragment_metadata *first =
             document_fragment_metadata(screen, text_screen, line_start);
@@ -714,6 +743,7 @@ void boxrig_screen_text_sync(boxrig_screen *screen)
 {
     bool changed = sync_document(screen, BOXRIG_TEXT_SCREEN_PRIMARY);
 
+    screen->text_history_sync_start = screen->history_count;
     if (sync_document(screen, BOXRIG_TEXT_SCREEN_ALTERNATE)) {
         changed = true;
     }
@@ -737,6 +767,7 @@ void boxrig_screen_text_initialize(boxrig_screen *screen)
     screen->text_revision = 0;
     screen->text_layout_revision = 1;
     screen->text_identity_limit = false;
+    screen->text_history_sync_start = 0;
     for (row = 0; row < screen->rows; row++) {
         boxrig_screen_text_reset_fragment(
             screen,

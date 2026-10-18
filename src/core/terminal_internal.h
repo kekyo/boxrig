@@ -229,6 +229,9 @@ typedef struct boxrig_screen {
     size_t history_capacity;
     size_t history_start;
     size_t history_count;
+    /* History before this index is synchronized, except a truncated first line.
+     * Visible rows remain candidates even when this equals history_count. */
+    size_t text_history_sync_start;
     size_t viewport_offset;
     size_t viewport_anchor_column;
     boxrig_ambiguous_width ambiguous_width;

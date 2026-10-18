@@ -335,6 +335,7 @@ TEXT_MEASUREMENT_LIBRARY := $(TEXT_MEASUREMENT_BUILD_DIR)/libboxrig.a
 PARSER_TEST_BINARY := $(BUILD_DIR)/tests/test_parser
 GRAPHICS_TEST_BINARY := $(BUILD_DIR)/tests/test_graphics
 SCREEN_TEST_BINARY := $(BUILD_DIR)/tests/test_screen
+TEXT_SYNC_TEST_BINARY := $(BUILD_DIR)/tests/test_text_sync
 TEXT_LAYOUT_TEST_BINARY := $(BUILD_DIR)/tests/test_text_layout
 SEARCH_TRANSFORM_PROTOTYPE_TEST_BINARY := $(BUILD_DIR)/tests/test_search_transform_prototype
 COMPOSITION_TEST_BINARY := $(BUILD_DIR)/tests/test_composition
@@ -1088,6 +1089,14 @@ measure-text-workloads: $(TEXT_WORKLOAD_MEASUREMENT_BINARY)
 	$(TEXT_WORKLOAD_MEASUREMENT_BINARY) recognizer-retained-matches
 
 test: test-terminal-io-integration test-text-blink test-x11-scheduler-required test-blink test-colors test-win32-alpha-report test-win32-opacity-policy test-win32-core-artifacts test-win32-ui-artifacts $(MINGW_AMD64_OPACITY_NATIVE_TEST) $(MINGW_I686_OPACITY_NATIVE_TEST) $(MINGW_AMD64_HOST_TRANSPARENCY_TEST) $(MINGW_I686_HOST_TRANSPARENCY_TEST)
+
+.PHONY: test-text-sync
+test: test-text-sync
+test-text-sync: $(TEXT_SYNC_TEST_BINARY)
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
+
+$(TEXT_SYNC_TEST_BINARY): tests/test_text_sync.c $(CORE_HEADERS) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(LIBRARY) $(SANITIZERS) -o $@
 
 .PHONY: test-colors
 test-colors: $(BUILD_DIR)/tests/test_color $(BUILD_DIR)/tests/color-filter-example $(BUILD_DIR)/tests/test_x11_colors \

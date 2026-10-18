@@ -1771,6 +1771,31 @@ static bool run_input_self_test(void)
     return true;
 }
 
+static bool run_history_sync_budget_test(void)
+{
+    workload_result result;
+    bool passed = true;
+
+    /* Retained, unchanged history must not multiply the work of a short feed.
+     * Allow both visible buffers and the logical lines at history boundaries. */
+    if (!measure_input_workload("input-overwrite", 24, 80, 1024, 2, 32,
+                                1, &result) ||
+        result.text.synced_fragments > (24u * 2u + 4u) * 33u) {
+        print_result(&result);
+        passed = fail_step("self-test", "unchanged history sync budget");
+    }
+    if (!measure_input_workload("input-ascii", 24, 80, 1024, 64, 64,
+                                1, &result) ||
+        result.text.synced_fragments > (24u * 2u + 4u) * 65u) {
+        print_result(&result);
+        passed = fail_step("self-test", "full history scrolling sync budget");
+    }
+    if (passed) {
+        printf("PASS bounded history synchronization\n");
+    }
+    return passed;
+}
+
 int main(int argc, char **argv)
 {
     workload_result result;
@@ -1806,7 +1831,8 @@ int main(int argc, char **argv)
         return 1;
     }
     if (strcmp(argv[1], "self-test") == 0) {
-        return run_self_test() && run_input_self_test() ? 0 : 1;
+        return run_self_test() && run_input_self_test() &&
+               run_history_sync_budget_test() ? 0 : 1;
     }
     if (strcmp(argv[1], "maximum-scrollback") == 0) {
         passed = measure_maximum_scrollback(
