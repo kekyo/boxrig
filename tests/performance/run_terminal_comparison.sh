@@ -6,12 +6,12 @@ project_root=$(cd -- "$script_dir/../.." && pwd)
 
 usage() {
     printf '%s\n' \
-        'usage: run_terminal_comparison.sh BOXRIG_GTK3_BINARY OUTPUT_DIR [ROUNDS [HISTORY_LINES [WORKLOAD_LINES]]]' \
+        'usage: run_terminal_comparison.sh BOXRIG_GTK3_BINARY OUTPUT_DIR [ROUNDS [HISTORY_LINES [WORKLOAD_LINES [MODE]]]]' \
         'Compares 80x24 GTK3 terminals with Monospace 9 and 10000 scrollback lines.' \
         'The timing boundary is the PTY child receiving a DSR reply, not completed display presentation.' >&2
 }
 
-if (( $# < 2 || $# > 5 )); then
+if (( $# < 2 || $# > 6 )); then
     usage
     exit 2
 fi
@@ -21,10 +21,12 @@ output_directory=$2
 rounds=${3:-3}
 history_lines=${4:-0}
 workload_lines=${5:-2000}
+selected_mode=${6:-all}
 
 if [[ ! -x "$boxrig_binary" || ! "$rounds" =~ ^[1-9][0-9]*$ ||
       ! "$history_lines" =~ ^(0|[1-9][0-9]*)$ ||
-      ! "$workload_lines" =~ ^[1-9][0-9]*$ ]]; then
+      ! "$workload_lines" =~ ^[1-9][0-9]*$ ||
+      ! "$selected_mode" =~ ^(all|ascii|log|cr|utf8)$ ]]; then
     usage
     exit 2
 fi
@@ -54,7 +56,7 @@ if [[ ${BOXRIG_PERFORMANCE_SESSION:-} != 1 ]]; then
     export BOXRIG_PERFORMANCE_SESSION=1
     exec xvfb-run -a --server-args='-screen 0 1920x1080x24' \
         dbus-run-session -- "$0" "$boxrig_binary" "$output_directory" \
-        "$rounds" "$history_lines" "$workload_lines"
+        "$rounds" "$history_lines" "$workload_lines" "$selected_mode"
 fi
 
 if [[ -z ${XDG_CONFIG_HOME:-} || -z ${XDG_DATA_HOME:-} ]]; then
@@ -91,6 +93,7 @@ printf '%b\n' \
     printf 'columns=80\nrows=24\nscrollback_limit=10000\n'
     printf 'rounds=%s\nhistory_lines=%s\nworkload_lines=%s\n' \
         "$rounds" "$history_lines" "$workload_lines"
+    printf 'selected_mode=%s\n' "$selected_mode"
     printf 'round_zero=one warm-up per frontend and mode; omit from measured aggregates\n'
     printf 'measurement=start before workload writes; sent after writes; processed after DSR reply\n'
     printf 'limitation=DSR confirms input processing through the query; it does not confirm painting or screen presentation\n'
@@ -128,7 +131,11 @@ run_once() {
         "$round" "$order" "$frontend" "$(tail -n 1 "$report")" >> "$results"
 }
 
-for mode in ascii log cr utf8; do
+modes=(ascii log cr utf8)
+if [[ $selected_mode != all ]]; then
+    modes=("$selected_mode")
+fi
+for mode in "${modes[@]}"; do
     if [[ $mode == ascii || $mode == cr ]]; then
         run_once boxrig "$mode" 0 1
         run_once gnome "$mode" 0 2

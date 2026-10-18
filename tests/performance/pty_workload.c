@@ -95,6 +95,52 @@ static bool query_cursor(unsigned int *row_out, unsigned int *column_out)
            (size_t)consumed == length;
 }
 
+static bool wait_for_phase_report(const char *path, const char *signal_path,
+    uint64_t start_ns, uint64_t processed_ns)
+{
+    FILE *signal = fopen(signal_path, "r");
+    FILE *input;
+    char header[256];
+    char values[256];
+    uint64_t revision;
+    uint64_t marker_ns;
+    uint64_t recognition_ns;
+    uint64_t cairo_ns;
+    uint64_t frame_ns;
+    uint64_t settled_ns;
+    bool complete;
+
+    if (signal == NULL) {
+        return false;
+    }
+    complete = fgetc(signal) == '1';
+    (void)fclose(signal);
+    if (!complete) {
+        return false;
+    }
+    input = fopen(path, "r");
+    if (input == NULL) {
+        return false;
+    }
+    complete = fgets(header, sizeof(header), input) != NULL &&
+               fgets(values, sizeof(values), input) != NULL &&
+               strchr(values, '\n') != NULL &&
+               sscanf(values,
+                   "%" SCNu64 "\t%" SCNu64 "\t%" SCNu64
+                   "\t%" SCNu64 "\t%" SCNu64 "\t%" SCNu64,
+                   &revision, &marker_ns, &recognition_ns,
+                   &cairo_ns, &frame_ns, &settled_ns) == 6 &&
+               revision != 0 && marker_ns >= processed_ns &&
+               recognition_ns >= start_ns &&
+               cairo_ns >= start_ns &&
+               frame_ns >= cairo_ns &&
+               settled_ns >= marker_ns &&
+               settled_ns >= recognition_ns &&
+               settled_ns >= frame_ns;
+    (void)fclose(input);
+    return complete;
+}
+
 static bool query_cell_geometry(unsigned int *height_out,
     unsigned int *width_out)
 {
@@ -152,6 +198,10 @@ static bool emit_line(const char *mode, unsigned int index, size_t *byte_count)
     } else if (strcmp(mode, "utf8") == 0) {
         length = snprintf(line, sizeof(line),
             "日本語の端末表示 %08u cafe\314\201 漢字 ABC\r\n", index);
+    } else if (strcmp(mode, "url") == 0) {
+        length = snprintf(line, sizeof(line),
+            "visit https://example.org/%08u for terminal recognition\r\n",
+            index);
     } else {
         return false;
     }
@@ -198,22 +248,25 @@ int main(int argument_count, char **arguments)
     uint64_t start;
     uint64_t sent;
     uint64_t processed;
+    bool phase_probe;
     FILE *report;
     int result = 1;
 
-    if (argument_count != 8 ||
+    if ((argument_count != 8 && argument_count != 10) ||
         !parse_unsigned(arguments[2], false, &rows) ||
         !parse_unsigned(arguments[3], false, &columns) ||
         !parse_unsigned(arguments[4], true, &history_lines) ||
         !parse_unsigned(arguments[5], false, &workload_lines)) {
         fprintf(stderr,
-            "usage: pty_workload MODE ROWS COLUMNS HISTORY_LINES WORKLOAD_LINES CELL_PROBE REPORT_PATH\n");
+            "usage: pty_workload MODE ROWS COLUMNS HISTORY_LINES WORKLOAD_LINES CELL_PROBE REPORT_PATH [PHASE_PATH PHASE_FIFO]\n");
         return 2;
     }
     mode = arguments[1];
     report_path = arguments[7];
+    phase_probe = argument_count == 10;
     if (strcmp(mode, "ascii") != 0 && strcmp(mode, "log") != 0 &&
-        strcmp(mode, "cr") != 0 && strcmp(mode, "utf8") != 0) {
+        strcmp(mode, "cr") != 0 && strcmp(mode, "utf8") != 0 &&
+        strcmp(mode, "url") != 0) {
         fprintf(stderr, "unknown workload: %s\n", mode);
         return 2;
     }
@@ -276,6 +329,16 @@ int main(int argument_count, char **arguments)
         goto cleanup;
     }
     processed = monotonic_nanoseconds();
+    /* Wait only after the DSR reply, so the frontend cannot block before
+     * satisfying the input-processing measurement. */
+    if (phase_probe &&
+        (!write_all("\033]2;boxrig-phase-final\007",
+                    sizeof("\033]2;boxrig-phase-final\007") - 1) ||
+         !wait_for_phase_report(
+             arguments[8], arguments[9], start, processed))) {
+        fprintf(stderr, "phase report missing: %s\n", arguments[8]);
+        goto cleanup;
+    }
     if (sent < start || processed < sent) {
         goto cleanup;
     }
@@ -284,14 +347,29 @@ int main(int argument_count, char **arguments)
         perror("fopen report");
         goto cleanup;
     }
-    if (fprintf(report,
-            "mode\trows\tcolumns\tcell_height\tcell_width\thistory_lines\thistory_bytes\tworkload_lines\tworkload_bytes\twrite_ns\twrite_to_dsr_ns\ttotal_to_dsr_ns\tdsr_row\tdsr_column\n"
-            "%s\t%u\t%u\t%u\t%u\t%u\t%zu\t%u\t%zu\t%" PRIu64 "\t%" PRIu64 "\t%" PRIu64 "\t%u\t%u\n",
+    int written = fprintf(report,
+        "mode\trows\tcolumns\tcell_height\tcell_width\thistory_lines\thistory_bytes\tworkload_lines\tworkload_bytes\twrite_ns\twrite_to_dsr_ns\ttotal_to_dsr_ns\tdsr_row\tdsr_column");
+    if (phase_probe && written >= 0) {
+        written = fprintf(report, "\tstart_ns\tsent_ns\tprocessed_ns");
+    }
+    if (written >= 0) {
+        written = fprintf(report,
+            "\n%s\t%u\t%u\t%u\t%u\t%u\t%zu\t%u\t%zu\t%" PRIu64
+            "\t%" PRIu64 "\t%" PRIu64 "\t%u\t%u",
             mode, rows, columns, cell_height, cell_width,
-            history_lines, history_bytes,
-            workload_lines, workload_bytes, sent - start,
-            processed - sent, processed - start,
-            cursor_row, cursor_column) < 0 || fclose(report) != 0) {
+            history_lines, history_bytes, workload_lines, workload_bytes,
+            sent - start, processed - sent, processed - start,
+            cursor_row, cursor_column);
+    }
+    if (phase_probe && written >= 0) {
+        written = fprintf(report, "\t%" PRIu64 "\t%" PRIu64 "\t%" PRIu64,
+            start, sent, processed);
+    }
+    if (written >= 0) {
+        written = fprintf(report, "\n");
+    }
+    int close_status = fclose(report);
+    if (written < 0 || close_status != 0) {
         fprintf(stderr, "report write failed\n");
         goto cleanup;
     }
