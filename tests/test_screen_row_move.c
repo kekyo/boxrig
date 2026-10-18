@@ -52,6 +52,8 @@ static bool fill_rows(boxrig_screen *screen)
     screen->active->pending_wrap = false;
     CHECK(boxrig_screen_put_codepoint(screen, 0x754c) == BOXRIG_STATUS_OK);
     CHECK(boxrig_screen_put_codepoint(screen, 0x0301) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_screen_put_codepoint(screen, 0x0301) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_screen_put_codepoint(screen, 0x0301) == BOXRIG_STATUS_OK);
     boxrig_screen_end_text(screen);
     screen->active->line_soft_wrapped[3] = true;
     boxrig_screen_text_sync(screen);
@@ -62,7 +64,6 @@ static bool test_overlapping_move(bool downward)
 {
     boxrig_screen screen;
     boxrig_text_line_id line_id;
-    char *wide_text;
     uint64_t old_revision;
     size_t destination = downward ? 4 : 2;
 
@@ -70,7 +71,6 @@ static bool test_overlapping_move(bool downward)
     CHECK(fill_rows(&screen));
     line_id = screen.active->text_fragments[3].line_id;
     old_revision = screen.active->text_fragments[3].line_revision;
-    wide_text = cell_at(&screen, 3, 1)->text;
     free_calls = 0;
     count_frees = true;
     if (downward) {
@@ -84,9 +84,13 @@ static bool test_overlapping_move(bool downward)
                 downward ? "down" : "up", free_calls);
     }
     CHECK(free_calls <= 24);
-    CHECK(cell_at(&screen, destination, 0)->text[0] == 'D');
-    CHECK(cell_at(&screen, destination, 1)->text == wide_text);
-    CHECK(cell_at(&screen, destination, 1)->text_length == 5);
+    CHECK(cell_at(&screen, destination, 0)->text_length == 1);
+    CHECK(boxrig_cell_text(cell_at(&screen, destination, 0))[0] == 'D');
+    CHECK(cell_at(&screen, destination, 1)->text_length == 9);
+    CHECK(memcmp(
+              boxrig_cell_text(cell_at(&screen, destination, 1)),
+              "\xe7\x95\x8c\xcc\x81\xcc\x81\xcc\x81",
+              9) == 0);
     CHECK(cell_at(&screen, destination, 1)->column_width == 2);
     CHECK(cell_at(&screen, destination, 2)->continuation);
     CHECK(screen.active->line_soft_wrapped[destination]);
@@ -97,7 +101,9 @@ static bool test_overlapping_move(bool downward)
     CHECK(screen.active->text_fragments[destination].line_revision ==
           old_revision);
     CHECK(screen.active->text_fragments[destination].needs_sync);
-    CHECK(cell_at(&screen, downward ? 1 : 10, 0)->text == NULL);
+    CHECK(cell_at(&screen, downward ? 1 : 10, 0)->text_length == 0);
+    CHECK(boxrig_cell_text(
+              cell_at(&screen, downward ? 1 : 10, 0)) == NULL);
     CHECK(cell_at(&screen, downward ? 1 : 10, 0)->column_width == 1);
     boxrig_screen_destroy(&screen);
     return true;
@@ -106,24 +112,26 @@ static bool test_overlapping_move(bool downward)
 static bool test_nonoverlapping_partial_range(void)
 {
     boxrig_screen screen;
-    char *source_text;
 
     CHECK(boxrig_screen_initialize(&screen, 8, 8) == BOXRIG_STATUS_OK);
     CHECK(fill_rows(&screen));
-    source_text = cell_at(&screen, 2, 0)->text;
     boxrig_screen_insert_rows(&screen, 2, 5, 3);
-    CHECK(cell_at(&screen, 5, 0)->text == source_text);
-    CHECK(cell_at(&screen, 5, 0)->text[0] == 'C');
-    CHECK(cell_at(&screen, 2, 0)->text == NULL);
-    CHECK(cell_at(&screen, 3, 1)->text == NULL);
-    CHECK(cell_at(&screen, 6, 0)->text[0] == 'G');
+    CHECK(cell_at(&screen, 5, 0)->text_length == 1);
+    CHECK(boxrig_cell_text(cell_at(&screen, 5, 0))[0] == 'C');
+    CHECK(cell_at(&screen, 2, 0)->text_length == 0);
+    CHECK(boxrig_cell_text(cell_at(&screen, 2, 0)) == NULL);
+    CHECK(cell_at(&screen, 3, 1)->text_length == 0);
+    CHECK(boxrig_cell_text(cell_at(&screen, 3, 1)) == NULL);
+    CHECK(cell_at(&screen, 6, 0)->text_length == 1);
+    CHECK(boxrig_cell_text(cell_at(&screen, 6, 0))[0] == 'G');
 
-    source_text = cell_at(&screen, 5, 0)->text;
     boxrig_screen_delete_rows(&screen, 2, 5, 3);
-    CHECK(cell_at(&screen, 2, 0)->text == source_text);
-    CHECK(cell_at(&screen, 2, 0)->text[0] == 'C');
-    CHECK(cell_at(&screen, 5, 0)->text == NULL);
-    CHECK(cell_at(&screen, 6, 0)->text[0] == 'G');
+    CHECK(cell_at(&screen, 2, 0)->text_length == 1);
+    CHECK(boxrig_cell_text(cell_at(&screen, 2, 0))[0] == 'C');
+    CHECK(cell_at(&screen, 5, 0)->text_length == 0);
+    CHECK(boxrig_cell_text(cell_at(&screen, 5, 0)) == NULL);
+    CHECK(cell_at(&screen, 6, 0)->text_length == 1);
+    CHECK(boxrig_cell_text(cell_at(&screen, 6, 0))[0] == 'G');
     boxrig_screen_destroy(&screen);
     return true;
 }

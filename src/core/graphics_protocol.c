@@ -3210,9 +3210,9 @@ static bool parse_placeholder_descriptor(
     size_t index = 0;
     bool continues;
 
-    if (cell->continuation || cell->text == NULL ||
+    if (cell->continuation || boxrig_cell_text(cell) == NULL ||
         !decode_cell_codepoint(
-            cell->text,
+            boxrig_cell_text(cell),
             cell->text_length,
             &offset,
             &codepoint) ||
@@ -3221,7 +3221,7 @@ static bool parse_placeholder_descriptor(
     }
     while (index < 3 && offset < cell->text_length) {
         if (!decode_cell_codepoint(
-                cell->text,
+                boxrig_cell_text(cell),
                 cell->text_length,
                 &offset,
                 &codepoint)) {

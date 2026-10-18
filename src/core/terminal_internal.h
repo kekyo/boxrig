@@ -27,14 +27,30 @@ typedef struct boxrig_cell_style {
     bool protected_cell;
 } boxrig_cell_style;
 
+/* Reuse the pointer slot without enlarging cells on 32-bit targets. */
+enum { BOXRIG_CELL_INLINE_BYTES = sizeof(char *) };
+
 typedef struct boxrig_cell {
-    char *text;
+    union {
+        char *heap;
+        char bytes[BOXRIG_CELL_INLINE_BYTES];
+    } text_storage;
     size_t text_length;
     uint8_t column_width;
     bool continuation;
     uint32_t hyperlink_handle;
     boxrig_cell_style style;
 } boxrig_cell;
+
+/* Derive the address after a cell move; inline text never owns a self-pointer. */
+static inline const char *boxrig_cell_text(const boxrig_cell *cell)
+{
+    if (cell->text_length == 0) {
+        return NULL;
+    }
+    return cell->text_length <= BOXRIG_CELL_INLINE_BYTES
+               ? cell->text_storage.bytes : cell->text_storage.heap;
+}
 
 typedef struct boxrig_text_fragment_metadata {
     boxrig_text_line_id line_id;

@@ -1766,6 +1766,13 @@ static bool measure_input_workload(
     static const uint8_t overwrite[] = "\rX";
     static const uint8_t log[] =
         "\x1b[32mINFO\x1b[0m task=123 status=complete elapsed=42ms\r\n";
+    /* UTF-8 clusters of 3, 5, 8, 11 and 15 bytes exercise the tradeoff
+     * between inline cell capacity and separately allocated cluster text. */
+    static const uint8_t graphemes[] =
+        "e\xcc\x81 \xe7\x95\x8c\xcc\x81 "
+        "\xf0\x9f\x91\xa9\xf0\x9f\x8f\xbd "
+        "\xf0\x9f\x91\xa9\xe2\x80\x8d\xf0\x9f\x92\xbb "
+        "\xf0\x9f\x91\xa9\xf0\x9f\x8f\xbd\xe2\x80\x8d\xf0\x9f\x92\xbb\r\n";
     /* Virtual placement allocates placeholder storage. Enabling graphics alone
      * does not, so these are deliberately separate measurement conditions. */
     static const uint8_t virtual_image[] =
@@ -1790,6 +1797,9 @@ static bool measure_input_workload(
     } else if (strcmp(name, "input-log") == 0) {
         record = log;
         record_length = sizeof(log) - 1;
+    } else if (strcmp(name, "input-graphemes") == 0) {
+        record = graphemes;
+        record_length = sizeof(graphemes) - 1;
     } else {
         return fail_step(name, "unknown input workload");
     }
@@ -1882,7 +1892,8 @@ cleanup:
 static bool run_input_self_test(void)
 {
     static const char *names[] = {
-        "input-ascii", "input-utf8", "input-log", "input-overwrite"
+        "input-ascii", "input-utf8", "input-log", "input-overwrite",
+        "input-graphemes"
     };
     workload_result result;
 
@@ -1978,7 +1989,7 @@ int main(int argc, char **argv)
             "recognizer-long-line|recognizer-many-patterns|"
             "recognizer-continuous-output|recognizer-off-viewport|"
             "recognizer-retained-matches\n"
-            "       %s input-ascii|input-utf8|input-log|input-overwrite "
+            "       %s input-ascii|input-utf8|input-log|input-overwrite|input-graphemes "
             "ROWS COLUMNS HISTORY CHUNK_BYTES FEED_CALLS GRAPHICS_MODE\n"
             "       GRAPHICS_MODE: 0=disabled 1=default 2=virtual-image\n",
             argv[0], argv[0]);

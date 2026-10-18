@@ -534,7 +534,7 @@ static boxrig_text_line_metrics measure_logical_line(
             }
             metrics_add_bytes(
                 &metrics,
-                (const uint8_t *)cell->text,
+                (const uint8_t *)boxrig_cell_text(cell),
                 cell->text_length);
             previous_end = logical_column + width;
         }
@@ -1257,7 +1257,7 @@ static void project_logical_line(
                 logical_column + width <= selected_end) {
                 projection_add_token(
                     sink,
-                    (const uint8_t *)cell->text,
+                    (const uint8_t *)boxrig_cell_text(cell),
                     cell->text_length,
                     make_position(
                         sink->screen,
@@ -1535,7 +1535,7 @@ static boxrig_status project_preserved_range(
             bytes = &space;
             byte_length = 1u;
         } else {
-            bytes = (const uint8_t *)cell->text;
+            bytes = (const uint8_t *)boxrig_cell_text(cell);
             byte_length = cell->text_length;
         }
         projection_add_token(sink, bytes, byte_length, start, end);
@@ -2043,7 +2043,7 @@ static boxrig_text_search_event search_iterator_next_event(
                 iterator->previous_end = column + width;
                 search_iterator_prepare_token(
                     iterator,
-                    (const uint8_t *)cell->text,
+                    (const uint8_t *)boxrig_cell_text(cell),
                     cell->text_length,
                     column,
                     column + width);
@@ -3775,7 +3775,7 @@ static void capture_logical_line(
             capture_append_token(
                 state,
                 capture,
-                (const uint8_t *)cell->text,
+                (const uint8_t *)boxrig_cell_text(cell),
                 cell->text_length);
             if (capture->overflow) {
                 return;

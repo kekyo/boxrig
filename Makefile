@@ -1130,6 +1130,14 @@ test-history-transfer: $(BUILD_DIR)/tests/test_history_transfer
 $(BUILD_DIR)/tests/test_history_transfer: tests/test_history_transfer.c $(CORE_HEADERS) $(LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(LIBRARY) $(SANITIZERS) -Wl,--wrap=malloc -Wl,--wrap=calloc -Wl,--wrap=realloc -o $@
 
+.PHONY: test-cell-text-storage
+test: test-cell-text-storage
+test-cell-text-storage: $(BUILD_DIR)/tests/test_cell_text_storage
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
+
+$(BUILD_DIR)/tests/test_cell_text_storage: tests/test_cell_text_storage.c $(CORE_HEADERS) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(LIBRARY) $(SANITIZERS) -Wl,--wrap=malloc -Wl,--wrap=realloc -o $@
+
 .PHONY: test-colors
 test-colors: $(BUILD_DIR)/tests/test_color $(BUILD_DIR)/tests/color-filter-example $(BUILD_DIR)/tests/test_x11_colors \
 	$(BUILD_DIR)/tests/test_pangocairo_colors $(BUILD_DIR)/tests/test_opengl_colors \

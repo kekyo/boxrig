@@ -72,16 +72,23 @@ static boxrig_cell *cell_at(
     return &screen->cells[row * screen->columns + column];
 }
 
+static void release_cell_text(boxrig_cell *cell)
+{
+    if (cell->text_length > BOXRIG_CELL_INLINE_BYTES) {
+        free(cell->text_storage.heap);
+    }
+}
+
 static void cell_destroy(boxrig_cell *cell)
 {
-    free(cell->text);
+    release_cell_text(cell);
     memset(cell, 0, sizeof(*cell));
 }
 
-static void set_blank(boxrig_cell *cell, boxrig_cell_style style)
+static inline void set_blank(boxrig_cell *cell, boxrig_cell_style style)
 {
-    free(cell->text);
-    cell->text = NULL;
+    release_cell_text(cell);
+    memset(&cell->text_storage, 0, sizeof(cell->text_storage));
     cell->text_length = 0;
     cell->column_width = 1;
     cell->continuation = false;
@@ -98,16 +105,23 @@ static boxrig_status set_cell_text(
     boxrig_cell_style style)
 {
     char *replacement = NULL;
+    char inline_text[BOXRIG_CELL_INLINE_BYTES];
 
-    if (text_length != 0) {
+    if (text_length > BOXRIG_CELL_INLINE_BYTES) {
         replacement = malloc(text_length);
         if (replacement == NULL) {
             return BOXRIG_STATUS_OUT_OF_MEMORY;
         }
         memcpy(replacement, text, text_length);
+    } else if (text_length != 0) {
+        memcpy(inline_text, text, text_length);
     }
-    free(cell->text);
-    cell->text = replacement;
+    release_cell_text(cell);
+    if (text_length > BOXRIG_CELL_INLINE_BYTES) {
+        cell->text_storage.heap = replacement;
+    } else if (text_length != 0) {
+        memcpy(cell->text_storage.bytes, inline_text, text_length);
+    }
     cell->text_length = text_length;
     cell->column_width = column_width;
     cell->continuation = false;
@@ -128,13 +142,26 @@ static boxrig_status append_cell_text(
     if (cell->text_length > SIZE_MAX - text_length) {
         return BOXRIG_STATUS_LIMIT_EXCEEDED;
     }
-    replacement = realloc(cell->text, cell->text_length + text_length);
+    size_t length = cell->text_length + text_length;
+    if (length <= BOXRIG_CELL_INLINE_BYTES) {
+        memcpy(cell->text_storage.bytes + cell->text_length, text, text_length);
+        cell->text_length = length;
+        return BOXRIG_STATUS_OK;
+    }
+    if (cell->text_length <= BOXRIG_CELL_INLINE_BYTES) {
+        replacement = malloc(length);
+        if (replacement != NULL && cell->text_length != 0) {
+            memcpy(replacement, cell->text_storage.bytes, cell->text_length);
+        }
+    } else {
+        replacement = realloc(cell->text_storage.heap, length);
+    }
     if (replacement == NULL) {
         return BOXRIG_STATUS_OUT_OF_MEMORY;
     }
     memcpy(replacement + cell->text_length, text, text_length);
-    cell->text = replacement;
-    cell->text_length += text_length;
+    cell->text_storage.heap = replacement;
+    cell->text_length = length;
     return BOXRIG_STATUS_OK;
 }
 
@@ -142,25 +169,27 @@ static boxrig_status clone_cell(boxrig_cell *destination, const boxrig_cell *sou
 {
     char *text = NULL;
 
-    if (source->text_length != 0) {
+    if (source->text_length > BOXRIG_CELL_INLINE_BYTES) {
         text = malloc(source->text_length);
         if (text == NULL) {
             return BOXRIG_STATUS_OUT_OF_MEMORY;
         }
-        memcpy(text, source->text, source->text_length);
+        memcpy(text, boxrig_cell_text(source), source->text_length);
     }
-    free(destination->text);
+    release_cell_text(destination);
     *destination = *source;
-    destination->text = text;
+    if (source->text_length > BOXRIG_CELL_INLINE_BYTES) {
+        destination->text_storage.heap = text;
+    }
     return BOXRIG_STATUS_OK;
 }
 
-static void move_cell(boxrig_cell *destination, boxrig_cell *source)
+static inline void move_cell(boxrig_cell *destination, boxrig_cell *source)
 {
     if (destination == source) {
         return;
     }
-    free(destination->text);
+    release_cell_text(destination);
     *destination = *source;
     memset(source, 0, sizeof(*source));
     source->column_width = 1;
@@ -2020,7 +2049,7 @@ static void place_cluster(
     if (remember) {
         update_last_printed(
             screen,
-            cell->text,
+            boxrig_cell_text(cell),
             cell->text_length,
             cell->column_width);
     }
@@ -2182,7 +2211,7 @@ boxrig_status boxrig_screen_put_codepoint(
             screen->grapheme_analyzer = candidate;
             update_last_printed(
                 screen,
-                cell->text,
+                boxrig_cell_text(cell),
                 cell->text_length,
                 cell->column_width);
             mark_interval(
@@ -3057,7 +3086,7 @@ static size_t cell_utf16_units(const boxrig_cell *cell)
     for (index = 0; index < cell->text_length; index++) {
         if (boxrig_unicode_decoder_put(
                 &decoder,
-                (uint8_t)cell->text[index],
+                (uint8_t)boxrig_cell_text(cell)[index],
                 count_utf16_units,
                 &counter) != BOXRIG_STATUS_OK) {
             return 1;
