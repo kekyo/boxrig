@@ -32,7 +32,7 @@ void __wrap_free(void *pointer)
 
 static boxrig_cell *cell_at(boxrig_screen *screen, size_t row, size_t column)
 {
-    return &screen->active->cell_storage[row * screen->columns + column];
+    return &screen->active->row_cells[row][column];
 }
 
 static bool fill_rows(boxrig_screen *screen)

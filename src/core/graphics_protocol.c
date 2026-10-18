@@ -3466,13 +3466,15 @@ static void refresh_derived_placements(boxrig_terminal *terminal, bool all_rows)
             if (!all_rows && !first->row_refresh_pending) {
                 continue;
             }
+            /* Row storage stays contiguous and unchanged during this scan,
+             * even when the screen's logical rows have been rotated. */
+            const boxrig_cell *row_cells = boxrig_screen_view_cell(
+                &terminal->screen, row, 0);
+
             previous.valid = false;
             for (column = 0; column < terminal->screen.columns; column++) {
                 boxrig_text_workload_observe_placeholder_cell();
-                const boxrig_cell *cell = boxrig_screen_view_cell(
-                    &terminal->screen,
-                    row,
-                    column);
+                const boxrig_cell *cell = &row_cells[column];
                 boxrig_placeholder_descriptor descriptor = {0};
                 boxrig_placeholder_instance_state next = {0};
                 boxrig_placeholder_instance_state *current =

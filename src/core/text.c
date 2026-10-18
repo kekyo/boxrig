@@ -421,12 +421,10 @@ static const boxrig_cell *document_cell(
             return &screen->history[
                 history_slot(screen, fragment_index)].cell_storage[column];
         }
-        return &screen->primary.cell_storage[
-            (fragment_index - screen->history_count) * screen->columns +
-            column];
+        return &screen->primary.row_cells[
+            fragment_index - screen->history_count][column];
     }
-    return &screen->alternate.cell_storage[
-        fragment_index * screen->columns + column];
+    return &screen->alternate.row_cells[fragment_index][column];
 }
 
 static bool document_fragment_soft_wrapped(

@@ -5956,3 +5956,11 @@ test-notification-empty-body: $(BUILD_DIR)/tests/test_notification_empty_body
 
 $(BUILD_DIR)/tests/test_notification_empty_body: tests/test_notification_empty_body.c src/core/notification.c $(CORE_HEADERS) $(LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) -fno-sanitize-recover=undefined tests/test_notification_empty_body.c src/core/notification.c $(LIBRARY) $(SANITIZERS) -o $@
+
+.PHONY: test-screen-row-rotation
+test: test-screen-row-rotation
+test-screen-row-rotation: $(BUILD_DIR)/tests/test_screen_row_rotation
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
+
+$(BUILD_DIR)/tests/test_screen_row_rotation: tests/test_screen_row_rotation.c $(CORE_HEADERS) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(LIBRARY) $(SANITIZERS) -Wl,--wrap=calloc -Wl,--wrap=memmove -Wl,--wrap=boxrig_screen_view_cell -o $@

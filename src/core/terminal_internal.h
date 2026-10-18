@@ -173,7 +173,9 @@ typedef struct boxrig_input_state {
 } boxrig_input_state;
 
 typedef struct boxrig_screen_buffer {
+    /* Owns every cell; row_cells only permutes row starts in this allocation. */
     boxrig_cell *cell_storage;
+    boxrig_cell **row_cells;
     bool *line_soft_wrapped;
     boxrig_text_fragment_metadata *text_fragments;
     boxrig_cell_position cursor;

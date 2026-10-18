@@ -22,7 +22,7 @@ static boxrig_cell *test_cell_at(
     size_t row,
     size_t column)
 {
-    return &screen->active->cell_storage[row * screen->columns + column];
+    return &screen->active->row_cells[row][column];
 }
 
 static bool set_test_wide_cell(
