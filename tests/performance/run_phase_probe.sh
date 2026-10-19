@@ -44,7 +44,7 @@ if [[ ${BOXRIG_PERFORMANCE_SESSION:-} != 1 &&
 fi
 workload_binary="$output_directory/pty_workload"
 cc -std=c99 -D_POSIX_C_SOURCE=200809L -O2 -Wall -Wextra -Werror \
-    "$script_dir/pty_workload.c" -o "$workload_binary"
+    "$script_dir/pty_workload.c" "$script_dir/interval_trace.c" -o "$workload_binary"
 
 if [[ ${BOXRIG_PERFORMANCE_SESSION:-} != 1 ]]; then
     private_directory=$(mktemp -d "$output_directory/private.XXXXXXXX")
@@ -63,19 +63,28 @@ export BOXRIG_AUTO_URLS=1
 mkdir -p -- "$XDG_CONFIG_HOME" "$XDG_DATA_HOME"
 results="$output_directory/results.tsv"
 printf '%b\n' \
-    'round	order	mode	history_lines	workload_lines	start_ns	sent_ns	dsr_ns	marker_ns	recognition_ns	cairo_ns	frame_ns	settled_ns	revision' \
+    'round	order	mode	history_lines	workload_lines	start_ns	sent_ns	dsr_ns	marker_ns	recognition_ns	cairo_ns	frame_ns	settled_ns	revision	history_completed_ns' \
     > "$results"
 if [[ -n "$reference_binary" ]]; then
     reference_results="$output_directory/reference-results.tsv"
+    if [[ ${BOXRIG_REFERENCE_PHASE:-0} == 1 ]]; then
+        head -n 1 "$results" > "$reference_results"
+    else
     printf '%b\n' \
         'round	order	mode	history_lines	workload_lines	write_ns	write_to_dsr_ns	total_to_dsr_ns' \
         > "$reference_results"
+    fi
 fi
 {
     printf 'boxrig_binary=%s\n' "$boxrig_binary"
     printf 'boxrig_binary_sha256=%s\n' "$(sha256sum -- "$boxrig_binary")"
     printf 'workspace_revision=%s\n' "$(git -C "$project_root" rev-parse HEAD)"
     printf 'reference_binary=%s\n' "$reference_binary"
+    printf 'wait_history=%s\nreference_phase=%s\ntrace_intervals=%s\n' \
+        "${BOXRIG_PHASE_WAIT_HISTORY:-0}" "${BOXRIG_REFERENCE_PHASE:-0}" \
+        "${BOXRIG_TRACE_INTERVALS:-0}"
+    printf 'perf_stat=%s\n' "${BOXRIG_PERF_STAT:-0}"
+    printf 'perf_scope=main thread only; enable acknowledged before input, disable requested after DSR\n'
     if [[ -n "$reference_binary" ]]; then
         printf 'reference_binary_sha256=%s\n' "$(sha256sum -- "$reference_binary")"
     fi
@@ -95,15 +104,38 @@ run_phase() {
         local mode=$1
         local round=$2
         local order=$3
-        report="$output_directory/$mode-$round-pty.tsv"
-        phase="$output_directory/$mode-$round-phase.tsv"
-        phase_fifo="$output_directory/$mode-$round.fifo"
-        log="$output_directory/$mode-$round.log"
+        local binary=${4:-$boxrig_binary}
+        local prefix=${5:-}
+        local destination=${6:-$results}
+        local report="$output_directory/$prefix$mode-$round-pty.tsv"
+        local phase="$output_directory/$prefix$mode-$round-phase.tsv"
+        local phase_fifo="$output_directory/$prefix$mode-$round.fifo"
+        local log="$output_directory/$prefix$mode-$round.log"
+        local trace_path=
+        local pty_trace_path=
+        local perf_control=
+        local perf_ack=
+        local launcher=("$binary")
+        if [[ ${BOXRIG_PERF_STAT:-0} == 1 ]]; then
+            perf_control="$output_directory/$prefix$mode-$round-perf-control.fifo"
+            perf_ack="$output_directory/$prefix$mode-$round-perf-ack.fifo"
+            mkfifo -- "$perf_control" "$perf_ack"
+            launcher=(perf stat --no-inherit --no-scale --delay=-1 \
+                --control="fifo:$perf_control,$perf_ack" \
+                -e cycles,instructions,task-clock,cpu-migrations,context-switches -x, \
+                -o "$output_directory/$prefix$mode-$round-perf.csv" -- "$binary")
+        fi
+        if [[ ${BOXRIG_TRACE_INTERVALS:-0} == 1 && -z $prefix ]]; then
+            trace_path="$output_directory/$mode-$round-trace.tsv"
+            pty_trace_path="$output_directory/$mode-$round-writes.tsv"
+        fi
         mkfifo -- "$phase_fifo"
         if ! BOXRIG_PHASE_PROBE_PATH="$phase" \
             BOXRIG_PHASE_PROBE_FIFO="$phase_fifo" \
+            BOXRIG_PHASE_TRACE_PATH="$trace_path" BOXRIG_PTY_TRACE_PATH="$pty_trace_path" \
+            BOXRIG_PERF_CONTROL="$perf_control" BOXRIG_PERF_ACK="$perf_ack" \
             timeout --signal=TERM --kill-after=3s "${phase_timeout_seconds}s" \
-            "$boxrig_binary" --renderer=cairo -- \
+            "${launcher[@]}" --renderer=cairo -- \
             "$workload_binary" "$mode" 24 80 "$history_lines" \
             "$workload_lines" probe "$report" "$phase" "$phase_fifo" \
             > "$log" 2>&1; then
@@ -111,25 +143,30 @@ run_phase() {
             exit 1
         fi
         rm -- "$phase_fifo"
+        if [[ -n $perf_control ]]; then rm -- "$perf_control" "$perf_ack"; fi
         if [[ ! -s "$report" || ! -s "$phase" ]]; then
             printf 'missing report: mode=%s round=%s\n' "$mode" "$round" >&2
             exit 1
         fi
-        IFS=$'\t' read -r _ _ _ _ _ _ _ _ _ _ _ _ _ _ start_ns sent_ns dsr_ns \
+        IFS=$'\t' read -r _ _ _ _ _ _ _ _ _ _ _ _ _ _ start_ns sent_ns dsr_ns history_completed_ns \
             < <(tail -n 1 "$report")
         IFS=$'\t' read -r revision marker_ns recognition_ns cairo_ns frame_ns settled_ns \
             < <(tail -n 1 "$phase")
-        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
             "$round" "$order" "$mode" "$history_lines" "$workload_lines" \
             "$start_ns" "$sent_ns" "$dsr_ns" "$marker_ns" \
             "$recognition_ns" "$cairo_ns" "$frame_ns" "$settled_ns" \
-            "$revision" >> "$results"
+            "$revision" "$history_completed_ns" >> "$destination"
 }
 
 run_reference() {
         local mode=$1
         local round=$2
         local order=$3
+        if [[ ${BOXRIG_REFERENCE_PHASE:-0} == 1 ]]; then
+            run_phase "$mode" "$round" "$order" "$reference_binary" "reference-" "$reference_results"
+            return
+        fi
         local report="$output_directory/$mode-$round-reference.tsv"
         local log="$output_directory/$mode-$round-reference.log"
 

@@ -1114,7 +1114,7 @@ test-recognizer-reuse: $(BUILD_DIR)/tests/test_recognizer_reuse
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
 
 $(BUILD_DIR)/tests/test_recognizer_reuse: tests/test_recognizer_reuse.c $(CORE_HEADERS) $(TEXT_MEASUREMENT_LIBRARY) | $(BUILD_DIR)/tests
-	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) -DBOXRIG_MEASURE_TEXT_WORKLOADS $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(TEXT_MEASUREMENT_LIBRARY) $(SANITIZERS) -Wl,--wrap=calloc -o $@
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) -DBOXRIG_MEASURE_TEXT_WORKLOADS $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(TEXT_MEASUREMENT_LIBRARY) $(SANITIZERS) -Wl,--wrap=calloc -Wl,--wrap=realloc -o $@
 
 .PHONY: test-last-printed-storage
 test: test-last-printed-storage
@@ -1182,6 +1182,29 @@ $(BUILD_DIR)/tests/test_pangocairo_colors: tests/pangocairo/test_pangocairo_colo
 test: test-pangocairo-backgrounds
 test-pangocairo-backgrounds: $(BUILD_DIR)/tests/measure_pangocairo_backgrounds
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $< self-test
+
+.PHONY: test-pangocairo-partial
+test: test-pangocairo-partial
+test-pangocairo-partial: $(BUILD_DIR)/tests/measure_pangocairo_partial
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $< self-test
+
+$(BUILD_DIR)/tests/measure_pangocairo_partial: PARTIAL_MEASUREMENT_FLAGS = \
+	-Wl,--wrap=cairo_fill -Wl,--wrap=boxrig_text_layout_visual_to_logical \
+	-Wl,--wrap=boxrig_ui_color_resolve_cell -Wl,--wrap=pango_cairo_show_glyph_item
+$(BUILD_DIR)/tests/measure_pangocairo_partial_unwrapped: PARTIAL_MEASUREMENT_FLAGS = \
+	-DBOXRIG_BACKGROUND_MEASURE_UNWRAPPED
+
+$(BUILD_DIR)/tests/measure_pangocairo_partial \
+$(BUILD_DIR)/tests/measure_pangocairo_partial_unwrapped: tests/pangocairo/measure_partial.c \
+		tests/pangocairo/measure_backgrounds.c src/pangocairo/renderer.c \
+		src/pangocairo/renderer.h src/pangocairo/renderer_private.h \
+		src/ui/view_private.h src/ui/color_private.h $(PANGO_CANDIDATE_OBJECT) \
+		$(UI_HEADERS) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) -Isrc $(POSIX_CPPFLAGS) \
+		$(PANGO_CAIRO_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) \
+		tests/pangocairo/measure_partial.c src/pangocairo/renderer.c \
+		$(PANGO_CANDIDATE_OBJECT) $(UI_LIBRARY) $(LIBRARY) \
+		$(PANGO_CAIRO_LIBS) $(SANITIZERS) $(PARTIAL_MEASUREMENT_FLAGS) -o $@
 
 $(BUILD_DIR)/tests/measure_pangocairo_backgrounds: BACKGROUND_MEASUREMENT_FLAGS = \
 	-Wl,--wrap=cairo_fill -Wl,--wrap=boxrig_text_layout_visual_to_logical
@@ -5965,6 +5988,24 @@ test-gtk-sample-recognition: $(BUILD_DIR)/tests/test_gtk3_sample_recognition $(B
 
 include tests/performance/phase_probe.mk
 
+$(BUILD_DIR)/tests/performance/steady_recognizer: tests/performance/steady_recognizer.c \
+		tests/measure_text_workloads.c $(TEXT_MEASUREMENT_LIBRARY) | $(BUILD_DIR)/tests/performance
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) \
+		$(PROJECT_CFLAGS) -I. -DBOXRIG_MEASURE_TEXT_WORKLOADS $< \
+		$(TEXT_MEASUREMENT_LIBRARY) -Wl,--wrap=malloc -Wl,--wrap=calloc \
+		-Wl,--wrap=realloc -Wl,--wrap=free -Wl,--wrap=memmove -o $@
+
+$(BUILD_DIR)/tests/performance/steady_recognizer_unwrapped: tests/performance/steady_recognizer.c \
+		tests/measure_text_workloads.c $(TEXT_MEASUREMENT_LIBRARY) | $(BUILD_DIR)/tests/performance
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) \
+		$(PROJECT_CFLAGS) -I. -DBOXRIG_MEASURE_TEXT_WORKLOADS \
+		-DBOXRIG_MEASURE_UNWRAPPED $< $(TEXT_MEASUREMENT_LIBRARY) -o $@
+
+.PHONY: test-steady-recognizer
+test: test-steady-recognizer
+test-steady-recognizer: $(BUILD_DIR)/tests/performance/steady_recognizer
+	$< self-test
+
 .PHONY: test-performance-phases
 test: test-performance-phases
 test-performance-phases: $(PHASE_STATE_TEST)
@@ -5987,6 +6028,38 @@ $(BUILD_DIR)/tests/test_screen_row_rotation: tests/test_screen_row_rotation.c $(
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(LIBRARY) $(SANITIZERS) -Wl,--wrap=calloc -Wl,--wrap=memmove -Wl,--wrap=boxrig_screen_view_cell -o $@
 
 .PHONY: test-ascii-runs
+.PHONY: test-input-profile
+test: test-input-profile
+test-input-profile: $(BUILD_DIR)/tests/performance/profile_input
+	bash tests/performance/test_input_profile.sh $< $(BUILD_DIR)/tests/performance
+
+$(BUILD_DIR)/tests/performance/profile_input: INPUT_PROFILE_FLAGS = \
+	-Wl,--wrap=boxrig_screen_put_ascii_run -Wl,--wrap=boxrig_codec_decoder_put \
+	-Wl,--wrap=boxrig_screen_put_codepoint -Wl,--wrap=utf8proc_grapheme_break_stateful \
+	-Wl,--wrap=utf8proc_get_property -Wl,--wrap=utf8proc_charwidth
+$(BUILD_DIR)/tests/performance/profile_input_unwrapped: INPUT_PROFILE_FLAGS = -DBOXRIG_INPUT_UNWRAPPED
+
+$(BUILD_DIR)/tests/performance/profile_input \
+$(BUILD_DIR)/tests/performance/profile_input_unwrapped: tests/performance/profile_input.c \
+		tests/measure_text_workloads.c $(TEXT_MEASUREMENT_LIBRARY) | $(BUILD_DIR)/tests/performance
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) \
+		$(PROJECT_CFLAGS) -DBOXRIG_MEASURE_TEXT_WORKLOADS -DBOXRIG_MEASURE_UNWRAPPED \
+		$< $(TEXT_MEASUREMENT_LIBRARY) -Wl,--wrap=boxrig_terminal_create \
+		-Wl,--wrap=boxrig_text_workload_counters_reset \
+		-Wl,--wrap=boxrig_text_workload_counters_read \
+		$(INPUT_PROFILE_FLAGS) -o $@
+
+$(BUILD_DIR)/tests/performance/interactive_workload: tests/performance/interactive_workload.c \
+		tests/performance/pty_workload.c tests/performance/interval_trace.c \
+		tests/performance/interval_trace.h | $(BUILD_DIR)/tests/performance
+	$(CC) $(POSIX_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< \
+		tests/performance/interval_trace.c -o $@
+
+$(BUILD_DIR)/tests/performance/interactive_probe: tests/performance/interactive_probe.c \
+		| $(BUILD_DIR)/tests/performance
+	$(CC) $(POSIX_CPPFLAGS) $(X11_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< \
+		$(X11_LIBS) -lXtst -o $@
+
 test: test-ascii-runs
 test-ascii-runs: $(BUILD_DIR)/tests/test_ascii_runs
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
