@@ -29,6 +29,32 @@ boxrig_ui_status use_steady_bar(boxrig_ui_view *view)
 線幅はDPIと出力倍率に応じて画素へ丸め、セルの範囲へ収めます。
 端末からのカーソル非表示、IMEによる抑制、フォーカスによる条件は引き続き有効です。
 
+## フォーカスに応じて塗り方を変える
+
+フルボックス、縦ボックス、下線ボックスには、それぞれBLOCK、BAR、UNDERLINEを指定します。
+`presentation`をFOCUSEDにすると、入力フォーカスがある間は箱を塗り、外れた間は同じ外形の輪郭を描きます。
+フォーカスは`boxrig_ui_view_set_focused()`へ通知してください。boxrigの標準ウィジェットでは自動で通知されます。
+
+```c
+boxrig_ui_cursor_style style = boxrig_ui_cursor_style_default();
+style.shape = BOXRIG_UI_CURSOR_SHAPE_BAR;
+style.presentation = BOXRIG_UI_CURSOR_PRESENTATION_FOCUSED;
+style.box_width_dip = 4.0f;
+style.line_width_dip = 1.0f;
+style.blink = BOXRIG_UI_CURSOR_BLINK_ENABLED;
+boxrig_ui_view_set_cursor_style(view, &style);
+```
+
+`box_width_dip`は縦ボックスの幅と下線ボックスの高さ、`line_width_dip`は輪郭の幅です。
+既定は4 DIPと1 DIPです。出力のDPIと倍率で画素へ丸め、セル内に収めます。
+箱の位置はセルの左端または下端です。小さいセルでは中抜きの余地がなくなり、輪郭も塗りつぶしと同じ表示になります。
+常に塗る場合はFILL、常に輪郭を描く場合はOUTLINEを選びます。
+
+点滅はフォーカスがある間だけ行い、フォーカスが戻ると表示位相から始まります。
+点滅をSTEADYにしても塗り分けは有効です。
+端末からの非表示指定やIME変換中の抑制は、どの形状でも優先します。
+フルボックスの塗りは文字を読める色で重ね、隠蔽属性や文字点滅で消した文字は表示しません。
+
 ## 端末からの形状指定
 
 既定のstyleは、形、色、点滅を端末の指定へ追従させます。
@@ -36,7 +62,9 @@ boxrig_ui_status use_steady_bar(boxrig_ui_view *view)
 
 blockの既定表示は輪郭です。
 `block_presentation`をFILLにするとセルを塗り、文字を読める色で重ねます。
-明示したOUTLINE、UNDERLINE、BARではこの項目を使いません。
+明示したBLOCKでもこの項目を使えます。OUTLINE、UNDERLINE、BARでは使いません。
+`presentation`の既定値DEFAULTは、この従来の指定方法を使います。
+それ以外の値では、形状ごとの`block_presentation`より`presentation`を優先します。
 色は端末のカーソル色へ追従するか、固定RGBへ変更できます。
 
 `reset_cursor_style()`で表示先の既定設定へ戻せます。

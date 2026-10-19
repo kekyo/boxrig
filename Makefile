@@ -4202,6 +4202,19 @@ $(BUILD_DIR)/tests/test_gtk3_widget_animation: tests/gtk/test_widget_animation.c
 $(BUILD_DIR)/tests/test_gtk4_widget_animation: tests/gtk/test_widget_animation.c $(GTK4_HEADERS) $(GTK4_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(GTK4_CPPFLAGS) $(CFLAGS) $(GTK4_PROJECT_CFLAGS) $(SANITIZERS) $< $(GTK4_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK4_LIBS) -lm -Wl,--wrap=g_get_monotonic_time -o $@
 
+.PHONY: test-gtk-initial-font
+test: test-gtk-initial-font
+test-gtk-initial-font: $(BUILD_DIR)/tests/test_gtk3_initial_font $(BUILD_DIR)/tests/test_gtk4_initial_font
+	@set -e; for version in 3 4; do for scale in 1 2; do \
+		$(XVFB_RUN) -a env GDK_BACKEND=x11 GDK_SCALE=$$scale NO_AT_BRIDGE=1 ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(BUILD_DIR)/tests/test_gtk$${version}_initial_font; \
+	done; done
+
+$(BUILD_DIR)/tests/test_gtk3_initial_font: tests/gtk/test_widget_initial_font.c $(GTK3_HEADERS) $(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(GTK3_CPPFLAGS) -DBOXRIG_TEST_GTK3 $(CFLAGS) $(GTK3_PROJECT_CFLAGS) $(SANITIZERS) $< $(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK3_LIBS) -lm -o $@
+
+$(BUILD_DIR)/tests/test_gtk4_initial_font: tests/gtk/test_widget_initial_font.c $(GTK4_HEADERS) $(GTK4_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(GTK4_CPPFLAGS) $(CFLAGS) $(GTK4_PROJECT_CFLAGS) $(SANITIZERS) $< $(GTK4_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK4_LIBS) -lm -o $@
+
 $(BUILD_DIR)/tests/test_pangocairo_blink: tests/pangocairo/test_pangocairo_blink.c tests/blink_renderer_fixture.c tests/selection_renderer_fixture.c tests/blink_renderer_fixture.h tests/selection_renderer_fixture.h tests/color_renderer_fixture.h src/pangocairo/renderer.c $(PANGO_CANDIDATE_OBJECT) src/pangocairo/renderer.h src/pangocairo/renderer_private.h src/ui/view_private.h $(UI_HEADERS) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) -Isrc -Itests $(POSIX_CPPFLAGS) $(PANGO_CAIRO_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< tests/blink_renderer_fixture.c tests/selection_renderer_fixture.c src/pangocairo/renderer.c $(PANGO_CANDIDATE_OBJECT) $(UI_LIBRARY) $(LIBRARY) $(PANGO_CAIRO_LIBS) -o $@
 
@@ -4381,6 +4394,15 @@ test-native-cursor-style-videos: $(EXAMPLE_BINARY) $(GTK3_EXAMPLE_BINARY) $(GTK4
 	$(XVFB_RUN) -a -s '-screen 0 1280x1024x24' env BOXRIG_TEST_BLINK_WAYLAND=1 LIBGL_ALWAYS_SOFTWARE=1 node tests/run_native_cursor_style_video.mjs $(WAYLAND_EXAMPLE_BINARY) $(PTY_HELPER_BINARY) $(BUILD_DIR)/test-results/step23-cursor-style/native-wayland-opengl opengl
 
 test: test-native-cursor-style-videos
+
+.PHONY: test-native-cursor-box-videos
+test-native-cursor-box-videos: $(EXAMPLE_BINARY) $(GTK3_EXAMPLE_BINARY) $(GTK4_EXAMPLE_BINARY) $(PTY_HELPER_BINARY)
+	$(XVFB_RUN) -a -s '-screen 0 1280x1024x24' env BOXRIG_TEST_CURSOR_BOX=1 node tests/run_native_cursor_style_video.mjs $(EXAMPLE_BINARY) $(PTY_HELPER_BINARY) $(BUILD_DIR)/test-results/cursor-box/x11 x11
+	$(XVFB_RUN) -a -s '-screen 0 1280x1024x24' env BOXRIG_TEST_CURSOR_BOX=1 LIBGL_ALWAYS_SOFTWARE=1 node tests/run_native_cursor_style_video.mjs $(EXAMPLE_BINARY) $(PTY_HELPER_BINARY) $(BUILD_DIR)/test-results/cursor-box/opengl opengl
+	$(XVFB_RUN) -a -s '-screen 0 1280x1024x24' env BOXRIG_TEST_CURSOR_BOX=1 GDK_BACKEND=x11 node tests/run_native_cursor_style_video.mjs $(GTK3_EXAMPLE_BINARY) $(PTY_HELPER_BINARY) $(BUILD_DIR)/test-results/cursor-box/gtk3
+	$(XVFB_RUN) -a -s '-screen 0 1280x1024x24' env BOXRIG_TEST_CURSOR_BOX=1 $(GTK4_TEST_IM_ENV) GDK_BACKEND=x11 GSK_RENDERER=cairo node tests/run_native_cursor_style_video.mjs $(GTK4_EXAMPLE_BINARY) $(PTY_HELPER_BINARY) $(BUILD_DIR)/test-results/cursor-box/gtk4
+
+test: test-native-cursor-box-videos
 
 .PHONY: test-animation-integration
 test-animation-integration: $(BUILD_DIR)/tests/test_cursor_animation_dirty $(BUILD_DIR)/tests/test_animation_integration $(BUILD_DIR)/tests/animation-scheduler-example $(BUILD_DIR)/tests/animation-manual-example

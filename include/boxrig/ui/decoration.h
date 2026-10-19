@@ -12,12 +12,14 @@ extern "C" {
 typedef enum boxrig_ui_cursor_shape_policy {
     /** Follow the terminal's DECSCUSR shape. */
     BOXRIG_UI_CURSOR_SHAPE_TERMINAL = 0,
-    /** Draw the outline of one cursor cell. */
+    /** Use a full cell, outlined when presentation is DEFAULT. */
     BOXRIG_UI_CURSOR_SHAPE_OUTLINE,
     /** Draw a horizontal stroke near the bottom of the cursor cell. */
     BOXRIG_UI_CURSOR_SHAPE_UNDERLINE,
     /** Draw a vertical stroke near the leading edge of the cursor cell. */
-    BOXRIG_UI_CURSOR_SHAPE_BAR
+    BOXRIG_UI_CURSOR_SHAPE_BAR,
+    /** Use a full cell box, independent of the terminal's DECSCUSR shape. */
+    BOXRIG_UI_CURSOR_SHAPE_BLOCK
 } boxrig_ui_cursor_shape_policy;
 
 /** How a view chooses the cursor's color before display-color filtering. */
@@ -46,6 +48,18 @@ typedef enum boxrig_ui_cursor_block_presentation {
     BOXRIG_UI_CURSOR_BLOCK_FILL
 } boxrig_ui_cursor_block_presentation;
 
+/** How the selected cursor box is painted, independent of its shape. */
+typedef enum boxrig_ui_cursor_presentation {
+    /** Preserve shape-specific strokes and the block_presentation setting. */
+    BOXRIG_UI_CURSOR_PRESENTATION_DEFAULT = 0,
+    /** Draw the perimeter of the selected box. */
+    BOXRIG_UI_CURSOR_PRESENTATION_OUTLINE,
+    /** Fill the selected box. A full cell redraws its visible glyph. */
+    BOXRIG_UI_CURSOR_PRESENTATION_FILL,
+    /** Fill while focused; draw the same box's perimeter while unfocused. */
+    BOXRIG_UI_CURSOR_PRESENTATION_FOCUSED
+} boxrig_ui_cursor_presentation;
+
 /** Independent insertion-cursor presentation owned by one view. */
 typedef struct boxrig_ui_cursor_style {
     /** Shape policy, independent from color and blinking. */
@@ -64,18 +78,34 @@ typedef struct boxrig_ui_cursor_style {
     float line_width_dip;
     /**
      * Presentation when shape follows a terminal block cursor. Explicit
-     * OUTLINE, UNDERLINE and BAR policies ignore this field. FILL uses the
+     * OUTLINE, UNDERLINE and BAR policies ignore this field. Explicit BLOCK
+     * uses this field too, unless presentation is non-DEFAULT. FILL uses the
      * filtered cursor color and the effective cell background as glyph ink,
      * falling back to black or white when their brightness is too similar.
      * Concealment, text blinking and the one-visual-cell clip remain in force.
      */
     boxrig_ui_cursor_block_presentation block_presentation;
+    /**
+     * Painting policy for every shape. Non-DEFAULT values supersede
+     * block_presentation and use box_width_dip for BAR and UNDERLINE.
+     * FOCUSED uses boxrig_ui_view_set_focused(); an unfocused cursor is steady.
+     * OUTLINE shape always selects a full cell; this policy chooses its paint.
+     */
+    boxrig_ui_cursor_presentation presentation;
+    /**
+     * Positive finite BAR width / UNDERLINE height in DIP, default four.
+     * Scales and clamps like line_width_dip; independent of the outline width.
+     * Non-DEFAULT boxes touch the leading or bottom cell edge. If the cell is
+     * too small to leave an interior pixel, its outline may appear filled.
+     */
+    float box_width_dip;
 } boxrig_ui_cursor_style;
 
 /**
  * Creates terminal-following cursor decoration with a one-DIP block outline.
  * @return A copied style following the terminal's shape, color and blinking,
- * with block_presentation set to OUTLINE.
+ * with block_presentation set to OUTLINE, presentation to DEFAULT, and
+ * box_width_dip to four.
  * @remarks Logical cursor hiding, IME suppression, and presentation focus
  * retain precedence over every style. This never changes terminal state.
  */

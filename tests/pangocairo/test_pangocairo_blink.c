@@ -56,19 +56,19 @@ static void destroy(void *context)
     boxrig_pango_cairo_renderer_destroy(context);
 }
 
-static bool cursor_style_scaled;
+static float cursor_style_scale = 1;
 
 static bool create(boxrig_test_color_renderer *renderer)
 {
     boxrig_pango_cairo_renderer *host = NULL;
     if (boxrig_pango_cairo_renderer_create(BOXRIG_TEST_COLOR_WIDTH,
             BOXRIG_TEST_COLOR_HEIGHT, &host) == -1) return false;
-    if (cursor_style_scaled) {
+    if (cursor_style_scale != 1) {
         boxrig_font_specification font = boxrig_font_specification_default();
         boxrig_font_rendering_policy policy = boxrig_font_rendering_policy_default();
         policy.dpi_x = 144;
         policy.dpi_y = 144;
-        policy.output_scale = 4.0f / 3.0f;
+        policy.output_scale = cursor_style_scale / 1.5f;
         if (boxrig_pango_cairo_renderer_set_font(host, &font, &policy) != BOXRIG_FONT_CATALOG_OK) {
             boxrig_pango_cairo_renderer_destroy(host);
             return false;
@@ -84,7 +84,7 @@ static bool create(boxrig_test_color_renderer *renderer)
 /* Reuse the observable capture adapter for renderer-switch integration. */
 bool boxrig_test_create_pango_decoration(boxrig_test_color_renderer *renderer)
 {
-    cursor_style_scaled = false;
+    cursor_style_scale = 1;
     return create(renderer);
 }
 
@@ -95,10 +95,12 @@ int main(void)
     if (!boxrig_test_renderer_cursor_style(create)) return 1;
     bool passed = (boxrig_test_renderer_cursor_blink(create) && (boxrig_test_renderer_text_blink(create) && boxrig_test_renderer_blink_composition(create)));
     if (!passed) return 1;
-    cursor_style_scaled = true;
+    cursor_style_scale = 2;
     if (!boxrig_test_renderer_filled_cursor(create, 2)) return 1;
     if (!boxrig_test_renderer_selection_style(create, 6, 6)) return 1;
     if (!boxrig_test_renderer_cursor_style_at_scale(create, 6, 6)) return 1;
+    cursor_style_scale = 1.5f;
+    if (!boxrig_test_renderer_cursor_style_at_scale(create, 5, 5)) return 1;
     cairo_debug_reset_static_data();
     FcFini();
     puts("PASS PangoCairo cursor and slow/rapid text blink fixtures");

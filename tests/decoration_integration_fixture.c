@@ -97,6 +97,50 @@ static bool check_pixels(boxrig_test_color_renderer *renderer, boxrig_ui_view *v
     return true;
 }
 
+static bool check_cursor_boxes(boxrig_test_color_renderer *renderer,
+    boxrig_ui_view *view)
+{
+    boxrig_ui_cursor_style saved, style = boxrig_ui_cursor_style_default();
+    CHECK(boxrig_ui_view_get_cursor_style(view, &saved) == BOXRIG_UI_OK);
+    style.presentation = BOXRIG_UI_CURSOR_PRESENTATION_FOCUSED;
+    style.blink = BOXRIG_UI_CURSOR_BLINK_STEADY;
+    style.color_policy = BOXRIG_UI_CURSOR_COLOR_RGB;
+    style.color = (boxrig_rgb){255, 215, 0};
+    const boxrig_ui_cursor_shape_policy shapes[] = {BOXRIG_UI_CURSOR_SHAPE_BLOCK,
+        BOXRIG_UI_CURSOR_SHAPE_BAR, BOXRIG_UI_CURSOR_SHAPE_UNDERLINE};
+    unsigned cw = renderer->cell_width, ch = renderer->cell_height;
+    for (unsigned shape = 0; shape < 3; shape++) {
+        style.shape = shapes[shape];
+        CHECK(boxrig_ui_view_set_cursor_style(view, &style) == BOXRIG_UI_OK);
+        /* Repeat focus transitions with no text updates or color filter. */
+        for (unsigned change = 0; change < 4; change++) {
+            bool focused = change % 2 == 0;
+            CHECK(boxrig_ui_view_set_focused(view, focused) == BOXRIG_UI_OK);
+            CHECK(renderer->draw(renderer->context, view, NULL) == 0);
+            uint32_t *pixels = renderer->capture(renderer->context);
+            CHECK(pixels != NULL);
+            unsigned width = shape == 1 ? 4 : cw;
+            unsigned height = shape == 2 ? 4 : ch;
+            unsigned top = ch - height;
+            for (unsigned y = 0; y < ch; y++) for (unsigned x = 0; x < cw; x++) {
+                bool inside = x < width && y >= top;
+                bool border = x == 0 || x == width-1 || y == top || y == ch-1;
+                uint32_t expected = inside && (focused || border) ? 0xffd700 : 0x102030;
+                uint32_t actual = pixels[(ch+y)*BOXRIG_TEST_COLOR_WIDTH+9*cw+x];
+                if (!equal_rgb(actual, expected)) {
+                    fprintf(stderr, "box shape=%u focus=%d x=%u y=%u got=%06x expected=%06x\n",
+                        shape, focused, x, y, actual, expected);
+                    free(pixels);
+                    CHECK(false);
+                }
+            }
+            free(pixels);
+        }
+    }
+    CHECK(boxrig_ui_view_set_cursor_style(view, &saved) == BOXRIG_UI_OK);
+    return true;
+}
+
 bool boxrig_test_renderer_decoration_views(
     const boxrig_test_decoration_factory *factories,
     const char *const *names, size_t factory_count)
@@ -215,6 +259,7 @@ bool boxrig_test_renderer_decoration_views(
         boxrig_test_color_statistics statistics;
         CHECK(renderer.statistics(renderer.context, &statistics) == 0);
         CHECK(statistics.row_shape_count == 0 && statistics.glyph_upload_count == 0);
+        CHECK(check_cursor_boxes(&renderer, views[1]));
         for (unsigned i = 0; i < 2; i++) {
             boxrig_text_snapshot *copy = NULL;
             CHECK(boxrig_ui_view_create_selection_snapshot(views[i], &copy) == BOXRIG_UI_OK);

@@ -1961,6 +1961,7 @@ boxrig_gtk4_terminal_widget_config_default(void)
     config.accessibility_enabled = false;
     config.frame_request_callback = NULL;
     config.frame_request_context = NULL;
+    config.initial_font = NULL;
     return config;
 }
 
@@ -1977,7 +1978,8 @@ static boxrig_ui_status initialize_widget_resources(
     boxrig_gtk4_input_config input_config;
     int scale;
 
-    default_specification = boxrig_font_specification_default();
+    default_specification = config->initial_font != NULL
+        ? *config->initial_font : boxrig_font_specification_default();
     widget->rendering_policy = boxrig_font_rendering_policy_default();
     scale = gtk_widget_get_scale_factor(GTK_WIDGET(widget));
     if (scale <= 0) {
@@ -1996,7 +1998,7 @@ static boxrig_ui_status initialize_widget_resources(
             &widget->renderer) == -1) {
         return BOXRIG_UI_UNAVAILABLE;
     }
-    if (scale != 1) {
+    if (config->initial_font != NULL || scale != 1) {
         font_status = boxrig_pango_cairo_renderer_set_font(
             widget->renderer,
             &widget->font.specification,
@@ -2120,6 +2122,8 @@ boxrig_ui_status boxrig_gtk4_terminal_widget_create_with_render_state(
         config->render_policy > BOXRIG_GTK_RENDER_OPENGL_REQUIRED ||
         boxrig_ui_model_terminal(model) == NULL ||
         !valid_attachment(config->attachment) ||
+        (config->initial_font != NULL &&
+         boxrig_font_specification_validate(NULL, config->initial_font) != BOXRIG_FONT_CATALOG_OK) ||
         config->paste_capacity == 0 ||
         config->paste_capacity > BOXRIG_GTK4_MAXIMUM_PASTE_CAPACITY ||
         config->paste_chunk_size == 0 ||
