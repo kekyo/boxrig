@@ -6950,6 +6950,55 @@ static bool test_virtual_placements_and_unicode_placeholders(void)
     return true;
 }
 
+static bool test_placeholder_row_inheritance_and_buffer_switch(void)
+{
+    static const uint8_t setup[] =
+        "\x1b_Ga=t,i=33554474,f=24,s=4,v=1;AAAAAAAAAAAAAAAA\x1b\\"
+        "\x1b_Ga=p,i=33554474,p=7,c=4,r=1,U=1,C=1\x1b\\"
+        "\x1b[38;2;0;0;42m"
+        "\xf4\x8e\xbb\xae\xcc\x85\xcc\x85\xcc\x8e"
+        "\xf4\x8e\xbb\xae"
+        "\x1b[2;1H"
+        "\xf4\x8e\xbb\xae\xcc\x85\xcc\x85\xcc\x8e";
+    static const uint8_t remove_row_start[] = "\x1b[1;1H ";
+    static const uint8_t enter_alternate[] = "\x1b[?47h";
+    static const uint8_t leave_alternate[] = "\x1b[?47l";
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    boxrig_terminal *terminal = NULL;
+    boxrig_image_placement_view placement;
+    size_t consumed = 0;
+
+    config.rows = 3;
+    config.columns = 8;
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_set_cell_pixel_geometry(terminal, 1, 1) ==
+          BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_feed(
+              terminal, setup, sizeof(setup) - 1,
+              &consumed) == BOXRIG_STATUS_OK);
+    CHECK(consumed == sizeof(setup) - 1);
+    CHECK(boxrig_terminal_image_placement_count(terminal) == 3);
+
+    CHECK(boxrig_terminal_feed(
+              terminal, remove_row_start, sizeof(remove_row_start) - 1,
+              &consumed) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_image_placement_count(terminal) == 1);
+    CHECK(boxrig_terminal_get_image_placement(terminal, 0, &placement) ==
+          BOXRIG_STATUS_OK);
+    CHECK(placement.visual_row == 1 && placement.visual_column == 0);
+
+    CHECK(boxrig_terminal_feed(
+              terminal, enter_alternate, sizeof(enter_alternate) - 1,
+              &consumed) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_image_placement_count(terminal) == 0);
+    CHECK(boxrig_terminal_feed(
+              terminal, leave_alternate, sizeof(leave_alternate) - 1,
+              &consumed) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_image_placement_count(terminal) == 1);
+    boxrig_terminal_destroy(terminal);
+    return true;
+}
+
 static bool test_relative_placement_validation_and_resolution(void)
 {
     static const uint8_t uploads[] =
@@ -7854,6 +7903,8 @@ int main(void)
          test_resize_reflow_and_visibility_eviction},
         {"virtual placements and Unicode placeholders",
          test_virtual_placements_and_unicode_placeholders},
+        {"placeholder row inheritance and buffer switch",
+         test_placeholder_row_inheritance_and_buffer_switch},
         {"relative placement validation and resolution",
          test_relative_placement_validation_and_resolution},
         {"relative placement depth and cascade",

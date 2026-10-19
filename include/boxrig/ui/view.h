@@ -75,13 +75,13 @@ typedef enum boxrig_ui_status {
 
 /** Distinct retained dirty planes owned by one terminal view. */
 typedef enum boxrig_ui_dirty_layer {
-    /** Terminal cells, cursor, colors, and row layouts. */
+    /** Terminal cells, cursor, colors, and row layouts in logical columns. */
     BOXRIG_UI_DIRTY_MODEL = 0,
-    /** Terminal image resources and placements. */
+    /** Terminal image resources and placements in logical columns. */
     BOXRIG_UI_DIRTY_IMAGE,
-    /** Frontend overlays such as IME preedit. */
+    /** Frontend overlays such as IME preedit in visual columns. */
     BOXRIG_UI_DIRTY_OVERLAY,
-    /** Native expose, target loss, or presentation dirty. */
+    /** Native expose, target loss, or presentation dirty in visual columns. */
     BOXRIG_UI_DIRTY_PRESENT,
     /** Animated paint changes in visual columns, retaining text layout and colors. */
     BOXRIG_UI_DIRTY_ANIMATION,
@@ -89,7 +89,10 @@ typedef enum boxrig_ui_dirty_layer {
     BOXRIG_UI_DIRTY_LAYER_COUNT
 } boxrig_ui_dirty_layer;
 
-/** A rectangular interval in terminal row and column coordinates. */
+/**
+ * A rectangular interval in terminal row and column coordinates.
+ * Columns are logical for MODEL and IMAGE, and visual for the other layers.
+ */
 typedef struct boxrig_ui_dirty {
     /** Zero-based first changed row. */
     size_t row;
@@ -1245,7 +1248,7 @@ boxrig_ui_status boxrig_ui_view_consume_dirty(
  *
  * @param view View to invalidate.
  * @param layer Overlay or presentation layer.
- * @param dirty Grid rectangle clipped to the current effective grid.
+ * @param dirty Visual grid rectangle clipped to the current effective grid.
  * @return A portable UI status.
  */
 boxrig_ui_status boxrig_ui_view_invalidate(

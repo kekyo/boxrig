@@ -3788,101 +3788,80 @@ static boxrig_color_kind effective_background_kind(
                : cell->background.kind;
 }
 
-static int draw_visual_default_backgrounds(
+static int fill_background_run(
+    boxrig_pango_cairo_renderer *renderer,
+    size_t row,
+    size_t first,
+    size_t end,
+    unsigned long background,
+    uint8_t opacity)
+{
+    if (!set_cairo_source_pixel(renderer, background, opacity)) {
+        return -1;
+    }
+    cairo_rectangle(renderer->cairo,
+        first * renderer->cell_width, row * renderer->cell_height,
+        (end - first) * renderer->cell_width, renderer->cell_height);
+    cairo_fill(renderer->cairo);
+    return 0;
+}
+
+static int draw_visual_backgrounds(
     boxrig_pango_cairo_renderer *renderer,
     const boxrig_terminal *terminal,
     size_t row,
-    const boxrig_text_layout *layout)
+    const boxrig_text_layout *layout,
+    size_t first_column,
+    size_t column_count,
+    bool default_pass)
 {
     size_t visual_column;
-    size_t columns = boxrig_text_layout_column_count(layout);
+    size_t end_column = first_column + column_count;
+    size_t run_start = first_column;
+    unsigned long run_background = 0;
+    uint8_t run_opacity = 0;
+    bool run_active = false;
 
-    for (visual_column = 0; visual_column < columns; visual_column++) {
+    /* draw_terminal_row has validated this visual interval before clipping. */
+    for (visual_column = first_column;
+         visual_column < end_column; visual_column++) {
         size_t logical_column;
         boxrig_cell_view cell;
         unsigned long background = renderer->default_background;
         uint8_t opacity = 0;
 
         if (boxrig_text_layout_visual_to_logical(
-                layout,
-                visual_column,
-                &logical_column) != BOXRIG_TEXT_LAYOUT_OK ||
-            boxrig_terminal_get_cell(
-                terminal,
-                row,
-                logical_column,
-                &cell) != BOXRIG_STATUS_OK) {
+                layout, visual_column, &logical_column) != BOXRIG_TEXT_LAYOUT_OK ||
+            boxrig_terminal_get_cell(terminal, row, logical_column, &cell) !=
+                BOXRIG_STATUS_OK) {
             return -1;
         }
-        if (effective_background_kind(
-                renderer,
-                &cell,
-                visual_column) == BOXRIG_COLOR_DEFAULT) {
+        bool default_color = effective_background_kind(
+            renderer, &cell, visual_column) == BOXRIG_COLOR_DEFAULT;
+        bool paint = default_pass || !default_color;
+        if (default_pass == default_color) {
             background = renderer->row_colors[visual_column].background;
             opacity = renderer->background_opacity;
         }
-        if (!set_cairo_source_pixel(
-                renderer,
-                background,
-                opacity)) {
-            return -1;
+        /* Keep SOURCE clearing and OVER painting in separate passes. */
+        if (run_active && (!paint || background != run_background ||
+                           opacity != run_opacity)) {
+            if (fill_background_run(renderer, row, run_start, visual_column,
+                    run_background, run_opacity) == -1) {
+                return -1;
+            }
+            run_active = false;
         }
-        cairo_rectangle(
-            renderer->cairo,
-            visual_column * renderer->cell_width,
-            row * renderer->cell_height,
-            renderer->cell_width,
-            renderer->cell_height);
-        cairo_fill(renderer->cairo);
+        if (paint && !run_active) {
+            run_start = visual_column;
+            run_background = background;
+            run_opacity = opacity;
+            run_active = true;
+        }
     }
-    return cairo_status(renderer->cairo) == CAIRO_STATUS_SUCCESS ? 0 : -1;
-}
-
-static int draw_visual_nondefault_backgrounds(
-    boxrig_pango_cairo_renderer *renderer,
-    const boxrig_terminal *terminal,
-    size_t row,
-    const boxrig_text_layout *layout)
-{
-    size_t visual_column;
-    size_t columns = boxrig_text_layout_column_count(layout);
-
-    for (visual_column = 0; visual_column < columns; visual_column++) {
-        size_t logical_column;
-        boxrig_cell_view cell;
-        resolved_cell_colors colors;
-
-        if (boxrig_text_layout_visual_to_logical(
-                layout,
-                visual_column,
-                &logical_column) != BOXRIG_TEXT_LAYOUT_OK ||
-            boxrig_terminal_get_cell(
-                terminal,
-                row,
-                logical_column,
-                &cell) != BOXRIG_STATUS_OK) {
-            return -1;
-        }
-        if (effective_background_kind(
-                renderer,
-                &cell,
-                visual_column) == BOXRIG_COLOR_DEFAULT) {
-            continue;
-        }
-        colors = renderer->row_colors[visual_column];
-        if (!set_cairo_source_pixel(
-                renderer,
-                colors.background,
-                renderer->background_opacity)) {
-            return -1;
-        }
-        cairo_rectangle(
-            renderer->cairo,
-            visual_column * renderer->cell_width,
-            row * renderer->cell_height,
-            renderer->cell_width,
-            renderer->cell_height);
-        cairo_fill(renderer->cairo);
+    if (run_active && fill_background_run(renderer, row, run_start, end_column,
+            run_background, run_opacity) == -1) {
+        return -1;
     }
     return cairo_status(renderer->cairo) == CAIRO_STATUS_SUCCESS ? 0 : -1;
 }
@@ -4453,11 +4432,13 @@ static int draw_terminal_row(
         clip_height);
     cairo_clip(renderer->cairo);
     cairo_set_operator(renderer->cairo, CAIRO_OPERATOR_SOURCE);
-    if (draw_visual_default_backgrounds(
+    if (draw_visual_backgrounds(
             renderer,
             terminal,
             row,
-            shape->layout) == -1) {
+            shape->layout,
+            visual_column,
+            visual_column_count, true) == -1) {
         goto cleanup;
     }
     cairo_set_operator(renderer->cairo, CAIRO_OPERATOR_OVER);
@@ -4470,11 +4451,13 @@ static int draw_terminal_row(
             row,
             visual_column,
             visual_column_count) == -1 ||
-        draw_visual_nondefault_backgrounds(
+        draw_visual_backgrounds(
             renderer,
             terminal,
             row,
-            shape->layout) == -1 ||
+            shape->layout,
+            visual_column,
+            visual_column_count, false) == -1 ||
         composite_image_layer(
             renderer,
             terminal,
@@ -5434,7 +5417,10 @@ static int copy_view_frame_dirty(
             return -1;
         }
         cache = &renderer->row_cache[row];
-        if (layer == BOXRIG_UI_DIRTY_ANIMATION) {
+        if (layer == BOXRIG_UI_DIRTY_OVERLAY ||
+            layer == BOXRIG_UI_DIRTY_PRESENT ||
+            layer == BOXRIG_UI_DIRTY_ANIMATION) {
+            /* These layers already identify visual columns. */
             mark_dirty_interval(&renderer->frame_dirty[row], dirty.column,
                 dirty.column_count, columns);
         } else if (cache->valid &&

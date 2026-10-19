@@ -4174,6 +4174,7 @@ static bool test_insert_newline_origin_and_margin_modes(void)
         "\x1b[20h\x1b[1;4H\n"
         "\x1b[2;4r\x1b[?6h"
         "\x1b[?69h\x1b[3;6s\x1b[1;1H12345";
+    const uint8_t reset_modes[] = "\x1b[?6l\x1b[?69l";
     size_t consumed = 0;
 
     config.rows = 5;
@@ -4200,8 +4201,8 @@ static bool test_insert_newline_origin_and_margin_modes(void)
     consumed = 0;
     CHECK(boxrig_terminal_feed(
               terminal,
-              (const uint8_t *)"\x1b[?6l\x1b[?69l",
-              13,
+              reset_modes,
+              sizeof(reset_modes) - 1,
               &consumed) == BOXRIG_STATUS_OK);
     boxrig_terminal_get_cursor(terminal, &cursor);
     CHECK(cursor.row == 0);

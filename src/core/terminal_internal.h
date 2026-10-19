@@ -27,14 +27,30 @@ typedef struct boxrig_cell_style {
     bool protected_cell;
 } boxrig_cell_style;
 
+/* Reuse the pointer slot without enlarging cells on 32-bit targets. */
+enum { BOXRIG_CELL_INLINE_BYTES = sizeof(char *) };
+
 typedef struct boxrig_cell {
-    char *text;
+    union {
+        char *heap;
+        char bytes[BOXRIG_CELL_INLINE_BYTES];
+    } text_storage;
     size_t text_length;
     uint8_t column_width;
     bool continuation;
     uint32_t hyperlink_handle;
     boxrig_cell_style style;
 } boxrig_cell;
+
+/* Derive the address after a cell move; inline text never owns a self-pointer. */
+static inline const char *boxrig_cell_text(const boxrig_cell *cell)
+{
+    if (cell->text_length == 0) {
+        return NULL;
+    }
+    return cell->text_length <= BOXRIG_CELL_INLINE_BYTES
+               ? cell->text_storage.bytes : cell->text_storage.heap;
+}
 
 typedef struct boxrig_text_fragment_metadata {
     boxrig_text_line_id line_id;
@@ -157,7 +173,9 @@ typedef struct boxrig_input_state {
 } boxrig_input_state;
 
 typedef struct boxrig_screen_buffer {
+    /* Owns every cell; row_cells only permutes row starts in this allocation. */
     boxrig_cell *cell_storage;
+    boxrig_cell **row_cells;
     bool *line_soft_wrapped;
     boxrig_text_fragment_metadata *text_fragments;
     boxrig_cell_position cursor;
@@ -180,6 +198,7 @@ typedef struct boxrig_screen_reflow_marker {
 } boxrig_screen_reflow_marker;
 
 typedef struct boxrig_screen_graphics_sink {
+    void (*text_row_changed)(boxrig_terminal *terminal, size_t row);
     void (*scroll_will_change)(
         boxrig_terminal *terminal,
         size_t top,
@@ -229,12 +248,16 @@ typedef struct boxrig_screen {
     size_t history_capacity;
     size_t history_start;
     size_t history_count;
+    /* History before this index is synchronized, except a truncated first line.
+     * Visible rows remain candidates even when this equals history_count. */
+    size_t text_history_sync_start;
     size_t viewport_offset;
     size_t viewport_anchor_column;
     boxrig_ambiguous_width ambiguous_width;
     boxrig_cursor_column_mode cursor_column_mode;
     char *last_printed_text;
     size_t last_printed_length;
+    size_t last_printed_capacity;
     uint8_t last_printed_width;
     bool grapheme_active;
     boxrig_screen_buffer *grapheme_buffer;
@@ -339,6 +362,17 @@ void boxrig_screen_text_reset_fragment(
     boxrig_screen *screen,
     boxrig_text_fragment_metadata *fragment);
 void boxrig_screen_text_sync(boxrig_screen *screen);
+boxrig_status boxrig_screen_text_document_size(
+    const boxrig_screen *screen,
+    boxrig_text_screen text_screen,
+    size_t *bytes_out,
+    size_t *lines_out);
+boxrig_status boxrig_terminal_reuse_text_line_snapshot(
+    const boxrig_terminal *terminal,
+    boxrig_text_screen text_screen,
+    size_t fragment_index,
+    boxrig_text_snapshot **snapshot_inout,
+    size_t *next_fragment_out);
 void boxrig_screen_reset(boxrig_screen *screen);
 void boxrig_screen_update_synchronized_output_time(
     boxrig_screen *screen,
@@ -379,6 +413,12 @@ bool boxrig_screen_translate_byte(
 boxrig_status boxrig_screen_put_codepoint(
     boxrig_screen *screen,
     int32_t codepoint);
+/* Consumes a printable-ASCII span within the current row when its state is
+ * equivalent to separate scalar writes. Returns zero to use that path. */
+size_t boxrig_screen_put_ascii_run(
+    boxrig_screen *screen,
+    const uint8_t *bytes,
+    size_t length);
 void boxrig_screen_end_text(boxrig_screen *screen);
 void boxrig_screen_move_cursor_for_image(
     boxrig_screen *screen,
@@ -510,6 +550,10 @@ void boxrig_text_recognizer_destroy(boxrig_terminal *terminal);
 typedef struct boxrig_text_workload_counters {
     size_t visited_cells;
     size_t visited_bytes;
+    size_t synced_fragments;
+    size_t placeholder_cells;
+    size_t ascii_batches;
+    size_t ascii_batch_bytes;
     size_t monitor_event_queue_high_water;
     size_t monitor_staging_queue_high_water;
     size_t recognizer_event_queue_high_water;
@@ -522,11 +566,15 @@ typedef struct boxrig_text_workload_counters {
 void boxrig_text_workload_counters_reset(void);
 void boxrig_text_workload_counters_read(
     boxrig_text_workload_counters *counters_out);
+void boxrig_text_workload_observe_placeholder_cell(void);
+void boxrig_text_workload_observe_ascii_batch(size_t count);
 void boxrig_text_workload_observe_recognizer_event_queue(size_t count);
 void boxrig_text_workload_observe_recognizer_prepare_step(bool budgeted);
 void boxrig_text_workload_observe_recognizer_cursor_creation(void);
 void boxrig_text_workload_observe_recognizer_match_identity_comparison(void);
 #else
+#define boxrig_text_workload_observe_placeholder_cell() ((void)0)
+#define boxrig_text_workload_observe_ascii_batch(count) ((void)(count))
 #define boxrig_text_workload_observe_recognizer_event_queue(count) \
     ((void)(count))
 #define boxrig_text_workload_observe_recognizer_prepare_step(budgeted) \

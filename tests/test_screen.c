@@ -22,7 +22,7 @@ static boxrig_cell *test_cell_at(
     size_t row,
     size_t column)
 {
-    return &screen->active->cell_storage[row * screen->columns + column];
+    return &screen->active->row_cells[row][column];
 }
 
 static bool set_test_wide_cell(
@@ -131,7 +131,7 @@ static bool test_write_and_resize_do_not_orphan_wide_cells(void)
     boxrig_screen_put_byte(&screen, 'A');
     cell = test_cell_at(&screen, 1, 1);
     CHECK(cell->text_length == 1);
-    CHECK(cell->text[0] == 'A');
+    CHECK(boxrig_cell_text(cell)[0] == 'A');
     CHECK(cell->column_width == 1);
     CHECK(!cell->continuation);
     cell = test_cell_at(&screen, 1, 2);
@@ -149,7 +149,7 @@ static bool test_write_and_resize_do_not_orphan_wide_cells(void)
     CHECK(!cell->continuation);
     cell = test_cell_at(&screen, 1, 2);
     CHECK(cell->text_length == 1);
-    CHECK(cell->text[0] == 'B');
+    CHECK(boxrig_cell_text(cell)[0] == 'B');
     CHECK(cell->column_width == 1);
     CHECK(!cell->continuation);
 

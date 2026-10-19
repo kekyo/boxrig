@@ -1771,8 +1771,50 @@ static bool text_annotations_are_atomic_revisioned_and_bidi_exact(void)
     return true;
 }
 
+static bool annotation_without_layout_invalidates_whole_row(void)
+{
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    boxrig_ui_view_config view_config = boxrig_ui_view_config_default();
+    boxrig_terminal *terminal = NULL;
+    boxrig_ui_model *model = NULL;
+    boxrig_ui_view *view = NULL;
+    boxrig_text_position start, end;
+    boxrig_ui_text_annotation annotation = {0};
+    size_t consumed = 0;
+
+    config.rows = 1;
+    config.columns = 6;
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)"abcdef", 6,
+        &consumed) == BOXRIG_STATUS_OK && consumed == 6);
+    CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_create(model, &view_config, &view) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+    CHECK(boxrig_terminal_get_text_position(terminal,
+        BOXRIG_TEXT_SCREEN_PRIMARY, 0, 1, &start) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_get_text_position(terminal,
+        BOXRIG_TEXT_SCREEN_PRIMARY, 0, 2, &end) == BOXRIG_STATUS_OK);
+    annotation.source_id = 71;
+    annotation.item_id = 1;
+    annotation.range.start = start;
+    annotation.range.end = end;
+    annotation.style.field_mask = BOXRIG_UI_ANNOTATION_BACKGROUND;
+    annotation.style.background.kind = BOXRIG_COLOR_RGB;
+    annotation.style.background.red = 127;
+    CHECK(boxrig_ui_view_replace_text_annotations(view, 71,
+        BOXRIG_TEXT_SCREEN_PRIMARY, start.line_id, start.line_revision,
+        &annotation, 1) == BOXRIG_UI_OK);
+    CHECK(take_expected_dirty(view, BOXRIG_UI_DIRTY_OVERLAY, 0, 1, 0, 6));
+
+    boxrig_ui_view_destroy(view);
+    boxrig_ui_model_destroy(model);
+    boxrig_terminal_destroy(terminal);
+    return true;
+}
+
 int main(void)
 {
+    if (!annotation_without_layout_invalidates_whole_row()) return 1;
     CHECK(independent_view_dirty_and_frame_requests());
     CHECK(fixed_grid_layout_hit_test_and_retained_mapping());
     CHECK(allocation_observation_never_requests_native_size());
