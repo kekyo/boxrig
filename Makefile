@@ -6049,6 +6049,17 @@ $(BUILD_DIR)/tests/performance/profile_input_unwrapped: tests/performance/profil
 		-Wl,--wrap=boxrig_text_workload_counters_read \
 		$(INPUT_PROFILE_FLAGS) -o $@
 
+$(BUILD_DIR)/tests/performance/interactive_workload: tests/performance/interactive_workload.c \
+		tests/performance/pty_workload.c tests/performance/interval_trace.c \
+		tests/performance/interval_trace.h | $(BUILD_DIR)/tests/performance
+	$(CC) $(POSIX_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< \
+		tests/performance/interval_trace.c -o $@
+
+$(BUILD_DIR)/tests/performance/interactive_probe: tests/performance/interactive_probe.c \
+		| $(BUILD_DIR)/tests/performance
+	$(CC) $(POSIX_CPPFLAGS) $(X11_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< \
+		$(X11_LIBS) -lXtst -o $@
+
 test: test-ascii-runs
 test-ascii-runs: $(BUILD_DIR)/tests/test_ascii_runs
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
