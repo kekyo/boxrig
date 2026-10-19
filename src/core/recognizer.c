@@ -170,7 +170,9 @@ static size_t empty_line_slot(
 
 static void prepare_empty_lines(boxrig_text_recognizer_entry *recognizer)
 {
-    size_t limit = recognizer->limits.dirty_line_capacity;
+    /* Negative entries do not retain publicly queryable result lines. Bound
+     * their optional storage by the document limit and a fixed memory ceiling. */
+    size_t limit = recognizer->limits.snapshot_line_capacity;
     size_t desired = 0u;
     size_t capacity = 1u;
 
@@ -178,8 +180,8 @@ static void prepare_empty_lines(boxrig_text_recognizer_entry *recognizer)
         return;
     }
     recognizer->staging_empty_prepared = true;
-    if (limit > 8192u) {
-        limit = 8192u;
+    if (limit > 16384u) {
+        limit = 16384u;
     }
     for (size_t index = 0u; index < recognizer->snapshot_count; index++) {
         size_t lines = recognizer->document_line_counts[index];

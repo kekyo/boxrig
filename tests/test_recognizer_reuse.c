@@ -409,7 +409,7 @@ static bool test_history_eviction_keeps_event(void)
     return true;
 }
 
-static bool test_single_cache_slot_collision(void)
+static bool test_cache_collision_above_capacity(void)
 {
     boxrig_terminal_config config = boxrig_terminal_config_default();
     boxrig_text_recognizer_options options = {0};
@@ -421,7 +421,12 @@ static bool test_single_cache_slot_collision(void)
 
     config.rows = 2u;
     config.columns = 16u;
+    config.scrollback_capacity = 17000u;
     CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    /* More distinct lines than cache entries must force collisions. */
+    for (size_t index = 0u; index < 17001u; index++) {
+        CHECK(feed(terminal, "plain\r\n"));
+    }
     CHECK(feed(terminal, "plain\r\nplain"));
     options.scope = BOXRIG_TEXT_RECOGNIZER_SCOPE_PRIMARY;
     options.pattern = (const uint8_t *)"hit";
@@ -431,10 +436,10 @@ static bool test_single_cache_slot_collision(void)
     CHECK(boxrig_terminal_register_text_recognizer(
               terminal, &options, &diagnostic, &recognizer_id) ==
           BOXRIG_STATUS_OK);
-    CHECK(complete_scan(terminal, 1u, &work, &counters));
+    CHECK(complete_scan(terminal, 4096u, &work, &counters));
     CHECK(!boxrig_terminal_text_recognizer_event_peek(terminal, NULL));
     CHECK(feed(terminal, "\033[1;1Hhit"));
-    CHECK(complete_scan(terminal, 1u, &work, &counters));
+    CHECK(complete_scan(terminal, 4096u, &work, &counters));
     CHECK(consume_events(terminal, recognizer_id, 1u, NULL));
     boxrig_terminal_destroy(terminal);
     return true;
@@ -474,6 +479,45 @@ static bool test_optional_cache_allocation_failure(void)
     return true;
 }
 
+static bool test_cache_covers_large_negative_history(size_t dirty_capacity)
+{
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    boxrig_text_recognizer_options options = {0};
+    boxrig_text_regex_diagnostic diagnostic = {0};
+    boxrig_text_workload_counters counters;
+    boxrig_terminal *terminal = NULL;
+    uint64_t recognizer_id = 0u;
+    size_t work = 0u;
+
+    config.rows = 2u;
+    config.columns = 16u;
+    config.scrollback_capacity = 10024u;
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    for (size_t index = 0u; index < 10025u; index++) {
+        CHECK(feed(terminal, "plain\r\n"));
+    }
+    options.scope = BOXRIG_TEXT_RECOGNIZER_SCOPE_PRIMARY;
+    options.pattern = (const uint8_t *)"hit";
+    options.pattern_length = 3u;
+    options.limits = boxrig_text_recognizer_limits_default();
+    /* Retained public result lines have a separate resource bound. */
+    options.limits.dirty_line_capacity = dirty_capacity;
+    CHECK(boxrig_terminal_register_text_recognizer(
+              terminal, &options, &diagnostic, &recognizer_id) ==
+          BOXRIG_STATUS_OK);
+    CHECK(complete_scan(terminal, 4096u, &work, &counters));
+    CHECK(!boxrig_terminal_text_recognizer_event_peek(terminal, NULL));
+    CHECK(feed(terminal, "hit"));
+    CHECK(complete_scan(terminal, 4096u, &work, &counters));
+    CHECK(consume_events(terminal, recognizer_id, 1u, NULL));
+    fprintf(stderr, "large negative history: projected=%zu prepare=%zu\n",
+        counters.visited_cells, counters.recognizer_prepare_steps);
+    boxrig_terminal_destroy(terminal);
+    CHECK(counters.visited_cells < 128u);
+    CHECK(counters.recognizer_prepare_steps < 128u);
+    return true;
+}
+
 int main(void)
 {
     if (!test_wrapped_cached_line_and_failed_projection() ||
@@ -481,8 +525,10 @@ int main(void)
         !test_layout_change_rechecks_column_limit() ||
         !test_interrupted_both_scopes() ||
         !test_history_eviction_keeps_event() ||
-        !test_single_cache_slot_collision() ||
+        !test_cache_collision_above_capacity() ||
         !test_optional_cache_allocation_failure() ||
+        !test_cache_covers_large_negative_history(8192u) ||
+        !test_cache_covers_large_negative_history(1u) ||
         !test_negative_lines_are_reused()) return 1;
     puts("PASS recognizer negative-line reuse");
     return 0;
