@@ -47,7 +47,8 @@ git -C "$source_root" commit --quiet -m 'Pinned protocol definitions'
 pinned_revision=$(git -C "$source_root" rev-parse HEAD)
 
 for path in Makefile tools/codegen/rules.mk packaging/licenses/licenses.mk \
-    tests/headers/rules.mk packaging/linux/rules.mk; do
+    tests/headers/rules.mk tests/performance/phase_probe.mk \
+    packaging/linux/rules.mk; do
     mkdir -p "$project_root/$(dirname "$path")"
     cp "$path" "$project_root/$path"
 done
