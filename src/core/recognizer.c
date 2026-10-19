@@ -1194,6 +1194,34 @@ static boxrig_status resume_recognizer(
                           recognizer->snapshot_index == 1u)
                          ? BOXRIG_TEXT_SCREEN_ALTERNATE
                          : BOXRIG_TEXT_SCREEN_PRIMARY;
+            /* A completed negative result depends only on the synchronized
+             * line identity/revision and unchanged layout. Inspect metadata
+             * before allocating or traversing the line's cells. */
+            if (recognizer->current_empty_capacity != 0u &&
+                recognizer->empty_layout_revision ==
+                    recognizer->scan_layout_revision) {
+                size_t next_fragment;
+
+                status = boxrig_screen_text_line_metadata(
+                    &terminal->screen, screen,
+                    recognizer->next_fragment_indices[
+                        recognizer->snapshot_index],
+                    &position, &next_fragment);
+                if (status != BOXRIG_STATUS_OK) {
+                    *work_used_out = work_used;
+                    return status;
+                }
+                if (cached_empty_line(recognizer, position)) {
+                    begin_line(recognizer);
+                    recognizer->next_fragment_indices[
+                        recognizer->snapshot_index] = next_fragment;
+                    recognizer->line_start_position = position;
+                    recognizer->line_start_position_valid = true;
+                    recognizer->phase =
+                        BOXRIG_TEXT_RECOGNIZER_CACHED_EMPTY_LINE;
+                    continue;
+                }
+            }
             status = boxrig_terminal_reuse_text_line_snapshot(
                 terminal, screen,
                 recognizer->next_fragment_indices[
@@ -1210,14 +1238,6 @@ static boxrig_status resume_recognizer(
                 return status;
             }
             begin_line(recognizer);
-            if (boxrig_text_snapshot_position_at_byte_offset(
-                    recognizer->snapshots[recognizer->snapshot_index],
-                    0u, &position) == BOXRIG_STATUS_OK &&
-                cached_empty_line(recognizer, position)) {
-                recognizer->line_start_position = position;
-                recognizer->line_start_position_valid = true;
-                recognizer->phase = BOXRIG_TEXT_RECOGNIZER_CACHED_EMPTY_LINE;
-            }
         } else if (recognizer->phase ==
                    BOXRIG_TEXT_RECOGNIZER_CACHED_EMPTY_LINE) {
             boxrig_text_position position = recognizer->line_start_position;
@@ -1232,7 +1252,7 @@ static boxrig_status resume_recognizer(
                     position.line_id) != NULL) {
                 /* Retained zero-result lines remain publicly queryable.
                  * Keep this phase on allocation failure so retry cannot skip
-                 * the already projected line. */
+                 * the line whose metadata has already been consumed. */
                 boxrig_status status = retain_scan_line(recognizer);
 
                 if (status == BOXRIG_STATUS_LIMIT_EXCEEDED) {

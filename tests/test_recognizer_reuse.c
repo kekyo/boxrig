@@ -146,6 +146,60 @@ static bool test_negative_lines_are_reused(void)
     CHECK(steady_counters.recognizer_prepare_steps * 4u <
           initial_counters.recognizer_prepare_steps);
     CHECK(steady_work < initial_work);
+    fprintf(stderr, "projected cells: initial=%zu steady=%zu\n",
+            initial_counters.visited_cells, steady_counters.visited_cells);
+    CHECK(steady_counters.visited_cells * 4u < initial_counters.visited_cells);
+    return true;
+}
+
+static bool test_wrapped_cached_line_and_failed_projection(void)
+{
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    boxrig_text_recognizer_options options = {0};
+    boxrig_text_regex_diagnostic diagnostic = {0};
+    boxrig_text_workload_counters counters;
+    boxrig_terminal *terminal = NULL;
+    uint64_t recognizer_id = 0u;
+    size_t work = 0u;
+    bool more = false;
+
+    config.rows = 4u;
+    config.columns = 4u;
+    config.scrollback_capacity = 8u;
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    CHECK(feed(terminal, "abcdefghijklmnop\r\nplain\r\nend"));
+    options.scope = BOXRIG_TEXT_RECOGNIZER_SCOPE_PRIMARY;
+    options.pattern = (const uint8_t *)"hit";
+    options.pattern_length = 3u;
+    options.limits = boxrig_text_recognizer_limits_default();
+    CHECK(boxrig_terminal_register_text_recognizer(
+              terminal, &options, &diagnostic, &recognizer_id) ==
+          BOXRIG_STATUS_OK);
+    CHECK(complete_scan(terminal, 1u, &work, &counters));
+    CHECK(!boxrig_terminal_text_recognizer_event_peek(terminal, NULL));
+    CHECK(feed(terminal, "\rhit"));
+    boxrig_terminal_test_fail_text_snapshot_allocation(terminal, 1u);
+    boxrig_text_workload_counters_reset();
+    CHECK(boxrig_terminal_resume_text_recognizers(
+              terminal, 1u, &work, &more) == BOXRIG_STATUS_OK);
+    CHECK(more && work == 1u);
+    boxrig_text_workload_counters_read(&counters);
+    CHECK(counters.visited_cells == 0u);
+    boxrig_status status = BOXRIG_STATUS_OK;
+    while (status == BOXRIG_STATUS_OK && more) {
+        status = boxrig_terminal_resume_text_recognizers(
+            terminal, 1u, &work, &more);
+    }
+    CHECK(status == BOXRIG_STATUS_OUT_OF_MEMORY);
+    CHECK(complete_scan(terminal, 1u, &work, &counters));
+    CHECK(consume_events(terminal, recognizer_id, 1u, NULL));
+
+    /* Rewrapping invalidates the fast path; the public result survives. */
+    CHECK(boxrig_terminal_resize(terminal, 4u, 8u) == BOXRIG_STATUS_OK);
+    CHECK(complete_scan(terminal, 1u, &work, &counters));
+    CHECK(counters.visited_cells != 0u);
+    CHECK(consume_events(terminal, recognizer_id, 0u, NULL));
+    boxrig_terminal_destroy(terminal);
     return true;
 }
 
@@ -422,7 +476,8 @@ static bool test_optional_cache_allocation_failure(void)
 
 int main(void)
 {
-    if (!test_zero_result_line_remains_queryable() ||
+    if (!test_wrapped_cached_line_and_failed_projection() ||
+        !test_zero_result_line_remains_queryable() ||
         !test_layout_change_rechecks_column_limit() ||
         !test_interrupted_both_scopes() ||
         !test_history_eviction_keeps_event() ||

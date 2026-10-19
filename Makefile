@@ -5965,6 +5965,24 @@ test-gtk-sample-recognition: $(BUILD_DIR)/tests/test_gtk3_sample_recognition $(B
 
 include tests/performance/phase_probe.mk
 
+$(BUILD_DIR)/tests/performance/steady_recognizer: tests/performance/steady_recognizer.c \
+		tests/measure_text_workloads.c $(TEXT_MEASUREMENT_LIBRARY) | $(BUILD_DIR)/tests/performance
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) \
+		$(PROJECT_CFLAGS) -I. -DBOXRIG_MEASURE_TEXT_WORKLOADS $< \
+		$(TEXT_MEASUREMENT_LIBRARY) -Wl,--wrap=malloc -Wl,--wrap=calloc \
+		-Wl,--wrap=realloc -Wl,--wrap=free -Wl,--wrap=memmove -o $@
+
+$(BUILD_DIR)/tests/performance/steady_recognizer_unwrapped: tests/performance/steady_recognizer.c \
+		tests/measure_text_workloads.c $(TEXT_MEASUREMENT_LIBRARY) | $(BUILD_DIR)/tests/performance
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) \
+		$(PROJECT_CFLAGS) -I. -DBOXRIG_MEASURE_TEXT_WORKLOADS \
+		-DBOXRIG_MEASURE_UNWRAPPED $< $(TEXT_MEASUREMENT_LIBRARY) -o $@
+
+.PHONY: test-steady-recognizer
+test: test-steady-recognizer
+test-steady-recognizer: $(BUILD_DIR)/tests/performance/steady_recognizer
+	$< self-test
+
 .PHONY: test-performance-phases
 test: test-performance-phases
 test-performance-phases: $(PHASE_STATE_TEST)

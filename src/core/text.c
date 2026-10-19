@@ -1400,6 +1400,26 @@ boxrig_status boxrig_screen_text_document_size(
     return BOXRIG_STATUS_OK;
 }
 
+boxrig_status boxrig_screen_text_line_metadata(
+    const boxrig_screen *screen,
+    boxrig_text_screen text_screen,
+    size_t fragment_index,
+    boxrig_text_position *position_out,
+    size_t *next_fragment_out)
+{
+    if (screen == NULL || !text_screen_valid(text_screen) ||
+        position_out == NULL || next_fragment_out == NULL ||
+        fragment_index >= document_fragment_count(screen, text_screen)) {
+        return BOXRIG_STATUS_INVALID_ARGUMENT;
+    }
+    const boxrig_text_fragment_metadata *metadata =
+        document_fragment_metadata(screen, text_screen, fragment_index);
+    *position_out = make_position(text_screen, metadata->line_id, 0u,
+        metadata->line_revision, screen->text_revision);
+    *next_fragment_out = logical_line_end(screen, text_screen, fragment_index);
+    return BOXRIG_STATUS_OK;
+}
+
 boxrig_status boxrig_terminal_reuse_text_line_snapshot(
     const boxrig_terminal *terminal,
     boxrig_text_screen text_screen,

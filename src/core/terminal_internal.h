@@ -367,6 +367,14 @@ boxrig_status boxrig_screen_text_document_size(
     boxrig_text_screen text_screen,
     size_t *bytes_out,
     size_t *lines_out);
+/* Read a synchronized logical line's identity and extent without projecting
+ * cells. The caller must start at a logical-line boundary. */
+boxrig_status boxrig_screen_text_line_metadata(
+    const boxrig_screen *screen,
+    boxrig_text_screen text_screen,
+    size_t fragment_index,
+    boxrig_text_position *position_out,
+    size_t *next_fragment_out);
 boxrig_status boxrig_terminal_reuse_text_line_snapshot(
     const boxrig_terminal *terminal,
     boxrig_text_screen text_screen,
