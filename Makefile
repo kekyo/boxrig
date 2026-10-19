@@ -6028,6 +6028,27 @@ $(BUILD_DIR)/tests/test_screen_row_rotation: tests/test_screen_row_rotation.c $(
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(LIBRARY) $(SANITIZERS) -Wl,--wrap=calloc -Wl,--wrap=memmove -Wl,--wrap=boxrig_screen_view_cell -o $@
 
 .PHONY: test-ascii-runs
+.PHONY: test-input-profile
+test: test-input-profile
+test-input-profile: $(BUILD_DIR)/tests/performance/profile_input
+	bash tests/performance/test_input_profile.sh $< $(BUILD_DIR)/tests/performance
+
+$(BUILD_DIR)/tests/performance/profile_input: INPUT_PROFILE_FLAGS = \
+	-Wl,--wrap=boxrig_screen_put_ascii_run -Wl,--wrap=boxrig_codec_decoder_put \
+	-Wl,--wrap=boxrig_screen_put_codepoint -Wl,--wrap=utf8proc_grapheme_break_stateful \
+	-Wl,--wrap=utf8proc_get_property -Wl,--wrap=utf8proc_charwidth
+$(BUILD_DIR)/tests/performance/profile_input_unwrapped: INPUT_PROFILE_FLAGS = -DBOXRIG_INPUT_UNWRAPPED
+
+$(BUILD_DIR)/tests/performance/profile_input \
+$(BUILD_DIR)/tests/performance/profile_input_unwrapped: tests/performance/profile_input.c \
+		tests/measure_text_workloads.c $(TEXT_MEASUREMENT_LIBRARY) | $(BUILD_DIR)/tests/performance
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) \
+		$(PROJECT_CFLAGS) -DBOXRIG_MEASURE_TEXT_WORKLOADS -DBOXRIG_MEASURE_UNWRAPPED \
+		$< $(TEXT_MEASUREMENT_LIBRARY) -Wl,--wrap=boxrig_terminal_create \
+		-Wl,--wrap=boxrig_text_workload_counters_reset \
+		-Wl,--wrap=boxrig_text_workload_counters_read \
+		$(INPUT_PROFILE_FLAGS) -o $@
+
 test: test-ascii-runs
 test-ascii-runs: $(BUILD_DIR)/tests/test_ascii_runs
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
