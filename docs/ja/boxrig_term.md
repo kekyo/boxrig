@@ -105,6 +105,7 @@ Ctrl＋`+`／`-`で文字を拡大・縮小し、Ctrl＋`0`で既定へ戻しま
 | `BOXRIG_SCROLLBAR=always/auto/never` | バーを常時表示／履歴がある場合／非表示 | Ctrl＋Shift＋F9 |
 | `BOXRIG_SELECTION_STYLE_DEMO=1` | 選択範囲の装飾 | Ctrl＋Shift＋F10 |
 | `BOXRIG_CURSOR_STYLE_DEMO=1` | カーソルの装飾 | Ctrl＋Shift＋F11 |
+| `BOXRIG_CURSOR_STYLE_DEMO=2` | フォーカスに応じて塗り分ける3形状の箱 | Ctrl＋Shift＋F11 |
 | `BOXRIG_COLOR_GLYPHS=0/1` | Linuxで絵文字などの単色／カラー表示 | Ctrl＋Shift＋F11 |
 | `BOXRIG_COLOR_FILTER_DEMO=1` | 表示色の補正 | Ctrl＋Shift＋F12 |
 

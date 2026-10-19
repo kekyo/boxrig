@@ -98,7 +98,7 @@ static void destroy(void *context)
     free(host);
 }
 
-static bool cursor_style_scaled;
+static float cursor_style_scale = 1;
 
 static bool create(boxrig_test_color_renderer *renderer)
 {
@@ -113,10 +113,10 @@ static bool create(boxrig_test_color_renderer *renderer)
         BOXRIG_GL_TARGET_RGBA8, BOXRIG_TEST_COLOR_WIDTH, BOXRIG_TEST_COLOR_HEIGHT,
         &host->texture);
     boxrig_ogl_renderer_config config = boxrig_ogl_renderer_config_default();
-    if (cursor_style_scaled) {
+    if (cursor_style_scale != 1) {
         config.rendering_policy.dpi_x = 144;
         config.rendering_policy.dpi_y = 144;
-        config.rendering_policy.output_scale = 4.0f / 3.0f;
+        config.rendering_policy.output_scale = cursor_style_scale / 1.5f;
     }
     config.runtime.resolver_context = host->context;
     config.runtime.resolve = opengl_host_resolve;
@@ -147,7 +147,7 @@ static bool create(boxrig_test_color_renderer *renderer)
 /* Reuse the observable capture adapter for renderer-switch integration. */
 bool boxrig_test_create_opengl_decoration(boxrig_test_color_renderer *renderer)
 {
-    cursor_style_scaled = false;
+    cursor_style_scale = 1;
     return create(renderer);
 }
 
@@ -158,10 +158,12 @@ int main(void)
     if (!boxrig_test_renderer_cursor_style(create)) return 1;
     bool passed = (boxrig_test_renderer_cursor_blink(create) && (boxrig_test_renderer_text_blink(create) && boxrig_test_renderer_blink_composition(create)));
     if (!passed) return 1;
-    cursor_style_scaled = true;
+    cursor_style_scale = 2;
     if (!boxrig_test_renderer_filled_cursor(create, 2)) return 1;
     if (!boxrig_test_renderer_selection_style(create, 6, 6)) return 1;
     if (!boxrig_test_renderer_cursor_style_at_scale(create, 6, 6)) return 1;
+    cursor_style_scale = 1.5f;
+    if (!boxrig_test_renderer_cursor_style_at_scale(create, 5, 5)) return 1;
     cairo_debug_reset_static_data();
     FcFini();
     puts("PASS OpenGL cursor blink fixture");

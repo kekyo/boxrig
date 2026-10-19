@@ -22,6 +22,7 @@ mkdirSync(output, { recursive: true });
 const command = (name, args) =>
   execFileSync(name, args, { encoding: "utf8", timeout: 30000 }).trim();
 const wayland = process.env.BOXRIG_TEST_BLINK_WAYLAND === "1";
+const boxes = process.env.BOXRIG_TEST_CURSOR_BOX === "1";
 let weston, runtime, child;
 let diagnostics = "";
 const results = [];
@@ -60,7 +61,7 @@ try {
     env: {
       ...process.env,
       BOXRIG_TEST_SAMPLE_TEXT_BLINK_VIDEO: "1",
-      BOXRIG_CURSOR_STYLE_DEMO: "1",
+      BOXRIG_CURSOR_STYLE_DEMO: boxes ? "2" : "1",
       NO_AT_BRIDGE: "1",
     },
     stdio: ["ignore", "ignore", "pipe"],
@@ -139,9 +140,11 @@ try {
   // A compositor can fade the newly mapped surface beyond a fixed frame
   // offset. Observe the complete, opaque gold outline before recording.
   const paintedDeadline = Date.now() + 15000;
-  const expectedOutlinePixels =
-    cellWidth * cellHeight -
-    Math.max(0, cellWidth - 4) * Math.max(0, cellHeight - 4);
+  const expectedOutlinePixels = boxes
+    ? cellWidth * cellHeight
+    : cellWidth * cellHeight -
+      Math.max(0, cellWidth - 4) * Math.max(0, cellHeight - 4);
+  let origin;
   for (;;) {
     const pixels = execFileSync(
       "ffmpeg",
@@ -191,13 +194,14 @@ try {
       gold === expectedOutlinePixels &&
       right - left + 1 === cellWidth &&
       bottom - top + 1 === cellHeight
-    )
+    ) {
+      if (boxes) origin = { x: left - 7 * cellWidth, y: top - cellHeight };
       break;
+    }
     assert(Date.now() < paintedDeadline, "initial opaque cursor presentation");
     await setTimeout(20);
   }
-  let origin;
-  const record = (name, blinking, kind, shape) => {
+  const record = (name, blinking, kind, shape, hollow = false) => {
     const file = resolve(output, name + ".mkv");
     execFileSync(
       "ffmpeg",
@@ -278,9 +282,19 @@ try {
     }
     const phases = [];
     let maximumOutsideError = 0;
-    const stroke = kind === "gold" ? 2 : kind === "terminal" ? 1 : 3;
-    const expected =
-      shape === "bar"
+    const stroke = boxes
+      ? 4
+      : kind === "gold"
+        ? 2
+        : kind === "terminal"
+          ? 1
+          : 3;
+    const boxWidth = shape === "bar" ? stroke : cellWidth;
+    const boxHeight = shape === "underline" ? stroke : cellHeight;
+    const expected = boxes
+      ? boxWidth * boxHeight -
+        (hollow ? Math.max(0, boxWidth - 2) * Math.max(0, boxHeight - 2) : 0)
+      : shape === "bar"
         ? stroke * cellHeight
         : shape === "underline"
           ? stroke * cellWidth
@@ -383,27 +397,38 @@ try {
     results.push(result);
     console.log(JSON.stringify(result));
   };
-  record("outline-steady", false, "gold", "outline");
-  command("xdotool", ["key", "--clearmodifiers", "ctrl+shift+F11"]);
-  record("underline-blink", true, "cyan", "underline");
-  command("xdotool", ["key", "--clearmodifiers", "ctrl+shift+F11"]);
-  record("bar-steady", false, "pink", "bar");
-  command("xdotool", ["key", "--clearmodifiers", "ctrl+shift+F11"]);
-  record("terminal-following", true, "terminal", "fill");
-  const terminalShape = async (key, name, blinking, shape) => {
-    command("xdotool", ["key", "--clearmodifiers", key]);
-    const deadline = Date.now() + 15000;
-    while (readTitle() !== "boxrig-blink-" + key) {
-      assert(Date.now() < deadline, "DECSCUSR child acknowledgement timeout");
-      await setTimeout(20);
+  if (boxes) {
+    for (const shape of ["fill", "underline", "bar"]) {
+      record(shape + "-focused", true, "gold", shape);
+      command("xdotool", ["windowfocus", "--sync", "1"]);
+      record(shape + "-unfocused", false, "gold", shape, true);
+      command("xdotool", ["windowfocus", "--sync", id]);
+      record(shape + "-refocused", true, "gold", shape);
+      command("xdotool", ["key", "--clearmodifiers", "ctrl+shift+F11"]);
     }
-    record(name, blinking, "terminal", shape);
-  };
-  await terminalShape("3", "decscusr-underline", true, "underline");
-  await terminalShape("6", "decscusr-bar", false, "bar");
-  await terminalShape("2", "decscusr-block", false, "fill");
-  command("xdotool", ["key", "--clearmodifiers", "ctrl+shift+F11"]);
-  record("outline-restored", false, "gold", "outline");
+  } else {
+    record("outline-steady", false, "gold", "outline");
+    command("xdotool", ["key", "--clearmodifiers", "ctrl+shift+F11"]);
+    record("underline-blink", true, "cyan", "underline");
+    command("xdotool", ["key", "--clearmodifiers", "ctrl+shift+F11"]);
+    record("bar-steady", false, "pink", "bar");
+    command("xdotool", ["key", "--clearmodifiers", "ctrl+shift+F11"]);
+    record("terminal-following", true, "terminal", "fill");
+    const terminalShape = async (key, name, blinking, shape) => {
+      command("xdotool", ["key", "--clearmodifiers", key]);
+      const deadline = Date.now() + 15000;
+      while (readTitle() !== "boxrig-blink-" + key) {
+        assert(Date.now() < deadline, "DECSCUSR child acknowledgement timeout");
+        await setTimeout(20);
+      }
+      record(name, blinking, "terminal", shape);
+    };
+    await terminalShape("3", "decscusr-underline", true, "underline");
+    await terminalShape("6", "decscusr-bar", false, "bar");
+    await terminalShape("2", "decscusr-block", false, "fill");
+    command("xdotool", ["key", "--clearmodifiers", "ctrl+shift+F11"]);
+    record("outline-restored", false, "gold", "outline");
+  }
   command("xdotool", ["key", "--clearmodifiers", "q"]);
 } finally {
   if (child) child.kill("SIGTERM");

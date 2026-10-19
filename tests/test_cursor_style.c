@@ -1,5 +1,6 @@
 /* boxrig - Under MIT. */
 #include "boxrig/ui/animation.h"
+#include "../src/ui/view_private.h"
 
 #include <assert.h>
 #include <math.h>
@@ -43,6 +44,19 @@ static void feed(boxrig_terminal *terminal, const char *text)
 
 int main(void)
 {
+    /* Standalone renderers have no UI view and retain the default geometry. */
+    boxrig_cursor_view direct_cursor = {0};
+    boxrig_ui_cursor_rectangle rectangles[4];
+    direct_cursor.shape = BOXRIG_CURSOR_BLOCK;
+    assert(boxrig_ui_view_cursor_rectangles(NULL, &direct_cursor, 96, 96, 1, 12, 20, rectangles) == 4);
+    assert(rectangles[0].width == 12 && rectangles[0].height == 1);
+    assert(rectangles[1].y == 19 && rectangles[2].height == 18);
+    direct_cursor.shape = BOXRIG_CURSOR_BAR;
+    assert(boxrig_ui_view_cursor_rectangles(NULL, &direct_cursor, 96, 96, 1, 12, 20, rectangles) == 1);
+    assert(rectangles[0].x == 1 && rectangles[0].width == 1 && rectangles[0].height == 20);
+    direct_cursor.shape = BOXRIG_CURSOR_UNDERLINE;
+    assert(boxrig_ui_view_cursor_rectangles(NULL, &direct_cursor, 96, 96, 2, 24, 40, rectangles) == 1);
+    assert(rectangles[0].y == 37 && rectangles[0].width == 24 && rectangles[0].height == 2);
     boxrig_terminal_config config = boxrig_terminal_config_default();
     config.rows = 2;
     config.columns = 8;
@@ -127,6 +141,36 @@ int main(void)
     assert(actual.shape == BOXRIG_UI_CURSOR_SHAPE_TERMINAL && actual.line_width_dip == 1);
     assert(actual.block_presentation == BOXRIG_UI_CURSOR_BLOCK_OUTLINE);
     assert(!boxrig_ui_view_next_animation_deadline(view, &deadline));
+
+    /* Explicit boxes must override DECSCUSR without changing the terminal. */
+    style = boxrig_ui_cursor_style_default();
+    style.shape = BOXRIG_UI_CURSOR_SHAPE_BLOCK;
+    style.presentation = BOXRIG_UI_CURSOR_PRESENTATION_FOCUSED;
+    style.box_width_dip = 4;
+    style.blink = BOXRIG_UI_CURSOR_BLINK_ENABLED;
+    assert(boxrig_ui_view_set_cursor_style(view, &style) == BOXRIG_UI_OK);
+    assert(boxrig_ui_view_get_cursor_style(view, &actual) == BOXRIG_UI_OK);
+    assert(actual.shape == style.shape && actual.presentation == style.presentation);
+    assert(actual.box_width_dip == 4 && actual.line_width_dip == 1);
+    assert(boxrig_ui_view_set_focused(view, false) == BOXRIG_UI_OK);
+    assert(boxrig_ui_view_cursor_blink_visible(view));
+    assert(!boxrig_ui_view_next_animation_deadline(view, &deadline));
+    assert(boxrig_ui_view_set_focused(view, true) == BOXRIG_UI_OK);
+    assert(boxrig_ui_view_cursor_blink_visible(view));
+    assert(boxrig_ui_view_next_animation_deadline(view, &deadline) && deadline == 1000);
+    boxrig_terminal_get_cursor(terminal, &cursor);
+    assert(cursor.shape == BOXRIG_CURSOR_BAR && !cursor.blinking);
+    for (size_t i = 0; i < 4; i++) {
+        boxrig_ui_cursor_style invalid = style;
+        invalid.box_width_dip = (float[]){0, -1, NAN, INFINITY}[i];
+        assert(boxrig_ui_view_set_cursor_style(view, &invalid) == BOXRIG_UI_INVALID_ARGUMENT);
+        assert(boxrig_ui_view_get_cursor_style(view, &actual) == BOXRIG_UI_OK);
+        assert(actual.box_width_dip == 4);
+    }
+    boxrig_ui_cursor_style invalid_presentation = style;
+    invalid_presentation.presentation = (boxrig_ui_cursor_presentation)99;
+    assert(boxrig_ui_view_set_cursor_style(view, &invalid_presentation) == BOXRIG_UI_INVALID_ARGUMENT);
+    assert(boxrig_ui_view_reset_cursor_style(view) == BOXRIG_UI_OK);
 
     scheduler_state state = {1000, false, 0, 0};
     boxrig_ui_animation_scheduler scheduler = {&state, read_time, reserve, cancel};

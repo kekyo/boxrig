@@ -4758,30 +4758,15 @@ static int draw_cursor(
     unsigned long pixel = color_pixel(renderer, color);
     if (boxrig_ui_view_cursor_filled(view, &cursor))
         return draw_filled_cursor(renderer, view, cursor, shape, visual_column, color);
-    unsigned int stroke_x = boxrig_ui_view_cursor_stroke_pixels(view,
-        renderer->rendering_policy.dpi_x, renderer->rendering_policy.output_scale,
-        renderer->cell_width);
-    unsigned int stroke_y = boxrig_ui_view_cursor_stroke_pixels(view,
-        renderer->rendering_policy.dpi_y, renderer->rendering_policy.output_scale,
-        renderer->cell_height);
-    if (!set_cairo_source_pixel(renderer, pixel, 255)) {
-        return -1;
-    }
-    if (cursor.shape == BOXRIG_CURSOR_UNDERLINE) {
-        int cursor_y = y + (int)(renderer->cell_height - stroke_y) -
-            (renderer->cell_height > stroke_y ? 1 : 0);
-        cairo_rectangle(renderer->cairo, x, cursor_y, renderer->cell_width, stroke_y);
-    } else if (cursor.shape == BOXRIG_CURSOR_BAR) {
-        int cursor_x = x + (renderer->cell_width > stroke_x ? 1 : 0);
-        cairo_rectangle(renderer->cairo, cursor_x, y, stroke_x, renderer->cell_height);
-    } else {
-        cairo_rectangle(renderer->cairo, x, y, renderer->cell_width, stroke_y);
-        cairo_rectangle(renderer->cairo, x, y + renderer->cell_height - stroke_y,
-            renderer->cell_width, stroke_y);
-        cairo_rectangle(renderer->cairo, x, y, stroke_x, renderer->cell_height);
-        cairo_rectangle(renderer->cairo, x + renderer->cell_width - stroke_x, y,
-            stroke_x, renderer->cell_height);
-    }
+    boxrig_ui_cursor_rectangle rectangles[4];
+    size_t count = boxrig_ui_view_cursor_rectangles(view, &cursor,
+        renderer->rendering_policy.dpi_x, renderer->rendering_policy.dpi_y,
+        renderer->rendering_policy.output_scale, renderer->cell_width,
+        renderer->cell_height, rectangles);
+    if (!set_cairo_source_pixel(renderer, pixel, 255)) return -1;
+    for (size_t i = 0; i < count; i++)
+        cairo_rectangle(renderer->cairo, x + rectangles[i].x, y + rectangles[i].y,
+            rectangles[i].width, rectangles[i].height);
     cairo_fill(renderer->cairo);
     return cairo_status(renderer->cairo) == CAIRO_STATUS_SUCCESS ? 0 : -1;
 }

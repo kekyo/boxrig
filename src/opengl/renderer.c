@@ -2265,34 +2265,20 @@ static int draw_cursor(
             &pixel) == -1) return -1;
     x = visual_column * (float)renderer->cell_width;
     y = cursor->row * (float)renderer->cell_height;
-    unsigned int stroke_x = boxrig_ui_view_cursor_stroke_pixels(view,
-        renderer->config.rendering_policy.dpi_x,
-        renderer->config.rendering_policy.output_scale, renderer->cell_width);
-    unsigned int stroke_y = boxrig_ui_view_cursor_stroke_pixels(view,
-        renderer->config.rendering_policy.dpi_y,
-        renderer->config.rendering_policy.output_scale, renderer->cell_height);
     if (boxrig_ui_view_cursor_filled(view, cursor)) {
         if (draw_filled_cursor(renderer, view, terminal, cursor, visual_column, pixel) == -1)
             return -1;
-    } else if (cursor->shape == BOXRIG_CURSOR_UNDERLINE) {
-        float cursor_y = y + renderer->cell_height - stroke_y -
-            (renderer->cell_height > stroke_y ? 1 : 0);
-        if (emit_solid(renderer, x, cursor_y, (float)renderer->cell_width,
-                (float)stroke_y, pixel, 255, false) == -1) return -1;
-    } else if (cursor->shape == BOXRIG_CURSOR_BAR) {
-        float cursor_x = x + (renderer->cell_width > stroke_x ? 1 : 0);
-        if (emit_solid(renderer, cursor_x, y, (float)stroke_x,
-                (float)renderer->cell_height, pixel, 255, false) == -1) return -1;
-    } else if (
-        emit_solid(renderer, x, y, (float)renderer->cell_width,
-            (float)stroke_y, pixel, 255, false) == -1 ||
-        emit_solid(renderer, x, y + renderer->cell_height - stroke_y,
-            (float)renderer->cell_width, (float)stroke_y, pixel, 255, false) == -1 ||
-        emit_solid(renderer, x, y, (float)stroke_x,
-            (float)renderer->cell_height, pixel, 255, false) == -1 ||
-        emit_solid(renderer, x + renderer->cell_width - stroke_x, y,
-            (float)stroke_x, (float)renderer->cell_height, pixel, 255, false) == -1) {
-        return -1;
+    } else {
+        boxrig_ui_cursor_rectangle rectangles[4];
+        size_t count = boxrig_ui_view_cursor_rectangles(view, cursor,
+            renderer->config.rendering_policy.dpi_x,
+            renderer->config.rendering_policy.dpi_y,
+            renderer->config.rendering_policy.output_scale, renderer->cell_width,
+            renderer->cell_height, rectangles);
+        for (size_t i = 0; i < count; i++)
+            if (emit_solid(renderer, x + rectangles[i].x, y + rectangles[i].y,
+                    rectangles[i].width, rectangles[i].height, pixel, 255, false) == -1)
+                return -1;
     }
     renderer->statistics.cursor_raster_count = saturated_add(
         renderer->statistics.cursor_raster_count,

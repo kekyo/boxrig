@@ -52,6 +52,21 @@ int main(void)
     assert(boxrig_term_decoration_demo_route_key(view, &key) == BOXRIG_INPUT_KEY_ROUTE_APPLICATION);
     assert(boxrig_ui_view_get_cursor_style(view, &style) == BOXRIG_UI_OK);
     assert(style.shape == BOXRIG_UI_CURSOR_SHAPE_OUTLINE);
+    assert(setenv("BOXRIG_CURSOR_STYLE_DEMO", "2", 1) == 0);
+    assert(boxrig_term_decoration_demo_initialize(view) == 0);
+    key.action = BOXRIG_KEY_PRESS;
+    const boxrig_ui_cursor_shape_policy boxes[] = {BOXRIG_UI_CURSOR_SHAPE_BLOCK,
+        BOXRIG_UI_CURSOR_SHAPE_UNDERLINE, BOXRIG_UI_CURSOR_SHAPE_BAR,
+        BOXRIG_UI_CURSOR_SHAPE_BLOCK};
+    for (size_t i = 0; i < 4; i++) {
+        assert(boxrig_ui_view_get_cursor_style(view, &style) == BOXRIG_UI_OK);
+        assert(style.shape == boxes[i]);
+        assert(style.presentation == BOXRIG_UI_CURSOR_PRESENTATION_FOCUSED);
+        assert(style.box_width_dip == 4 && style.line_width_dip == 1);
+        assert(boxrig_term_decoration_demo_route_key(view, &key) == BOXRIG_INPUT_KEY_ROUTE_APPLICATION);
+    }
+    assert(setenv("BOXRIG_CURSOR_STYLE_DEMO", "1", 1) == 0);
+    assert(boxrig_term_decoration_demo_initialize(view) == 0);
     assert(setenv("BOXRIG_CURSOR_STYLE_DEMO", "bad", 1) == 0);
     assert(boxrig_term_decoration_demo_initialize(view) == -1);
     assert(boxrig_ui_view_get_cursor_style(view, &style) == BOXRIG_UI_OK);
