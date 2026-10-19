@@ -14,6 +14,7 @@
 #include <unistd.h>
 
 #include <sys/ioctl.h>
+#include "interval_trace.h"
 
 static uint64_t monotonic_nanoseconds(void)
 {
@@ -29,7 +30,12 @@ static bool write_all(const char *bytes, size_t length)
 {
     size_t offset = 0;
     while (offset < length) {
+        boxrig_interval_start start = boxrig_interval_begin();
         ssize_t result = write(STDOUT_FILENO, bytes + offset, length - offset);
+        int saved_errno = errno;
+        boxrig_interval_end("write", start, result > 0 ? (size_t)result : 0u,
+            0u, result < 0 ? saved_errno : 0, false);
+        errno = saved_errno;
         if (result < 0 && errno == EINTR) {
             continue;
         }
@@ -96,7 +102,7 @@ static bool query_cursor(unsigned int *row_out, unsigned int *column_out)
 }
 
 static bool wait_for_phase_report(const char *path, const char *signal_path,
-    uint64_t start_ns, uint64_t processed_ns)
+    uint64_t start_ns, uint64_t processed_ns, uint64_t *settled_out)
 {
     FILE *signal = fopen(signal_path, "r");
     FILE *input;
@@ -138,6 +144,7 @@ static bool wait_for_phase_report(const char *path, const char *signal_path,
                settled_ns >= recognition_ns &&
                settled_ns >= frame_ns;
     (void)fclose(input);
+    if (complete && settled_out != NULL) *settled_out = settled_ns;
     return complete;
 }
 
@@ -231,6 +238,7 @@ static bool parse_unsigned(const char *value, bool zero_allowed,
 
 int main(int argument_count, char **arguments)
 {
+    boxrig_interval_initialize("BOXRIG_PTY_TRACE_PATH");
     const char *mode;
     const char *report_path;
     unsigned int rows;
@@ -248,6 +256,7 @@ int main(int argument_count, char **arguments)
     uint64_t start;
     uint64_t sent;
     uint64_t processed;
+    uint64_t history_completed = 0u;
     bool phase_probe;
     FILE *report;
     int result = 1;
@@ -305,6 +314,7 @@ int main(int argument_count, char **arguments)
     if (!write_all(clear_screen, sizeof(clear_screen) - 1)) {
         goto cleanup;
     }
+    uint64_t history_start = monotonic_nanoseconds();
     for (unsigned int index = 0; index < history_lines; index++) {
         if (!emit_line("ascii", index, &history_bytes)) {
             goto cleanup;
@@ -312,6 +322,15 @@ int main(int argument_count, char **arguments)
     }
     if (!query_cursor(&cursor_row, &cursor_column)) {
         fprintf(stderr, "history DSR response missing\n");
+        goto cleanup;
+    }
+    const char *wait_history = getenv("BOXRIG_PHASE_WAIT_HISTORY");
+    if (phase_probe && wait_history != NULL && strcmp(wait_history, "1") == 0 &&
+        (!write_all("\033]2;boxrig-phase-history\007",
+                    sizeof("\033]2;boxrig-phase-history\007") - 1u) ||
+         !wait_for_phase_report(arguments[8], arguments[9], history_start, 0u,
+                                &history_completed))) {
+        fputs("history recognition report missing\n", stderr);
         goto cleanup;
     }
     start = monotonic_nanoseconds();
@@ -335,7 +354,7 @@ int main(int argument_count, char **arguments)
         (!write_all("\033]2;boxrig-phase-final\007",
                     sizeof("\033]2;boxrig-phase-final\007") - 1) ||
          !wait_for_phase_report(
-             arguments[8], arguments[9], start, processed))) {
+             arguments[8], arguments[9], start, processed, NULL))) {
         fprintf(stderr, "phase report missing: %s\n", arguments[8]);
         goto cleanup;
     }
@@ -350,7 +369,7 @@ int main(int argument_count, char **arguments)
     int written = fprintf(report,
         "mode\trows\tcolumns\tcell_height\tcell_width\thistory_lines\thistory_bytes\tworkload_lines\tworkload_bytes\twrite_ns\twrite_to_dsr_ns\ttotal_to_dsr_ns\tdsr_row\tdsr_column");
     if (phase_probe && written >= 0) {
-        written = fprintf(report, "\tstart_ns\tsent_ns\tprocessed_ns");
+        written = fprintf(report, "\tstart_ns\tsent_ns\tprocessed_ns\thistory_completed_ns");
     }
     if (written >= 0) {
         written = fprintf(report,
@@ -362,8 +381,8 @@ int main(int argument_count, char **arguments)
             cursor_row, cursor_column);
     }
     if (phase_probe && written >= 0) {
-        written = fprintf(report, "\t%" PRIu64 "\t%" PRIu64 "\t%" PRIu64,
-            start, sent, processed);
+        written = fprintf(report, "\t%" PRIu64 "\t%" PRIu64 "\t%" PRIu64 "\t%" PRIu64,
+            start, sent, processed, history_completed);
     }
     if (written >= 0) {
         written = fprintf(report, "\n");

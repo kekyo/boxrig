@@ -47,7 +47,7 @@ if [[ ${BOXRIG_PERFORMANCE_SESSION:-} != 1 &&
 fi
 workload_binary="$output_directory/pty_workload"
 cc -std=c99 -D_POSIX_C_SOURCE=200809L -O2 -Wall -Wextra -Werror \
-    "$script_dir/pty_workload.c" -o "$workload_binary"
+    "$script_dir/pty_workload.c" "$script_dir/interval_trace.c" -o "$workload_binary"
 
 if [[ ${BOXRIG_PERFORMANCE_SESSION:-} != 1 ]]; then
     private_directory=$(mktemp -d "$output_directory/private.XXXXXXXX")

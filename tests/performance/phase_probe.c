@@ -4,6 +4,9 @@
 #include "../../examples/boxrig_term/gtk3/application_internal.h"
 #include "../../src/pangocairo/renderer.h"
 #include "phase_state.h"
+#ifdef BOXRIG_PHASE_TRACE
+#include "interval_trace.h"
+#endif
 
 #include <inttypes.h>
 #include <fcntl.h>
@@ -87,6 +90,9 @@ int __wrap_boxrig_term_text_policy_create(
     boxrig_terminal *terminal, boxrig_ui_view *view,
     boxrig_term_text_policy **policy_out)
 {
+#ifdef BOXRIG_PHASE_TRACE
+    boxrig_interval_initialize("BOXRIG_PHASE_TRACE_PATH");
+#endif
     int result = __real_boxrig_term_text_policy_create(
         terminal, view, policy_out);
 
@@ -104,10 +110,12 @@ void __wrap_boxrig_term_gtk3_set_window_title(
     boxrig_term_gtk3_application *application, const char *title)
 {
     static const char marker[] = "boxrig-phase-final";
+    static const char history_marker[] = "boxrig-phase-history";
 
     __real_boxrig_term_gtk3_set_window_title(application, title);
     if (application == NULL || application->terminal == NULL ||
-        title == NULL || strcmp(title, marker) != 0) {
+        title == NULL || (strcmp(title, marker) != 0 &&
+                          strcmp(title, history_marker) != 0)) {
         return;
     }
     if (application->terminal != observed_terminal) {
@@ -118,6 +126,10 @@ void __wrap_boxrig_term_gtk3_set_window_title(
         boxrig_terminal_text_revision(observed_terminal),
         monotonic_nanoseconds());
     recorded = false;
+#ifdef BOXRIG_PHASE_TRACE
+    boxrig_interval_end(strcmp(title, marker) == 0 ? "final_marker" : "history_marker",
+        boxrig_interval_begin(), 0u, phase_state.target_revision, 0, false);
+#endif
     record_if_settled(observed_view);
 }
 
@@ -129,8 +141,15 @@ int __wrap_boxrig_term_text_policy_resume(
     boxrig_term_text_policy *policy, size_t work_budget,
     size_t *work_used_out, bool *more_work_out)
 {
+#ifdef BOXRIG_PHASE_TRACE
+    boxrig_interval_start start = boxrig_interval_begin();
+#endif
     int result = __real_boxrig_term_text_policy_resume(
         policy, work_budget, work_used_out, more_work_out);
+#ifdef BOXRIG_PHASE_TRACE
+    boxrig_interval_end("policy", start, *work_used_out,
+        boxrig_terminal_text_revision(observed_terminal), result, *more_work_out);
+#endif
 
     if (result == 0 && observed_terminal != NULL &&
         more_work_out != NULL && !*more_work_out) {
@@ -151,8 +170,15 @@ int __wrap_boxrig_pango_cairo_renderer_draw_view_composition(
     boxrig_pango_cairo_renderer *renderer, boxrig_ui_view *view,
     boxrig_composition *composition)
 {
+#ifdef BOXRIG_PHASE_TRACE
+    boxrig_interval_start start = boxrig_interval_begin();
+#endif
     int result = __real_boxrig_pango_cairo_renderer_draw_view_composition(
         renderer, view, composition);
+#ifdef BOXRIG_PHASE_TRACE
+    boxrig_interval_end("cairo", start, 1u,
+        boxrig_terminal_text_revision(observed_terminal), result, false);
+#endif
 
     if (result == 0 && observed_terminal != NULL &&
         view == observed_view) {
@@ -172,8 +198,15 @@ boxrig_ui_status __wrap_boxrig_gtk3_terminal_widget_frame(
     BoxrigGtk3TerminalWidget *widget,
     boxrig_ui_component_frame_result *result_out)
 {
+#ifdef BOXRIG_PHASE_TRACE
+    boxrig_interval_start start = boxrig_interval_begin();
+#endif
     boxrig_ui_status status = __real_boxrig_gtk3_terminal_widget_frame(
         widget, result_out);
+#ifdef BOXRIG_PHASE_TRACE
+    boxrig_interval_end("frame", start, 1u,
+        boxrig_terminal_text_revision(observed_terminal), status, false);
+#endif
     boxrig_ui_view *view;
 
     if (status != BOXRIG_UI_OK || observed_terminal == NULL ||
