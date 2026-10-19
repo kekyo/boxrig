@@ -242,11 +242,11 @@ static bool test_background_scan_budget(void)
     return true;
 }
 
-static bool test_mixed_partial_expose(void)
+static bool test_mixed_partial_expose(bool filtered)
 {
     static const char text[] =
         "\033[?25l\033]11;#102030\033\\"
-        "\033[48;2;40;50;60mAB\xe7\x95\x8c CD"
+        "\033[3;4:3;48;2;40;50;60mAB\xe7\x95\x8c CD"
         "\033[7mEF\033[0m\033[2;1H"
         "\xd7\x90\xd7\x91 XYZ";
     static const uint8_t image_rgba[] = {0, 255, 0, 128};
@@ -310,10 +310,10 @@ static bool test_mixed_partial_expose(void)
     CHECK(boxrig_ui_view_set_background_image(view, &image) == BOXRIG_UI_OK);
     CHECK(boxrig_ui_view_set_background_color(
         view, (boxrig_ui_rgba){16, 32, 48, 128}) == BOXRIG_UI_OK);
-    CHECK(boxrig_ui_view_set_color_filter(view, shifted_filter, NULL) ==
+    CHECK(boxrig_ui_view_set_color_filter(view, filtered ? shifted_filter : NULL, NULL) ==
           BOXRIG_UI_OK);
     CHECK(boxrig_pango_cairo_renderer_draw_view(renderer, view) == 0);
-    CHECK(filtered_cell_calls != 0);
+    CHECK(!filtered || filtered_cell_calls != 0);
     CHECK(boxrig_ui_view_hit_test(view, cw * BOXRIG_UI_FIXED_ONE / 2,
         ch * BOXRIG_UI_FIXED_ONE / 2, &selection_start) == BOXRIG_UI_OK);
     CHECK(boxrig_ui_view_hit_test(view, 3 * cw * BOXRIG_UI_FIXED_ONE / 2,
@@ -431,7 +431,8 @@ int main(int argc, char **argv)
             passed = measure(modes[mode], false, 2, true) &&
                      measure(modes[mode], true, 2, true);
         }
-        if (passed) passed = test_mixed_partial_expose();
+        if (passed) passed = test_mixed_partial_expose(false) &&
+                             test_mixed_partial_expose(true);
         if (passed && measurement_instrumented) {
             passed = test_background_scan_budget();
         }

@@ -80,6 +80,7 @@ typedef struct boxrig_pango_cairo_row_cache {
     uint64_t layout_revision;
     boxrig_text_direction_policy direction_policy;
     bool valid;
+    bool colors_valid;
 } boxrig_pango_cairo_row_cache;
 
 typedef struct boxrig_pango_cairo_dirty_interval {
@@ -159,6 +160,7 @@ struct boxrig_pango_cairo_renderer {
     const boxrig_ui_view *color_view;
     uint64_t view_color_revision;
     bool color_focused;
+    resolved_cell_colors *cached_colors;
     resolved_cell_colors *row_colors;
     filtered_cell_colors *row_filter_colors;
     boxrig_pango_cairo_color_source color_sources[BOXRIG_PANGO_CAIRO_COLOR_SOURCE_LIMIT];
@@ -435,7 +437,7 @@ static void destroy_row_cache(boxrig_pango_cairo_renderer *renderer)
     free(renderer->overlay_ranges);
     free(renderer->annotation_ranges);
     free(renderer->annotation_styles);
-    free(renderer->row_colors);
+    free(renderer->cached_colors);
     free(renderer->row_filter_colors);
     renderer->row_cache = NULL;
     renderer->logical_dirty = NULL;
@@ -445,6 +447,7 @@ static void destroy_row_cache(boxrig_pango_cairo_renderer *renderer)
     renderer->overlay_ranges = NULL;
     renderer->annotation_ranges = NULL;
     renderer->annotation_styles = NULL;
+    renderer->cached_colors = NULL;
     renderer->row_colors = NULL;
     renderer->row_filter_colors = NULL;
     renderer->annotation_range_capacity = 0;
@@ -672,6 +675,14 @@ static int prepare_row_colors(
 {
     bool filtered = boxrig_ui_view_has_color_filter(view);
     bool styled = boxrig_ui_view_selection_uses_cell_colors(view);
+    boxrig_pango_cairo_row_cache *cache = &renderer->row_cache[row];
+    const boxrig_pango_cairo_dirty_interval *dirty = &renderer->frame_dirty[row];
+    /* Keep colors outside the dirty interval for the complete glyph and
+     * decoration passes. Filters retain their existing callback coverage. */
+    size_t start = filtered || !cache->colors_valid ? 0 : dirty->column;
+    size_t end = filtered || !cache->colors_valid ? renderer->cached_columns
+        : dirty->column + dirty->column_count;
+    renderer->row_colors = renderer->cached_colors + row * renderer->cached_columns;
     if (filtered && renderer->row_filter_colors == NULL) {
         if (renderer->cached_columns > SIZE_MAX / sizeof(*renderer->row_filter_colors)) {
             return -1;
@@ -683,7 +694,7 @@ static int prepare_row_colors(
         free(renderer->row_filter_colors);
         renderer->row_filter_colors = NULL;
     }
-    for (size_t column = 0; column < renderer->cached_columns; column++) {
+    for (size_t column = start; column < end; column++) {
         size_t logical_column;
         boxrig_cell_view cell;
         boxrig_ui_color_filter_result colors;
@@ -712,6 +723,7 @@ static int prepare_row_colors(
             paint.selection_opacity != 0 ? color_pixel(renderer, paint.selection_background) : 0,
             paint.selection_opacity, (filtered || styled) ? paint.underlay.background : colors.background};
     }
+    cache->colors_valid = true;
     return 0;
 }
 
@@ -2594,9 +2606,10 @@ static int ensure_render_state(
     if (rows == 0 || columns == 0 ||
         rows > SIZE_MAX / sizeof(*row_cache) ||
         rows > SIZE_MAX / sizeof(*logical_dirty) ||
+        rows > SIZE_MAX / columns ||
         columns > SIZE_MAX / sizeof(*overlay_ranges) ||
         columns > SIZE_MAX / sizeof(*annotation_styles) ||
-        columns > SIZE_MAX / sizeof(*row_colors)) {
+        rows * columns > SIZE_MAX / sizeof(*row_colors)) {
         return -1;
     }
     row_cache = calloc(rows, sizeof(*row_cache));
@@ -2606,7 +2619,7 @@ static int ensure_render_state(
     composition_extent = calloc(rows, sizeof(*composition_extent));
     overlay_ranges = calloc(columns, sizeof(*overlay_ranges));
     annotation_styles = calloc(columns, sizeof(*annotation_styles));
-    row_colors = calloc(columns, sizeof(*row_colors));
+    row_colors = calloc(rows * columns, sizeof(*row_colors));
     if (row_cache == NULL || logical_dirty == NULL ||
         frame_dirty == NULL || expose_dirty == NULL ||
         composition_extent == NULL || overlay_ranges == NULL ||
@@ -2629,6 +2642,7 @@ static int ensure_render_state(
     renderer->composition_extent = composition_extent;
     renderer->overlay_ranges = overlay_ranges;
     renderer->annotation_styles = annotation_styles;
+    renderer->cached_colors = row_colors;
     renderer->row_colors = row_colors;
     renderer->cached_rows = rows;
     renderer->cached_columns = columns;
