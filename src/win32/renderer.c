@@ -4201,38 +4201,21 @@ static int draw_cursor(
         if (filled == 0) *rectangle_out = rectangle;
         return filled;
     }
-    LONG stroke_x = (LONG)boxrig_ui_view_cursor_stroke_pixels(view,
-        renderer->rendering_policy.dpi_x, renderer->rendering_policy.output_scale,
-        renderer->cell_width);
-    LONG stroke_y = (LONG)boxrig_ui_view_cursor_stroke_pixels(view,
-        renderer->rendering_policy.dpi_y, renderer->rendering_policy.output_scale,
-        renderer->cell_height);
     if (renderer->premultiplied_argb32_target) {
         renderer->alpha_clip = rectangle;
         renderer->alpha_clip_active = true;
     }
-    RECT strokes[4];
-    size_t stroke_count = 1;
-    if (cursor.shape == BOXRIG_CURSOR_UNDERLINE) {
-        LONG bottom = rectangle.bottom -
-            ((LONG)renderer->cell_height > stroke_y ? 1 : 0);
-        strokes[0] = (RECT){rectangle.left, bottom - stroke_y, rectangle.right, bottom};
-    } else if (cursor.shape == BOXRIG_CURSOR_BAR) {
-        LONG left = rectangle.left + ((LONG)renderer->cell_width > stroke_x ? 1 : 0);
-        strokes[0] = (RECT){left, rectangle.top, left + stroke_x, rectangle.bottom};
-    } else {
-        stroke_count = 4;
-        strokes[0] = (RECT){rectangle.left, rectangle.top, rectangle.right,
-            rectangle.top + stroke_y};
-        strokes[1] = (RECT){rectangle.left, rectangle.bottom - stroke_y,
-            rectangle.right, rectangle.bottom};
-        strokes[2] = (RECT){rectangle.left, rectangle.top,
-            rectangle.left + stroke_x, rectangle.bottom};
-        strokes[3] = (RECT){rectangle.right - stroke_x, rectangle.top,
-            rectangle.right, rectangle.bottom};
-    }
-    for (size_t index = 0; index < stroke_count; index++) {
-        if (fill_cursor_rectangle(renderer, memory_context, &strokes[index], pixel) == -1) {
+    boxrig_ui_cursor_rectangle rectangles[4];
+    size_t count = boxrig_ui_view_cursor_rectangles(view, &cursor,
+        renderer->rendering_policy.dpi_x, renderer->rendering_policy.dpi_y,
+        renderer->rendering_policy.output_scale, renderer->cell_width,
+        renderer->cell_height, rectangles);
+    for (size_t i = 0; i < count; i++) {
+        LONG left = rectangle.left + (LONG)rectangles[i].x;
+        LONG top = rectangle.top + (LONG)rectangles[i].y;
+        RECT stroke = {left, top, left + (LONG)rectangles[i].width,
+            top + (LONG)rectangles[i].height};
+        if (fill_cursor_rectangle(renderer, memory_context, &stroke, pixel) == -1) {
             result = -1;
             break;
         }

@@ -327,6 +327,34 @@ bool boxrig_test_renderer_cursor_style_at_scale(
         if (underline[y * BOXRIG_TEST_COLOR_WIDTH + x] == 0xf12313u) colored++;
     CHECK(colored == width * expected_stroke_y);
     free(underline);
+    /* Box thickness and perimeter width scale independently. DECSCUSR still
+     * requests a block, so the bar/underline must remain explicit overrides. */
+    style.presentation = BOXRIG_UI_CURSOR_PRESENTATION_FOCUSED;
+    style.box_width_dip = 3;
+    style.line_width_dip = 1;
+    for (unsigned shape = 0; shape < 3; shape++) {
+        style.shape = (boxrig_ui_cursor_shape_policy[]){BOXRIG_UI_CURSOR_SHAPE_BLOCK,
+            BOXRIG_UI_CURSOR_SHAPE_BAR, BOXRIG_UI_CURSOR_SHAPE_UNDERLINE}[shape];
+        CHECK(boxrig_ui_view_set_cursor_style(view, &style) == BOXRIG_UI_OK);
+        for (unsigned focus = 0; focus < 2; focus++) {
+            CHECK(boxrig_ui_view_set_focused(view, focus != 0) == BOXRIG_UI_OK);
+            CHECK(renderer.draw(renderer.context, view, NULL) == 0);
+            uint32_t *box = renderer.capture(renderer.context);
+            CHECK(box != NULL);
+            unsigned bw = shape == 1 ? expected_stroke_x : width;
+            unsigned bh = shape == 2 ? expected_stroke_y : height;
+            unsigned sx = (expected_stroke_x + 1) / 3;
+            unsigned sy = (expected_stroke_y + 1) / 3;
+            for (unsigned y = 0; y < height; y++) for (unsigned x = 0; x < width; x++) {
+                size_t at = y*BOXRIG_TEST_COLOR_WIDTH + 2*width+x;
+                bool inside = x < bw && y >= height-bh;
+                bool border = x < sx || x >= bw-sx || y < height-bh+sy || y >= height-sy;
+                CHECK(box[at] == (inside && (focus || border) ? 0xf12313u : underlay[at]));
+            }
+            free(box);
+        }
+    }
+    style.presentation = BOXRIG_UI_CURSOR_PRESENTATION_DEFAULT;
     style.shape = BOXRIG_UI_CURSOR_SHAPE_OUTLINE;
     style.line_width_dip = 1000;
     CHECK(boxrig_ui_view_set_cursor_style(view, &style) == BOXRIG_UI_OK);
@@ -518,6 +546,10 @@ bool boxrig_test_renderer_filled_cursor(
     const char *texts[] = {"L R", "LMR", "L\347\225\214R", "Le\314\201R",
         "L\327\220\327\221R", "L\033[8mM\033[28mR", "L\347\225\214R"};
     const unsigned columns[] = {1, 1, 1, 1, 2, 1, 2};
+    style.shape = BOXRIG_UI_CURSOR_SHAPE_BLOCK;
+    style.presentation = BOXRIG_UI_CURSOR_PRESENTATION_FOCUSED;
+    CHECK(boxrig_ui_view_set_cursor_style(view, &style) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_set_focused(view, true) == BOXRIG_UI_OK);
     for (unsigned sample = 0; sample < 7; sample++) {
         char text[256];
         int length = snprintf(text, sizeof(text),
@@ -581,6 +613,9 @@ bool boxrig_test_renderer_filled_cursor(
     }
     /* DECSCUSR still selects each shape; Ps=0 and omission normalize to 1.
      * Count pixels on a blank cell, where glyph antialiasing is irrelevant. */
+    style.shape = BOXRIG_UI_CURSOR_SHAPE_TERMINAL;
+    style.presentation = BOXRIG_UI_CURSOR_PRESENTATION_DEFAULT;
+    CHECK(boxrig_ui_view_set_cursor_style(view, &style) == BOXRIG_UI_OK);
     for (unsigned ps = 0; ps <= 7; ps++) {
         char text[64];
         int length = snprintf(text, sizeof(text), "\033[2;5H\033[?25h\033[%s q",
@@ -686,6 +721,9 @@ bool boxrig_test_renderer_filled_cursor(
 
     /* The cursor covers the image and selection but restores both on hide.
      * IME preedit suppresses the terminal cursor until it is cancelled. */
+    style.shape = BOXRIG_UI_CURSOR_SHAPE_BLOCK;
+    style.presentation = BOXRIG_UI_CURSOR_PRESENTATION_FOCUSED;
+    CHECK(boxrig_ui_view_set_cursor_style(view, &style) == BOXRIG_UI_OK);
     vc.blink.cursor_enabled = false;
     vc.blink.text_enabled = true;
     CHECK(boxrig_ui_view_set_blink_config(view, &vc.blink) == BOXRIG_UI_OK);

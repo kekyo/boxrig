@@ -10,6 +10,7 @@
  * @param view View to configure without changing its terminal state.
  * @return Zero on success, or -1 for invalid configuration or API failure.
  * @remarks BOXRIG_CURSOR_STYLE_DEMO=1 enables the initial outlined cursor.
+ * Value 2 cycles focus-sensitive block, underline and bar boxes.
  * BOXRIG_SELECTION_STYLE_DEMO=1 enables the initial default selection outline.
  * An unset cursor variable or 0 selects the sample's filled cursor default.
  * An unset selection variable or 0 leaves the existing selection unchanged.

@@ -29,6 +29,35 @@ After normal rendering, a logically visible cursor becomes a 2 DIP vertical bar.
 The line width is rounded to pixels according to DPI and output scale and clamped to the cell.
 Terminal-requested cursor hiding, IME suppression, and focus conditions still apply.
 
+## Focus-sensitive cursor boxes
+
+Choose BLOCK, BAR or UNDERLINE for a full cell, vertical box or underline box.
+Set `presentation` to FOCUSED to fill the box while focused and draw the same
+box's perimeter while unfocused. Report focus through
+`boxrig_ui_view_set_focused()`; standard boxrig widgets already do this.
+
+```c
+boxrig_ui_cursor_style style = boxrig_ui_cursor_style_default();
+style.shape = BOXRIG_UI_CURSOR_SHAPE_BAR;
+style.presentation = BOXRIG_UI_CURSOR_PRESENTATION_FOCUSED;
+style.box_width_dip = 4.0f;
+style.line_width_dip = 1.0f;
+style.blink = BOXRIG_UI_CURSOR_BLINK_ENABLED;
+boxrig_ui_view_set_cursor_style(view, &style);
+```
+
+`box_width_dip` controls the bar width or underline height; `line_width_dip`
+controls the perimeter width. Defaults are four and one DIP. Both scale with
+output DPI and scale, round to device pixels and stay inside the cell. Boxes
+touch the left or bottom cell edge. Very small cells may leave no interior,
+so an outline can appear filled. Use FILL or OUTLINE for constant presentation.
+
+Only focused cursors blink. Focus restoration starts with the visible phase.
+STEADY disables blinking while retaining the focus-dependent presentation.
+Terminal hiding and IME suppression take precedence for every shape.
+A filled full cell redraws readable glyphs without revealing concealed or
+blink-hidden text.
+
 ## Follow terminal cursor settings
 
 The default style follows the terminal's shape, color, and blinking settings.
@@ -36,7 +65,9 @@ Set shape to TERMINAL to use the block, underline, or bar requested by DECSCUSR.
 
 The default block presentation is an outline.
 Set `block_presentation` to FILL to fill the cell and draw its text in a readable color.
-Explicit OUTLINE, UNDERLINE, and BAR shapes do not use that field.
+Explicit BLOCK also uses this field; OUTLINE, UNDERLINE and BAR do not.
+The default `presentation` value DEFAULT preserves these shape-specific rules.
+Other values take precedence over `block_presentation`.
 Colors can follow the terminal cursor color or use fixed RGB.
 
 `reset_cursor_style()` restores the view's defaults.

@@ -128,6 +128,36 @@ int main(void)
     assert(actual.block_presentation == BOXRIG_UI_CURSOR_BLOCK_OUTLINE);
     assert(!boxrig_ui_view_next_animation_deadline(view, &deadline));
 
+    /* Explicit boxes must override DECSCUSR without changing the terminal. */
+    style = boxrig_ui_cursor_style_default();
+    style.shape = BOXRIG_UI_CURSOR_SHAPE_BLOCK;
+    style.presentation = BOXRIG_UI_CURSOR_PRESENTATION_FOCUSED;
+    style.box_width_dip = 4;
+    style.blink = BOXRIG_UI_CURSOR_BLINK_ENABLED;
+    assert(boxrig_ui_view_set_cursor_style(view, &style) == BOXRIG_UI_OK);
+    assert(boxrig_ui_view_get_cursor_style(view, &actual) == BOXRIG_UI_OK);
+    assert(actual.shape == style.shape && actual.presentation == style.presentation);
+    assert(actual.box_width_dip == 4 && actual.line_width_dip == 1);
+    assert(boxrig_ui_view_set_focused(view, false) == BOXRIG_UI_OK);
+    assert(boxrig_ui_view_cursor_blink_visible(view));
+    assert(!boxrig_ui_view_next_animation_deadline(view, &deadline));
+    assert(boxrig_ui_view_set_focused(view, true) == BOXRIG_UI_OK);
+    assert(boxrig_ui_view_cursor_blink_visible(view));
+    assert(boxrig_ui_view_next_animation_deadline(view, &deadline) && deadline == 1000);
+    boxrig_terminal_get_cursor(terminal, &cursor);
+    assert(cursor.shape == BOXRIG_CURSOR_BAR && !cursor.blinking);
+    for (size_t i = 0; i < 4; i++) {
+        boxrig_ui_cursor_style invalid = style;
+        invalid.box_width_dip = (float[]){0, -1, NAN, INFINITY}[i];
+        assert(boxrig_ui_view_set_cursor_style(view, &invalid) == BOXRIG_UI_INVALID_ARGUMENT);
+        assert(boxrig_ui_view_get_cursor_style(view, &actual) == BOXRIG_UI_OK);
+        assert(actual.box_width_dip == 4);
+    }
+    boxrig_ui_cursor_style invalid_presentation = style;
+    invalid_presentation.presentation = (boxrig_ui_cursor_presentation)99;
+    assert(boxrig_ui_view_set_cursor_style(view, &invalid_presentation) == BOXRIG_UI_INVALID_ARGUMENT);
+    assert(boxrig_ui_view_reset_cursor_style(view) == BOXRIG_UI_OK);
+
     scheduler_state state = {1000, false, 0, 0};
     boxrig_ui_animation_scheduler scheduler = {&state, read_time, reserve, cancel};
     boxrig_ui_animation_runtime *runtime = NULL;

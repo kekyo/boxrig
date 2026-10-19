@@ -1960,7 +1960,7 @@ bool boxrig_ui_view_next_animation_deadline(
  * Copies one view's insertion-cursor presentation style.
  * @param view View to change on its owning UI thread.
  * @param style Copied style; no pointers are borrowed.
- * @return OK, INVALID_ARGUMENT for invalid policies or stroke width, BUSY
+ * @return OK, INVALID_ARGUMENT for invalid policies or box/stroke widths, BUSY
  * during a color callback, or a scheduling failure with the old style retained.
  * @remarks Terminal visibility and IME suppression are never overridden.
  * Intervals and global enablement come from the view's blink configuration.

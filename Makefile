@@ -4382,6 +4382,15 @@ test-native-cursor-style-videos: $(EXAMPLE_BINARY) $(GTK3_EXAMPLE_BINARY) $(GTK4
 
 test: test-native-cursor-style-videos
 
+.PHONY: test-native-cursor-box-videos
+test-native-cursor-box-videos: $(EXAMPLE_BINARY) $(GTK3_EXAMPLE_BINARY) $(GTK4_EXAMPLE_BINARY) $(PTY_HELPER_BINARY)
+	$(XVFB_RUN) -a -s '-screen 0 1280x1024x24' env BOXRIG_TEST_CURSOR_BOX=1 node tests/run_native_cursor_style_video.mjs $(EXAMPLE_BINARY) $(PTY_HELPER_BINARY) $(BUILD_DIR)/test-results/cursor-box/x11 x11
+	$(XVFB_RUN) -a -s '-screen 0 1280x1024x24' env BOXRIG_TEST_CURSOR_BOX=1 LIBGL_ALWAYS_SOFTWARE=1 node tests/run_native_cursor_style_video.mjs $(EXAMPLE_BINARY) $(PTY_HELPER_BINARY) $(BUILD_DIR)/test-results/cursor-box/opengl opengl
+	$(XVFB_RUN) -a -s '-screen 0 1280x1024x24' env BOXRIG_TEST_CURSOR_BOX=1 GDK_BACKEND=x11 node tests/run_native_cursor_style_video.mjs $(GTK3_EXAMPLE_BINARY) $(PTY_HELPER_BINARY) $(BUILD_DIR)/test-results/cursor-box/gtk3
+	$(XVFB_RUN) -a -s '-screen 0 1280x1024x24' env BOXRIG_TEST_CURSOR_BOX=1 $(GTK4_TEST_IM_ENV) GDK_BACKEND=x11 GSK_RENDERER=cairo node tests/run_native_cursor_style_video.mjs $(GTK4_EXAMPLE_BINARY) $(PTY_HELPER_BINARY) $(BUILD_DIR)/test-results/cursor-box/gtk4
+
+test: test-native-cursor-box-videos
+
 .PHONY: test-animation-integration
 test-animation-integration: $(BUILD_DIR)/tests/test_cursor_animation_dirty $(BUILD_DIR)/tests/test_animation_integration $(BUILD_DIR)/tests/animation-scheduler-example $(BUILD_DIR)/tests/animation-manual-example
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(BUILD_DIR)/tests/test_cursor_animation_dirty

@@ -105,6 +105,7 @@ The space immediately before `q` is required.
 | `BOXRIG_SCROLLBAR=always/auto/never` | Always show / show with history / hide the bar | Ctrl+Shift+F9 |
 | `BOXRIG_SELECTION_STYLE_DEMO=1` | Selection decorations | Ctrl+Shift+F10 |
 | `BOXRIG_CURSOR_STYLE_DEMO=1` | Cursor decorations | Ctrl+Shift+F11 |
+| `BOXRIG_CURSOR_STYLE_DEMO=2` | Three focus-sensitive cursor boxes | Ctrl+Shift+F11 |
 | `BOXRIG_COLOR_GLYPHS=0/1` | Monochrome/color glyphs such as emoji on Linux | Ctrl+Shift+F11 |
 | `BOXRIG_COLOR_FILTER_DEMO=1` | Display color filters | Ctrl+Shift+F12 |
 

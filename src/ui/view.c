@@ -195,6 +195,8 @@ static boxrig_ui_status animation_prepare_change(
     bool focused, bool visible, bool reset_cursor, bool reset_text);
 static void animation_commit(
     boxrig_ui_view *view, const boxrig_ui_blink_state *state);
+static void mark_cursor_animation_dirty(boxrig_ui_view *view,
+    const boxrig_cursor_view *cursor);
 static boxrig_ui_status refresh_text_blink_row(
     boxrig_ui_view *view, size_t row, const boxrig_text_layout *layout);
 static boxrig_ui_status refresh_text_blink_rows(boxrig_ui_view *view);
@@ -5539,6 +5541,8 @@ boxrig_ui_status boxrig_ui_view_set_focused(boxrig_ui_view *view, bool focused)
         view->focused = focused;
         if (!focused) boxrig_ui_view_clear_candidates(view);
         animation_commit(view, &state);
+        if (state.cursor_style.presentation == BOXRIG_UI_CURSOR_PRESENTATION_FOCUSED &&
+            state.cursor_known) mark_cursor_animation_dirty(view, &state.cursor);
         if (view->color_filter != NULL) {
             mark_full_dirty(view, BOXRIG_UI_DIRTY_PRESENT);
         }
@@ -5844,7 +5848,8 @@ void boxrig_ui_view_reset_color_statistics(boxrig_ui_view *view)
 static void apply_cursor_policy(const boxrig_ui_cursor_style *style,
     boxrig_cursor_view *cursor)
 {
-    if (style->shape == BOXRIG_UI_CURSOR_SHAPE_OUTLINE) cursor->shape = BOXRIG_CURSOR_BLOCK;
+    if (style->shape == BOXRIG_UI_CURSOR_SHAPE_OUTLINE ||
+        style->shape == BOXRIG_UI_CURSOR_SHAPE_BLOCK) cursor->shape = BOXRIG_CURSOR_BLOCK;
     else if (style->shape == BOXRIG_UI_CURSOR_SHAPE_UNDERLINE) cursor->shape = BOXRIG_CURSOR_UNDERLINE;
     else if (style->shape == BOXRIG_UI_CURSOR_SHAPE_BAR) cursor->shape = BOXRIG_CURSOR_BAR;
     if (style->blink == BOXRIG_UI_CURSOR_BLINK_STEADY) cursor->blinking = false;
@@ -5869,9 +5874,14 @@ void boxrig_ui_view_cursor_base_color(const boxrig_ui_view *view,
 bool boxrig_ui_view_cursor_filled(const boxrig_ui_view *view,
     const boxrig_cursor_view *cursor)
 {
-    return view != NULL && cursor != NULL && cursor->shape == BOXRIG_CURSOR_BLOCK &&
-        view->blink.cursor_style.shape == BOXRIG_UI_CURSOR_SHAPE_TERMINAL &&
-        view->blink.cursor_style.block_presentation == BOXRIG_UI_CURSOR_BLOCK_FILL;
+    if (view == NULL || cursor == NULL || cursor->shape != BOXRIG_CURSOR_BLOCK) return false;
+    const boxrig_ui_cursor_style *style = &view->blink.cursor_style;
+    if (style->presentation == BOXRIG_UI_CURSOR_PRESENTATION_FOCUSED) return view->focused;
+    if (style->presentation != BOXRIG_UI_CURSOR_PRESENTATION_DEFAULT)
+        return style->presentation == BOXRIG_UI_CURSOR_PRESENTATION_FILL;
+    return (style->shape == BOXRIG_UI_CURSOR_SHAPE_TERMINAL ||
+        style->shape == BOXRIG_UI_CURSOR_SHAPE_BLOCK) &&
+        style->block_presentation == BOXRIG_UI_CURSOR_BLOCK_FILL;
 }
 
 boxrig_rgb boxrig_ui_cursor_contrast_color(boxrig_rgb fill, boxrig_rgb underlay)
@@ -5884,14 +5894,47 @@ boxrig_rgb boxrig_ui_cursor_contrast_color(boxrig_rgb fill, boxrig_rgb underlay)
     return (boxrig_rgb){channel, channel, channel};
 }
 
-unsigned int boxrig_ui_view_cursor_stroke_pixels(const boxrig_ui_view *view,
-    float dpi, float output_scale, unsigned int limit)
+static unsigned int cursor_pixels(float width, float dpi,
+    float output_scale, unsigned int limit)
 {
     if (limit == 0) return 0;
-    const float width = view == NULL ? 1 : view->blink.cursor_style.line_width_dip;
     const double scaled = (double)width * dpi / 96 * output_scale;
     if (scaled >= limit) return limit;
     return scaled < 1 ? 1 : (unsigned int)(scaled + 0.5);
+}
+
+size_t boxrig_ui_view_cursor_rectangles(const boxrig_ui_view *view,
+    const boxrig_cursor_view *cursor, float dpi_x, float dpi_y, float output_scale,
+    unsigned int cell_width, unsigned int cell_height,
+    boxrig_ui_cursor_rectangle rectangles[4])
+{
+    if (cell_width == 0 || cell_height == 0) return 0;
+    const boxrig_ui_cursor_style *style = &view->blink.cursor_style;
+    bool traditional = style->presentation == BOXRIG_UI_CURSOR_PRESENTATION_DEFAULT;
+    float thickness = traditional ? style->line_width_dip : style->box_width_dip;
+    unsigned int x = 0, y = 0, width = cell_width, height = cell_height;
+    if (cursor->shape == BOXRIG_CURSOR_BAR) {
+        width = cursor_pixels(thickness, dpi_x, output_scale, cell_width);
+        x = traditional && width < cell_width ? 1 : 0;
+    } else if (cursor->shape == BOXRIG_CURSOR_UNDERLINE) {
+        height = cursor_pixels(thickness, dpi_y, output_scale, cell_height);
+        y = cell_height - height - (traditional && height < cell_height ? 1 : 0);
+    }
+    bool filled = traditional ? cursor->shape != BOXRIG_CURSOR_BLOCK ||
+        boxrig_ui_view_cursor_filled(view, cursor) :
+        style->presentation == BOXRIG_UI_CURSOR_PRESENTATION_FILL ||
+        (style->presentation == BOXRIG_UI_CURSOR_PRESENTATION_FOCUSED && view->focused);
+    unsigned int sx = cursor_pixels(style->line_width_dip, dpi_x, output_scale, width);
+    unsigned int sy = cursor_pixels(style->line_width_dip, dpi_y, output_scale, height);
+    if (filled || sx >= (width + 1) / 2 || sy >= (height + 1) / 2) {
+        rectangles[0] = (boxrig_ui_cursor_rectangle){x, y, width, height};
+        return 1;
+    }
+    rectangles[0] = (boxrig_ui_cursor_rectangle){x, y, width, sy};
+    rectangles[1] = (boxrig_ui_cursor_rectangle){x, y + height - sy, width, sy};
+    rectangles[2] = (boxrig_ui_cursor_rectangle){x, y + sy, sx, height - 2*sy};
+    rectangles[3] = (boxrig_ui_cursor_rectangle){x + width - sx, y + sy, sx, height - 2*sy};
+    return 4;
 }
 
 static boxrig_ui_status refresh_text_blink_row(
@@ -6496,20 +6539,23 @@ boxrig_ui_cursor_style boxrig_ui_cursor_style_default(void)
 {
     return (boxrig_ui_cursor_style){BOXRIG_UI_CURSOR_SHAPE_TERMINAL,
         BOXRIG_UI_CURSOR_COLOR_TERMINAL, {0}, BOXRIG_UI_CURSOR_BLINK_TERMINAL, 1.0f,
-        BOXRIG_UI_CURSOR_BLOCK_OUTLINE};
+        BOXRIG_UI_CURSOR_BLOCK_OUTLINE, BOXRIG_UI_CURSOR_PRESENTATION_DEFAULT, 4.0f};
 }
 
 boxrig_ui_status boxrig_ui_view_set_cursor_style(boxrig_ui_view *view,
     const boxrig_ui_cursor_style *style)
 {
     if (view == NULL || style == NULL || style->shape < BOXRIG_UI_CURSOR_SHAPE_TERMINAL ||
-        style->shape > BOXRIG_UI_CURSOR_SHAPE_BAR ||
+        style->shape > BOXRIG_UI_CURSOR_SHAPE_BLOCK ||
         style->color_policy < BOXRIG_UI_CURSOR_COLOR_TERMINAL ||
         style->color_policy > BOXRIG_UI_CURSOR_COLOR_RGB ||
         style->blink < BOXRIG_UI_CURSOR_BLINK_TERMINAL ||
         style->blink > BOXRIG_UI_CURSOR_BLINK_ENABLED ||
         style->block_presentation < BOXRIG_UI_CURSOR_BLOCK_OUTLINE ||
         style->block_presentation > BOXRIG_UI_CURSOR_BLOCK_FILL ||
+        style->presentation < BOXRIG_UI_CURSOR_PRESENTATION_DEFAULT ||
+        style->presentation > BOXRIG_UI_CURSOR_PRESENTATION_FOCUSED ||
+        !isfinite(style->box_width_dip) || style->box_width_dip <= 0 ||
         !isfinite(style->line_width_dip) || style->line_width_dip <= 0) {
         return BOXRIG_UI_INVALID_ARGUMENT;
     }
@@ -6519,7 +6565,9 @@ boxrig_ui_status boxrig_ui_view_set_cursor_style(boxrig_ui_view *view,
         old->color.red == style->color.red && old->color.green == style->color.green &&
         old->color.blue == style->color.blue && old->blink == style->blink &&
         old->line_width_dip == style->line_width_dip &&
-        old->block_presentation == style->block_presentation) return BOXRIG_UI_OK;
+        old->block_presentation == style->block_presentation &&
+        old->presentation == style->presentation &&
+        old->box_width_dip == style->box_width_dip) return BOXRIG_UI_OK;
     boxrig_ui_blink_state state = view->blink;
     state.cursor_style = *style;
     boxrig_ui_status status = animation_prepare_change(view, &state,
