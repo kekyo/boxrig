@@ -25,7 +25,7 @@ static void destroy_placement(boxrig_image_placement_state *placement);
 static void increment_revision(boxrig_kitty_graphics_protocol_state *protocol);
 static void mark_active_placements(boxrig_terminal *terminal);
 static void remove_resource_at(boxrig_terminal *terminal, size_t index);
-static void refresh_derived_placements(boxrig_terminal *terminal);
+static void refresh_derived_placements(boxrig_terminal *terminal, bool all_rows);
 static bool placement_is_active(
     const boxrig_terminal *terminal,
     const boxrig_image_placement_state *placement);
@@ -623,6 +623,9 @@ struct boxrig_placeholder_instance_state {
     boxrig_image_placement_view view;
     uint64_t prototype_serial;
     bool matched;
+    /* Only the first cell in each row owns this flag. It is independent of
+     * renderer dirty ranges, which a caller may leave unconsumed. */
+    bool row_refresh_pending;
 };
 
 #include "graphics_diacritics.inc"
@@ -2387,6 +2390,24 @@ static bool ensure_image_dirty_storage(boxrig_terminal *terminal)
     return true;
 }
 
+static void placeholder_text_row_changed(boxrig_terminal *terminal, size_t row)
+{
+    boxrig_kitty_graphics_protocol_state *protocol =
+        &terminal->graphics_protocol;
+    size_t offset = terminal->screen.alternate_active
+                        ? 0 : terminal->screen.viewport_offset;
+
+    if (protocol->placeholder_instances == NULL ||
+        protocol->placeholder_cell_capacity !=
+            terminal->screen.rows * terminal->screen.columns ||
+        offset >= terminal->screen.rows ||
+        row >= terminal->screen.rows - offset) {
+        return;
+    }
+    protocol->placeholder_instances[(row + offset) * terminal->screen.columns]
+        .row_refresh_pending = true;
+}
+
 static bool ensure_placeholder_storage(boxrig_terminal *terminal)
 {
     boxrig_kitty_graphics_protocol_state *protocol =
@@ -2412,6 +2433,9 @@ static bool ensure_placeholder_storage(boxrig_terminal *terminal)
     free(protocol->placeholder_instances);
     protocol->placeholder_instances = instances;
     protocol->placeholder_cell_capacity = cell_count;
+    /* Ordinary sessions pay no callback cost before virtual placement is used. */
+    terminal->screen.graphics_sink.text_row_changed =
+        placeholder_text_row_changed;
     return true;
 }
 
@@ -3186,9 +3210,9 @@ static bool parse_placeholder_descriptor(
     size_t index = 0;
     bool continues;
 
-    if (cell->continuation || cell->text == NULL ||
+    if (cell->continuation || boxrig_cell_text(cell) == NULL ||
         !decode_cell_codepoint(
-            cell->text,
+            boxrig_cell_text(cell),
             cell->text_length,
             &offset,
             &codepoint) ||
@@ -3197,7 +3221,7 @@ static bool parse_placeholder_descriptor(
     }
     while (index < 3 && offset < cell->text_length) {
         if (!decode_cell_codepoint(
-                cell->text,
+                boxrig_cell_text(cell),
                 cell->text_length,
                 &offset,
                 &codepoint)) {
@@ -3423,7 +3447,7 @@ static bool placement_view_geometry_equal(
            left->z_index == right->z_index;
 }
 
-static void refresh_derived_placements(boxrig_terminal *terminal)
+static void refresh_derived_placements(boxrig_terminal *terminal, bool all_rows)
 {
     boxrig_kitty_graphics_protocol_state *protocol =
         &terminal->graphics_protocol;
@@ -3437,12 +3461,20 @@ static void refresh_derived_placements(boxrig_terminal *terminal)
         protocol->placeholder_cell_capacity ==
             terminal->screen.rows * terminal->screen.columns) {
         for (row = 0; row < terminal->screen.rows; row++) {
+            boxrig_placeholder_instance_state *first =
+                &protocol->placeholder_instances[row * terminal->screen.columns];
+            if (!all_rows && !first->row_refresh_pending) {
+                continue;
+            }
+            /* Row storage stays contiguous and unchanged during this scan,
+             * even when the screen's logical rows have been rotated. */
+            const boxrig_cell *row_cells = boxrig_screen_view_cell(
+                &terminal->screen, row, 0);
+
             previous.valid = false;
             for (column = 0; column < terminal->screen.columns; column++) {
-                const boxrig_cell *cell = boxrig_screen_view_cell(
-                    &terminal->screen,
-                    row,
-                    column);
+                boxrig_text_workload_observe_placeholder_cell();
+                const boxrig_cell *cell = &row_cells[column];
                 boxrig_placeholder_descriptor descriptor = {0};
                 boxrig_placeholder_instance_state next = {0};
                 boxrig_placeholder_instance_state *current =
@@ -3469,6 +3501,7 @@ static void refresh_derived_placements(boxrig_terminal *terminal)
                     changed = true;
                 }
             }
+            first->row_refresh_pending = false;
         }
     }
     for (index = 0; index < protocol->placement_count; index++) {
@@ -5126,7 +5159,7 @@ static void commit_delete(boxrig_terminal *terminal)
     if (changed) {
         increment_revision(protocol);
     }
-    refresh_derived_placements(terminal);
+    refresh_derived_placements(terminal, true);
 }
 
 static void commit_planned_evictions(
@@ -5402,7 +5435,7 @@ static void commit_placement(
             placement->view.rows,
             placement->view.columns);
     }
-    refresh_derived_placements(terminal);
+    refresh_derived_placements(terminal, true);
 }
 
 static void finish_upload(
@@ -5820,7 +5853,7 @@ static boxrig_status protocol_commit(void *context)
                     commit_placement(terminal, state, false);
                 }
             }
-            refresh_derived_placements(terminal);
+            refresh_derived_placements(terminal, true);
         } else if (!state->uses_upload &&
                    state->result == BOXRIG_KITTY_GRAPHICS_RESULT_OK &&
                    state->command.action == (uint8_t)'p') {
@@ -6034,7 +6067,7 @@ prepare_completion:
                 commit_placement(terminal, &transaction, false);
             }
         }
-        refresh_derived_placements(terminal);
+        refresh_derived_placements(terminal, true);
     }
     clear_transaction(&transaction);
     destroy_upload(upload);
@@ -6643,7 +6676,7 @@ boxrig_status boxrig_terminal_set_cell_pixel_geometry(
         placement->view = resolved;
         mark_placement_dirty(terminal, placement, width, height);
     }
-    refresh_derived_placements(terminal);
+    refresh_derived_placements(terminal, true);
     return BOXRIG_STATUS_OK;
 }
 
@@ -6655,7 +6688,7 @@ uint64_t boxrig_terminal_image_revision(const boxrig_terminal *terminal)
 void boxrig_kitty_graphics_refresh_placeholders(boxrig_terminal *terminal)
 {
     if (terminal != NULL && terminal->graphics_protocol.enabled) {
-        refresh_derived_placements(terminal);
+        refresh_derived_placements(terminal, false);
     }
 }
 
@@ -6976,7 +7009,7 @@ static void finish_screen_mutation(boxrig_terminal *terminal)
         }
     }
     mark_active_placements(terminal);
-    refresh_derived_placements(terminal);
+    refresh_derived_placements(terminal, true);
     protocol->screen_mutation_changed = false;
 }
 

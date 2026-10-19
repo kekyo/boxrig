@@ -509,7 +509,8 @@ static boxrig_status normalize_body(boxrig_notification_bytes *body)
     if (!valid_utf8_text(body->bytes, body->length, true)) {
         return BOXRIG_STATUS_LIMIT_EXCEEDED;
     }
-    if (memchr(body->bytes, '\r', body->length) == NULL) {
+    if (body->length == 0 ||
+        memchr(body->bytes, '\r', body->length) == NULL) {
         return BOXRIG_STATUS_OK;
     }
     normalized = malloc(body->length);

@@ -207,9 +207,15 @@ TEXT_MEASUREMENT_BUILD_DIR := $(BUILD_DIR)/text-measurement
 TEXT_MEASUREMENT_TEXT_OBJECT := $(TEXT_MEASUREMENT_BUILD_DIR)/text.o
 TEXT_MEASUREMENT_RECOGNIZER_OBJECT := \
 	$(TEXT_MEASUREMENT_BUILD_DIR)/recognizer.o
+TEXT_MEASUREMENT_GRAPHICS_OBJECT := \
+	$(TEXT_MEASUREMENT_BUILD_DIR)/graphics_protocol.o
+TEXT_MEASUREMENT_INTERPRETER_OBJECT := \
+	$(TEXT_MEASUREMENT_BUILD_DIR)/interpreter.o
 TEXT_MEASUREMENT_CORE_OBJECTS := $(filter-out \
-	$(BUILD_DIR)/core/text.o $(BUILD_DIR)/core/recognizer.o,$(CORE_OBJECTS)) \
-	$(TEXT_MEASUREMENT_TEXT_OBJECT) $(TEXT_MEASUREMENT_RECOGNIZER_OBJECT)
+	$(BUILD_DIR)/core/text.o $(BUILD_DIR)/core/recognizer.o \
+	$(BUILD_DIR)/core/graphics_protocol.o $(BUILD_DIR)/core/interpreter.o,$(CORE_OBJECTS)) \
+	$(TEXT_MEASUREMENT_TEXT_OBJECT) $(TEXT_MEASUREMENT_RECOGNIZER_OBJECT) \
+	$(TEXT_MEASUREMENT_GRAPHICS_OBJECT) $(TEXT_MEASUREMENT_INTERPRETER_OBJECT)
 UI_SOURCES := $(wildcard src/ui/*.c)
 UI_OBJECTS := $(patsubst src/ui/%.c,$(BUILD_DIR)/ui/%.o,$(UI_SOURCES))
 UI_HEADERS := include/boxrig/ui.h $(wildcard include/boxrig/ui/*.h)
@@ -331,6 +337,7 @@ TEXT_MEASUREMENT_LIBRARY := $(TEXT_MEASUREMENT_BUILD_DIR)/libboxrig.a
 PARSER_TEST_BINARY := $(BUILD_DIR)/tests/test_parser
 GRAPHICS_TEST_BINARY := $(BUILD_DIR)/tests/test_graphics
 SCREEN_TEST_BINARY := $(BUILD_DIR)/tests/test_screen
+TEXT_SYNC_TEST_BINARY := $(BUILD_DIR)/tests/test_text_sync
 TEXT_LAYOUT_TEST_BINARY := $(BUILD_DIR)/tests/test_text_layout
 SEARCH_TRANSFORM_PROTOTYPE_TEST_BINARY := $(BUILD_DIR)/tests/test_search_transform_prototype
 COMPOSITION_TEST_BINARY := $(BUILD_DIR)/tests/test_composition
@@ -1085,6 +1092,62 @@ measure-text-workloads: $(TEXT_WORKLOAD_MEASUREMENT_BINARY)
 
 test: test-terminal-io-integration test-text-blink test-x11-scheduler-required test-blink test-colors test-win32-alpha-report test-win32-opacity-policy test-win32-core-artifacts test-win32-ui-artifacts $(MINGW_AMD64_OPACITY_NATIVE_TEST) $(MINGW_I686_OPACITY_NATIVE_TEST) $(MINGW_AMD64_HOST_TRANSPARENCY_TEST) $(MINGW_I686_HOST_TRANSPARENCY_TEST)
 
+.PHONY: test-text-sync
+test: test-text-sync
+test-text-sync: $(TEXT_SYNC_TEST_BINARY)
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
+
+$(TEXT_SYNC_TEST_BINARY): tests/test_text_sync.c $(CORE_HEADERS) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(LIBRARY) $(SANITIZERS) -o $@
+
+.PHONY: test-recognizer-projection
+test: test-recognizer-projection
+test-recognizer-projection: $(BUILD_DIR)/tests/test_recognizer_projection
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
+
+$(BUILD_DIR)/tests/test_recognizer_projection: tests/test_recognizer_projection.c $(CORE_HEADERS) $(TEXT_MEASUREMENT_LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) -DBOXRIG_MEASURE_TEXT_WORKLOADS $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(TEXT_MEASUREMENT_LIBRARY) $(SANITIZERS) -o $@
+
+.PHONY: test-recognizer-reuse
+test: test-recognizer-reuse
+test-recognizer-reuse: $(BUILD_DIR)/tests/test_recognizer_reuse
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
+
+$(BUILD_DIR)/tests/test_recognizer_reuse: tests/test_recognizer_reuse.c $(CORE_HEADERS) $(TEXT_MEASUREMENT_LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) -DBOXRIG_MEASURE_TEXT_WORKLOADS $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(TEXT_MEASUREMENT_LIBRARY) $(SANITIZERS) -Wl,--wrap=calloc -Wl,--wrap=realloc -o $@
+
+.PHONY: test-last-printed-storage
+test: test-last-printed-storage
+test-last-printed-storage: $(BUILD_DIR)/tests/test_last_printed_storage
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
+
+$(BUILD_DIR)/tests/test_last_printed_storage: tests/test_last_printed_storage.c $(CORE_HEADERS) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(LIBRARY) $(SANITIZERS) -Wl,--wrap=malloc -Wl,--wrap=realloc -o $@
+
+.PHONY: test-screen-row-move
+test: test-screen-row-move
+test-screen-row-move: $(BUILD_DIR)/tests/test_screen_row_move
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
+
+$(BUILD_DIR)/tests/test_screen_row_move: tests/test_screen_row_move.c $(CORE_HEADERS) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(LIBRARY) $(SANITIZERS) -Wl,--wrap=free -o $@
+
+.PHONY: test-history-transfer
+test: test-history-transfer
+test-history-transfer: $(BUILD_DIR)/tests/test_history_transfer
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
+
+$(BUILD_DIR)/tests/test_history_transfer: tests/test_history_transfer.c $(CORE_HEADERS) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(LIBRARY) $(SANITIZERS) -Wl,--wrap=malloc -Wl,--wrap=calloc -Wl,--wrap=realloc -o $@
+
+.PHONY: test-cell-text-storage
+test: test-cell-text-storage
+test-cell-text-storage: $(BUILD_DIR)/tests/test_cell_text_storage
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
+
+$(BUILD_DIR)/tests/test_cell_text_storage: tests/test_cell_text_storage.c $(CORE_HEADERS) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(LIBRARY) $(SANITIZERS) -Wl,--wrap=malloc -Wl,--wrap=realloc -o $@
+
 .PHONY: test-colors
 test-colors: $(BUILD_DIR)/tests/test_color $(BUILD_DIR)/tests/color-filter-example $(BUILD_DIR)/tests/test_x11_colors \
 	$(BUILD_DIR)/tests/test_pangocairo_colors $(BUILD_DIR)/tests/test_opengl_colors \
@@ -1114,6 +1177,50 @@ $(BUILD_DIR)/tests/test_pangocairo_colors: tests/pangocairo/test_pangocairo_colo
 		tests/pangocairo/test_pangocairo_colors.c tests/color_renderer_fixture.c \
 		src/pangocairo/renderer.c $(PANGO_CANDIDATE_OBJECT) $(UI_LIBRARY) $(LIBRARY) \
 		$(PANGO_CAIRO_LIBS) $(SANITIZERS) -o $@
+
+.PHONY: test-pangocairo-backgrounds
+test: test-pangocairo-backgrounds
+test-pangocairo-backgrounds: $(BUILD_DIR)/tests/measure_pangocairo_backgrounds
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $< self-test
+
+.PHONY: test-pangocairo-partial
+test: test-pangocairo-partial
+test-pangocairo-partial: $(BUILD_DIR)/tests/measure_pangocairo_partial
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $< self-test
+
+$(BUILD_DIR)/tests/measure_pangocairo_partial: PARTIAL_MEASUREMENT_FLAGS = \
+	-Wl,--wrap=cairo_fill -Wl,--wrap=boxrig_text_layout_visual_to_logical \
+	-Wl,--wrap=boxrig_ui_color_resolve_cell -Wl,--wrap=pango_cairo_show_glyph_item
+$(BUILD_DIR)/tests/measure_pangocairo_partial_unwrapped: PARTIAL_MEASUREMENT_FLAGS = \
+	-DBOXRIG_BACKGROUND_MEASURE_UNWRAPPED
+
+$(BUILD_DIR)/tests/measure_pangocairo_partial \
+$(BUILD_DIR)/tests/measure_pangocairo_partial_unwrapped: tests/pangocairo/measure_partial.c \
+		tests/pangocairo/measure_backgrounds.c src/pangocairo/renderer.c \
+		src/pangocairo/renderer.h src/pangocairo/renderer_private.h \
+		src/ui/view_private.h src/ui/color_private.h $(PANGO_CANDIDATE_OBJECT) \
+		$(UI_HEADERS) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) -Isrc $(POSIX_CPPFLAGS) \
+		$(PANGO_CAIRO_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) \
+		tests/pangocairo/measure_partial.c src/pangocairo/renderer.c \
+		$(PANGO_CANDIDATE_OBJECT) $(UI_LIBRARY) $(LIBRARY) \
+		$(PANGO_CAIRO_LIBS) $(SANITIZERS) $(PARTIAL_MEASUREMENT_FLAGS) -o $@
+
+$(BUILD_DIR)/tests/measure_pangocairo_backgrounds: BACKGROUND_MEASUREMENT_FLAGS = \
+	-Wl,--wrap=cairo_fill -Wl,--wrap=boxrig_text_layout_visual_to_logical
+$(BUILD_DIR)/tests/measure_pangocairo_backgrounds_unwrapped: BACKGROUND_MEASUREMENT_FLAGS = \
+	-DBOXRIG_BACKGROUND_MEASURE_UNWRAPPED
+
+$(BUILD_DIR)/tests/measure_pangocairo_backgrounds \
+$(BUILD_DIR)/tests/measure_pangocairo_backgrounds_unwrapped: tests/pangocairo/measure_backgrounds.c \
+		src/pangocairo/renderer.c src/pangocairo/renderer.h \
+		src/pangocairo/renderer_private.h src/ui/view_private.h src/ui/color_private.h \
+		$(PANGO_CANDIDATE_OBJECT) $(UI_HEADERS) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) -Isrc $(POSIX_CPPFLAGS) \
+		$(PANGO_CAIRO_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) \
+		tests/pangocairo/measure_backgrounds.c src/pangocairo/renderer.c \
+		$(PANGO_CANDIDATE_OBJECT) $(UI_LIBRARY) $(LIBRARY) \
+		$(PANGO_CAIRO_LIBS) $(SANITIZERS) $(BACKGROUND_MEASUREMENT_FLAGS) -o $@
 
 $(BUILD_DIR)/tests/test_opengl_colors: tests/test_opengl_colors.c \
 		tests/color_renderer_fixture.c tests/color_renderer_fixture.h \
@@ -2214,8 +2321,8 @@ $(MINGW_AMD64_WIN32_OBJECTS) $(MINGW_I686_WIN32_OBJECTS): \
 	src/ui/view_private.h src/ui/color_private.h \
 	src/win32/host_private.h src/win32/renderer_private.h src/win32/system_library.h src/win32/dpi.h src/win32/transparency_private.h $(CONPTY_HEADER) Makefile
 
-$(TEST_BINARY): tests/test_terminal.c $(LIBRARY) | $(BUILD_DIR)/tests
-	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(LIBRARY) $(SANITIZERS) -o $@
+$(TEST_BINARY): tests/test_terminal.c $(CORE_SOURCES) $(CORE_HEADERS) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) tests/test_terminal.c $(CORE_SOURCES) $(LIBRARY) $(SANITIZERS) -o $@
 
 $(TEXT_MEASUREMENT_TEXT_OBJECT): src/core/text.c $(CORE_HEADERS) | \
 		$(TEXT_MEASUREMENT_BUILD_DIR)
@@ -2223,6 +2330,16 @@ $(TEXT_MEASUREMENT_TEXT_OBJECT): src/core/text.c $(CORE_HEADERS) | \
 		$(PROJECT_CFLAGS) -DBOXRIG_MEASURE_TEXT_WORKLOADS -c $< -o $@
 
 $(TEXT_MEASUREMENT_RECOGNIZER_OBJECT): src/core/recognizer.c \
+		$(CORE_HEADERS) | $(TEXT_MEASUREMENT_BUILD_DIR)
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) \
+		$(PROJECT_CFLAGS) -DBOXRIG_MEASURE_TEXT_WORKLOADS -c $< -o $@
+
+$(TEXT_MEASUREMENT_GRAPHICS_OBJECT): src/core/graphics_protocol.c \
+		$(CORE_HEADERS) | $(TEXT_MEASUREMENT_BUILD_DIR)
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) \
+		$(PROJECT_CFLAGS) -DBOXRIG_MEASURE_TEXT_WORKLOADS -c $< -o $@
+
+$(TEXT_MEASUREMENT_INTERPRETER_OBJECT): src/core/interpreter.c \
 		$(CORE_HEADERS) | $(TEXT_MEASUREMENT_BUILD_DIR)
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) \
 		$(PROJECT_CFLAGS) -DBOXRIG_MEASURE_TEXT_WORKLOADS -c $< -o $@
@@ -2238,7 +2355,15 @@ $(TEXT_WORKLOAD_MEASUREMENT_BINARY): tests/measure_text_workloads.c \
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) \
 		$(PROJECT_CFLAGS) -DBOXRIG_MEASURE_TEXT_WORKLOADS $< \
 		$(TEXT_MEASUREMENT_LIBRARY) -Wl,--wrap=malloc \
-		-Wl,--wrap=calloc -Wl,--wrap=realloc -Wl,--wrap=free -o $@
+		-Wl,--wrap=calloc -Wl,--wrap=realloc -Wl,--wrap=free \
+		-Wl,--wrap=memmove -o $@
+
+$(TEXT_MEASUREMENT_BUILD_DIR)/measure_text_workloads_unwrapped: \
+		tests/measure_text_workloads.c $(TEXT_MEASUREMENT_LIBRARY) | \
+		$(TEXT_MEASUREMENT_BUILD_DIR)
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) \
+		$(PROJECT_CFLAGS) -DBOXRIG_MEASURE_TEXT_WORKLOADS \
+		-DBOXRIG_MEASURE_UNWRAPPED $< $(TEXT_MEASUREMENT_LIBRARY) -o $@
 
 $(PARSER_TEST_BINARY): tests/test_parser.c src/core/parser.c src/core/parser.h | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) tests/test_parser.c src/core/parser.c $(SANITIZERS) -o $@
@@ -5548,7 +5673,7 @@ test-gtk3-accessible: $(BUILD_DIR)/tests/test_gtk3_accessible
 	$(XVFB_RUN) -a env GDK_BACKEND=x11 NO_AT_BRIDGE=1 GSETTINGS_BACKEND=memory GIO_USE_VFS=local ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
 
 $(BUILD_DIR)/tests/test_gtk3_accessible: tests/gtk3/test_accessible_text.c $(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
-	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK3_CPPFLAGS) $(CFLAGS) $(GTK3_PROJECT_CFLAGS) $(SANITIZERS) $< $(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK3_LIBS) -lm -o $@
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK3_CPPFLAGS) $(CFLAGS) $(GTK3_PROJECT_CFLAGS) $(SANITIZERS) -Wl,--wrap=boxrig_ui_accessible_snapshot_create $< $(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK3_LIBS) -lm -o $@
 
 .PHONY: test-gtk3-atspi
 test: test-gtk3-atspi
@@ -5572,7 +5697,7 @@ test-gtk4-accessible: $(BUILD_DIR)/tests/test_gtk4_accessible
 	$(XVFB_RUN) -a env GDK_BACKEND=x11 GTK_A11Y=none GSK_RENDERER=cairo GSETTINGS_BACKEND=memory GIO_USE_VFS=local ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
 
 $(BUILD_DIR)/tests/test_gtk4_accessible: tests/gtk4/test_accessible_text.c $(GTK4_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
-	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK4_CPPFLAGS) $(CFLAGS) $(GTK4_PROJECT_CFLAGS) $(SANITIZERS) $< $(GTK4_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK4_LIBS) -lm \
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK4_CPPFLAGS) $(CFLAGS) $(GTK4_PROJECT_CFLAGS) $(SANITIZERS) -Wl,--wrap=boxrig_ui_accessible_snapshot_create $< $(GTK4_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK4_LIBS) -lm \
 		-Wl,--wrap=gtk_accessible_text_update_contents -Wl,--wrap=gtk_accessible_text_update_caret_position \
 		-Wl,--wrap=gtk_accessible_text_update_selection_bound -o $@
 
@@ -5828,3 +5953,116 @@ test-fcitx4-display: $(GTK3_EXAMPLE_BINARY) $(WAYLAND_EXAMPLE_BINARY)
 	done
 	$(XVFB_RUN) -a -s '-screen 0 1280x800x24' env BOXRIG_TEST_FCITX4_DISPLAY=1 GDK_BACKEND=x11 GTK_IM_MODULE=gtk-im-context-simple GTK_A11Y=none NO_AT_BRIDGE=1 GIO_USE_VFS=local LIBGL_ALWAYS_SOFTWARE=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4_real.sh node tests/ime/test_display.mjs $(GTK3_EXAMPLE_BINARY) gtk3 cairo $(BUILD_DIR)/test-results/fcitx4-display/gtk3-system
 	$(XVFB_RUN) -a -s '-screen 0 1280x800x24' env BOXRIG_TEST_FCITX4_DISPLAY=1 BOXRIG_TEST_FCITX4_CLIENT=1 GDK_BACKEND=x11 GTK_IM_MODULE=gtk-im-context-simple GTK_A11Y=none NO_AT_BRIDGE=1 GIO_USE_VFS=local LIBGL_ALWAYS_SOFTWARE=1 dbus-run-session --config-file=tests/ime/session.conf -- bash tests/ime/run_fcitx4_real.sh node tests/ime/test_display.mjs $(GTK3_EXAMPLE_BINARY) gtk3 cairo $(BUILD_DIR)/test-results/fcitx4-display/gtk3-client
+
+# Real sample GSource regression, using an isolated GLib main context.
+SAMPLE_RECOGNITION_SOURCES := tests/gtk/test_sample_recognition.c \
+	examples/boxrig_term/common/text_policy.c \
+	examples/boxrig_term/common/font_demo.c \
+	examples/boxrig_term/common/scrollbar_demo.c
+
+$(BUILD_DIR)/tests/test_gtk3_sample_recognition: $(SAMPLE_RECOGNITION_SOURCES) \
+		examples/boxrig_term/gtk3/event_source.c examples/boxrig_term/gtk3/application_internal.h \
+		examples/boxrig_term/gtk3/event_source_policy.c $(GTK3_LIBRARY) $(SESSION_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK3_CPPFLAGS) \
+		$(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) -ffunction-sections -fdata-sections \
+		$(SAMPLE_RECOGNITION_SOURCES) examples/boxrig_term/gtk3/event_source_policy.c \
+		$(GTK3_LIBRARY) $(SESSION_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK3_LIBS) \
+		-Wl,--gc-sections,--wrap=boxrig_term_text_policy_resume $(SANITIZERS) -o $@
+
+$(BUILD_DIR)/tests/test_gtk4_sample_recognition: $(SAMPLE_RECOGNITION_SOURCES) \
+		examples/boxrig_term/gtk4/event_source.c examples/boxrig_term/gtk4/application_internal.h \
+		examples/boxrig_term/gtk4/event_source_policy.c $(GTK4_LIBRARY) $(SESSION_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(GTK4_CPPFLAGS) \
+		$(CFLAGS) $(GTK4_PROJECT_CFLAGS) $(SANITIZERS) -ffunction-sections -fdata-sections \
+		$(SAMPLE_RECOGNITION_SOURCES) examples/boxrig_term/gtk4/event_source_policy.c \
+		$(GTK4_LIBRARY) $(SESSION_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK4_LIBS) \
+		-Wl,--gc-sections,--wrap=boxrig_term_text_policy_resume $(SANITIZERS) -o $@
+
+.PHONY: test-gtk-sample-recognition
+test: test-gtk-sample-recognition
+test-gtk-sample-recognition: $(BUILD_DIR)/tests/test_gtk3_sample_recognition $(BUILD_DIR)/tests/test_gtk4_sample_recognition $(FRONTEND_SAMPLE_GTK3_PROBE_BINARY) $(FRONTEND_SAMPLE_GTK4_PROBE_BINARY)
+	$(XVFB_RUN) -a env GDK_BACKEND=x11 LIBGL_ALWAYS_SOFTWARE=1 NO_AT_BRIDGE=1 GTK_A11Y=none ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(BUILD_DIR)/tests/test_gtk3_sample_recognition
+	$(XVFB_RUN) -a env GDK_BACKEND=x11 LIBGL_ALWAYS_SOFTWARE=1 NO_AT_BRIDGE=1 GTK_A11Y=none GSK_RENDERER=cairo $(GTK4_TEST_IM_ENV) ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(BUILD_DIR)/tests/test_gtk4_sample_recognition
+	$(XVFB_RUN) -a env GDK_BACKEND=x11 LIBGL_ALWAYS_SOFTWARE=1 NO_AT_BRIDGE=1 GTK_A11Y=none node tests/gtk/run_sample_recognition.mjs $(FRONTEND_SAMPLE_GTK3_PROBE_BINARY)
+	$(XVFB_RUN) -a env GDK_BACKEND=x11 LIBGL_ALWAYS_SOFTWARE=1 NO_AT_BRIDGE=1 GTK_A11Y=none $(GTK4_TEST_IM_ENV) node tests/gtk/run_sample_recognition.mjs $(FRONTEND_SAMPLE_GTK4_PROBE_BINARY)
+
+include tests/performance/phase_probe.mk
+
+$(BUILD_DIR)/tests/performance/steady_recognizer: tests/performance/steady_recognizer.c \
+		tests/measure_text_workloads.c $(TEXT_MEASUREMENT_LIBRARY) | $(BUILD_DIR)/tests/performance
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) \
+		$(PROJECT_CFLAGS) -I. -DBOXRIG_MEASURE_TEXT_WORKLOADS $< \
+		$(TEXT_MEASUREMENT_LIBRARY) -Wl,--wrap=malloc -Wl,--wrap=calloc \
+		-Wl,--wrap=realloc -Wl,--wrap=free -Wl,--wrap=memmove -o $@
+
+$(BUILD_DIR)/tests/performance/steady_recognizer_unwrapped: tests/performance/steady_recognizer.c \
+		tests/measure_text_workloads.c $(TEXT_MEASUREMENT_LIBRARY) | $(BUILD_DIR)/tests/performance
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) \
+		$(PROJECT_CFLAGS) -I. -DBOXRIG_MEASURE_TEXT_WORKLOADS \
+		-DBOXRIG_MEASURE_UNWRAPPED $< $(TEXT_MEASUREMENT_LIBRARY) -o $@
+
+.PHONY: test-steady-recognizer
+test: test-steady-recognizer
+test-steady-recognizer: $(BUILD_DIR)/tests/performance/steady_recognizer
+	$< self-test
+
+.PHONY: test-performance-phases
+test: test-performance-phases
+test-performance-phases: $(PHASE_STATE_TEST)
+	$(PHASE_STATE_TEST)
+
+.PHONY: test-notification-empty-body
+test: test-notification-empty-body
+test-notification-empty-body: $(BUILD_DIR)/tests/test_notification_empty_body
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
+
+$(BUILD_DIR)/tests/test_notification_empty_body: tests/test_notification_empty_body.c src/core/notification.c $(CORE_HEADERS) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) -fno-sanitize-recover=undefined tests/test_notification_empty_body.c src/core/notification.c $(LIBRARY) $(SANITIZERS) -o $@
+
+.PHONY: test-screen-row-rotation
+test: test-screen-row-rotation
+test-screen-row-rotation: $(BUILD_DIR)/tests/test_screen_row_rotation
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
+
+$(BUILD_DIR)/tests/test_screen_row_rotation: tests/test_screen_row_rotation.c $(CORE_HEADERS) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(LIBRARY) $(SANITIZERS) -Wl,--wrap=calloc -Wl,--wrap=memmove -Wl,--wrap=boxrig_screen_view_cell -o $@
+
+.PHONY: test-ascii-runs
+.PHONY: test-input-profile
+test: test-input-profile
+test-input-profile: $(BUILD_DIR)/tests/performance/profile_input
+	bash tests/performance/test_input_profile.sh $< $(BUILD_DIR)/tests/performance
+
+$(BUILD_DIR)/tests/performance/profile_input: INPUT_PROFILE_FLAGS = \
+	-Wl,--wrap=boxrig_screen_put_ascii_run -Wl,--wrap=boxrig_codec_decoder_put \
+	-Wl,--wrap=boxrig_screen_put_codepoint -Wl,--wrap=utf8proc_grapheme_break_stateful \
+	-Wl,--wrap=utf8proc_get_property -Wl,--wrap=utf8proc_charwidth
+$(BUILD_DIR)/tests/performance/profile_input_unwrapped: INPUT_PROFILE_FLAGS = -DBOXRIG_INPUT_UNWRAPPED
+
+$(BUILD_DIR)/tests/performance/profile_input \
+$(BUILD_DIR)/tests/performance/profile_input_unwrapped: tests/performance/profile_input.c \
+		tests/measure_text_workloads.c $(TEXT_MEASUREMENT_LIBRARY) | $(BUILD_DIR)/tests/performance
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) \
+		$(PROJECT_CFLAGS) -DBOXRIG_MEASURE_TEXT_WORKLOADS -DBOXRIG_MEASURE_UNWRAPPED \
+		$< $(TEXT_MEASUREMENT_LIBRARY) -Wl,--wrap=boxrig_terminal_create \
+		-Wl,--wrap=boxrig_text_workload_counters_reset \
+		-Wl,--wrap=boxrig_text_workload_counters_read \
+		$(INPUT_PROFILE_FLAGS) -o $@
+
+$(BUILD_DIR)/tests/performance/interactive_workload: tests/performance/interactive_workload.c \
+		tests/performance/pty_workload.c tests/performance/interval_trace.c \
+		tests/performance/interval_trace.h | $(BUILD_DIR)/tests/performance
+	$(CC) $(POSIX_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< \
+		tests/performance/interval_trace.c -o $@
+
+$(BUILD_DIR)/tests/performance/interactive_probe: tests/performance/interactive_probe.c \
+		| $(BUILD_DIR)/tests/performance
+	$(CC) $(POSIX_CPPFLAGS) $(X11_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< \
+		$(X11_LIBS) -lXtst -o $@
+
+test: test-ascii-runs
+test-ascii-runs: $(BUILD_DIR)/tests/test_ascii_runs
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
+
+$(BUILD_DIR)/tests/test_ascii_runs: tests/test_ascii_runs.c $(CORE_HEADERS) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(LIBRARY) $(SANITIZERS) -Wl,--wrap=boxrig_unicode_cluster_analyzer_accept -Wl,--wrap=malloc -o $@

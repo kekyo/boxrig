@@ -208,6 +208,7 @@ int main(int argc, char **argv)
     fail_es_context = strcmp(argv[2], "es-context") == 0;
     fail_es_renderer = strcmp(argv[2], "es-renderer") == 0;
     boxrig_gtk3_terminal_widget_config config = boxrig_gtk3_terminal_widget_config_default();
+    config.accessibility_enabled = true;
     CHECK(config.render_policy == BOXRIG_GTK_RENDER_CAIRO);
     if (strcmp(argv[1], "prefer") == 0) config.render_policy = BOXRIG_GTK_RENDER_OPENGL_PREFERRED;
     else if (strcmp(argv[1], "require") == 0) config.render_policy = BOXRIG_GTK_RENDER_OPENGL_REQUIRED;

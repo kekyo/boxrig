@@ -50,7 +50,7 @@ static gboolean render(GtkGLArea *area, GdkGLContext *context, gpointer data)
     if (test->done) return TRUE;
     boxrig_gtk_render_state state = {0};
     boxrig_ogl_renderer_config config = boxrig_ogl_renderer_config_default();
-    CHECK(boxrig_gtk_gl_area_describe(area, 1, 1, &config, &state) == BOXRIG_UI_OK);
+    CHECK(boxrig_gtk_gl_area_describe(area, 1, 2, &config, &state) == BOXRIG_UI_OK);
     printf("GL vendor=%s renderer=%s version=%s\n", glGetString(GL_VENDOR),
         glGetString(GL_RENDERER), glGetString(GL_VERSION));
     boxrig_gl_target destination = config.initial_target;
@@ -117,6 +117,24 @@ static gboolean render(GtkGLArea *area, GdkGLContext *context, gpointer data)
     CHECK(boxrig_gtk_gl_surface_draw(surface, test->view, NULL, &state) == BOXRIG_UI_OK);
     CHECK(boxrig_gtk_gl_surface_present(surface, &destination, &state) == BOXRIG_UI_OK);
     CHECK(!boxrig_ui_view_frame_requested(test->view));
+
+    /* Neither an invalid nor an older destination may consume pending dirty. */
+    for (uint64_t generation = 0; generation < destination.generation; generation++) {
+        feed(test, generation == 0 ? "\033[4;1Hzero target" : "\033[4;1Hold target");
+        CHECK(boxrig_gtk_gl_surface_draw(surface, test->view, NULL, &state) == BOXRIG_UI_OK);
+        uint8_t *unchanged = capture(&destination);
+        boxrig_gl_target stale = destination;
+        stale.generation = generation;
+        CHECK(boxrig_gtk_gl_surface_present(surface, &stale, &state) != BOXRIG_UI_OK);
+        CHECK(boxrig_ui_view_frame_requested(test->view));
+        uint8_t *rejected = capture(&destination);
+        CHECK(memcmp(unchanged, rejected, (size_t)destination.width * destination.height * 4) == 0);
+        free(unchanged);
+        free(rejected);
+        CHECK(boxrig_gtk_gl_surface_draw(surface, test->view, NULL, &state) == BOXRIG_UI_OK);
+        CHECK(boxrig_gtk_gl_surface_present(surface, &destination, &state) == BOXRIG_UI_OK);
+        CHECK(!boxrig_ui_view_frame_requested(test->view));
+    }
 
     /* An incomplete destination must not accept successfully prepared dirty. */
     feed(test, "\033[4;1Hretry");

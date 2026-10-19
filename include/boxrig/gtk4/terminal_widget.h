@@ -70,6 +70,8 @@ typedef struct boxrig_gtk4_terminal_widget_config {
     boxrig_gtk_ime_policy ime_policy;
     /** Candidate display preference; AUTO uses a supported direct IBus renderer. */
     boxrig_ui_candidate_policy candidate_policy;
+    /** Publish terminal text to assistive technologies; disabled by default. */
+    bool accessibility_enabled;
     /** Optional application-loop frame request notification. */
     boxrig_ui_frame_request_callback frame_request_callback;
     /** Context passed to frame_request_callback. */
@@ -84,6 +86,27 @@ typedef struct boxrig_gtk4_terminal_widget_config {
  */
 boxrig_gtk4_terminal_widget_config
 boxrig_gtk4_terminal_widget_config_default(void);
+
+/**
+ * Enables or disables terminal text publication to assistive technologies.
+ * @param widget Live widget owned by the current GTK thread.
+ * @param enabled True to publish text, caret, selections and attributes.
+ * @return OK, INVALID_ARGUMENT for an invalid owner, or BUSY during callbacks.
+ * @remarks Disabled by default. Disabling immediately withdraws published text
+ * and stops snapshot generation. Enabling requests a frame to publish the
+ * current viewport; synchronized output waits for its completed batch.
+ * Standard GTK widget roles, controls and input remain available.
+ */
+boxrig_ui_status boxrig_gtk4_terminal_widget_set_accessibility_enabled(
+    BoxrigGtk4TerminalWidget *widget, bool enabled);
+
+/**
+ * Returns the requested terminal text publication setting.
+ * @param widget Widget on its owning GTK thread, or NULL.
+ * @return True when enabled, false for NULL or a disabled widget.
+ */
+bool boxrig_gtk4_terminal_widget_get_accessibility_enabled(
+    const BoxrigGtk4TerminalWidget *widget);
 
 /**
  * Creates one GTK 4 terminal widget transactionally.

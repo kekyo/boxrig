@@ -14,6 +14,8 @@
 #include <cairo/cairo.h>
 #include <fontconfig/fontconfig.h>
 #include <gtk/gtk.h>
+#include <pango/pangocairo.h>
+#include <pango/pangofc-fontmap.h>
 #include <X11/Xatom.h>
 #include <X11/Xlib.h>
 
@@ -3237,6 +3239,25 @@ static bool test_printable_key_router_precedes_native_ime(void)
     return true;
 }
 
+static bool test_native_text_before_shutdown(void)
+{
+    /* GTK's default font map also serves labels and window decorations.
+     * Draw a label offscreen so cleanup is exercised on X11 as well as Wayland. */
+    GtkWidget *label = gtk_label_new("Native text before shutdown");
+    g_object_ref_sink(label);
+    cairo_surface_t *surface = cairo_image_surface_create(
+        CAIRO_FORMAT_ARGB32, 320, 40);
+    cairo_t *context = cairo_create(surface);
+    pango_cairo_show_layout(context, gtk_label_get_layout(GTK_LABEL(label)));
+    cairo_status_t status = cairo_status(context);
+    cairo_destroy(context);
+    cairo_surface_destroy(surface);
+    gtk_widget_destroy(label);
+    g_object_unref(label);
+    CHECK(status == CAIRO_STATUS_SUCCESS);
+    return true;
+}
+
 int main(int argc, char **argv)
 {
     const boxrig_test_frontend_component_operations operations = {
@@ -3306,10 +3327,19 @@ int main(int argc, char **argv)
         fprintf(stderr, "FAIL GTK initialization\n");
         return 1;
     }
+    if (!test_native_text_before_shutdown()) {
+        return 1;
+    }
     if (getenv("BOXRIG_TEST_SCROLLBAR_ONLY") != NULL) {
         bool passed = test_standard_scrollbar_visibility() && test_scrollbar_visibility_during_scale_change();
         while (g_main_context_pending(NULL)) (void)g_main_context_iteration(NULL, false);
         fflush(stdout);
+        /* Native GTK text caches outlive widgets and must precede Cairo cleanup. */
+        PangoFontMap *font_map = pango_cairo_font_map_get_default();
+        if (PANGO_IS_FC_FONT_MAP(font_map)) {
+            pango_fc_font_map_cache_clear(PANGO_FC_FONT_MAP(font_map));
+        }
+        pango_cairo_font_map_set_default(NULL);
         cairo_debug_reset_static_data();
         FcFini();
         return passed ? 0 : 1;
@@ -3332,6 +3362,12 @@ int main(int argc, char **argv)
         (void)g_main_context_iteration(NULL, false);
     }
     fflush(stdout);
+    /* Native GTK text caches outlive widgets and must precede Cairo cleanup. */
+    PangoFontMap *font_map = pango_cairo_font_map_get_default();
+    if (PANGO_IS_FC_FONT_MAP(font_map)) {
+        pango_fc_font_map_cache_clear(PANGO_FC_FONT_MAP(font_map));
+    }
+    pango_cairo_font_map_set_default(NULL);
     cairo_debug_reset_static_data();
     FcFini();
     if (passed) {

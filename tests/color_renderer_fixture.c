@@ -610,10 +610,97 @@ static bool retains_colors_after_cache_eviction(
     return true;
 }
 
+static bool renders_bidi_annotation_dirty(
+    bool (*create)(boxrig_test_color_renderer *renderer))
+{
+    static const char text[] = "\033[?25l\xd7\x90\xd7\x91 XYZ";
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    boxrig_ui_view_config view_config = boxrig_ui_view_config_default();
+    boxrig_terminal *terminal = NULL;
+    boxrig_ui_model *model = NULL;
+    boxrig_ui_view *view = NULL;
+    boxrig_test_color_renderer renderer = {0};
+    boxrig_ui_allocation_input allocation = {0};
+    boxrig_ui_layout_result layout;
+    boxrig_ui_hit_test_result hit;
+    boxrig_ui_text_annotation annotation = {0};
+    size_t consumed = 0;
+    bool equal = true;
+    uint32_t *initial = NULL;
+
+    config.rows = 1;
+    config.columns = 12;
+    CHECK(create(&renderer));
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_create(model, &view_config, &view) == BOXRIG_UI_OK);
+    allocation.allocation_width = config.columns * renderer.cell_width *
+        BOXRIG_UI_FIXED_ONE;
+    allocation.allocation_height = renderer.cell_height * BOXRIG_UI_FIXED_ONE;
+    allocation.cell_width = renderer.cell_width * BOXRIG_UI_FIXED_ONE;
+    allocation.cell_height = renderer.cell_height * BOXRIG_UI_FIXED_ONE;
+    allocation.cell_metrics_revision = 1;
+    CHECK(boxrig_ui_view_acquire_layout_authority(view) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_accept_allocation(view, &allocation, &layout) ==
+        BOXRIG_UI_OK);
+    CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)text,
+        sizeof(text) - 1, &consumed) == BOXRIG_STATUS_OK &&
+        consumed == sizeof(text) - 1);
+    CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+    CHECK(renderer.draw(renderer.context, view, NULL) == 0);
+    initial = renderer.capture(renderer.context);
+    CHECK(initial != NULL);
+    CHECK(boxrig_ui_view_hit_test(view,
+        ((config.columns - 2) * renderer.cell_width + 1) *
+            BOXRIG_UI_FIXED_ONE,
+        renderer.cell_height * BOXRIG_UI_FIXED_ONE / 2,
+        &hit) == BOXRIG_UI_OK && hit.text_position_valid);
+    annotation.source_id = 71;
+    annotation.item_id = 1;
+    annotation.range.start = hit.leading_position;
+    annotation.range.end = hit.trailing_position;
+    annotation.style.field_mask = BOXRIG_UI_ANNOTATION_BACKGROUND;
+    annotation.style.background.kind = BOXRIG_COLOR_RGB;
+    for (size_t phase = 0; phase < 3 && equal; phase++) {
+        boxrig_ui_status status;
+        if (phase == 2) {
+            status = boxrig_ui_view_clear_text_annotations(view, 71);
+        } else {
+            annotation.style.background.red = phase == 0 ? 0x81 : 0x12;
+            annotation.style.background.green = phase == 0 ? 0x23 : 0x92;
+            annotation.style.background.blue = phase == 0 ? 0x45 : 0x34;
+            status = boxrig_ui_view_replace_text_annotations(view, 71,
+                hit.leading_position.screen, hit.leading_position.line_id,
+                hit.leading_position.line_revision, &annotation, 1);
+        }
+        CHECK(status == BOXRIG_UI_OK);
+        CHECK(renderer.draw(renderer.context, view, NULL) == 0);
+        uint32_t *pixels = renderer.capture(renderer.context);
+        CHECK(pixels != NULL);
+        int target_x = (int)((config.columns - 2) * renderer.cell_width + 1);
+        unsigned long expected = phase == 0 ? 0x812345u :
+            phase == 1 ? 0x129234u : get_pixel(initial, target_x, 0) & 0xffffffu;
+        if (!pixel_is(pixels, target_x, 0, expected) ||
+            get_pixel(pixels, 1, 0) != get_pixel(initial, 1, 0)) {
+            fprintf(stderr, "FAIL bidi annotation partial repaint phase=%zu expected=%06lx actual=%06x\n",
+                phase, expected, get_pixel(pixels, target_x, 0) & 0xffffffu);
+            equal = false;
+        }
+        free(pixels);
+    }
+    free(initial);
+    renderer.destroy(renderer.context);
+    boxrig_ui_view_destroy(view);
+    boxrig_ui_model_destroy(model);
+    boxrig_terminal_destroy(terminal);
+    return equal;
+}
+
 bool boxrig_test_renderer_colors(
     bool (*create)(boxrig_test_color_renderer *renderer))
 {
     return renders_filtered_cells_and_surface(create) &&
         renders_state_colors_and_markers(create) && renders_ime_colors(create) &&
-        retains_colors_after_cache_eviction(create);
+        retains_colors_after_cache_eviction(create) &&
+        renders_bidi_annotation_dirty(create);
 }

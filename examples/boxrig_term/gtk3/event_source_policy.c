@@ -9,9 +9,11 @@
 bool boxrig_term_gtk3_dispatch_needs_immediate_wake(
     bool host_items_pending,
     bool widget_can_frame,
-    bool frame_requested)
+    bool frame_requested,
+    bool recognition_pending)
 {
-    return host_items_pending || (widget_can_frame && frame_requested);
+    return host_items_pending || recognition_pending ||
+           (widget_can_frame && frame_requested);
 }
 
 bool boxrig_term_gtk3_descriptor_events_need_update(

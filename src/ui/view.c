@@ -135,6 +135,7 @@ struct boxrig_ui_view {
     size_t retained_layout_bytes;
     uint64_t layout_use_serial;
     uint64_t layout_generation;
+    uint64_t accessible_selection_revision;
     uint64_t annotation_generation;
     uint64_t color_filter_revision;
     boxrig_ui_color_filter color_filter;
@@ -1354,13 +1355,15 @@ static void mark_logical_range_dirty(
             continue;
         }
         if (entry->layout == NULL) {
+            /* Overlay dirty uses visual columns. Without a retained mapping,
+             * invalidate the whole row instead of forwarding logical columns. */
             mark_dirty(
                 view,
                 BOXRIG_UI_DIRTY_OVERLAY,
                 row,
                 1,
-                logical_column,
-                logical_count);
+                0,
+                view->column_count);
         } else {
             size_t visual = 0;
 
@@ -1434,6 +1437,7 @@ static void mark_all_text_annotation_dirty(
 static void mark_selection_dirty(boxrig_ui_view *view)
 {
     if (view != NULL && view->selection_active) {
+        view->accessible_selection_revision = next_revision(view->accessible_selection_revision);
         if (view->selection.shape == BOXRIG_UI_SELECTION_LINEAR) {
             mark_logical_range_dirty(view, &view->selection.range);
         } else if (!view->selection.stale) {
@@ -1841,11 +1845,13 @@ static void mark_rectangular_selection_stale(boxrig_ui_view *view)
         mark_full_dirty(view, BOXRIG_UI_DIRTY_OVERLAY);
     }
     view->selection.stale = true;
+    view->accessible_selection_revision = next_revision(view->accessible_selection_revision);
 }
 
 static void clear_stale_selection(boxrig_ui_view *view)
 {
     if (view->selection_active) {
+        view->accessible_selection_revision = next_revision(view->accessible_selection_revision);
         free(view->selection_ranges);
         free(view->selection_rows);
         view->selection_ranges = NULL;
@@ -3331,6 +3337,8 @@ boxrig_ui_status boxrig_ui_view_store_row_layout(
         return BOXRIG_UI_LIMIT_EXCEEDED;
     }
     entry = &view->row_layouts[row];
+    const bool layout_changed = entry->layout != layout ||
+        entry->revision != revision || entry->estimated_bytes != estimated_bytes;
     bool refresh_blink = !view->text_blink_rows[row].mapped || entry->layout != layout;
     if (entry->layout != NULL) {
         view->retained_layout_bytes -= entry->estimated_bytes;
@@ -3368,7 +3376,11 @@ boxrig_ui_status boxrig_ui_view_store_row_layout(
     entry->revision = revision;
     entry->use_serial = view->layout_use_serial;
     view->retained_layout_bytes += estimated_bytes;
-    advance_layout_generation(view);
+    /* Renderers can republish the same immutable layout for overlay-only
+     * redraws. Existing hit tests and accessible geometry remain current. */
+    if (layout_changed) {
+        advance_layout_generation(view);
+    }
     /* Retain the visual bounds separately from the evictable layout object. */
     return refresh_blink ? refresh_text_blink_row(view, row, layout) : BOXRIG_UI_OK;
 }
@@ -5108,6 +5120,26 @@ size_t boxrig_ui_view_selection_visual_ranges(
         row,
         ranges_out,
         range_capacity);
+}
+
+void boxrig_ui_view_accessible_version(const boxrig_ui_view *view,
+    boxrig_ui_accessible_version *version)
+{
+    boxrig_terminal *terminal = view->model->terminal;
+    boxrig_cursor_view cursor = {0};
+    boxrig_terminal_get_cursor(terminal, &cursor);
+    *version = (boxrig_ui_accessible_version){
+        .text = boxrig_terminal_text_revision(terminal),
+        .buffer = boxrig_terminal_active_buffer_revision(terminal),
+        .colors = boxrig_terminal_color_revision(terminal),
+        .model = view->dirty_revisions[BOXRIG_UI_DIRTY_MODEL],
+        .layout = view->layout_generation,
+        .selection = view->accessible_selection_revision,
+        .viewport = boxrig_terminal_viewport_offset(terminal),
+        .caret_row = cursor.row,
+        .caret_column = cursor.column
+    };
+    boxrig_terminal_size(terminal, &version->rows, &version->columns);
 }
 
 void boxrig_ui_view_accessible_row(const boxrig_ui_view *view, size_t row,

@@ -13,24 +13,31 @@ bool boxrig_gtk_accessible_same_attributes(const boxrig_ui_accessible_character 
 }
 
 boxrig_ui_status boxrig_gtk_accessible_publish(boxrig_gtk_accessible_state *state,
-    boxrig_ui_view *view, boxrig_gtk_accessible_notify notify, void *context)
+    boxrig_ui_view *view, bool enabled, boxrig_gtk_accessible_notify notify, void *context)
 {
     if (state->detached) return BOXRIG_UI_UNAVAILABLE;
     if (state->publishing) return BOXRIG_UI_BUSY;
+    if (!enabled && state->snapshot == NULL) return BOXRIG_UI_OK;
+    if (enabled && boxrig_ui_accessible_snapshot_is_current(view, state->snapshot))
+        return BOXRIG_UI_OK;
     boxrig_ui_accessible_snapshot *next = NULL;
-    boxrig_ui_status status = boxrig_ui_accessible_snapshot_create(view,
-        BOXRIG_UI_ACCESSIBLE_MAXIMUM_BYTES, &next);
-    if (status != BOXRIG_UI_OK) return status;
+    if (enabled) {
+        boxrig_ui_status status = boxrig_ui_accessible_snapshot_create(view,
+            BOXRIG_UI_ACCESSIBLE_MAXIMUM_BYTES, &next);
+        if (status != BOXRIG_UI_OK) return status;
+    }
     boxrig_ui_accessible_snapshot *old = state->snapshot;
     boxrig_ui_accessible_change change;
     boxrig_ui_accessible_snapshot_diff(old, next, &change);
-    bool caret = old == NULL || old->caret != next->caret;
-    bool selection = old == NULL ? next->selection_count != 0 :
-        old->selection_count != next->selection_count ||
+    bool caret = old == NULL || old->caret != (next == NULL ? 0 : next->caret);
+    size_t selection_count = next == NULL ? 0 : next->selection_count;
+    bool selection = old == NULL ? selection_count != 0 :
+        old->selection_count != selection_count ||
+        (selection_count != 0 &&
         memcmp(old->selections, next->selections,
-            next->selection_count * sizeof(*next->selections)) != 0;
+            selection_count * sizeof(*next->selections)) != 0);
     bool attributes = false;
-    if (old != NULL && change.removed == 0 && change.inserted == 0) {
+    if (old != NULL && next != NULL && change.removed == 0 && change.inserted == 0) {
         for (size_t i = 0; i < next->character_count && !attributes; i++)
             attributes = !boxrig_gtk_accessible_same_attributes(&old->characters[i], &next->characters[i]);
     }

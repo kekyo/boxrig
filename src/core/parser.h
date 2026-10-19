@@ -38,6 +38,13 @@ typedef struct boxrig_parser_parameter {
 typedef struct boxrig_parser_actions {
     void *context;
     boxrig_status (*print)(void *context, uint8_t byte);
+    /* Optional printable-ASCII run. Success consumes the entire run; on
+     * failure consumed_out excludes the byte to retry. */
+    boxrig_status (*print_run)(
+        void *context,
+        const uint8_t *bytes,
+        size_t length,
+        size_t *consumed_out);
     boxrig_status (*flush_print)(void *context);
     boxrig_status (*execute)(void *context, uint8_t control);
     boxrig_status (*dispatch_escape)(

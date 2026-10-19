@@ -15,6 +15,8 @@
 #include <cairo/cairo.h>
 #include <fontconfig/fontconfig.h>
 #include <gtk/gtk.h>
+#include <pango/pangocairo.h>
+#include <pango/pangofc-fontmap.h>
 #include <X11/Xatom.h>
 #include <X11/Xlib.h>
 
@@ -3437,6 +3439,29 @@ static bool test_preedit_clause_attributes(void)
     return true;
 }
 
+static bool test_cairo_font_cache_lifetime(void)
+{
+    /* Native GTK text uses the default font map, which can outlive its widgets.
+     * Exercise it even when the window system does not draw GTK decorations. */
+    GtkWidget *label = gtk_label_new("GTK 4 font cache lifetime");
+    CHECK(label != NULL);
+    g_object_ref_sink(label);
+    PangoLayout *layout = gtk_widget_create_pango_layout(label, "GTK 4 font cache lifetime");
+    CHECK(layout != NULL);
+    cairo_surface_t *surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 320, 48);
+    CHECK(cairo_surface_status(surface) == CAIRO_STATUS_SUCCESS);
+    cairo_t *cairo = cairo_create(surface);
+    CHECK(cairo_status(cairo) == CAIRO_STATUS_SUCCESS);
+    pango_cairo_show_layout(cairo, layout);
+    CHECK(cairo_status(cairo) == CAIRO_STATUS_SUCCESS);
+    cairo_destroy(cairo);
+    cairo_surface_destroy(surface);
+    g_object_unref(layout);
+    g_object_unref(label);
+    printf("PASS GTK 4 Pango layout releases caller-owned objects before Cairo reset\n");
+    return true;
+}
+
 int main(int argc, char **argv)
 {
     bool passed;
@@ -3450,15 +3475,23 @@ int main(int argc, char **argv)
         return 1;
     }
     if (getenv("BOXRIG_TEST_SCROLLBAR_ONLY") != NULL) {
-        bool passed = test_standard_scrollbar_visibility() && test_scrollbar_visibility_during_scale_change();
+        bool passed = test_standard_scrollbar_visibility() && test_scrollbar_visibility_during_scale_change() &&
+            test_cairo_font_cache_lifetime();
         while (g_main_context_pending(NULL)) (void)g_main_context_iteration(NULL, false);
         fflush(stdout);
+        /* Native GTK text caches outlive widgets and must precede Cairo cleanup. */
+        PangoFontMap *font_map = pango_cairo_font_map_get_default();
+        if (PANGO_IS_FC_FONT_MAP(font_map)) {
+            pango_fc_font_map_cache_clear(PANGO_FC_FONT_MAP(font_map));
+        }
+        pango_cairo_font_map_set_default(NULL);
         cairo_debug_reset_static_data();
         FcFini();
         return passed ? 0 : 1;
     }
     passed = getenv("BOXRIG_TEST_RENDER_OPENGL") != NULL
-        ? test_widget_frontend_component_fixture(argv[1]) && test_scrollbar_visibility_during_scale_change()
+        ? test_widget_frontend_component_fixture(argv[1]) && test_scrollbar_visibility_during_scale_change() &&
+            test_cairo_font_cache_lifetime()
         : test_standard_scrollbar_visibility() && test_scrollbar_visibility_during_scale_change() &&
              test_widget_frontend_component_fixture(argv[1]) &&
              test_preedit_clause_attributes() && test_widget_preedit_translation() &&
@@ -3469,8 +3502,14 @@ int main(int argc, char **argv)
              test_widget_resize_preview_covers_expanded_allocation() &&
              test_widget_input_lifecycle_releases_context() &&
              test_widget_input_fifo_and_backpressure() &&
-             test_widget_clipboard_actions();
+             test_widget_clipboard_actions() && test_cairo_font_cache_lifetime();
     fflush(stdout);
+    /* Native GTK text caches outlive widgets and must precede Cairo cleanup. */
+    PangoFontMap *font_map = pango_cairo_font_map_get_default();
+    if (PANGO_IS_FC_FONT_MAP(font_map)) {
+        pango_fc_font_map_cache_clear(PANGO_FC_FONT_MAP(font_map));
+    }
+    pango_cairo_font_map_set_default(NULL);
     cairo_debug_reset_static_data();
     FcFini();
     if (passed) {

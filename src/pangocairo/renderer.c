@@ -80,6 +80,7 @@ typedef struct boxrig_pango_cairo_row_cache {
     uint64_t layout_revision;
     boxrig_text_direction_policy direction_policy;
     bool valid;
+    bool colors_valid;
 } boxrig_pango_cairo_row_cache;
 
 typedef struct boxrig_pango_cairo_dirty_interval {
@@ -159,6 +160,7 @@ struct boxrig_pango_cairo_renderer {
     const boxrig_ui_view *color_view;
     uint64_t view_color_revision;
     bool color_focused;
+    resolved_cell_colors *cached_colors;
     resolved_cell_colors *row_colors;
     filtered_cell_colors *row_filter_colors;
     boxrig_pango_cairo_color_source color_sources[BOXRIG_PANGO_CAIRO_COLOR_SOURCE_LIMIT];
@@ -435,7 +437,7 @@ static void destroy_row_cache(boxrig_pango_cairo_renderer *renderer)
     free(renderer->overlay_ranges);
     free(renderer->annotation_ranges);
     free(renderer->annotation_styles);
-    free(renderer->row_colors);
+    free(renderer->cached_colors);
     free(renderer->row_filter_colors);
     renderer->row_cache = NULL;
     renderer->logical_dirty = NULL;
@@ -445,6 +447,7 @@ static void destroy_row_cache(boxrig_pango_cairo_renderer *renderer)
     renderer->overlay_ranges = NULL;
     renderer->annotation_ranges = NULL;
     renderer->annotation_styles = NULL;
+    renderer->cached_colors = NULL;
     renderer->row_colors = NULL;
     renderer->row_filter_colors = NULL;
     renderer->annotation_range_capacity = 0;
@@ -672,6 +675,14 @@ static int prepare_row_colors(
 {
     bool filtered = boxrig_ui_view_has_color_filter(view);
     bool styled = boxrig_ui_view_selection_uses_cell_colors(view);
+    boxrig_pango_cairo_row_cache *cache = &renderer->row_cache[row];
+    const boxrig_pango_cairo_dirty_interval *dirty = &renderer->frame_dirty[row];
+    /* Keep colors outside the dirty interval to locate decoration origins.
+     * Filters retain their existing callback coverage. */
+    size_t start = filtered || !cache->colors_valid ? 0 : dirty->column;
+    size_t end = filtered || !cache->colors_valid ? renderer->cached_columns
+        : dirty->column + dirty->column_count;
+    renderer->row_colors = renderer->cached_colors + row * renderer->cached_columns;
     if (filtered && renderer->row_filter_colors == NULL) {
         if (renderer->cached_columns > SIZE_MAX / sizeof(*renderer->row_filter_colors)) {
             return -1;
@@ -683,7 +694,7 @@ static int prepare_row_colors(
         free(renderer->row_filter_colors);
         renderer->row_filter_colors = NULL;
     }
-    for (size_t column = 0; column < renderer->cached_columns; column++) {
+    for (size_t column = start; column < end; column++) {
         size_t logical_column;
         boxrig_cell_view cell;
         boxrig_ui_color_filter_result colors;
@@ -712,6 +723,7 @@ static int prepare_row_colors(
             paint.selection_opacity != 0 ? color_pixel(renderer, paint.selection_background) : 0,
             paint.selection_opacity, (filtered || styled) ? paint.underlay.background : colors.background};
     }
+    cache->colors_valid = true;
     return 0;
 }
 
@@ -2594,9 +2606,10 @@ static int ensure_render_state(
     if (rows == 0 || columns == 0 ||
         rows > SIZE_MAX / sizeof(*row_cache) ||
         rows > SIZE_MAX / sizeof(*logical_dirty) ||
+        rows > SIZE_MAX / columns ||
         columns > SIZE_MAX / sizeof(*overlay_ranges) ||
         columns > SIZE_MAX / sizeof(*annotation_styles) ||
-        columns > SIZE_MAX / sizeof(*row_colors)) {
+        rows * columns > SIZE_MAX / sizeof(*row_colors)) {
         return -1;
     }
     row_cache = calloc(rows, sizeof(*row_cache));
@@ -2606,7 +2619,7 @@ static int ensure_render_state(
     composition_extent = calloc(rows, sizeof(*composition_extent));
     overlay_ranges = calloc(columns, sizeof(*overlay_ranges));
     annotation_styles = calloc(columns, sizeof(*annotation_styles));
-    row_colors = calloc(columns, sizeof(*row_colors));
+    row_colors = calloc(rows * columns, sizeof(*row_colors));
     if (row_cache == NULL || logical_dirty == NULL ||
         frame_dirty == NULL || expose_dirty == NULL ||
         composition_extent == NULL || overlay_ranges == NULL ||
@@ -2629,6 +2642,7 @@ static int ensure_render_state(
     renderer->composition_extent = composition_extent;
     renderer->overlay_ranges = overlay_ranges;
     renderer->annotation_styles = annotation_styles;
+    renderer->cached_colors = row_colors;
     renderer->row_colors = row_colors;
     renderer->cached_rows = rows;
     renderer->cached_columns = columns;
@@ -3788,101 +3802,80 @@ static boxrig_color_kind effective_background_kind(
                : cell->background.kind;
 }
 
-static int draw_visual_default_backgrounds(
+static int fill_background_run(
+    boxrig_pango_cairo_renderer *renderer,
+    size_t row,
+    size_t first,
+    size_t end,
+    unsigned long background,
+    uint8_t opacity)
+{
+    if (!set_cairo_source_pixel(renderer, background, opacity)) {
+        return -1;
+    }
+    cairo_rectangle(renderer->cairo,
+        first * renderer->cell_width, row * renderer->cell_height,
+        (end - first) * renderer->cell_width, renderer->cell_height);
+    cairo_fill(renderer->cairo);
+    return 0;
+}
+
+static int draw_visual_backgrounds(
     boxrig_pango_cairo_renderer *renderer,
     const boxrig_terminal *terminal,
     size_t row,
-    const boxrig_text_layout *layout)
+    const boxrig_text_layout *layout,
+    size_t first_column,
+    size_t column_count,
+    bool default_pass)
 {
     size_t visual_column;
-    size_t columns = boxrig_text_layout_column_count(layout);
+    size_t end_column = first_column + column_count;
+    size_t run_start = first_column;
+    unsigned long run_background = 0;
+    uint8_t run_opacity = 0;
+    bool run_active = false;
 
-    for (visual_column = 0; visual_column < columns; visual_column++) {
+    /* draw_terminal_row has validated this visual interval before clipping. */
+    for (visual_column = first_column;
+         visual_column < end_column; visual_column++) {
         size_t logical_column;
         boxrig_cell_view cell;
         unsigned long background = renderer->default_background;
         uint8_t opacity = 0;
 
         if (boxrig_text_layout_visual_to_logical(
-                layout,
-                visual_column,
-                &logical_column) != BOXRIG_TEXT_LAYOUT_OK ||
-            boxrig_terminal_get_cell(
-                terminal,
-                row,
-                logical_column,
-                &cell) != BOXRIG_STATUS_OK) {
+                layout, visual_column, &logical_column) != BOXRIG_TEXT_LAYOUT_OK ||
+            boxrig_terminal_get_cell(terminal, row, logical_column, &cell) !=
+                BOXRIG_STATUS_OK) {
             return -1;
         }
-        if (effective_background_kind(
-                renderer,
-                &cell,
-                visual_column) == BOXRIG_COLOR_DEFAULT) {
+        bool default_color = effective_background_kind(
+            renderer, &cell, visual_column) == BOXRIG_COLOR_DEFAULT;
+        bool paint = default_pass || !default_color;
+        if (default_pass == default_color) {
             background = renderer->row_colors[visual_column].background;
             opacity = renderer->background_opacity;
         }
-        if (!set_cairo_source_pixel(
-                renderer,
-                background,
-                opacity)) {
-            return -1;
+        /* Keep SOURCE clearing and OVER painting in separate passes. */
+        if (run_active && (!paint || background != run_background ||
+                           opacity != run_opacity)) {
+            if (fill_background_run(renderer, row, run_start, visual_column,
+                    run_background, run_opacity) == -1) {
+                return -1;
+            }
+            run_active = false;
         }
-        cairo_rectangle(
-            renderer->cairo,
-            visual_column * renderer->cell_width,
-            row * renderer->cell_height,
-            renderer->cell_width,
-            renderer->cell_height);
-        cairo_fill(renderer->cairo);
+        if (paint && !run_active) {
+            run_start = visual_column;
+            run_background = background;
+            run_opacity = opacity;
+            run_active = true;
+        }
     }
-    return cairo_status(renderer->cairo) == CAIRO_STATUS_SUCCESS ? 0 : -1;
-}
-
-static int draw_visual_nondefault_backgrounds(
-    boxrig_pango_cairo_renderer *renderer,
-    const boxrig_terminal *terminal,
-    size_t row,
-    const boxrig_text_layout *layout)
-{
-    size_t visual_column;
-    size_t columns = boxrig_text_layout_column_count(layout);
-
-    for (visual_column = 0; visual_column < columns; visual_column++) {
-        size_t logical_column;
-        boxrig_cell_view cell;
-        resolved_cell_colors colors;
-
-        if (boxrig_text_layout_visual_to_logical(
-                layout,
-                visual_column,
-                &logical_column) != BOXRIG_TEXT_LAYOUT_OK ||
-            boxrig_terminal_get_cell(
-                terminal,
-                row,
-                logical_column,
-                &cell) != BOXRIG_STATUS_OK) {
-            return -1;
-        }
-        if (effective_background_kind(
-                renderer,
-                &cell,
-                visual_column) == BOXRIG_COLOR_DEFAULT) {
-            continue;
-        }
-        colors = renderer->row_colors[visual_column];
-        if (!set_cairo_source_pixel(
-                renderer,
-                colors.background,
-                renderer->background_opacity)) {
-            return -1;
-        }
-        cairo_rectangle(
-            renderer->cairo,
-            visual_column * renderer->cell_width,
-            row * renderer->cell_height,
-            renderer->cell_width,
-            renderer->cell_height);
-        cairo_fill(renderer->cairo);
+    if (run_active && fill_background_run(renderer, row, run_start, end_column,
+            run_background, run_opacity) == -1) {
+        return -1;
     }
     return cairo_status(renderer->cairo) == CAIRO_STATUS_SUCCESS ? 0 : -1;
 }
@@ -3952,7 +3945,9 @@ static int draw_shaped_item(
     const boxrig_terminal *terminal,
     size_t row,
     const boxrig_pango_cairo_row_shape *shape,
-    const boxrig_pango_cairo_shaped_item *item)
+    const boxrig_pango_cairo_shaped_item *item,
+    size_t clip_column,
+    size_t clip_count)
 {
     size_t end;
     size_t column;
@@ -3965,6 +3960,8 @@ static int draw_shaped_item(
     }
     end = item->visual_column + item->visual_column_count;
     column = item->visual_column;
+    if (column < clip_column) column = clip_column;
+    if (end > clip_column + clip_count) end = clip_column + clip_count;
     while (column < end) {
         boxrig_cell_view cell;
         resolved_cell_colors colors;
@@ -4085,7 +4082,9 @@ static int draw_decorations(
     boxrig_pango_cairo_renderer *renderer,
     const boxrig_terminal *terminal,
     size_t row,
-    const boxrig_text_layout *layout)
+    const boxrig_text_layout *layout,
+    size_t clip_column,
+    size_t clip_count)
 {
     size_t run_index;
 
@@ -4103,6 +4102,10 @@ static int draw_decorations(
         }
         column = run.visual_column;
         end = run.visual_column + run.visual_column_count;
+        if (end <= clip_column || column >= clip_column + clip_count) continue;
+        /* Keep the original segment origin so patterned underlines retain
+         * their phase at a partial repaint's left edge. */
+        if (end > clip_column + clip_count) end = clip_column + clip_count;
         while (column < end) {
             boxrig_cell_view cell;
             resolved_cell_colors colors;
@@ -4170,6 +4173,10 @@ static int draw_decorations(
             y = (int)(row * renderer->cell_height);
             width = (unsigned int)(
                 (segment_end - column) * renderer->cell_width);
+            if (segment_end <= clip_column) {
+                column = segment_end;
+                continue;
+            }
             if (underline != BOXRIG_UNDERLINE_NONE) {
                 if (!set_cairo_source_pixel(
                         renderer,
@@ -4391,9 +4398,11 @@ static int composite_image_layer(
     return 0;
 }
 
-static int draw_selection_backgrounds(boxrig_pango_cairo_renderer *renderer, size_t row)
+static int draw_selection_backgrounds(boxrig_pango_cairo_renderer *renderer,
+    size_t row, size_t column, size_t column_count)
 {
-    for (size_t column = 0; column < renderer->cached_columns; column++) {
+    size_t end = column + column_count;
+    for (; column < end; column++) {
         const resolved_cell_colors *color = &renderer->row_colors[column];
         if (color->selection_opacity == 0) continue;
         if (!set_cairo_source_pixel(renderer, color->selection_background,
@@ -4453,11 +4462,13 @@ static int draw_terminal_row(
         clip_height);
     cairo_clip(renderer->cairo);
     cairo_set_operator(renderer->cairo, CAIRO_OPERATOR_SOURCE);
-    if (draw_visual_default_backgrounds(
+    if (draw_visual_backgrounds(
             renderer,
             terminal,
             row,
-            shape->layout) == -1) {
+            shape->layout,
+            visual_column,
+            visual_column_count, true) == -1) {
         goto cleanup;
     }
     cairo_set_operator(renderer->cairo, CAIRO_OPERATOR_OVER);
@@ -4470,11 +4481,13 @@ static int draw_terminal_row(
             row,
             visual_column,
             visual_column_count) == -1 ||
-        draw_visual_nondefault_backgrounds(
+        draw_visual_backgrounds(
             renderer,
             terminal,
             row,
-            shape->layout) == -1 ||
+            shape->layout,
+            visual_column,
+            visual_column_count, false) == -1 ||
         composite_image_layer(
             renderer,
             terminal,
@@ -4486,18 +4499,21 @@ static int draw_terminal_row(
             visual_column_count) == -1) {
         goto cleanup;
     }
-    if (draw_selection_backgrounds(renderer, row) == -1) goto cleanup;
+    if (draw_selection_backgrounds(renderer, row, visual_column,
+            visual_column_count) == -1) goto cleanup;
     for (item_index = 0; item_index < shape->item_count; item_index++) {
         if (draw_shaped_item(
                 renderer,
                 terminal,
                 row,
                 shape,
-                &shape->items[item_index]) == -1) {
+                &shape->items[item_index], visual_column,
+                visual_column_count) == -1) {
             goto cleanup;
         }
     }
-    if (draw_decorations(renderer, terminal, row, shape->layout) == -1) {
+    if (draw_decorations(renderer, terminal, row, shape->layout,
+            visual_column, visual_column_count) == -1) {
         goto cleanup;
     }
     if (composite_image_layer(
@@ -4699,7 +4715,8 @@ static int draw_filled_cursor(
     }
     renderer->row_colors[column].foreground = ink;
     renderer->row_colors[column].underline = ink;
-    if (draw_decorations(renderer, renderer->color_terminal, cursor.row, shape->layout) == -1)
+    if (draw_decorations(renderer, renderer->color_terminal, cursor.row,
+            shape->layout, column, 1) == -1)
         goto cleanup;
     result = cairo_status(renderer->cairo) == CAIRO_STATUS_SUCCESS ? 0 : -1;
 cleanup:
@@ -5434,7 +5451,10 @@ static int copy_view_frame_dirty(
             return -1;
         }
         cache = &renderer->row_cache[row];
-        if (layer == BOXRIG_UI_DIRTY_ANIMATION) {
+        if (layer == BOXRIG_UI_DIRTY_OVERLAY ||
+            layer == BOXRIG_UI_DIRTY_PRESENT ||
+            layer == BOXRIG_UI_DIRTY_ANIMATION) {
+            /* These layers already identify visual columns. */
             mark_dirty_interval(&renderer->frame_dirty[row], dirty.column,
                 dirty.column_count, columns);
         } else if (cache->valid &&

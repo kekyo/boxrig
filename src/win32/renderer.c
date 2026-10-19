@@ -4920,7 +4920,10 @@ static int copy_view_frame_dirty(
             return -1;
         }
         cache = &renderer->row_cache[row];
-        if (layer == BOXRIG_UI_DIRTY_ANIMATION) {
+        if (layer == BOXRIG_UI_DIRTY_OVERLAY ||
+            layer == BOXRIG_UI_DIRTY_PRESENT ||
+            layer == BOXRIG_UI_DIRTY_ANIMATION) {
+            /* These layers already identify visual columns. */
             mark_dirty_interval(&renderer->frame_dirty[row], dirty.column,
                 dirty.column_count, columns);
         } else if (cache->valid &&

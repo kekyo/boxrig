@@ -527,15 +527,15 @@ boxrig_status boxrig_terminal_get_cell(
     }
     cell = boxrig_screen_view_cell(&terminal->screen, row, column);
     if (terminal->graphics_protocol.enabled && !cell->continuation &&
-        cell->text_length >= 4 && cell->text != NULL &&
-        memcmp(cell->text, "\xf4\x8e\xbb\xae", 4) == 0) {
+        cell->text_length >= 4 && boxrig_cell_text(cell) != NULL &&
+        memcmp(boxrig_cell_text(cell), "\xf4\x8e\xbb\xae", 4) == 0) {
         cell_out->text = " ";
         cell_out->text_length = 1;
     } else if (cell->text_length == 0 && !cell->continuation) {
         cell_out->text = " ";
         cell_out->text_length = 1;
     } else {
-        cell_out->text = cell->text != NULL ? cell->text : "";
+        cell_out->text = boxrig_cell_text(cell) != NULL ? boxrig_cell_text(cell) : "";
         cell_out->text_length = cell->text_length;
     }
     cell_out->column_width = cell->column_width;

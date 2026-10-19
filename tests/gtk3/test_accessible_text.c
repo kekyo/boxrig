@@ -1,6 +1,8 @@
 /* boxrig - Under MIT. */
 #include "boxrig/gtk3.h"
 
+#include "../../src/ui/accessible.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -8,6 +10,16 @@
 #define CHECK(condition) do { if (!(condition)) { \
     fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #condition); \
     abort(); } } while (0)
+
+static size_t snapshot_builds;
+boxrig_ui_status __real_boxrig_ui_accessible_snapshot_create(boxrig_ui_view *view,
+    size_t maximum_bytes, boxrig_ui_accessible_snapshot **out);
+boxrig_ui_status __wrap_boxrig_ui_accessible_snapshot_create(boxrig_ui_view *view,
+    size_t maximum_bytes, boxrig_ui_accessible_snapshot **out)
+{
+    snapshot_builds++;
+    return __real_boxrig_ui_accessible_snapshot_create(view, maximum_bytes, out);
+}
 
 static char notifications[128];
 static size_t notification_count;
@@ -17,6 +29,7 @@ static void removed(AtkText *accessible, int start, int count, const char *text,
 {
     boxrig_ui_component_frame_result result;
     CHECK(boxrig_gtk3_terminal_widget_frame(data, &result) == BOXRIG_UI_BUSY);
+    CHECK(boxrig_gtk3_terminal_widget_set_accessibility_enabled(data, false) == BOXRIG_UI_BUSY);
     char *observed = atk_text_get_text(accessible, start, start + count);
     CHECK(strcmp(observed, text) == 0);
     CHECK(g_utf8_strlen(text, -1) == count);
@@ -91,6 +104,12 @@ int main(void)
     GtkAllocation allocation = {0, 0, width, height};
     gtk_widget_size_allocate(GTK_WIDGET(widget), &allocation);
     frame(widget);
+    CHECK(snapshot_builds == 0);
+    CHECK(!widget_config.accessibility_enabled);
+    CHECK(!boxrig_gtk3_terminal_widget_get_accessibility_enabled(widget));
+    CHECK(boxrig_gtk3_terminal_widget_set_accessibility_enabled(widget, true) == BOXRIG_UI_OK);
+    frame(widget);
+    CHECK(snapshot_builds == 1);
     AtkObject *object = gtk_widget_get_accessible(GTK_WIDGET(widget));
     CHECK(ATK_IS_TEXT(object));
     g_object_ref(object);
@@ -151,7 +170,9 @@ int main(void)
     CHECK(atk_text_get_character_count(text) == 11);
     CHECK(atk_text_get_caret_offset(text) == 8);
     notification_count = 0;
+    const size_t unchanged_builds = snapshot_builds;
     for (int i = 0; i < 4; i++) frame(widget);
+    CHECK(snapshot_builds == unchanged_builds);
     CHECK(notification_count == 0);
 
     boxrig_composition *composition = boxrig_gtk3_terminal_widget_composition(widget);
@@ -165,6 +186,7 @@ int main(void)
     CHECK(boxrig_composition_get_view(composition, &composition_view) == BOXRIG_COMPOSITION_OK);
     CHECK(composition_view.active);
     frame(widget);
+    CHECK(snapshot_builds == unchanged_builds);
     CHECK(notification_count == 0);
     contents = atk_text_get_text(text, 0, -1);
     CHECK(strcmp(contents, "A日本é🙂\nX\n\n\n") == 0);
@@ -191,6 +213,26 @@ int main(void)
     }
     CHECK(bold && italic && underline && start == 0 && end == 1);
     atk_attribute_set_free(attributes);
+    notification_count = 0;
+    feed(terminal, widget, "\033[2;1H");
+    CHECK(atk_text_get_caret_offset(text) == 7);
+    CHECK(notification_count == 1 && notifications[0] == 'C');
+    notification_count = 0;
+    CHECK(boxrig_gtk3_terminal_widget_set_accessibility_enabled(widget, false) == BOXRIG_UI_OK);
+    CHECK(atk_text_get_character_count(text) == 0);
+    const size_t before_disabled = snapshot_builds;
+    notification_count = 0;
+    feed(terminal, widget, "\033[?2026h\rdisabled update");
+    CHECK(snapshot_builds == before_disabled && notification_count == 0);
+    CHECK(atk_text_get_character_count(text) == 0);
+    CHECK(boxrig_gtk3_terminal_widget_set_accessibility_enabled(widget, true) == BOXRIG_UI_OK);
+    frame(widget);
+    CHECK(snapshot_builds == before_disabled);
+    feed(terminal, widget, "\033[?2026l");
+    CHECK(snapshot_builds == before_disabled + 1);
+    contents = atk_text_get_text(text, 0, -1);
+    CHECK(strstr(contents, "disabled update") != NULL);
+    g_free(contents);
     notification_count = 0;
     destroy_on_remove = GTK_WIDGET(widget);
     feed(terminal, widget, "\033[Hreplacement");

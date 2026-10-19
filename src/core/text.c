@@ -32,6 +32,22 @@ static void text_workload_visit_bytes(size_t count)
     text_workload_add(&text_workload_counters.visited_bytes, count);
 }
 
+static void text_workload_sync_fragment(void)
+{
+    text_workload_add(&text_workload_counters.synced_fragments, 1u);
+}
+
+void boxrig_text_workload_observe_placeholder_cell(void)
+{
+    text_workload_add(&text_workload_counters.placeholder_cells, 1u);
+}
+
+void boxrig_text_workload_observe_ascii_batch(size_t count)
+{
+    text_workload_add(&text_workload_counters.ascii_batches, 1u);
+    text_workload_add(&text_workload_counters.ascii_batch_bytes, count);
+}
+
 static void text_workload_observe_event_queue(size_t count)
 {
     if (text_workload_counters.monitor_event_queue_high_water < count) {
@@ -92,6 +108,7 @@ void boxrig_text_workload_counters_read(
 #else
 #define text_workload_visit_cells(count) ((void)(count))
 #define text_workload_visit_bytes(count) ((void)(count))
+#define text_workload_sync_fragment() ((void)0)
 #define text_workload_observe_event_queue(count) ((void)(count))
 #define text_workload_observe_staging_queue(count) ((void)(count))
 #endif
@@ -100,6 +117,7 @@ typedef struct boxrig_text_line_metrics {
     uint64_t hash_a;
     uint64_t hash_b;
     size_t byte_length;
+    size_t projected_end_column;
     bool has_text;
     bool overflow;
 } boxrig_text_line_metrics;
@@ -112,6 +130,7 @@ typedef struct boxrig_text_snapshot_point {
 struct boxrig_text_snapshot {
     uint8_t *bytes;
     size_t byte_length;
+    size_t byte_capacity;
     boxrig_text_snapshot_point *points;
     size_t point_count;
     size_t point_capacity;
@@ -408,12 +427,10 @@ static const boxrig_cell *document_cell(
             return &screen->history[
                 history_slot(screen, fragment_index)].cell_storage[column];
         }
-        return &screen->primary.cell_storage[
-            (fragment_index - screen->history_count) * screen->columns +
-            column];
+        return &screen->primary.row_cells[
+            fragment_index - screen->history_count][column];
     }
-    return &screen->alternate.cell_storage[
-        fragment_index * screen->columns + column];
+    return &screen->alternate.row_cells[fragment_index][column];
 }
 
 static bool document_fragment_soft_wrapped(
@@ -521,11 +538,12 @@ static boxrig_text_line_metrics measure_logical_line(
             }
             metrics_add_bytes(
                 &metrics,
-                (const uint8_t *)cell->text,
+                (const uint8_t *)boxrig_cell_text(cell),
                 cell->text_length);
             previous_end = logical_column + width;
         }
     }
+    metrics.projected_end_column = previous_end;
     return metrics;
 }
 
@@ -572,9 +590,38 @@ static bool sync_document(
 {
     size_t fragment_count = document_fragment_count(screen, text_screen);
     size_t line_start = 0;
+    size_t tail_start = 0;
     bool changed = false;
 
+    if (text_screen == BOXRIG_TEXT_SCREEN_PRIMARY &&
+        screen->text_history_sync_start != 0) {
+        size_t clean_history = screen->text_history_sync_start;
+
+        if (clean_history > screen->history_count) {
+            clean_history = screen->history_count;
+        }
+        if (clean_history != 0) {
+            /* Include the preceding logical line: an edit on the visible side
+             * can split or join a line at the history boundary. */
+            tail_start = clean_history - 1;
+            while (tail_start != 0 && document_fragment_soft_wrapped(
+                       screen, text_screen, tail_start - 1)) {
+                tail_start--;
+            }
+            const boxrig_text_fragment_metadata *head =
+                document_fragment_metadata(screen, text_screen, 0);
+            if (!head->needs_sync && !head->newly_created) {
+                line_start = tail_start;
+            }
+        }
+    }
     while (line_start < fragment_count) {
+        /* Dropping full history can truncate the first logical line without
+         * changing the middle. Keep that head separate from the changed tail.
+         * A long wrapped head may already overlap the tail; never revisit it. */
+        if (line_start != 0 && line_start < tail_start) {
+            line_start = tail_start;
+        }
         size_t line_end = logical_line_end(screen, text_screen, line_start);
         const boxrig_text_fragment_metadata *first =
             document_fragment_metadata(screen, text_screen, line_start);
@@ -593,6 +640,7 @@ static bool sync_document(
         for (fragment_index = line_start;
              fragment_index < line_end;
              fragment_index++) {
+            text_workload_sync_fragment();
             const boxrig_text_fragment_metadata *candidate =
                 document_fragment_metadata(
                     screen,
@@ -660,6 +708,13 @@ static bool sync_document(
                 line_revision++;
             }
             changed = true;
+        } else if (!newly_created &&
+                   first->projected_end_column != metrics.projected_end_column) {
+            /* The text is unchanged, but its terminal positions moved. */
+            screen->text_layout_revision++;
+            if (screen->text_layout_revision == 0) {
+                screen->text_layout_revision = 1;
+            }
         }
         if (newly_created) {
             changed = true;
@@ -680,6 +735,7 @@ static bool sync_document(
             destination->content_hash_a = metrics.hash_a;
             destination->content_hash_b = metrics.hash_b;
             destination->projected_length = metrics.byte_length;
+            destination->projected_end_column = metrics.projected_end_column;
             destination->needs_sync = false;
             destination->newly_created = false;
         }
@@ -692,6 +748,7 @@ void boxrig_screen_text_sync(boxrig_screen *screen)
 {
     bool changed = sync_document(screen, BOXRIG_TEXT_SCREEN_PRIMARY);
 
+    screen->text_history_sync_start = screen->history_count;
     if (sync_document(screen, BOXRIG_TEXT_SCREEN_ALTERNATE)) {
         changed = true;
     }
@@ -715,6 +772,7 @@ void boxrig_screen_text_initialize(boxrig_screen *screen)
     screen->text_revision = 0;
     screen->text_layout_revision = 1;
     screen->text_identity_limit = false;
+    screen->text_history_sync_start = 0;
     for (row = 0; row < screen->rows; row++) {
         boxrig_screen_text_reset_fragment(
             screen,
@@ -1203,7 +1261,7 @@ static void project_logical_line(
                 logical_column + width <= selected_end) {
                 projection_add_token(
                     sink,
-                    (const uint8_t *)cell->text,
+                    (const uint8_t *)boxrig_cell_text(cell),
                     cell->text_length,
                     make_position(
                         sink->screen,
@@ -1306,6 +1364,149 @@ static void *snapshot_allocate(boxrig_screen *screen, size_t size)
     return malloc(size == 0 ? 1 : size);
 }
 
+boxrig_status boxrig_screen_text_document_size(
+    const boxrig_screen *screen,
+    boxrig_text_screen text_screen,
+    size_t *bytes_out,
+    size_t *lines_out)
+{
+    size_t fragment_count;
+    size_t line_start = 0;
+    size_t bytes = 0;
+    size_t lines = 0;
+
+    if (screen == NULL || !text_screen_valid(text_screen) ||
+        bytes_out == NULL || lines_out == NULL) {
+        return BOXRIG_STATUS_INVALID_ARGUMENT;
+    }
+    fragment_count = document_fragment_count(screen, text_screen);
+    while (line_start < fragment_count) {
+        const boxrig_text_fragment_metadata *metadata =
+            document_fragment_metadata(screen, text_screen, line_start);
+        size_t line_end = logical_line_end(screen, text_screen, line_start);
+        size_t separator = line_end < fragment_count ? 1u : 0u;
+
+        if (lines == SIZE_MAX ||
+            metadata->projected_length > SIZE_MAX - bytes ||
+            separator > SIZE_MAX - bytes - metadata->projected_length) {
+            return BOXRIG_STATUS_LIMIT_EXCEEDED;
+        }
+        bytes += metadata->projected_length + separator;
+        lines++;
+        line_start = line_end;
+    }
+    *bytes_out = bytes;
+    *lines_out = lines;
+    return BOXRIG_STATUS_OK;
+}
+
+boxrig_status boxrig_screen_text_line_metadata(
+    const boxrig_screen *screen,
+    boxrig_text_screen text_screen,
+    size_t fragment_index,
+    boxrig_text_position *position_out,
+    size_t *next_fragment_out)
+{
+    if (screen == NULL || !text_screen_valid(text_screen) ||
+        position_out == NULL || next_fragment_out == NULL ||
+        fragment_index >= document_fragment_count(screen, text_screen)) {
+        return BOXRIG_STATUS_INVALID_ARGUMENT;
+    }
+    const boxrig_text_fragment_metadata *metadata =
+        document_fragment_metadata(screen, text_screen, fragment_index);
+    *position_out = make_position(text_screen, metadata->line_id, 0u,
+        metadata->line_revision, screen->text_revision);
+    *next_fragment_out = logical_line_end(screen, text_screen, fragment_index);
+    return BOXRIG_STATUS_OK;
+}
+
+boxrig_status boxrig_terminal_reuse_text_line_snapshot(
+    const boxrig_terminal *terminal,
+    boxrig_text_screen text_screen,
+    size_t fragment_index,
+    boxrig_text_snapshot **snapshot_inout,
+    size_t *next_fragment_out)
+{
+    boxrig_text_projection_sink measure;
+    boxrig_text_projection_sink writer;
+    boxrig_text_snapshot *snapshot;
+    boxrig_screen *screen;
+    size_t fragment_count;
+    size_t line_end;
+    size_t end_column;
+
+    if (terminal == NULL || !text_screen_valid(text_screen) ||
+        snapshot_inout == NULL || next_fragment_out == NULL) {
+        return BOXRIG_STATUS_INVALID_ARGUMENT;
+    }
+    screen = (boxrig_screen *)&terminal->screen;
+    fragment_count = document_fragment_count(screen, text_screen);
+    if (fragment_index >= fragment_count) {
+        return BOXRIG_STATUS_INVALID_ARGUMENT;
+    }
+    line_end = logical_line_end(screen, text_screen, fragment_index);
+    if (line_end - fragment_index > SIZE_MAX / screen->columns) {
+        return BOXRIG_STATUS_LIMIT_EXCEEDED;
+    }
+    end_column = (line_end - fragment_index) * screen->columns;
+    memset(&measure, 0, sizeof(measure));
+    measure.screen = text_screen;
+    measure.text_revision = screen->text_revision;
+    project_range(screen, text_screen, fragment_index, fragment_index,
+                  0, end_column, &measure);
+    if (measure.overflow ||
+        measure.point_count > SIZE_MAX / sizeof(*snapshot->points)) {
+        return BOXRIG_STATUS_LIMIT_EXCEEDED;
+    }
+    snapshot = *snapshot_inout;
+    if (snapshot == NULL) {
+        snapshot = snapshot_allocate(screen, sizeof(*snapshot));
+        if (snapshot == NULL) {
+            return BOXRIG_STATUS_OUT_OF_MEMORY;
+        }
+        memset(snapshot, 0, sizeof(*snapshot));
+        *snapshot_inout = snapshot;
+    }
+    if (measure.byte_count > snapshot->byte_capacity) {
+        uint8_t *bytes = snapshot_allocate(screen, measure.byte_count);
+
+        if (bytes == NULL) {
+            return BOXRIG_STATUS_OUT_OF_MEMORY;
+        }
+        free(snapshot->bytes);
+        snapshot->bytes = bytes;
+        snapshot->byte_capacity = measure.byte_count;
+    }
+    if (measure.point_count > snapshot->point_capacity) {
+        boxrig_text_snapshot_point *points = snapshot_allocate(
+            screen, measure.point_count * sizeof(*points));
+
+        if (points == NULL) {
+            return BOXRIG_STATUS_OUT_OF_MEMORY;
+        }
+        free(snapshot->points);
+        snapshot->points = points;
+        snapshot->point_capacity = measure.point_count;
+    }
+    snapshot->screen = text_screen;
+    snapshot->revision = screen->text_revision;
+    snapshot->line_count = 1;
+    memset(&writer, 0, sizeof(writer));
+    writer.snapshot = snapshot;
+    writer.screen = text_screen;
+    writer.text_revision = snapshot->revision;
+    project_range(screen, text_screen, fragment_index, fragment_index,
+                  0, end_column, &writer);
+    if (writer.overflow || writer.byte_count != measure.byte_count ||
+        writer.point_count != measure.point_count) {
+        return BOXRIG_STATUS_LIMIT_EXCEEDED;
+    }
+    snapshot->byte_length = writer.byte_count;
+    snapshot->point_count = writer.point_count;
+    *next_fragment_out = line_end;
+    return BOXRIG_STATUS_OK;
+}
+
 static boxrig_status project_preserved_range(
     const boxrig_screen *screen,
     const boxrig_text_range *range,
@@ -1358,7 +1559,7 @@ static boxrig_status project_preserved_range(
             bytes = &space;
             byte_length = 1u;
         } else {
-            bytes = (const uint8_t *)cell->text;
+            bytes = (const uint8_t *)boxrig_cell_text(cell);
             byte_length = cell->text_length;
         }
         projection_add_token(sink, bytes, byte_length, start, end);
@@ -1866,7 +2067,7 @@ static boxrig_text_search_event search_iterator_next_event(
                 iterator->previous_end = column + width;
                 search_iterator_prepare_token(
                     iterator,
-                    (const uint8_t *)cell->text,
+                    (const uint8_t *)boxrig_cell_text(cell),
                     cell->text_length,
                     column,
                     column + width);
@@ -3277,7 +3478,8 @@ static void advance_initial_monitor_scan(
         const boxrig_text_snapshot *snapshot =
             monitor->snapshots[monitor->scan_snapshot_index];
 
-        while (monitor->scan_byte_offset < snapshot->byte_length &&
+        while (!monitor->needs_rescan &&
+               monitor->scan_byte_offset < snapshot->byte_length &&
                work_used < work_budget) {
             uint8_t byte =
                 snapshot->bytes[monitor->scan_byte_offset];
@@ -3597,7 +3799,7 @@ static void capture_logical_line(
             capture_append_token(
                 state,
                 capture,
-                (const uint8_t *)cell->text,
+                (const uint8_t *)boxrig_cell_text(cell),
                 cell->text_length);
             if (capture->overflow) {
                 return;

@@ -871,6 +871,42 @@ static bool stationary_pointer_revalidates_text_and_clears_on_leave(void)
     return true;
 }
 
+static bool completed_recognition_drains_multiple_event_batches(void)
+{
+    text_policy_fixture fixture;
+    CHECK(create_fixture(96, 64, 512, NULL, 0, &fixture));
+    for (size_t row = 0; row < 96; row++) {
+        char line[96];
+        int length = snprintf(line, sizeof(line), "\033[%zu;1Hhttps://example.org/%zu", row + 1, row);
+        size_t consumed;
+        CHECK(boxrig_terminal_feed(fixture.terminal, (const uint8_t *)line,
+            (size_t)length, &consumed) == BOXRIG_STATUS_OK);
+        CHECK(consumed == (size_t)length);
+    }
+    CHECK(boxrig_ui_model_synchronize(fixture.model) == BOXRIG_UI_OK);
+    size_t used;
+    bool more = true;
+    CHECK(boxrig_terminal_resume_text_recognizers(fixture.terminal, SIZE_MAX,
+        &used, &more) == BOXRIG_STATUS_OK && !more);
+    boxrig_text_recognizer_event event;
+    CHECK(boxrig_terminal_text_recognizer_event_peek(fixture.terminal, &event));
+    CHECK(boxrig_term_text_policy_resume(fixture.policy, 4096, &used, &more) == 0);
+    CHECK(more && used == 0);
+    CHECK(boxrig_terminal_text_recognizer_event_peek(fixture.terminal, &event));
+    CHECK(boxrig_term_text_policy_resume(fixture.policy, 4096, &used, &more) == 0);
+    CHECK(!more && used == 0);
+    CHECK(!boxrig_terminal_text_recognizer_event_peek(fixture.terminal, &event));
+    for (size_t row = 0; row < 96; row++) {
+        boxrig_ui_text_annotation_visual_range range;
+        size_t count;
+        CHECK(boxrig_ui_view_query_text_annotation_visual_ranges(fixture.view,
+            row, &range, 1, &count) == BOXRIG_UI_OK && count == 1);
+        CHECK(range.annotation.source_id == BOXRIG_TERM_URL_ANNOTATION_SOURCE_ID);
+    }
+    destroy_fixture(&fixture);
+    return true;
+}
+
 int main(void)
 {
     const char *original = getenv("BOXRIG_AUTO_URLS");
@@ -880,6 +916,7 @@ int main(void)
 
     if (original != NULL && saved == NULL) return 1;
     passed = unsetenv("BOXRIG_AUTO_URLS") == 0 &&
+        completed_recognition_drains_multiple_event_batches() &&
         url_baseline_soft_wrap_and_core_ui_hits_converge() &&
         future_results_replace_annotations_without_partial_state() &&
         queued_pointer_motion_survives_replaced_alternate_text() &&
