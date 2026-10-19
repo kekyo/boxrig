@@ -112,8 +112,7 @@ static bool measure_partial(size_t columns, size_t count, size_t iterations,
     boxrig_terminal_destroy(terminal);
     if (check_budget && measurement_instrumented) {
         CHECK(measured_colors == count * iterations);
-        /* Enable the glyph bound after evaluating the independent color change. */
-        (void)measured_glyphs;
+        if (count < columns) CHECK(measured_glyphs <= iterations * (count == 1 ? 1 : 3));
     }
     return true;
 }

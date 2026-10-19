@@ -677,8 +677,8 @@ static int prepare_row_colors(
     bool styled = boxrig_ui_view_selection_uses_cell_colors(view);
     boxrig_pango_cairo_row_cache *cache = &renderer->row_cache[row];
     const boxrig_pango_cairo_dirty_interval *dirty = &renderer->frame_dirty[row];
-    /* Keep colors outside the dirty interval for the complete glyph and
-     * decoration passes. Filters retain their existing callback coverage. */
+    /* Keep colors outside the dirty interval to locate decoration origins.
+     * Filters retain their existing callback coverage. */
     size_t start = filtered || !cache->colors_valid ? 0 : dirty->column;
     size_t end = filtered || !cache->colors_valid ? renderer->cached_columns
         : dirty->column + dirty->column_count;
@@ -3945,7 +3945,9 @@ static int draw_shaped_item(
     const boxrig_terminal *terminal,
     size_t row,
     const boxrig_pango_cairo_row_shape *shape,
-    const boxrig_pango_cairo_shaped_item *item)
+    const boxrig_pango_cairo_shaped_item *item,
+    size_t clip_column,
+    size_t clip_count)
 {
     size_t end;
     size_t column;
@@ -3958,6 +3960,8 @@ static int draw_shaped_item(
     }
     end = item->visual_column + item->visual_column_count;
     column = item->visual_column;
+    if (column < clip_column) column = clip_column;
+    if (end > clip_column + clip_count) end = clip_column + clip_count;
     while (column < end) {
         boxrig_cell_view cell;
         resolved_cell_colors colors;
@@ -4078,7 +4082,9 @@ static int draw_decorations(
     boxrig_pango_cairo_renderer *renderer,
     const boxrig_terminal *terminal,
     size_t row,
-    const boxrig_text_layout *layout)
+    const boxrig_text_layout *layout,
+    size_t clip_column,
+    size_t clip_count)
 {
     size_t run_index;
 
@@ -4096,6 +4102,10 @@ static int draw_decorations(
         }
         column = run.visual_column;
         end = run.visual_column + run.visual_column_count;
+        if (end <= clip_column || column >= clip_column + clip_count) continue;
+        /* Keep the original segment origin so patterned underlines retain
+         * their phase at a partial repaint's left edge. */
+        if (end > clip_column + clip_count) end = clip_column + clip_count;
         while (column < end) {
             boxrig_cell_view cell;
             resolved_cell_colors colors;
@@ -4163,6 +4173,10 @@ static int draw_decorations(
             y = (int)(row * renderer->cell_height);
             width = (unsigned int)(
                 (segment_end - column) * renderer->cell_width);
+            if (segment_end <= clip_column) {
+                column = segment_end;
+                continue;
+            }
             if (underline != BOXRIG_UNDERLINE_NONE) {
                 if (!set_cairo_source_pixel(
                         renderer,
@@ -4384,9 +4398,11 @@ static int composite_image_layer(
     return 0;
 }
 
-static int draw_selection_backgrounds(boxrig_pango_cairo_renderer *renderer, size_t row)
+static int draw_selection_backgrounds(boxrig_pango_cairo_renderer *renderer,
+    size_t row, size_t column, size_t column_count)
 {
-    for (size_t column = 0; column < renderer->cached_columns; column++) {
+    size_t end = column + column_count;
+    for (; column < end; column++) {
         const resolved_cell_colors *color = &renderer->row_colors[column];
         if (color->selection_opacity == 0) continue;
         if (!set_cairo_source_pixel(renderer, color->selection_background,
@@ -4483,18 +4499,21 @@ static int draw_terminal_row(
             visual_column_count) == -1) {
         goto cleanup;
     }
-    if (draw_selection_backgrounds(renderer, row) == -1) goto cleanup;
+    if (draw_selection_backgrounds(renderer, row, visual_column,
+            visual_column_count) == -1) goto cleanup;
     for (item_index = 0; item_index < shape->item_count; item_index++) {
         if (draw_shaped_item(
                 renderer,
                 terminal,
                 row,
                 shape,
-                &shape->items[item_index]) == -1) {
+                &shape->items[item_index], visual_column,
+                visual_column_count) == -1) {
             goto cleanup;
         }
     }
-    if (draw_decorations(renderer, terminal, row, shape->layout) == -1) {
+    if (draw_decorations(renderer, terminal, row, shape->layout,
+            visual_column, visual_column_count) == -1) {
         goto cleanup;
     }
     if (composite_image_layer(
@@ -4696,7 +4715,8 @@ static int draw_filled_cursor(
     }
     renderer->row_colors[column].foreground = ink;
     renderer->row_colors[column].underline = ink;
-    if (draw_decorations(renderer, renderer->color_terminal, cursor.row, shape->layout) == -1)
+    if (draw_decorations(renderer, renderer->color_terminal, cursor.row,
+            shape->layout, column, 1) == -1)
         goto cleanup;
     result = cairo_status(renderer->cairo) == CAIRO_STATUS_SUCCESS ? 0 : -1;
 cleanup:
