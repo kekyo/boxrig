@@ -5909,7 +5909,8 @@ size_t boxrig_ui_view_cursor_rectangles(const boxrig_ui_view *view,
     boxrig_ui_cursor_rectangle rectangles[4])
 {
     if (cell_width == 0 || cell_height == 0) return 0;
-    const boxrig_ui_cursor_style *style = &view->blink.cursor_style;
+    const boxrig_ui_cursor_style default_style = boxrig_ui_cursor_style_default();
+    const boxrig_ui_cursor_style *style = view == NULL ? &default_style : &view->blink.cursor_style;
     bool traditional = style->presentation == BOXRIG_UI_CURSOR_PRESENTATION_DEFAULT;
     float thickness = traditional ? style->line_width_dip : style->box_width_dip;
     unsigned int x = 0, y = 0, width = cell_width, height = cell_height;

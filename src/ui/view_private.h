@@ -58,6 +58,7 @@ boxrig_rgb boxrig_ui_cursor_contrast_color(boxrig_rgb fill, boxrig_rgb underlay)
 typedef struct boxrig_ui_cursor_rectangle {
     unsigned int x, y, width, height;
 } boxrig_ui_cursor_rectangle;
+/* A NULL view selects defaults for the standalone renderer entry points. */
 size_t boxrig_ui_view_cursor_rectangles(const boxrig_ui_view *view,
     const boxrig_cursor_view *cursor, float dpi_x, float dpi_y, float output_scale,
     unsigned int cell_width, unsigned int cell_height,

@@ -1,5 +1,6 @@
 /* boxrig - Under MIT. */
 #include "boxrig/ui/animation.h"
+#include "../src/ui/view_private.h"
 
 #include <assert.h>
 #include <math.h>
@@ -43,6 +44,19 @@ static void feed(boxrig_terminal *terminal, const char *text)
 
 int main(void)
 {
+    /* Standalone renderers have no UI view and retain the default geometry. */
+    boxrig_cursor_view direct_cursor = {0};
+    boxrig_ui_cursor_rectangle rectangles[4];
+    direct_cursor.shape = BOXRIG_CURSOR_BLOCK;
+    assert(boxrig_ui_view_cursor_rectangles(NULL, &direct_cursor, 96, 96, 1, 12, 20, rectangles) == 4);
+    assert(rectangles[0].width == 12 && rectangles[0].height == 1);
+    assert(rectangles[1].y == 19 && rectangles[2].height == 18);
+    direct_cursor.shape = BOXRIG_CURSOR_BAR;
+    assert(boxrig_ui_view_cursor_rectangles(NULL, &direct_cursor, 96, 96, 1, 12, 20, rectangles) == 1);
+    assert(rectangles[0].x == 1 && rectangles[0].width == 1 && rectangles[0].height == 20);
+    direct_cursor.shape = BOXRIG_CURSOR_UNDERLINE;
+    assert(boxrig_ui_view_cursor_rectangles(NULL, &direct_cursor, 96, 96, 2, 24, 40, rectangles) == 1);
+    assert(rectangles[0].y == 37 && rectangles[0].width == 24 && rectangles[0].height == 2);
     boxrig_terminal_config config = boxrig_terminal_config_default();
     config.rows = 2;
     config.columns = 8;
