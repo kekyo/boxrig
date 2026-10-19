@@ -83,6 +83,8 @@ fi
     printf 'wait_history=%s\nreference_phase=%s\ntrace_intervals=%s\n' \
         "${BOXRIG_PHASE_WAIT_HISTORY:-0}" "${BOXRIG_REFERENCE_PHASE:-0}" \
         "${BOXRIG_TRACE_INTERVALS:-0}"
+    printf 'perf_stat=%s\n' "${BOXRIG_PERF_STAT:-0}"
+    printf 'perf_scope=main thread only; enable acknowledged before input, disable requested after DSR\n'
     if [[ -n "$reference_binary" ]]; then
         printf 'reference_binary_sha256=%s\n' "$(sha256sum -- "$reference_binary")"
     fi
@@ -111,6 +113,18 @@ run_phase() {
         local log="$output_directory/$prefix$mode-$round.log"
         local trace_path=
         local pty_trace_path=
+        local perf_control=
+        local perf_ack=
+        local launcher=("$binary")
+        if [[ ${BOXRIG_PERF_STAT:-0} == 1 ]]; then
+            perf_control="$output_directory/$prefix$mode-$round-perf-control.fifo"
+            perf_ack="$output_directory/$prefix$mode-$round-perf-ack.fifo"
+            mkfifo -- "$perf_control" "$perf_ack"
+            launcher=(perf stat --no-inherit --no-scale --delay=-1 \
+                --control="fifo:$perf_control,$perf_ack" \
+                -e cycles,instructions,task-clock,cpu-migrations,context-switches -x, \
+                -o "$output_directory/$prefix$mode-$round-perf.csv" -- "$binary")
+        fi
         if [[ ${BOXRIG_TRACE_INTERVALS:-0} == 1 && -z $prefix ]]; then
             trace_path="$output_directory/$mode-$round-trace.tsv"
             pty_trace_path="$output_directory/$mode-$round-writes.tsv"
@@ -119,8 +133,9 @@ run_phase() {
         if ! BOXRIG_PHASE_PROBE_PATH="$phase" \
             BOXRIG_PHASE_PROBE_FIFO="$phase_fifo" \
             BOXRIG_PHASE_TRACE_PATH="$trace_path" BOXRIG_PTY_TRACE_PATH="$pty_trace_path" \
+            BOXRIG_PERF_CONTROL="$perf_control" BOXRIG_PERF_ACK="$perf_ack" \
             timeout --signal=TERM --kill-after=3s "${phase_timeout_seconds}s" \
-            "$binary" --renderer=cairo -- \
+            "${launcher[@]}" --renderer=cairo -- \
             "$workload_binary" "$mode" 24 80 "$history_lines" \
             "$workload_lines" probe "$report" "$phase" "$phase_fifo" \
             > "$log" 2>&1; then
@@ -128,6 +143,7 @@ run_phase() {
             exit 1
         fi
         rm -- "$phase_fifo"
+        if [[ -n $perf_control ]]; then rm -- "$perf_control" "$perf_ack"; fi
         if [[ ! -s "$report" || ! -s "$phase" ]]; then
             printf 'missing report: mode=%s round=%s\n' "$mode" "$round" >&2
             exit 1

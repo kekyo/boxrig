@@ -236,6 +236,26 @@ static bool parse_unsigned(const char *value, bool zero_allowed,
     return true;
 }
 
+/* The optional perf process starts disabled, excluding terminal startup and
+ * history preparation. Its acknowledgement bounds each counter interval. */
+static bool control_counters(const char *command)
+{
+    const char *control_path = getenv("BOXRIG_PERF_CONTROL");
+    const char *ack_path = getenv("BOXRIG_PERF_ACK");
+    if (control_path == NULL || *control_path == '\0') return true;
+    if (ack_path == NULL || *ack_path == '\0') return false;
+    FILE *control = fopen(control_path, "w");
+    if (control == NULL) return false;
+    bool sent = fprintf(control, "%s\n", command) > 0;
+    if (fclose(control) != 0 || !sent) return false;
+    FILE *acknowledgement = fopen(ack_path, "r");
+    if (acknowledgement == NULL) return false;
+    char reply[16];
+    bool acknowledged = fgets(reply, sizeof(reply), acknowledgement) != NULL &&
+        strcmp(reply, "ack\n") == 0;
+    return fclose(acknowledgement) == 0 && acknowledged;
+}
+
 int main(int argument_count, char **arguments)
 {
     boxrig_interval_initialize("BOXRIG_PTY_TRACE_PATH");
@@ -333,6 +353,7 @@ int main(int argument_count, char **arguments)
         fputs("history recognition report missing\n", stderr);
         goto cleanup;
     }
+    if (!control_counters("enable")) goto cleanup;
     start = monotonic_nanoseconds();
     if (start == 0) {
         goto cleanup;
@@ -348,6 +369,7 @@ int main(int argument_count, char **arguments)
         goto cleanup;
     }
     processed = monotonic_nanoseconds();
+    if (!control_counters("disable")) goto cleanup;
     /* Wait only after the DSR reply, so the frontend cannot block before
      * satisfying the input-processing measurement. */
     if (phase_probe &&
