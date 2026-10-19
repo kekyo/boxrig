@@ -4202,6 +4202,19 @@ $(BUILD_DIR)/tests/test_gtk3_widget_animation: tests/gtk/test_widget_animation.c
 $(BUILD_DIR)/tests/test_gtk4_widget_animation: tests/gtk/test_widget_animation.c $(GTK4_HEADERS) $(GTK4_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(GTK4_CPPFLAGS) $(CFLAGS) $(GTK4_PROJECT_CFLAGS) $(SANITIZERS) $< $(GTK4_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK4_LIBS) -lm -Wl,--wrap=g_get_monotonic_time -o $@
 
+.PHONY: test-gtk-initial-font
+test: test-gtk-initial-font
+test-gtk-initial-font: $(BUILD_DIR)/tests/test_gtk3_initial_font $(BUILD_DIR)/tests/test_gtk4_initial_font
+	@set -e; for version in 3 4; do for scale in 1 2; do \
+		$(XVFB_RUN) -a env GDK_BACKEND=x11 GDK_SCALE=$$scale NO_AT_BRIDGE=1 ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(BUILD_DIR)/tests/test_gtk$${version}_initial_font; \
+	done; done
+
+$(BUILD_DIR)/tests/test_gtk3_initial_font: tests/gtk/test_widget_initial_font.c $(GTK3_HEADERS) $(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(GTK3_CPPFLAGS) -DBOXRIG_TEST_GTK3 $(CFLAGS) $(GTK3_PROJECT_CFLAGS) $(SANITIZERS) $< $(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK3_LIBS) -lm -o $@
+
+$(BUILD_DIR)/tests/test_gtk4_initial_font: tests/gtk/test_widget_initial_font.c $(GTK4_HEADERS) $(GTK4_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(GTK4_CPPFLAGS) $(CFLAGS) $(GTK4_PROJECT_CFLAGS) $(SANITIZERS) $< $(GTK4_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK4_LIBS) -lm -o $@
+
 $(BUILD_DIR)/tests/test_pangocairo_blink: tests/pangocairo/test_pangocairo_blink.c tests/blink_renderer_fixture.c tests/selection_renderer_fixture.c tests/blink_renderer_fixture.h tests/selection_renderer_fixture.h tests/color_renderer_fixture.h src/pangocairo/renderer.c $(PANGO_CANDIDATE_OBJECT) src/pangocairo/renderer.h src/pangocairo/renderer_private.h src/ui/view_private.h $(UI_HEADERS) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) -Isrc -Itests $(POSIX_CPPFLAGS) $(PANGO_CAIRO_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< tests/blink_renderer_fixture.c tests/selection_renderer_fixture.c src/pangocairo/renderer.c $(PANGO_CANDIDATE_OBJECT) $(UI_LIBRARY) $(LIBRARY) $(PANGO_CAIRO_LIBS) -o $@
 

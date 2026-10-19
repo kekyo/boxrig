@@ -45,6 +45,13 @@ Follow [GtkWidget's documentation](https://docs.gtk.org/gtk4/class.Widget.html) 
 
 See the [GTK 3 application](../../../examples/boxrig_term/gtk3/application.c) and [GTK 4 application](../../../examples/boxrig_term/gtk4/application.c) for actual widget placement.
 
+To choose the font during creation, set `initial_font` to a `boxrig_font_specification`.
+`NULL` uses the default font. Font names and other descriptor data are copied during creation.
+When sharing a model with an existing view, choose a font that resolves to the same cell metrics.
+For example, pass the old widget's `get_font_specification()` result when replacing a quiesced widget.
+The old widget can remain alive while its replacement is created, avoiding a creation failure caused by mismatched default metrics.
+Font resource IDs registered from files or memory belong to their widget and cannot be reused in the new widget.
+
 ## Connect frame requests and communication
 
 The configuration's `frame_request_callback` notifies your application to schedule work on its main loop.

@@ -76,6 +76,13 @@ typedef struct boxrig_gtk4_terminal_widget_config {
     boxrig_ui_frame_request_callback frame_request_callback;
     /** Context passed to frame_request_callback. */
     void *frame_request_context;
+    /**
+     * Optional initial font, copied during creation; NULL uses font defaults.
+     * Resolve the same metrics as an existing model before attaching a new view.
+     * Family names/features/variations need remain valid only for create().
+     * Resource identifiers belong to the new, initially empty font catalog.
+     */
+    const boxrig_font_specification *initial_font;
 } boxrig_gtk4_terminal_widget_config;
 
 /**
