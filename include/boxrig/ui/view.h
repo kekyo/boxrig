@@ -1607,6 +1607,9 @@ boxrig_ui_status boxrig_ui_view_begin_selection_with_options(
  * hit when deterministic row layouts were populated between pointer events.
  * Grid, cell-metric, reflow, and selected-text changes still make a retained
  * rectangular selection stale.
+ * Equal rectangular column boundaries produce a successful empty selection,
+ * on either the same row or another row. Its anchor remains available for
+ * later extension; row and range counts are zero and it has no visual ranges.
  */
 boxrig_ui_status boxrig_ui_view_update_selection(
     boxrig_ui_view *view,
@@ -1622,6 +1625,8 @@ boxrig_ui_status boxrig_ui_view_update_selection(
  * @remarks range_valid is true only for a normalized linear range. A stale
  * rectangular selection remains observable here, while its bounded row and
  * range queries reject the retained details with BOXRIG_UI_STALE.
+ * An empty rectangular selection also returns true, with zero visual width,
+ * row count and range count. Clearing it explicitly removes the anchor.
  */
 bool boxrig_ui_view_get_selection(
     const boxrig_ui_view *view,
@@ -1823,7 +1828,7 @@ size_t boxrig_ui_view_hyperlink_hover_visual_ranges(
  * @param view View whose selection is copied.
  * @param snapshot_out Receives an owned snapshot and is set to NULL on
  * failure.
- * @return BOXRIG_UI_UNAVAILABLE when no selection exists,
+ * @return BOXRIG_UI_UNAVAILABLE when no selection exists or a rectangle is empty,
  * BOXRIG_UI_LIMIT_EXCEEDED without truncation when the configured byte cap is
  * exceeded, BOXRIG_UI_STALE when retained text changed, or another portable
  * UI status.

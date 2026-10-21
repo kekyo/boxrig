@@ -1572,6 +1572,93 @@ static bool rectangular_selection_rejects_changed_physical_geometry(void)
     return true;
 }
 
+static bool rectangular_selection_can_cross_zero_width(void)
+{
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    config.rows = 3;
+    config.columns = 8;
+    boxrig_terminal *terminal = NULL;
+    boxrig_ui_model *model = NULL;
+    boxrig_ui_view *view = NULL;
+    const boxrig_ui_view_config view_config = boxrig_ui_view_config_default();
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    size_t consumed;
+    static const uint8_t text[] = "abcdef\r\nghijkl\r\nmnopqr";
+    CHECK(boxrig_terminal_feed(terminal, text, sizeof(text) - 1, &consumed) ==
+        BOXRIG_STATUS_OK);
+    CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_create(model, &view_config, &view) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_acquire_layout_authority(view) == BOXRIG_UI_OK);
+    const boxrig_ui_allocation_input allocation = {
+        .allocation_width = pixels(80), .allocation_height = pixels(60),
+        .cell_width = pixels(10), .cell_height = pixels(20),
+        .cell_metrics_revision = 1, .window_state = BOXRIG_UI_WINDOW_NORMAL
+    };
+    boxrig_ui_layout_result layout;
+    CHECK(boxrig_ui_view_accept_allocation(view, &allocation, &layout) == BOXRIG_UI_OK);
+    const boxrig_ui_selection_options options = {
+        BOXRIG_UI_SELECTION_RECTANGULAR, BOXRIG_UI_SELECTION_CHARACTER
+    };
+    boxrig_ui_hit_test_result anchor, focus;
+    boxrig_ui_selection selection;
+    for (size_t origin_row = 0; origin_row <= 2; origin_row += 2) {
+        CHECK(boxrig_ui_view_hit_test(view, pixels(21), pixels(origin_row * 20 + 1),
+            &anchor) == BOXRIG_UI_OK);
+        CHECK(boxrig_ui_view_begin_selection_with_options(view, &options, &anchor) ==
+            BOXRIG_UI_OK);
+        for (size_t step = 0; step < 5; step++) {
+            const int64_t x[] = {21, 41, 21, 1, 21};
+            size_t row = step == 4 ? origin_row : 2 - origin_row;
+            CHECK(boxrig_ui_view_hit_test(view, pixels(x[step]), pixels(row * 20 + 1),
+                &focus) == BOXRIG_UI_OK);
+            CHECK(boxrig_ui_view_update_selection(view, &focus) == BOXRIG_UI_OK);
+            CHECK(boxrig_ui_view_get_selection(view, &selection));
+            CHECK(!selection.stale && !selection.range_valid);
+            CHECK(selection.anchor.line_id.serial == anchor.position.line_id.serial);
+            boxrig_text_snapshot *copy = NULL;
+            if ((step % 2) == 0) {
+                CHECK(selection.visual_column_count == 0 && selection.row_count == 0 &&
+                    selection.range_count == 0);
+                size_t required = 99;
+                CHECK(boxrig_ui_view_query_selection_rows(view, NULL, 0, &required) ==
+                    BOXRIG_UI_OK && required == 0);
+                CHECK(boxrig_ui_view_query_selection_row_ranges(view, NULL, 0, &required) ==
+                    BOXRIG_UI_OK && required == 0);
+                for (size_t visible_row = 0; visible_row < 3; visible_row++) {
+                    CHECK(boxrig_ui_view_selection_visual_ranges(view, visible_row, NULL, 0) == 0);
+                }
+                copy = (void *)1;
+                CHECK(boxrig_ui_view_create_selection_snapshot(view, &copy) ==
+                    BOXRIG_UI_UNAVAILABLE && copy == NULL);
+            } else {
+                CHECK(selection.visual_column_count == 2 && selection.row_count == 3);
+                CHECK(boxrig_ui_view_create_selection_snapshot(view, &copy) == BOXRIG_UI_OK);
+                size_t length;
+                const uint8_t *bytes = boxrig_text_snapshot_data(copy, &length);
+                CHECK(length == 8 && memcmp(bytes, step == 1 ? "cd\nij\nop" : "ab\ngh\nmn", 8) == 0);
+                boxrig_text_snapshot_destroy(copy);
+            }
+        }
+    }
+    CHECK(boxrig_ui_view_hit_test(view, pixels(21), pixels(1), &anchor) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_begin_selection_with_options(view, &options, &anchor) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_update_selection(view, &anchor) == BOXRIG_UI_OK);
+    static const uint8_t unrelated[] = "\033[3;8HZ";
+    CHECK(boxrig_terminal_feed(terminal, unrelated, sizeof(unrelated) - 1, &consumed) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_get_selection(view, &selection) && !selection.stale);
+    static const uint8_t changed[] = "\033[HA";
+    CHECK(boxrig_terminal_feed(terminal, changed, sizeof(changed) - 1, &consumed) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_get_selection(view, &selection) && selection.stale);
+    CHECK(boxrig_ui_view_clear_selection(view) == BOXRIG_UI_OK);
+    CHECK(!boxrig_ui_view_get_selection(view, &selection));
+    boxrig_ui_view_destroy(view);
+    boxrig_ui_model_destroy(model);
+    boxrig_terminal_destroy(terminal);
+    return true;
+}
+
 static bool unicode_word_break_conformance(const char *path)
 {
     char line[8192];
@@ -1654,6 +1741,7 @@ static bool unicode_word_break_conformance(const char *path)
 int main(int argc, char **argv)
 {
     if (argc != 2 ||
+        !rectangular_selection_can_cross_zero_width() ||
         !text_hit_resolves_grapheme_edges_and_bidi_direction() ||
         !character_selection_copy_is_owned_bounded_and_view_local() ||
         !word_line_and_selection_lifetime_follow_logical_text() ||

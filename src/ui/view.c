@@ -173,8 +173,6 @@ struct boxrig_ui_view {
     boxrig_ui_selection selection;
     boxrig_text_position selection_origin_start;
     boxrig_text_position selection_origin_end;
-    size_t selection_origin_visual_row;
-    size_t selection_origin_visual_column;
     boxrig_ui_selection_row_slice *selection_rows;
     boxrig_ui_selection_row_range *selection_ranges;
     boxrig_text_search_cursor *search_cursor;
@@ -1666,8 +1664,11 @@ static bool rectangular_selection_rows_are_current(
     size_t first_index;
     size_t row_index;
 
-    if (view == NULL || view->selection.row_count == 0) {
+    if (view == NULL) {
         return false;
+    }
+    if (view->selection.row_count == 0) {
+        return view->selection.visual_column_count == 0;
     }
     terminal = view->model->terminal;
     screen = view->selection.screen;
@@ -1868,8 +1869,6 @@ static void clear_stale_selection(boxrig_ui_view *view)
             &view->selection_origin_end,
             0,
             sizeof(view->selection_origin_end));
-        view->selection_origin_visual_row = 0;
-        view->selection_origin_visual_column = 0;
         mark_full_dirty(view, BOXRIG_UI_DIRTY_OVERLAY);
     }
 }
@@ -4433,8 +4432,16 @@ static boxrig_ui_status materialize_rectangular_rows(
             ? selection->anchor_visual_column
             : selection->focus_visual_column;
     if (last_row >= view->row_count || last_column > view->column_count ||
-        first_column >= last_column) {
+        first_column > last_column) {
         return BOXRIG_UI_INVALID_ARGUMENT;
+    }
+    selection->visual_start_row = first_row;
+    selection->visual_start_column = first_column;
+    selection->visual_column_count = last_column - first_column;
+    selection->row_count = 0;
+    selection->range_count = 0;
+    if (first_column == last_column) {
+        return BOXRIG_UI_OK;
     }
     row_count = last_row - first_row + 1;
     if (row_count > view->maximum_selection_rows ||
@@ -4498,9 +4505,6 @@ static boxrig_ui_status materialize_rectangular_rows(
         }
         range_count += current_count;
     }
-    selection->visual_start_row = first_row;
-    selection->visual_start_column = first_column;
-    selection->visual_column_count = last_column - first_column;
     selection->row_count = row_count;
     selection->range_count = range_count;
     *rows_out = rows;
@@ -4834,9 +4838,6 @@ boxrig_ui_status boxrig_ui_view_begin_selection_with_options(
     view->selection = replacement;
     view->selection_origin_start = unit.start;
     view->selection_origin_end = unit.end;
-    view->selection_origin_visual_row = hit->row;
-    view->selection_origin_visual_column =
-        replacement.anchor_visual_column;
     mark_selection_dirty(view);
     return BOXRIG_UI_OK;
 }
@@ -4868,12 +4869,6 @@ boxrig_ui_status boxrig_ui_view_update_selection(
             !hit_names_current_grapheme(view, hit, &current_grapheme) ||
             current_grapheme.start.screen != view->selection.screen) {
             return BOXRIG_UI_STALE;
-        }
-        if (hit->row == view->selection_origin_visual_row &&
-            focus_boundary == view->selection_origin_visual_column) {
-            focus_boundary = focus_boundary == hit->visual_column
-                                 ? hit->visual_column + 1
-                                 : hit->visual_column;
         }
         replacement = view->selection;
         replacement.focus = hit->position;
@@ -5030,8 +5025,6 @@ boxrig_ui_status boxrig_ui_view_clear_selection(boxrig_ui_view *view)
         &view->selection_origin_end,
         0,
         sizeof(view->selection_origin_end));
-    view->selection_origin_visual_row = 0;
-    view->selection_origin_visual_column = 0;
     return BOXRIG_UI_OK;
 }
 
@@ -5492,6 +5485,9 @@ boxrig_ui_status boxrig_ui_view_create_selection_snapshot(
     if (view->selection.shape == BOXRIG_UI_SELECTION_RECTANGULAR) {
         if (view->selection.stale) {
             return BOXRIG_UI_STALE;
+        }
+        if (view->selection.row_count == 0) {
+            return BOXRIG_UI_UNAVAILABLE;
         }
         rows_options.screen = view->selection.screen;
         rows_options.ranges = view->selection_ranges;

@@ -167,6 +167,13 @@ int main(void)
     CHECK(rectangular->selection_count == 2);
     CHECK(rectangular->selections[0].start == 1 && rectangular->selections[0].end == 3);
     CHECK(rectangular->selections[1].start == 7 && rectangular->selections[1].end == 9);
+    CHECK(boxrig_ui_view_hit_test(view, 11 * BOXRIG_UI_FIXED_ONE,
+        21 * BOXRIG_UI_FIXED_ONE, &end) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_update_selection(view, &end) == BOXRIG_UI_OK);
+    boxrig_ui_accessible_snapshot *empty_rectangle = read_snapshot(view, "abcde\nfghij\n\n\n", 11);
+    CHECK(empty_rectangle->selection_count == 0);
+    CHECK(!boxrig_ui_accessible_snapshot_is_current(view, rectangular));
+    boxrig_ui_accessible_snapshot_destroy(empty_rectangle);
     CHECK(boxrig_ui_view_clear_selection(view) == BOXRIG_UI_OK);
 
     feed(terminal, "\033[2J\033[HAאבB");

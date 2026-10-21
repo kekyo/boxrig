@@ -60,6 +60,12 @@ Retrieve copied text with `boxrig_ui_view_create_selection_snapshot()`.
 Rectangular selections are projected per display row, without duplicating wide characters, and with LF between rows.
 Changing selection appearance does not change the extracted text.
 
+Updating a rectangle to equal column boundaries retains its anchor as an empty selection.
+The update succeeds, and moving left or right extends from the same anchor again.
+Row and range queries return zero items, and there are no visual ranges.
+Copying returns `BOXRIG_UI_UNAVAILABLE`; leave the existing clipboard unchanged.
+Calling `clear_selection()` also removes the retained anchor.
+
 Passing a selection to the OS and handling an OSC 52 request from a terminal application are separate operations.
 See [Host integration](./host-integration.md) for permission and completion handling of the latter.
 

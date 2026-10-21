@@ -1,5 +1,6 @@
 /* Lossless native recordings assert observed phases and unchanged neighbors. */
 import assert from 'node:assert/strict';
+import { once } from 'node:events';
 import { spawn, execFileSync } from 'node:child_process';
 import {
   mkdirSync,
@@ -344,6 +345,85 @@ try {
   record('fill-outline', 2);
   command('xdotool', ['key', '--clearmodifiers', 'ctrl+shift+F10']);
   record('outline-restored', 0);
+
+  // Capture every frame while the rectangle crosses zero width. Advance only
+  // after the requested geometry is visible in consecutive captured frames.
+  const gestureFrames = [];
+  let pending = Buffer.alloc(0);
+  const capture = spawn('ffmpeg', [
+    '-loglevel', 'error', '-f', 'x11grab', '-framerate', '30',
+    '-draw_mouse', '0', '-video_size', width + 'x' + height,
+    '-i', process.env.DISPLAY + '+' + values.X + ',' + values.Y,
+    '-f', 'rawvideo', '-pix_fmt', 'rgb24', 'pipe:1',
+  ], { stdio: ['pipe', 'pipe', 'pipe'] });
+  const captureClosed = once(capture, 'close');
+  let captureDiagnostics = '';
+  capture.stderr.on('data', (bytes) => { captureDiagnostics += bytes; });
+  capture.stdout.on('data', (bytes) => {
+    pending = Buffer.concat([pending, bytes]);
+    while (pending.length >= frameBytes) {
+      gestureFrames.push(Buffer.from(pending.subarray(0, frameBytes)));
+      pending = pending.subarray(frameBytes);
+    }
+  });
+  const ax = left + 2 * cellWidth, ay = top + 5 * cellHeight;
+  assert(ay + 2 * cellHeight < height, 'gesture rows fit recorded surface');
+  const blue = (frame, px, py) => {
+    const at = (py * width + px) * 3;
+    return [46, 115, 242].every((value, channel) => Math.abs(frame[at + channel] - value) <= 2);
+  };
+  const phases = [];
+  const waitGeometry = async (name, selectedColumns, selectedRows, after) => {
+    const deadline = Date.now() + 15000;
+    let examined = after, consecutive = 0;
+    while (consecutive < 3) {
+      assert(Date.now() < deadline, name + ': geometry was not painted');
+      assert(capture.exitCode === null, captureDiagnostics);
+      while (examined < gestureFrames.length && consecutive < 3) {
+        const frame = gestureFrames[examined++];
+        let valid = true;
+        for (let py = ay; py < ay + 2 * cellHeight; py++) {
+          for (let px = ax; px < ax + 4 * cellWidth; px++) {
+            const edge = selectedColumns > 0 &&
+              px < ax + selectedColumns * cellWidth && py < ay + selectedRows * cellHeight &&
+              (px === ax || px === ax + selectedColumns * cellWidth - 1 ||
+               py === ay || py === ay + selectedRows * cellHeight - 1);
+            if (edge && !blue(frame, px, py)) valid = false;
+            if (selectedColumns === 0 && blue(frame, px, py)) valid = false;
+          }
+        }
+        consecutive = valid ? consecutive + 1 : 0;
+      }
+      if (consecutive < 3) await setTimeout(20);
+    }
+    phases.push({ name, firstSettledFrame: examined - consecutive, lastSettledFrame: examined - 1 });
+  };
+  const move = (column, row) => command('xdotool', ['mousemove',
+    String(Number(values.X) + ax + column * cellWidth + 1),
+    String(Number(values.Y) + ay + row * cellHeight + 1)]);
+  try {
+    await waitGeometry('before-rectangle', 0, 0, 0);
+    move(0, 0);
+    command('xdotool', ['keydown', 'Control_L', 'mousedown', '1']);
+    await waitGeometry('rectangle-start', 1, 1, gestureFrames.length);
+    move(0, 1);
+    await waitGeometry('zero-width', 0, 0, gestureFrames.length);
+    move(3, 1);
+    await waitGeometry('rectangle-expanded', 3, 2, gestureFrames.length);
+    move(0, 1);
+    await waitGeometry('zero-width-restored', 0, 0, gestureFrames.length);
+    command('xdotool', ['mouseup', '1', 'keyup', 'Control_L']);
+    await waitGeometry('empty-released', 0, 0, gestureFrames.length);
+  } finally {
+    capture.stdin.end('q');
+    await captureClosed;
+    execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'rawvideo',
+      '-pixel_format', 'rgb24', '-video_size', width + 'x' + height,
+      '-framerate', '30', '-i', 'pipe:0', '-c:v', 'ffv1',
+      resolve(output, 'rectangle-gesture.mkv')],
+      { input: Buffer.concat(gestureFrames), timeout: 30000 });
+    results.push({ name: 'rectangle-gesture', frames: gestureFrames.length, phases });
+  }
   command('xdotool', ['key', '--clearmodifiers', 'q']);
   const exitDeadline = Date.now() + 15000;
   while (child.exitCode === null && child.signalCode === null) {
