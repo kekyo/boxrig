@@ -37,6 +37,11 @@ it.each([
       maximumInteriorError: number;
       maximumOutsideMeanError: number;
     }> = [];
+    const historyResults: Array<{
+      name: string;
+      frames: number;
+      maximumPatchError: number;
+    }> = [];
     const activate = async (window: AppWindow): Promise<AppWindow> => {
       let observed = await window.refresh();
       if (!observed.active) {
@@ -262,6 +267,90 @@ it.each([
       await record('fill-outline', 2);
       await agent.keyboard.press('F10', { modifiers: ['Control', 'Shift'] });
       await record('outline-restored', 0);
+      await agent.keyboard.press('h');
+      await child.waitForWindow(
+        {
+          className: 'boxrig_win32_sample',
+          title: 'boxrig-selection-history-ready',
+          visible: true,
+        },
+        { timeoutMs: 15000 }
+      );
+      await agent.keyboard.press('F10', { modifiers: ['Control', 'Shift'] });
+      const recordHistory = async (
+        name: string,
+        firstRow: number,
+        lastRow: number
+      ) => {
+        const path = resolve(output, name + '.mp4');
+        const metadata = await agent.recordVideo(2000, path, { fps: 30, rect });
+        assert(!metadata.clipped);
+        const raw = execFileSync(
+          'ffmpeg',
+          [
+            '-v',
+            'error',
+            '-i',
+            path,
+            '-f',
+            'rawvideo',
+            '-pix_fmt',
+            'rgb24',
+            '-fps_mode',
+            'passthrough',
+            'pipe:1',
+          ],
+          { maxBuffer: rect.width * rect.height * 3 * 100 }
+        );
+        const stride = rect.width * rect.height * 3;
+        const frames = raw.length / stride;
+        assert.equal(frames, metadata.frameCount);
+        assert(frames >= 45);
+        let maximumPatchError = 0;
+        const fill = blend(background, [60, 150, 240], 96);
+        for (let f = 15; f < frames; f++) {
+          const pixels = raw.subarray(f * stride, (f + 1) * stride);
+          for (
+            let row = 1;
+            row < Math.min(8, Math.floor(rect.height / ch));
+            row++
+          ) {
+            for (let column = 1; column < 6; column++) {
+              const expected =
+                row >= firstRow && row < lastRow && column >= 2 && column < 5
+                  ? fill
+                  : background;
+              const sum = [0, 0, 0];
+              let samples = 0;
+              for (let y = row * ch + 3; y < (row + 1) * ch - 3; y++) {
+                for (let x = column * cw + 3; x < (column + 1) * cw - 2; x++) {
+                  const at = (y * rect.width + x) * 3;
+                  for (let c = 0; c < 3; c++) sum[c] += pixels[at + c];
+                  samples++;
+                }
+              }
+              assert(samples > 0);
+              for (let c = 0; c < 3; c++)
+                maximumPatchError = Math.max(
+                  maximumPatchError,
+                  Math.abs(sum[c] / samples - expected[c])
+                );
+            }
+          }
+        }
+        assert(
+          maximumPatchError <= 25,
+          name + ': incorrect history selection ' + maximumPatchError
+        );
+        historyResults.push({ name, frames, maximumPatchError });
+        console.log(JSON.stringify(historyResults.at(-1)));
+      };
+      await agent.keyboard.press('F9', { modifiers: ['Control', 'Shift'] });
+      await recordHistory('history-anchor', 5, 7);
+      await agent.keyboard.press('F9', { modifiers: ['Control', 'Shift'] });
+      await recordHistory('history-expanded', 0, 8);
+      await agent.keyboard.press('F9', { modifiers: ['Control', 'Shift'] });
+      await recordHistory('history-cleared', 0, 0);
       await agent.keyboard.press('q');
       const exit = await child.waitForExit({ timeoutMs: 30000 });
       assert.equal(exit.root.exitCode, 0);
@@ -280,7 +369,8 @@ it.each([
       }
       await writeFile(
         resolve(output, 'results.json'),
-        JSON.stringify({ arch, renderer, results }, null, 2) + '\n'
+        JSON.stringify({ arch, renderer, results, historyResults }, null, 2) +
+          '\n'
       );
     }
   }

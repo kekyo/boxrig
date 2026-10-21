@@ -198,6 +198,29 @@ int main(void)
     CHECK(bidi->characters[1].x == 20 * BOXRIG_UI_FIXED_ONE);
     CHECK(bidi->characters[2].x == 10 * BOXRIG_UI_FIXED_ONE);
 
+    CHECK(boxrig_ui_view_clear_selection(view) == BOXRIG_UI_OK);
+    feed(terminal, "\033[2J\033[HAAAAA\r\nBBBBB\r\nCCCCC\r\nDDDDD\r\nEEEEE\r\nFFFFF\r\nGGGGG");
+    CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_hit_test(view, 11*BOXRIG_UI_FIXED_ONE,
+        61*BOXRIG_UI_FIXED_ONE, &start) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_begin_selection_with_options(view, &rectangle, &start) == BOXRIG_UI_OK);
+    CHECK(boxrig_terminal_set_viewport_offset(terminal, 3) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_hit_test(view, 31*BOXRIG_UI_FIXED_ONE,
+        BOXRIG_UI_FIXED_ONE, &end) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_update_selection(view, &end) == BOXRIG_UI_OK);
+    boxrig_ui_accessible_snapshot *selected_history = NULL, *other_selected_history = NULL;
+    CHECK(boxrig_ui_accessible_snapshot_create(view, BOXRIG_UI_ACCESSIBLE_MAXIMUM_BYTES,
+        &selected_history) == BOXRIG_UI_OK);
+    CHECK(selected_history->selection_count == 4);
+    for (size_t row = 0; row < 4; row++) {
+        CHECK(selected_history->selections[row].start == row*6+1);
+        CHECK(selected_history->selections[row].end == row*6+3);
+    }
+    CHECK(boxrig_ui_accessible_snapshot_create(second, BOXRIG_UI_ACCESSIBLE_MAXIMUM_BYTES,
+        &other_selected_history) == BOXRIG_UI_OK && other_selected_history->selection_count == 0);
+    boxrig_ui_accessible_snapshot_destroy(selected_history);
+    boxrig_ui_accessible_snapshot_destroy(other_selected_history);
     boxrig_ui_view_destroy(second);
     boxrig_ui_view_destroy(view);
     boxrig_ui_model_destroy(model);

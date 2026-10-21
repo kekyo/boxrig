@@ -138,6 +138,43 @@ static bool selection_history_and_ime(
     CHECK(boxrig_terminal_viewport_offset(terminal) == 2);
     boxrig_text_snapshot_destroy(before); boxrig_text_snapshot_destroy(after);
 
+    /* Empty geometry erases the old fill; history expansion paints only the
+     * visible part even when its anchor is outside the viewport. */
+    CHECK(boxrig_ui_view_hit_test(view, (width+1)*BOXRIG_UI_FIXED_ONE,
+        (height+1)*BOXRIG_UI_FIXED_ONE, &last) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_update_selection(view, &last) == BOXRIG_UI_OK);
+    CHECK(renderer.draw(renderer.context, view, NULL) == 0);
+    pixels = renderer.capture(renderer.context);
+    CHECK(pixels != NULL);
+    for (unsigned y = 0; y < 4*height; y++) for (unsigned x = 0; x < 12*width; x++)
+        CHECK(close_rgb(pixels[y*BOXRIG_TEST_COLOR_WIDTH+x], 0x102030u));
+    free(pixels);
+    CHECK(boxrig_terminal_set_viewport_offset(terminal, 0) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+    CHECK(renderer.draw(renderer.context, view, NULL) == 0);
+    CHECK(boxrig_ui_view_hit_test(view, (7*width-1)*BOXRIG_UI_FIXED_ONE,
+        (3*height+1)*BOXRIG_UI_FIXED_ONE, &last) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_update_selection(view, &last) == BOXRIG_UI_OK);
+    boxrig_ui_selection history;
+    CHECK(boxrig_ui_view_get_selection(view, &history) && history.row_count == 6 &&
+        !history.anchor_visual_row_valid);
+    CHECK(renderer.draw(renderer.context, view, NULL) == 0);
+    pixels = renderer.capture(renderer.context);
+    CHECK(pixels != NULL);
+    for (unsigned y = 0; y < 4*height; y++) for (unsigned x = 0; x < 12*width; x++) {
+        uint32_t expected = x >= width && x < 7*width
+            ? over(0x102030u, rgb(style.background), 128) : 0x102030u;
+        CHECK(close_rgb(pixels[y*BOXRIG_TEST_COLOR_WIDTH+x], expected));
+    }
+    free(pixels);
+    CHECK(boxrig_ui_view_clear_selection(view) == BOXRIG_UI_OK);
+    CHECK(renderer.draw(renderer.context, view, NULL) == 0);
+    pixels = renderer.capture(renderer.context);
+    CHECK(pixels != NULL);
+    for (unsigned y = 0; y < 4*height; y++) for (unsigned x = 0; x < 12*width; x++)
+        CHECK(close_rgb(pixels[y*BOXRIG_TEST_COLOR_WIDTH+x], 0x102030u));
+    free(pixels);
+
     /* Preedit owns its foreground/background above the selected terminal cells.
      * A style-only redraw must preserve it and reveal the new style on cancel. */
     CHECK(boxrig_ui_view_clear_selection(view) == BOXRIG_UI_OK);

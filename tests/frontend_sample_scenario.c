@@ -668,6 +668,15 @@ static bool run_selection_style_video_scenario(
         uint8_t command;
         if (!operations->read_terminal(operations->context, &command, 1)) return false;
         if (command == 'q') return true;
+        if (command == 'h') {
+            /* Prepare history after the style and drag phases. Native scroll
+             * containers may add a top-edge shadow once history exists. */
+            for (size_t row = 0; row < 100; row++)
+                if (!write_bytes(operations, "\r\n")) return false;
+            if (!write_bytes(operations, "\033[2J\033[H") ||
+                !operations->set_title(operations->context, "boxrig-selection-history-ready")) return false;
+            continue;
+        }
         /* Decoration and color shortcuts belong to the sample. An escape
          * sequence reaching the child is a failure. */
         return false;
