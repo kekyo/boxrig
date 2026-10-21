@@ -443,11 +443,66 @@ static bool bounded_frame_work_is_rejected_without_consuming_dirty(void)
     return true;
 }
 
+static uint64_t analyzer_revision(void *context)
+{
+    (void)context;
+    return 1;
+}
+
+static boxrig_ui_status failing_analyzer(void *context, const boxrig_terminal *terminal,
+    boxrig_text_screen screen, size_t index, size_t maximum_bytes, boxrig_text_layout **out)
+{
+    (void)terminal; (void)screen; (void)index; (void)maximum_bytes;
+    size_t *calls = context;
+    (*calls)++;
+    *out = NULL;
+    return BOXRIG_UI_OUT_OF_MEMORY;
+}
+
+static bool caller_registered_analyzer_survives_optional_backend(void)
+{
+    view_fixture fixture;
+    fake_backend backend = {0};
+    CHECK(create_view_fixture(&fixture));
+    boxrig_ui_allocation_input allocation = {0};
+    allocation.allocation_width = 40*BOXRIG_UI_FIXED_ONE;
+    allocation.allocation_height = 40*BOXRIG_UI_FIXED_ONE;
+    allocation.cell_width = 10*BOXRIG_UI_FIXED_ONE;
+    allocation.cell_height = 20*BOXRIG_UI_FIXED_ONE;
+    allocation.cell_metrics_revision = 1;
+    boxrig_ui_layout_result layout;
+    CHECK(boxrig_ui_view_acquire_layout_authority(fixture.view) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_accept_allocation(fixture.view, &allocation, &layout) == BOXRIG_UI_OK);
+    boxrig_ui_fragment_layout_provider *provider = NULL;
+    size_t calls = 0;
+    CHECK(boxrig_ui_fragment_layout_provider_create(failing_analyzer, analyzer_revision,
+        &calls, &provider) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_set_fragment_layout_provider(fixture.view, provider) == BOXRIG_UI_OK);
+    boxrig_renderer_lifecycle_config config = lifecycle_config(&backend,
+        BOXRIG_RENDERER_INTEGRATION_RENDERER_ONLY, BOXRIG_RENDERER_RUNTIME_BORROWED,
+        BOXRIG_RENDERER_PRESENTATION_CALLER);
+    boxrig_renderer_lifecycle *lifecycle = NULL;
+    CHECK(boxrig_renderer_lifecycle_create(&config, &lifecycle) == BOXRIG_RENDERER_OK);
+    boxrig_renderer_frame_token token;
+    CHECK(boxrig_renderer_lifecycle_prepare_frame(lifecycle, fixture.view, NULL, 7, &token) == BOXRIG_RENDERER_OK);
+    CHECK(boxrig_renderer_lifecycle_abort_frame(lifecycle, &token) == BOXRIG_RENDERER_OK);
+    boxrig_renderer_lifecycle_destroy(lifecycle);
+    boxrig_ui_hit_test_result hit;
+    CHECK(boxrig_ui_view_hit_test(fixture.view, BOXRIG_UI_FIXED_ONE, BOXRIG_UI_FIXED_ONE, &hit) == BOXRIG_UI_OK);
+    boxrig_ui_selection_options options = {BOXRIG_UI_SELECTION_RECTANGULAR, BOXRIG_UI_SELECTION_CHARACTER};
+    CHECK(boxrig_ui_view_begin_selection_with_options(fixture.view, &options, &hit) == BOXRIG_UI_OUT_OF_MEMORY);
+    CHECK(calls == 1);
+    boxrig_ui_fragment_layout_provider_destroy(provider);
+    destroy_view_fixture(&fixture);
+    return true;
+}
+
 int main(void)
 {
-    CHECK(borrowed_renderer_only_retains_dirty_until_accept());
-    CHECK(managed_component_handles_target_and_present_failures());
-    CHECK(bounded_frame_work_is_rejected_without_consuming_dirty());
+    if (!borrowed_renderer_only_retains_dirty_until_accept() ||
+        !managed_component_handles_target_and_present_failures() ||
+        !bounded_frame_work_is_rejected_without_consuming_dirty() ||
+        !caller_registered_analyzer_survives_optional_backend()) return 1;
     printf("PASS private accelerated renderer lifecycle contract\n");
     return 0;
 }

@@ -162,9 +162,12 @@ static int run_history(size_t history_count)
         21 * BOXRIG_UI_FIXED_ONE, &hit) == BOXRIG_UI_OK);
     CHECK(boxrig_ui_view_update_selection(view, &hit) == BOXRIG_UI_LIMIT_EXCEEDED);
     CHECK(boxrig_ui_view_get_selection(view, &selection) && selection.row_count == 1 && !selection.stale);
-    boxrig_ui_view_destroy(view);
-    boxrig_ui_fragment_layout_provider_destroy(provider);
+    /* A detached view can outlive both its model and its analysis owner. */
     boxrig_ui_model_destroy(model);
+    boxrig_ui_fragment_layout_provider_destroy(provider);
+    CHECK(boxrig_ui_view_update_selection(view, &hit) == BOXRIG_UI_STALE);
+    CHECK(boxrig_ui_view_set_fragment_layout_provider(view, NULL) == BOXRIG_UI_OK);
+    boxrig_ui_view_destroy(view);
     boxrig_terminal_destroy(terminal);
     puts("PASS unvisited Unicode selection layouts");
     return EXIT_SUCCESS;

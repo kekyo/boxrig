@@ -1983,7 +1983,7 @@ static void mark_rectangular_selection_stale(boxrig_ui_view *view)
         view->selection.stale) {
         return;
     }
-    selected_screen_active =
+    selected_screen_active = view->model != NULL &&
         boxrig_terminal_active_text_screen(view->model->terminal) ==
         view->selection.screen;
     if (selected_screen_active &&

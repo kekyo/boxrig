@@ -4847,6 +4847,10 @@ test-scrollbar-sdk:
 	sh tests/check_scrollbar_sdk.sh "$(CC)" "$(MINGW_AMD64_CC)" "$(MINGW_I686_CC)"
 	$(WINE_RUN) $(abspath $(BUILD_DIR)/tests/scrollbar-sdk/win32-amd64/consumer.exe)
 	$(WINE_RUN) $(abspath $(BUILD_DIR)/tests/scrollbar-sdk/win32-i686/consumer.exe)
+	$(WINE_RUN) $(abspath $(BUILD_DIR)/tests/scrollbar-sdk/win32-amd64/selection_history.exe)
+	$(WINE_RUN) $(abspath $(BUILD_DIR)/tests/scrollbar-sdk/win32-amd64/selection_layout_provider.exe)
+	$(WINE_RUN) $(abspath $(BUILD_DIR)/tests/scrollbar-sdk/win32-i686/selection_history.exe)
+	$(WINE_RUN) $(abspath $(BUILD_DIR)/tests/scrollbar-sdk/win32-i686/selection_layout_provider.exe)
 
 test: test-scrollbar-sdk
 

@@ -197,6 +197,8 @@ typedef struct boxrig_renderer_backend_operations {
      * Optional analyzer owned by the backend renderer, borrowed by the lifecycle.
      * The renderer closes it before freeing its text-analysis context. Returning
      * a stable handle also supports temporary renderer-only lifecycle wrappers.
+     * Omitting this operation preserves an analyzer registered by the host;
+     * returning OK with NULL explicitly detaches it.
      */
     boxrig_ui_status (*fragment_layout_provider)(void *context,
         boxrig_ui_fragment_layout_provider **provider_out);
