@@ -270,6 +270,11 @@ static bool selection_unvisited_unicode(
         CHECK(boxrig_terminal_set_viewport_offset(terminal, 0) == BOXRIG_STATUS_OK);
         CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
         CHECK(renderer.draw(renderer.context, view, NULL) == 0);
+        /* Observe each completed frame before submitting the next one. A
+         * headless OpenGL host has no native present to drain pending work. */
+        uint32_t *pixels = renderer.capture(renderer.context);
+        CHECK(pixels != NULL);
+        free(pixels);
         boxrig_ui_hit_test_result hit;
         CHECK(boxrig_ui_view_hit_test(view, (cases[test].first*width+1)*BOXRIG_UI_FIXED_ONE,
             (3*height+1)*BOXRIG_UI_FIXED_ONE, &hit) == BOXRIG_UI_OK);
@@ -277,6 +282,9 @@ static bool selection_unvisited_unicode(
         CHECK(boxrig_terminal_set_viewport_offset(terminal, 3) == BOXRIG_STATUS_OK);
         CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
         CHECK(renderer.draw(renderer.context, view, NULL) == 0);
+        pixels = renderer.capture(renderer.context);
+        CHECK(pixels != NULL);
+        free(pixels);
         CHECK(boxrig_ui_view_hit_test(view, (cases[test].last*width-1)*BOXRIG_UI_FIXED_ONE,
             BOXRIG_UI_FIXED_ONE, &hit) == BOXRIG_UI_OK);
         CHECK(boxrig_ui_view_update_selection(view, &hit) == BOXRIG_UI_OK);
@@ -294,6 +302,9 @@ static bool selection_unvisited_unicode(
         }
         boxrig_text_snapshot_destroy(copy);
         CHECK(renderer.draw(renderer.context, view, NULL) == 0);
+        pixels = renderer.capture(renderer.context);
+        CHECK(pixels != NULL);
+        free(pixels);
         CHECK(boxrig_ui_view_get_selection(view, &selection) && !selection.stale);
     }
     renderer.destroy(renderer.context);

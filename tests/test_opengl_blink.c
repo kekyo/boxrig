@@ -24,9 +24,17 @@ static int draw(void *context, boxrig_ui_view *view,
     boxrig_composition *composition)
 {
     color_host *host = context;
-    return composition == NULL
+    int result = composition == NULL
         ? boxrig_ogl_renderer_draw_view(host->renderer, view)
         : boxrig_ogl_renderer_draw_view_composition(host->renderer, view, composition);
+    if (result != 0) {
+        boxrig_ogl_render_statistics state;
+        if (boxrig_ogl_renderer_get_render_statistics(host->renderer, &state) == 0) {
+            fprintf(stderr, "OpenGL fixture draw failed: in-flight frames=%zu\n",
+                state.in_flight_frame_count);
+        }
+    }
+    return result;
 }
 
 static uint32_t *capture(void *context)
