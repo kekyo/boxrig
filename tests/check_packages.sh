@@ -106,7 +106,7 @@ for arch in amd64 i686; do
         -o "$repository/build/tests/package-consumers/$arch.exe"
     for driver in selection_history selection_layout_provider; do
         "$compiler" -std=c99 -Wall -Wextra -Wpedantic -Werror \
-            "$repository/tests/test_$driver.c" $(pkg-config --cflags --libs boxrig-ui) \
+            "$repository/tests/test_$driver.c" $(pkg-config --cflags --libs boxrig-win32) \
             -o "$repository/build/tests/package-consumers/$arch-$driver.exe"
     done
     pkg-config --exists boxrig-win32 boxrig-render-ogl boxrig-win32-ogl \

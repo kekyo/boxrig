@@ -325,3 +325,9 @@ Waylandの4経路では、動画の矩形開始段階で選択枠を検出でき
 `make test-native-selection-style-videos`を再実行し、X11・GTK3・GTK4・Waylandの計8経路で、幅ゼロと履歴を含む9段階すべてが成功した。各段階の連続3フレームと、既存の4種類のスタイルを検査した。GTK3・GTK4の修正後のフレームも目視し、1セルの枠が見えることを確認した。製品側のカーソル表示や選択描画は変更していない。
 
 記録は`step4-selection-videos-cursor-green.log`と`video-verification.json`、動画は`build/test-results/step23-selection-style/`にある。失敗時の画像、GTK4のファイルアクセス、修正過程のログも`build/plan6-results/`に残した。
+
+### 配布アーカイブの利用者テスト
+
+全体テストで、追加したWindows用の利用者テストが`boxrig-ui.pc`を探して失敗した。Windows SDKは既存の`boxrig-win32.pc`でUIライブラリも公開しており、Linuxのパッケージ名を使ったことが原因だった。対象のコンパイルをWindowsの公開設定へ合わせ、配布アーカイブから作った2本のドライバーをamd64/i686の両方で実行する処理も追加した。
+
+`make test-packages`を再実行し、Linuxの共有SDK・5種類のフロントエンド、Windowsのamd64/i686、および両アーキテクチャーの履歴・文字解析ドライバーが成功した。並行中の全体テストとWineの状態を共有しないよう、この再実行には専用の`WINE_PREFIX`を指定した。結果は`step4-packages-green.log`と同名の`.exit`にある。SDKの構成や製品コードは変更していない。

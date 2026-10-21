@@ -5576,6 +5576,10 @@ test-packages:
 	bash tests/check_packages.sh "$(CC)" "$(MINGW_AMD64_CC)" "$(MINGW_I686_CC)"
 	$(WINE_RUN) $(abspath $(BUILD_DIR)/tests/package-consumers/amd64.exe)
 	$(WINE_RUN) $(abspath $(BUILD_DIR)/tests/package-consumers/i686.exe)
+	$(WINE_RUN) $(abspath $(BUILD_DIR)/tests/package-consumers/amd64-selection_history.exe)
+	$(WINE_RUN) $(abspath $(BUILD_DIR)/tests/package-consumers/amd64-selection_layout_provider.exe)
+	$(WINE_RUN) $(abspath $(BUILD_DIR)/tests/package-consumers/i686-selection_history.exe)
+	$(WINE_RUN) $(abspath $(BUILD_DIR)/tests/package-consumers/i686-selection_layout_provider.exe)
 
 include tests/headers/rules.mk
 include packaging/linux/rules.mk
