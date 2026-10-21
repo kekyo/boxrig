@@ -87,8 +87,10 @@ Rectangles made with the previous policy become `STALE` and cannot be copied.
 
 The owner calls `boxrig_ui_fragment_layout_provider_destroy()` before releasing its analysis context.
 Views retain a handle but never call a destroyed provider's callbacks or context. A view may also be destroyed first.
-Replacing or removing a registration invalidates existing rectangles and discards the previous display layouts.
+Replacing or removing a registration invalidates existing rectangles.
 When initially attaching a provider to an existing selection, use the same display policy.
+Published text geometry remains available until the next frame is accepted.
+New selections use the replacement provider's analysis instead.
 
 Analysis results are processed one row at a time; `maximum_retained_layout_bytes` also bounds each returned layout.
 Retained selection rows, logical ranges, and copied bytes remain subject to their respective view limits.

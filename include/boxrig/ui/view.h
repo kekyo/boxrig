@@ -1508,6 +1508,8 @@ boxrig_ui_status boxrig_ui_view_store_row_layout(
  * @remarks The owner keeps its handle. Replacing an existing provider makes
  * rectangular selections stale. First attachment adopts any retained geometry;
  * the host must use the same display policy that produced that geometry.
+ * Published row geometry remains available for the displayed frame, but a new
+ * provider must analyze selection rows until its own layouts are published.
  */
 boxrig_ui_status boxrig_ui_view_set_fragment_layout_provider(
     boxrig_ui_view *view, boxrig_ui_fragment_layout_provider *provider);

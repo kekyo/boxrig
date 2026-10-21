@@ -197,7 +197,6 @@ struct boxrig_ui_view {
 };
 
 static void mark_rectangular_selection_stale(boxrig_ui_view *view);
-static void clear_layout_cache(boxrig_ui_view *view);
 static boxrig_ui_status animation_model_changed(boxrig_ui_model *model);
 static boxrig_ui_status animation_model_update_time(boxrig_ui_model *model);
 static boxrig_ui_status animation_prepare_change(
@@ -271,7 +270,12 @@ boxrig_ui_status boxrig_ui_view_set_fragment_layout_provider(
     if (provider != NULL && provider->references == SIZE_MAX) return BOXRIG_UI_LIMIT_EXCEEDED;
     if (view->fragment_layout_provider != NULL) {
         mark_rectangular_selection_stale(view);
-        clear_layout_cache(view);
+        /* Published geometry still describes the displayed frame. Keep it for
+         * hit testing and annotations until the next frame is accepted, but
+         * never reuse it for a different provider's selection analysis. */
+        for (size_t row = 0; row < view->row_count; row++) {
+            view->row_layouts[row].provider_revision = 0;
+        }
     }
     if (provider != NULL) provider->references++;
     release_fragment_layout_provider(view->fragment_layout_provider);

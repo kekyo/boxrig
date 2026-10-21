@@ -133,6 +133,34 @@ static int run_history(size_t history_count)
     CHECK(boxrig_ui_view_update_selection(view, &hit) == BOXRIG_UI_OK);
     CHECK(context.calls == 6);
     CHECK(boxrig_ui_view_get_selection(view, &selection) && selection.row_count == 6);
+
+    /* Provider replacement must preserve the geometry of the displayed frame,
+     * while new selections must use the new analyzer even at the same revision. */
+    boxrig_text_cluster_input displayed_clusters[8] = {{0}};
+    for (size_t column = 0; column < 8; column++) {
+        displayed_clusters[column].logical_column = column;
+        displayed_clusters[column].column_count = 1;
+        displayed_clusters[column].text_offset = column;
+        displayed_clusters[column].text_length = 1;
+        displayed_clusters[column].bidi_level = column == 1 || column == 2 ? 1 : 0;
+    }
+    boxrig_text_layout *displayed = NULL;
+    CHECK(boxrig_text_layout_create(displayed_clusters, 8, 8,
+        BOXRIG_TEXT_DIRECTION_LTR, &displayed) == BOXRIG_TEXT_LAYOUT_OK);
+    CHECK(boxrig_ui_view_store_row_layout(view, 0, displayed,
+        boxrig_text_layout_estimated_bytes(displayed), 1) == BOXRIG_UI_OK);
+    boxrig_ui_fragment_layout_provider *replacement = NULL;
+    CHECK(boxrig_ui_fragment_layout_provider_create(resolve_layout, read_revision,
+        &context, &replacement) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_set_fragment_layout_provider(view, replacement) == BOXRIG_UI_OK);
+    boxrig_ui_fragment_layout_provider_destroy(provider);
+    provider = replacement;
+    CHECK(boxrig_ui_view_hit_test(view, 11 * BOXRIG_UI_FIXED_ONE,
+        BOXRIG_UI_FIXED_ONE, &hit) == BOXRIG_UI_OK);
+    CHECK(hit.leading_position.column == 2);
+    context.calls = 0;
+    CHECK(boxrig_ui_view_begin_selection_with_options(view, &options, &hit) == BOXRIG_UI_OK);
+    CHECK(context.calls == 1);
     context.revision++;
     CHECK(boxrig_ui_view_get_selection(view, &selection) && selection.stale);
     CHECK(boxrig_ui_view_create_selection_snapshot(view, &copy) == BOXRIG_UI_STALE && copy == NULL);
