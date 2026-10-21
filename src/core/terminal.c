@@ -513,19 +513,11 @@ void boxrig_terminal_test_fail_text_snapshot_allocation(
     }
 }
 
-boxrig_status boxrig_terminal_get_cell(
+static boxrig_status describe_cell(
     const boxrig_terminal *terminal,
-    size_t row,
-    size_t column,
+    const boxrig_cell *cell,
     boxrig_cell_view *cell_out)
 {
-    const boxrig_cell *cell;
-
-    if (terminal == NULL || cell_out == NULL || row >= terminal->screen.rows ||
-        column >= terminal->screen.columns) {
-        return BOXRIG_STATUS_INVALID_ARGUMENT;
-    }
-    cell = boxrig_screen_view_cell(&terminal->screen, row, column);
     if (terminal->graphics_protocol.enabled && !cell->continuation &&
         cell->text_length >= 4 && boxrig_cell_text(cell) != NULL &&
         memcmp(boxrig_cell_text(cell), "\xf4\x8e\xbb\xae", 4) == 0) {
@@ -570,18 +562,36 @@ boxrig_status boxrig_terminal_get_cell(
     return BOXRIG_STATUS_OK;
 }
 
+boxrig_status boxrig_terminal_get_cell(
+    const boxrig_terminal *terminal, size_t row, size_t column,
+    boxrig_cell_view *cell_out)
+{
+    if (terminal == NULL || cell_out == NULL || row >= terminal->screen.rows ||
+        column >= terminal->screen.columns) return BOXRIG_STATUS_INVALID_ARGUMENT;
+    return describe_cell(terminal,
+        boxrig_screen_view_cell(&terminal->screen, row, column), cell_out);
+}
+
+boxrig_status boxrig_terminal_get_text_fragment_cell(
+    const boxrig_terminal *terminal, boxrig_text_screen screen,
+    size_t fragment_index, size_t column, boxrig_cell_view *cell_out)
+{
+    if (terminal == NULL || cell_out == NULL) return BOXRIG_STATUS_INVALID_ARGUMENT;
+    const boxrig_cell *cell = boxrig_screen_text_fragment_cell(
+        &terminal->screen, screen, fragment_index, column);
+    return cell == NULL ? BOXRIG_STATUS_INVALID_ARGUMENT : describe_cell(terminal, cell, cell_out);
+}
+
 boxrig_status boxrig_terminal_resolve_viewport_cell(
     const boxrig_terminal *terminal,
     size_t row,
     size_t storage_column,
     boxrig_viewport_cell_resolution *resolution_out)
 {
-    boxrig_viewport_cell_resolution resolution;
     boxrig_text_screen text_screen;
     size_t fragment_count;
     size_t viewport_offset;
     size_t viewport_start;
-    boxrig_status status;
 
     if (terminal == NULL || resolution_out == NULL ||
         row >= terminal->screen.rows ||
@@ -603,11 +613,24 @@ boxrig_status boxrig_terminal_resolve_viewport_cell(
     if (row > SIZE_MAX - viewport_start) {
         return BOXRIG_STATUS_LIMIT_EXCEEDED;
     }
-    resolution.fragment_index = viewport_start + row;
+    return boxrig_terminal_resolve_text_fragment_cell(terminal, text_screen,
+        viewport_start + row, storage_column, resolution_out);
+}
+
+boxrig_status boxrig_terminal_resolve_text_fragment_cell(
+    const boxrig_terminal *terminal, boxrig_text_screen text_screen,
+    size_t fragment_index, size_t storage_column,
+    boxrig_viewport_cell_resolution *resolution_out)
+{
+    if (terminal == NULL || resolution_out == NULL) return BOXRIG_STATUS_INVALID_ARGUMENT;
+    boxrig_viewport_cell_resolution resolution;
+    boxrig_status status;
+    resolution.fragment_index = fragment_index;
     resolution.canonical_storage_column = storage_column;
-    status = boxrig_terminal_get_cell(
+    status = boxrig_terminal_get_text_fragment_cell(
         terminal,
-        row,
+        text_screen,
+        fragment_index,
         resolution.canonical_storage_column,
         &resolution.cell);
     if (status != BOXRIG_STATUS_OK) {
@@ -618,9 +641,10 @@ boxrig_status boxrig_terminal_resolve_viewport_cell(
             return BOXRIG_STATUS_INVALID_ARGUMENT;
         }
         resolution.canonical_storage_column--;
-        status = boxrig_terminal_get_cell(
+        status = boxrig_terminal_get_text_fragment_cell(
             terminal,
-            row,
+            text_screen,
+            fragment_index,
             resolution.canonical_storage_column,
             &resolution.cell);
         if (status != BOXRIG_STATUS_OK) {
@@ -635,9 +659,10 @@ boxrig_status boxrig_terminal_resolve_viewport_cell(
         return BOXRIG_STATUS_INVALID_ARGUMENT;
     }
     resolution.blank =
-        boxrig_screen_view_cell(
+        boxrig_screen_text_fragment_cell(
             &terminal->screen,
-            row,
+            text_screen,
+            fragment_index,
             resolution.canonical_storage_column)->text_length == 0u;
     status = boxrig_terminal_get_text_fragment(
         terminal,

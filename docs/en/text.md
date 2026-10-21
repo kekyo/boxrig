@@ -73,6 +73,10 @@ Viewport row numbers are accompanied by `anchor_visual_row_valid`,
 When false, the row is outside the viewport or belongs to an inactive screen, and its row number is zero.
 `row_sequence` describes the order within the entire rectangle, including offscreen rows.
 
+Use `boxrig_terminal_get_text_fragment_cell()` to inspect retained cells without moving the viewport.
+`boxrig_terminal_resolve_text_fragment_cell()` normalizes wide-character continuation cells and returns the complete grapheme range.
+Physical fragment indices may change after terminal mutations; verify the logical line ID and revision before reusing them.
+
 Passing a selection to the OS and handling an OSC 52 request from a terminal application are separate operations.
 See [Host integration](./host-integration.md) for permission and completion handling of the latter.
 

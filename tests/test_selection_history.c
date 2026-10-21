@@ -9,6 +9,24 @@
     fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #condition); \
     return EXIT_FAILURE; } } while (0)
 
+#ifdef BOXRIG_TEST_SELECTION_ALLOCATIONS
+static int allocation_budget = -1;
+void *__real_malloc(size_t size);
+void *__real_realloc(void *pointer, size_t size);
+void *__wrap_malloc(size_t size)
+{
+    if (allocation_budget == 0) return NULL;
+    if (allocation_budget > 0) allocation_budget--;
+    return __real_malloc(size);
+}
+void *__wrap_realloc(void *pointer, size_t size)
+{
+    if (allocation_budget == 0) return NULL;
+    if (allocation_budget > 0) allocation_budget--;
+    return __real_realloc(pointer, size);
+}
+#endif
+
 int main(void)
 {
     boxrig_terminal_config config = boxrig_terminal_config_default();
@@ -19,10 +37,19 @@ int main(void)
     boxrig_ui_model *model = NULL;
     boxrig_ui_view *view = NULL;
     boxrig_ui_view_config view_config = boxrig_ui_view_config_default();
+    view_config.maximum_selection_rows = 6;
     CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
     static const uint8_t text[] = "AAAA\r\nBBBB\r\nCCCC\r\nDDDD\r\nEEEE\r\nFFFF\r\nGGGG";
     size_t consumed;
     CHECK(boxrig_terminal_feed(terminal, text, sizeof(text) - 1, &consumed) == BOXRIG_STATUS_OK);
+    boxrig_cell_view cell;
+    CHECK(boxrig_terminal_get_text_fragment_cell(terminal, BOXRIG_TEXT_SCREEN_PRIMARY,
+        0, 0, &cell) == BOXRIG_STATUS_OK);
+    CHECK(cell.text_length == 1 && cell.text[0] == 'A');
+    CHECK(boxrig_terminal_viewport_offset(terminal) == 0);
+    CHECK(boxrig_terminal_get_text_fragment_cell(terminal, BOXRIG_TEXT_SCREEN_PRIMARY,
+        0, 8, &cell) == BOXRIG_STATUS_INVALID_ARGUMENT);
+    CHECK(cell.text_length == 1 && cell.text[0] == 'A');
     CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
     CHECK(boxrig_ui_view_create(model, &view_config, &view) == BOXRIG_UI_OK);
     CHECK(boxrig_ui_view_acquire_layout_authority(view) == BOXRIG_UI_OK);
@@ -83,6 +110,70 @@ int main(void)
         CHECK(length == 8 && memcmp(bytes, "DD\nEE\nFF", 8) == 0);
         boxrig_text_snapshot_destroy(copy);
     }
+    CHECK(boxrig_terminal_set_viewport_offset(terminal, 3) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_hit_test(view, 31 * BOXRIG_UI_FIXED_ONE,
+        BOXRIG_UI_FIXED_ONE, &focus) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_update_selection(view, &focus) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_get_selection(view, &selection));
+    CHECK(selection.row_count == 6 && !selection.anchor_visual_row_valid);
+    CHECK(boxrig_ui_view_create_selection_snapshot(view, &copy) == BOXRIG_UI_OK);
+    bytes = boxrig_text_snapshot_data(copy, &length);
+    CHECK(length == 17 && memcmp(bytes, "AA\nBB\nCC\nDD\nEE\nFF", 17) == 0);
+    printf("offscreen-anchor=F rows=%zu copy=[%.*s]\n", selection.row_count, (int)length, bytes);
+    boxrig_text_snapshot_destroy(copy);
+    CHECK(boxrig_ui_view_hit_test(view, 11 * BOXRIG_UI_FIXED_ONE,
+        BOXRIG_UI_FIXED_ONE, &anchor) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_begin_selection_with_options(view, &options, &anchor) == BOXRIG_UI_OK);
+    CHECK(boxrig_terminal_set_viewport_offset(terminal, 0) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_hit_test(view, 31 * BOXRIG_UI_FIXED_ONE,
+        61 * BOXRIG_UI_FIXED_ONE, &focus) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_update_selection(view, &focus) == BOXRIG_UI_LIMIT_EXCEEDED);
+    CHECK(boxrig_ui_view_get_selection(view, &selection) && selection.row_count == 1);
+    CHECK(boxrig_ui_view_hit_test(view, 31 * BOXRIG_UI_FIXED_ONE,
+        41 * BOXRIG_UI_FIXED_ONE, &focus) == BOXRIG_UI_OK);
+#ifdef BOXRIG_TEST_SELECTION_ALLOCATIONS
+    bool succeeded = false;
+    for (int budget = 0; budget < 16; budget++) {
+        allocation_budget = budget;
+        boxrig_ui_status status = boxrig_ui_view_update_selection(view, &focus);
+        allocation_budget = -1;
+        if (status == BOXRIG_UI_OK) { succeeded = true; break; }
+        CHECK(status == BOXRIG_UI_OUT_OF_MEMORY);
+        CHECK(boxrig_ui_view_get_selection(view, &selection) && selection.row_count == 1);
+        CHECK(boxrig_ui_view_create_selection_snapshot(view, &copy) == BOXRIG_UI_OK);
+        bytes = boxrig_text_snapshot_data(copy, &length);
+        CHECK(length == 1 && bytes[0] == 'A');
+        boxrig_text_snapshot_destroy(copy);
+    }
+    CHECK(succeeded);
+#else
+    CHECK(boxrig_ui_view_update_selection(view, &focus) == BOXRIG_UI_OK);
+#endif
+    CHECK(boxrig_ui_view_create_selection_snapshot(view, &copy) == BOXRIG_UI_OK);
+    bytes = boxrig_text_snapshot_data(copy, &length);
+    CHECK(length == 17 && memcmp(bytes, "AA\nBB\nCC\nDD\nEE\nFF", 17) == 0);
+    boxrig_text_snapshot_destroy(copy);
+    CHECK(boxrig_ui_view_hit_test(view, 11 * BOXRIG_UI_FIXED_ONE,
+        61 * BOXRIG_UI_FIXED_ONE, &focus) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_update_selection(view, &focus) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_get_selection(view, &selection) && selection.row_count == 0);
+    CHECK(boxrig_ui_view_clear_selection(view) == BOXRIG_UI_OK);
+    static const uint8_t alternate[] = "\033[?1049hA\xe7\x95\x8c" "e\xcc\x81";
+    CHECK(boxrig_terminal_feed(terminal, alternate, sizeof(alternate) - 1, &consumed) == BOXRIG_STATUS_OK);
+    boxrig_viewport_cell_resolution resolution;
+    CHECK(boxrig_terminal_resolve_text_fragment_cell(terminal, BOXRIG_TEXT_SCREEN_ALTERNATE,
+        0, 2, &resolution) == BOXRIG_STATUS_OK);
+    CHECK(resolution.canonical_storage_column == 1 && resolution.column_span == 2 && !resolution.blank);
+    CHECK(resolution.cell.text_length == 3 && memcmp(resolution.cell.text, "\xe7\x95\x8c", 3) == 0);
+    CHECK(boxrig_terminal_resolve_text_fragment_cell(terminal, BOXRIG_TEXT_SCREEN_ALTERNATE,
+        0, 3, &resolution) == BOXRIG_STATUS_OK);
+    CHECK(resolution.cell.text_length == 3 && memcmp(resolution.cell.text, "e\xcc\x81", 3) == 0);
+    CHECK(boxrig_terminal_resolve_text_fragment_cell(terminal, BOXRIG_TEXT_SCREEN_ALTERNATE,
+        0, 7, &resolution) == BOXRIG_STATUS_OK && resolution.blank);
+    CHECK(boxrig_terminal_get_text_fragment_cell(terminal, BOXRIG_TEXT_SCREEN_PRIMARY,
+        0, 0, &cell) == BOXRIG_STATUS_OK && cell.text[0] == 'A');
     boxrig_ui_view_destroy(view);
     boxrig_ui_model_destroy(model);
     boxrig_terminal_destroy(terminal);
