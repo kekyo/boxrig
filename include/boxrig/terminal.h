@@ -684,7 +684,7 @@ typedef struct boxrig_cell_view {
     boxrig_color background;
 } boxrig_cell_view;
 
-/** Resolution of one active-viewport storage cell to a complete grapheme. */
+/** Resolution of a viewport or retained-fragment cell to a complete grapheme. */
 typedef struct boxrig_viewport_cell_resolution {
     /** Metadata for the physical soft-wrap fragment containing the cell. */
     boxrig_text_fragment_view fragment;
@@ -2083,6 +2083,39 @@ boxrig_status boxrig_terminal_get_cell(
     size_t row,
     size_t column,
     boxrig_cell_view *cell_out);
+
+/**
+ * Reads a storage cell from any retained physical text fragment.
+ * @param terminal Terminal to inspect without changing its viewport.
+ * @param screen Logical text namespace, including retained primary history.
+ * @param fragment_index Current document-order physical fragment index.
+ * @param column Zero-based logical storage column within the fragment.
+ * @param cell_out Borrowed semantic cell, valid until the next terminal mutation.
+ * @return OK or INVALID_ARGUMENT. No output is written on failure.
+ * @remarks Indices may change after mutation; use get_text_fragment to verify
+ * stable line identity and revision before reusing an index. Continuation cells
+ * are returned as stored; resolve_text_fragment_cell finds the whole grapheme.
+ */
+boxrig_status boxrig_terminal_get_text_fragment_cell(
+    const boxrig_terminal *terminal, boxrig_text_screen screen,
+    size_t fragment_index, size_t column, boxrig_cell_view *cell_out);
+
+/**
+ * Resolves a cell in any retained physical fragment to its complete grapheme.
+ * @param terminal Terminal to inspect without mutation or viewport movement.
+ * @param screen Logical text namespace.
+ * @param fragment_index Current physical fragment index in that namespace.
+ * @param storage_column Logical storage column within the fragment.
+ * @param resolution_out Receives the normalized cell, fragment and text range.
+ * Nested pointers remain valid until the next terminal mutation.
+ * @return OK, INVALID_ARGUMENT, or LIMIT_EXCEEDED when text identity is unavailable.
+ * @remarks Uses the same cell and grapheme semantics as resolve_viewport_cell.
+ * Output remains unchanged on failure.
+ */
+boxrig_status boxrig_terminal_resolve_text_fragment_cell(
+    const boxrig_terminal *terminal, boxrig_text_screen screen,
+    size_t fragment_index, size_t storage_column,
+    boxrig_viewport_cell_resolution *resolution_out);
 
 /**
  * Resolves an active-viewport storage cell to its complete logical grapheme.

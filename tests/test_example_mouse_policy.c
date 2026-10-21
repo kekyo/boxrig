@@ -272,7 +272,8 @@ static bool test_modifier_reporting_and_click_count_matrix(void)
                   &event,
                   &hit,
                   &completed) == BOXRIG_INPUT_MOUSE_ROUTE_APPLICATION);
-        CHECK(completed && !fixture.selection_drag_active);
+        CHECK(completed == (test_case->expected_shape == BOXRIG_UI_SELECTION_LINEAR));
+        CHECK(!fixture.selection_drag_active);
         CHECK(peek_output_length(fixture.terminal) == 0u);
     }
     destroy_fixture(&fixture);
@@ -574,12 +575,43 @@ static bool test_right_copy_unicode_rectangle_and_failure(void)
     return true;
 }
 
+static bool test_empty_rectangle_does_not_request_copy(void)
+{
+    mouse_policy_fixture fixture;
+    CHECK(create_fixture(&fixture));
+    boxrig_ui_hit_test_result hit;
+    bool completed = false;
+    CHECK(hit_cell(&fixture, 0, 2, false, &hit));
+    boxrig_mouse_event event = left_event(BOXRIG_MOUSE_PRESS,
+        BOXRIG_MODIFIER_CONTROL, 1, 0, 2);
+    CHECK(boxrig_term_mouse_policy_route_selection(fixture.terminal, fixture.view,
+        &fixture.selection_drag_active, &event, &hit, &completed) ==
+        BOXRIG_INPUT_MOUSE_ROUTE_APPLICATION);
+    CHECK(hit_cell(&fixture, 1, 2, false, &hit));
+    event = left_event(BOXRIG_MOUSE_MOTION, BOXRIG_MODIFIER_CONTROL, 1, 1, 2);
+    CHECK(boxrig_term_mouse_policy_route_selection(fixture.terminal, fixture.view,
+        &fixture.selection_drag_active, &event, &hit, &completed) ==
+        BOXRIG_INPUT_MOUSE_ROUTE_APPLICATION);
+    CHECK(fixture.selection_drag_active && !completed);
+    event = left_event(BOXRIG_MOUSE_RELEASE, BOXRIG_MODIFIER_CONTROL, 1, 1, 2);
+    CHECK(boxrig_term_mouse_policy_route_selection(fixture.terminal, fixture.view,
+        &fixture.selection_drag_active, &event, &hit, &completed) ==
+        BOXRIG_INPUT_MOUSE_ROUTE_APPLICATION);
+    CHECK(!fixture.selection_drag_active && !completed);
+    boxrig_text_snapshot *snapshot = NULL;
+    CHECK(boxrig_ui_view_create_selection_snapshot(fixture.view, &snapshot) ==
+        BOXRIG_UI_UNAVAILABLE && snapshot == NULL);
+    destroy_fixture(&fixture);
+    return true;
+}
+
 int main(void)
 {
     static const struct {
         const char *name;
         bool (*function)(void);
     } tests[] = {
+        {"empty rectangle does not request copy", test_empty_rectangle_does_not_request_copy},
         {"right copy retains selection and owns button series",
          test_right_copy_retains_selection_and_owns_series},
         {"right copy preserves Unicode rectangle and diagnoses stale text",

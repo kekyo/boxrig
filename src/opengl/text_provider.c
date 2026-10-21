@@ -582,7 +582,7 @@ void boxrig_ogl_row_shape_destroy(boxrig_ogl_row_shape *shape)
 
 static int collect_clusters(
     const boxrig_terminal *terminal,
-    size_t row,
+    boxrig_text_screen screen, size_t fragment_index,
     size_t column_count,
     boxrig_ogl_row_shape *shape)
 {
@@ -601,7 +601,7 @@ static int collect_clusters(
         size_t width;
         size_t bytes;
 
-        if (boxrig_terminal_get_cell(terminal, row, column, &cell) !=
+        if (boxrig_terminal_get_text_fragment_cell(terminal, screen, fragment_index, column, &cell) !=
                 BOXRIG_STATUS_OK ||
             cell.continuation) {
             return -1;
@@ -631,7 +631,7 @@ static int collect_clusters(
         const char *source;
         size_t source_length;
 
-        if (boxrig_terminal_get_cell(terminal, row, column, &cell) !=
+        if (boxrig_terminal_get_text_fragment_cell(terminal, screen, fragment_index, column, &cell) !=
             BOXRIG_STATUS_OK) {
             return -1;
         }
@@ -1178,7 +1178,7 @@ int boxrig_ogl_text_provider_refresh_row_metadata(
 static int shape_collected_clusters(
     boxrig_ogl_text_provider *provider,
     boxrig_text_direction_policy direction_policy,
-    boxrig_ogl_row_shape *shape_out)
+    boxrig_ogl_row_shape *shape_out, bool render_glyphs)
 {
     PangoAttrList *attributes = NULL;
     GList *items = NULL;
@@ -1210,7 +1210,7 @@ static int shape_collected_clusters(
     direction = base_direction(items, direction_policy);
     if (prepare_items(provider, shape_out, items) == -1 ||
         build_layout(shape_out, direction, &shape_out->layout) == -1 ||
-        shape_items(shape_out) == -1) {
+        (render_glyphs && shape_items(shape_out) == -1)) {
         goto cleanup;
     }
     shape_out->direction = direction;
@@ -1245,12 +1245,41 @@ int boxrig_ogl_text_provider_shape_row(
     if (provider == NULL || terminal == NULL || shape_out == NULL) return -1;
     memset(shape_out, 0, sizeof(*shape_out));
     boxrig_terminal_size(terminal, &rows, &columns);
-    if (row >= rows || columns == 0 ||
-        collect_clusters(terminal, row, columns, shape_out) == -1) {
+    boxrig_text_screen screen = boxrig_terminal_active_text_screen(terminal);
+    size_t count = boxrig_terminal_text_fragment_count(terminal, screen);
+    size_t offset = boxrig_terminal_viewport_offset(terminal);
+    if (row >= rows || count < rows || offset > count - rows || columns == 0 ||
+        collect_clusters(terminal, screen, count - rows - offset + row, columns, shape_out) == -1) {
         boxrig_ogl_row_shape_destroy(shape_out);
         return -1;
     }
-    return shape_collected_clusters(provider, provider->direction_policy, shape_out);
+    return shape_collected_clusters(provider, provider->direction_policy, shape_out, true);
+}
+
+boxrig_ui_status boxrig_ogl_text_provider_fragment_layout(
+    boxrig_ogl_text_provider *provider, const boxrig_terminal *terminal,
+    boxrig_text_screen screen, size_t fragment_index, size_t maximum_bytes,
+    boxrig_text_layout **layout_out)
+{
+    *layout_out = NULL;
+    size_t rows, columns;
+    boxrig_terminal_size(terminal, &rows, &columns);
+    (void)rows;
+    boxrig_ogl_row_shape shape = {0};
+    if (collect_clusters(terminal, screen, fragment_index, columns, &shape) == -1 ||
+        shape_collected_clusters(provider, provider->direction_policy, &shape, false) == -1) {
+        boxrig_ogl_row_shape_destroy(&shape);
+        return BOXRIG_UI_UNAVAILABLE;
+    }
+    boxrig_ui_status status = BOXRIG_UI_OK;
+    if (boxrig_text_layout_estimated_bytes(shape.layout) > maximum_bytes) {
+        status = BOXRIG_UI_LIMIT_EXCEEDED;
+    } else {
+        *layout_out = shape.layout;
+        shape.layout = NULL;
+    }
+    boxrig_ogl_row_shape_destroy(&shape);
+    return status;
 }
 
 int boxrig_ogl_text_provider_shape_composition(
@@ -1300,7 +1329,7 @@ int boxrig_ogl_text_provider_shape_composition(
     return shape_collected_clusters(provider,
         direction == BOXRIG_TEXT_DIRECTION_RTL ? BOXRIG_TEXT_DIRECTION_FORCE_RTL
                                               : BOXRIG_TEXT_DIRECTION_FORCE_LTR,
-        shape);
+        shape, true);
 failure:
     boxrig_ogl_row_shape_destroy(shape);
     return -1;

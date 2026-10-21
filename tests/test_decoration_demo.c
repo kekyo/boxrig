@@ -9,6 +9,7 @@
 int main(void)
 {
     boxrig_terminal_config config = boxrig_terminal_config_default();
+    config.rows = 10; config.columns = 8;
     boxrig_ui_view_config view_config = boxrig_ui_view_config_default();
     boxrig_terminal *terminal = NULL;
     boxrig_ui_model *model = NULL;
@@ -115,6 +116,32 @@ int main(void)
         selected.presentation == BOXRIG_UI_SELECTION_OUTLINE);
     assert(unsetenv("BOXRIG_SELECTION_STYLE_DEMO") == 0);
     assert(unsetenv("BOXRIG_COLOR_FILTER_DEMO") == 0);
+    key.key = BOXRIG_KEY_F9; key.action = BOXRIG_KEY_PRESS;
+    assert(unsetenv("BOXRIG_TEST_SAMPLE_SELECTION_STYLE_VIDEO") == 0);
+    assert(boxrig_term_decoration_demo_route_key(view, &key) == BOXRIG_INPUT_KEY_ROUTE_TERMINAL);
+    size_t consumed;
+    for (size_t row = 0; row < 80; row++)
+        assert(boxrig_terminal_feed(terminal, (const uint8_t *)"\r\n", 2, &consumed) == BOXRIG_STATUS_OK);
+    assert(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+    assert(boxrig_ui_view_acquire_layout_authority(view) == BOXRIG_UI_OK);
+    boxrig_ui_allocation_input allocation = {0};
+    allocation.allocation_width = 80*BOXRIG_UI_FIXED_ONE;
+    allocation.allocation_height = 200*BOXRIG_UI_FIXED_ONE;
+    allocation.cell_width = 10*BOXRIG_UI_FIXED_ONE;
+    allocation.cell_height = 20*BOXRIG_UI_FIXED_ONE;
+    allocation.cell_metrics_revision = 1;
+    boxrig_ui_layout_result layout;
+    assert(boxrig_ui_view_accept_allocation(view, &allocation, &layout) == BOXRIG_UI_OK);
+    assert(setenv("BOXRIG_TEST_SAMPLE_SELECTION_STYLE_VIDEO", "1", 1) == 0);
+    assert(boxrig_term_decoration_demo_route_key(view, &key) == BOXRIG_INPUT_KEY_ROUTE_APPLICATION);
+    boxrig_ui_selection history;
+    assert(boxrig_ui_view_get_selection(view, &history) && history.row_count == 2);
+    assert(boxrig_term_decoration_demo_route_key(view, &key) == BOXRIG_INPUT_KEY_ROUTE_APPLICATION);
+    assert(boxrig_ui_view_get_selection(view, &history) && history.row_count == 19 &&
+        !history.anchor_visual_row_valid);
+    assert(boxrig_term_decoration_demo_route_key(view, &key) == BOXRIG_INPUT_KEY_ROUTE_APPLICATION);
+    assert(!boxrig_ui_view_get_selection(view, &history));
+    assert(unsetenv("BOXRIG_TEST_SAMPLE_SELECTION_STYLE_VIDEO") == 0);
     boxrig_ui_view_destroy(view);
     boxrig_ui_model_destroy(model);
     boxrig_terminal_destroy(terminal);

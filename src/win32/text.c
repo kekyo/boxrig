@@ -1762,9 +1762,9 @@ static int utf8_required_utf16_units(const char *text, size_t length)
         0);
 }
 
-static int collect_logical_clusters(
+static int collect_fragment_clusters(
     const boxrig_terminal *terminal,
-    size_t row,
+    boxrig_text_screen screen, size_t fragment_index,
     size_t column_count,
     boxrig_win32_row_shape *shape)
 {
@@ -1786,7 +1786,7 @@ static int collect_logical_clusters(
         size_t width;
         int required;
 
-        if (boxrig_terminal_get_cell(terminal, row, column, &cell) !=
+        if (boxrig_terminal_get_text_fragment_cell(terminal, screen, fragment_index, column, &cell) !=
                 BOXRIG_STATUS_OK ||
             cell.continuation) {
             return -1;
@@ -1820,7 +1820,7 @@ static int collect_logical_clusters(
         size_t source_length;
         int written;
 
-        if (boxrig_terminal_get_cell(terminal, row, column, &cluster->cell) !=
+        if (boxrig_terminal_get_text_fragment_cell(terminal, screen, fragment_index, column, &cluster->cell) !=
             BOXRIG_STATUS_OK) {
             return -1;
         }
@@ -1930,6 +1930,19 @@ int boxrig_win32_text_collect_composition_clusters(
     }
     shape->cluster_count = cluster_count;
     return shape->text_length == text_capacity ? 0 : -1;
+}
+
+static int collect_logical_clusters(const boxrig_terminal *terminal, size_t row,
+    size_t columns, boxrig_win32_row_shape *shape)
+{
+    size_t rows, actual_columns;
+    boxrig_terminal_size(terminal, &rows, &actual_columns);
+    (void)actual_columns;
+    boxrig_text_screen screen = boxrig_terminal_active_text_screen(terminal);
+    size_t count = boxrig_terminal_text_fragment_count(terminal, screen);
+    size_t offset = boxrig_terminal_viewport_offset(terminal);
+    if (row >= rows || count < rows || offset > count - rows) return -1;
+    return collect_fragment_clusters(terminal, screen, count - rows - offset + row, columns, shape);
 }
 
 static size_t cluster_index_at_text_position(
@@ -2705,10 +2718,10 @@ static int shape_run(
     return 0;
 }
 
-int boxrig_win32_text_shape_collected_row(
+static int shape_collected_row(
     boxrig_win32_renderer *renderer,
     boxrig_win32_row_shape *shape,
-    boxrig_text_direction_policy direction_policy)
+    boxrig_text_direction_policy direction_policy, bool render_glyphs)
 {
     boxrig_win32_text_analysis *analysis = NULL;
     size_t run_index;
@@ -2743,7 +2756,7 @@ int boxrig_win32_text_shape_collected_row(
             direction_policy) == -1) {
         goto failure;
     }
-    for (run_index = 0; run_index < shape->run_count; run_index++) {
+    for (run_index = 0; render_glyphs && run_index < shape->run_count; run_index++) {
         if (shape_run(renderer, shape, &shape->runs[run_index]) == -1) {
             goto failure;
         }
@@ -2759,6 +2772,65 @@ failure:
     }
     boxrig_win32_text_row_shape_destroy(shape);
     return -1;
+}
+
+int boxrig_win32_text_shape_collected_row(boxrig_win32_renderer *renderer,
+    boxrig_win32_row_shape *shape, boxrig_text_direction_policy direction_policy)
+{
+    return shape_collected_row(renderer, shape, direction_policy, true);
+}
+
+boxrig_ui_status boxrig_win32_text_fragment_layout(boxrig_win32_renderer *renderer,
+    const boxrig_terminal *terminal, boxrig_text_screen screen, size_t fragment_index,
+    size_t maximum_bytes, boxrig_text_layout **layout_out)
+{
+    *layout_out = NULL;
+    size_t rows, columns;
+    boxrig_terminal_size(terminal, &rows, &columns);
+    (void)rows;
+    boxrig_win32_row_shape shape = {0};
+    if (collect_fragment_clusters(terminal, screen, fragment_index, columns, &shape) == -1 ||
+        shape_collected_row(renderer, &shape, renderer->direction_policy, false) == -1) {
+        boxrig_win32_text_row_shape_destroy(&shape);
+        return BOXRIG_UI_UNAVAILABLE;
+    }
+    boxrig_ui_status status = BOXRIG_UI_OK;
+    if (boxrig_text_layout_estimated_bytes(shape.layout) > maximum_bytes) {
+        status = BOXRIG_UI_LIMIT_EXCEEDED;
+    } else {
+        *layout_out = shape.layout;
+        shape.layout = NULL;
+    }
+    boxrig_win32_text_row_shape_destroy(&shape);
+    return status;
+}
+
+static uint64_t fragment_layout_revision(void *context)
+{
+    boxrig_win32_renderer *renderer = context;
+    uint64_t revision = renderer->effective_metrics.layout_revision * 4 + renderer->direction_policy + 1;
+    return revision == 0 ? 1 : revision;
+}
+
+static boxrig_ui_status resolve_fragment_layout(void *context,
+    const boxrig_terminal *terminal, boxrig_text_screen screen, size_t fragment_index,
+    size_t maximum_bytes, boxrig_text_layout **layout_out)
+{
+    return boxrig_win32_text_fragment_layout(context, terminal, screen, fragment_index,
+        maximum_bytes, layout_out);
+}
+
+boxrig_ui_status boxrig_win32_text_fragment_layout_provider(void *context,
+    boxrig_ui_fragment_layout_provider **provider_out)
+{
+    boxrig_win32_renderer *renderer = context;
+    if (renderer->fragment_layout_provider == NULL) {
+        boxrig_ui_status status = boxrig_ui_fragment_layout_provider_create(
+            resolve_fragment_layout, fragment_layout_revision, renderer, &renderer->fragment_layout_provider);
+        if (status != BOXRIG_UI_OK) return status;
+    }
+    *provider_out = renderer->fragment_layout_provider;
+    return BOXRIG_UI_OK;
 }
 
 int boxrig_win32_text_shape_terminal_row(

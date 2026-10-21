@@ -67,6 +67,12 @@ test "$(pkg-config --modversion boxrig)" = "$version"
     $(pkg-config --cflags --libs boxrig-ui boxrig-posix) -ldl \
     '-Wl,-rpath,$ORIGIN/../lib' -o "$sdk/bin/shared-consumer"
 env -u LD_LIBRARY_PATH LD_BIND_NOW=1 "$sdk/bin/shared-consumer"
+for driver in selection_history selection_layout_provider; do
+    "$compiler" -std=c99 -Wall -Wextra -Wpedantic -Werror \
+        "$repository/tests/test_$driver.c" $(pkg-config --cflags --libs boxrig-ui) \
+        '-Wl,-rpath,$ORIGIN/../lib' -o "$sdk/bin/$driver"
+    env -u LD_LIBRARY_PATH LD_BIND_NOW=1 "$sdk/bin/$driver"
+done
 for specification in \
     'boxrig-gtk3:gtk3/test_gtk3_package.c' \
     'boxrig-gtk4:gtk4/test_gtk4_package.c' \
@@ -98,6 +104,11 @@ for arch in amd64 i686; do
     "$compiler" -std=c99 -Wall -Wextra -Wpedantic -Werror consumer.c \
         $(pkg-config --cflags --libs boxrig) \
         -o "$repository/build/tests/package-consumers/$arch.exe"
+    for driver in selection_history selection_layout_provider; do
+        "$compiler" -std=c99 -Wall -Wextra -Wpedantic -Werror \
+            "$repository/tests/test_$driver.c" $(pkg-config --cflags --libs boxrig-win32) \
+            -o "$repository/build/tests/package-consumers/$arch-$driver.exe"
+    done
     pkg-config --exists boxrig-win32 boxrig-render-ogl boxrig-win32-ogl \
         boxrig-render-d3d11 boxrig-win32-d3d11
     test -s "$sdk/bin/boxrig_term.exe"

@@ -56,9 +56,50 @@ int boxrig_term_decoration_demo_initialize(boxrig_ui_view *view)
     return 0;
 }
 
+/* Scripted host operations for the native selection video. This deliberately
+ * uses the public selection/scroll APIs without adding an autoscroll policy. */
+static boxrig_input_key_route selection_history_video_step(boxrig_ui_view *view)
+{
+    boxrig_ui_layout_result layout;
+    if (boxrig_ui_view_get_layout(view, &layout) != BOXRIG_UI_OK ||
+        layout.rows < 7 || layout.columns < 6) return BOXRIG_INPUT_KEY_ROUTE_ERROR;
+    boxrig_ui_selection selection;
+    bool active = boxrig_ui_view_get_selection(view, &selection);
+    if (active && selection.row_count > 2)
+        return boxrig_ui_view_clear_selection(view) == BOXRIG_UI_OK
+            ? BOXRIG_INPUT_KEY_ROUTE_APPLICATION : BOXRIG_INPUT_KEY_ROUTE_ERROR;
+    boxrig_ui_fixed cw = layout.grid_width / (boxrig_ui_fixed)layout.columns;
+    boxrig_ui_fixed ch = layout.grid_height / (boxrig_ui_fixed)layout.rows;
+    boxrig_ui_hit_test_result hit;
+    if (!active || selection.row_count == 0) {
+        const boxrig_ui_selection_options options = {BOXRIG_UI_SELECTION_RECTANGULAR,
+            BOXRIG_UI_SELECTION_CHARACTER};
+        if (boxrig_ui_view_hit_test(view, 2*cw+1, 5*ch+1, &hit) != BOXRIG_UI_OK ||
+            boxrig_ui_view_begin_selection_with_options(view, &options, &hit) != BOXRIG_UI_OK ||
+            boxrig_ui_view_hit_test(view, 5*cw+1, 6*ch+1, &hit) != BOXRIG_UI_OK)
+            return BOXRIG_INPUT_KEY_ROUTE_ERROR;
+    } else {
+        boxrig_terminal *terminal = boxrig_ui_view_terminal(view);
+        if (boxrig_terminal_scrollback_rows(terminal) < layout.rows+3 ||
+            boxrig_terminal_set_viewport_offset(terminal, layout.rows+3) != BOXRIG_STATUS_OK ||
+            boxrig_ui_model_synchronize(boxrig_ui_view_model(view)) != BOXRIG_UI_OK ||
+            boxrig_ui_view_hit_test(view, 5*cw+1, 1, &hit) != BOXRIG_UI_OK)
+            return BOXRIG_INPUT_KEY_ROUTE_ERROR;
+    }
+    return boxrig_ui_view_update_selection(view, &hit) == BOXRIG_UI_OK
+        ? BOXRIG_INPUT_KEY_ROUTE_APPLICATION : BOXRIG_INPUT_KEY_ROUTE_ERROR;
+}
+
 boxrig_input_key_route boxrig_term_decoration_demo_route_key(
     boxrig_ui_view *view, const boxrig_key_event *event)
 {
+    const char *video = getenv("BOXRIG_TEST_SAMPLE_SELECTION_STYLE_VIDEO");
+    if (event->key == BOXRIG_KEY_F9 && video != NULL && strcmp(video, "1") == 0 &&
+        (event->modifiers & ~(BOXRIG_MODIFIER_CAPS_LOCK | BOXRIG_MODIFIER_NUM_LOCK)) ==
+            (BOXRIG_MODIFIER_CONTROL | BOXRIG_MODIFIER_SHIFT)) {
+        return event->action == BOXRIG_KEY_PRESS ? selection_history_video_step(view)
+            : BOXRIG_INPUT_KEY_ROUTE_APPLICATION;
+    }
     if ((event->key != BOXRIG_KEY_F11 && event->key != BOXRIG_KEY_F10) ||
         (event->modifiers & ~(BOXRIG_MODIFIER_CAPS_LOCK | BOXRIG_MODIFIER_NUM_LOCK)) !=
             (BOXRIG_MODIFIER_CONTROL | BOXRIG_MODIFIER_SHIFT)) {

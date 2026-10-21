@@ -24,6 +24,7 @@ for frontend in gtk3 gtk4 wayland x11 win32-amd64 win32-i686; do
     esac
     make "$target" PREFIX="$prefix"
     cp tests/test_scrollbar_sdk.c "$root/$frontend/consumer.c"
+    cp tests/test_selection_history.c tests/test_selection_layout_provider.c "$root/$frontend/"
     (
         cd "$root/$frontend"
         export PKG_CONFIG_LIBDIR="$prefix/lib/pkgconfig"
@@ -47,5 +48,14 @@ for frontend in gtk3 gtk4 wayland x11 win32-amd64 win32-i686; do
             win32-*) ;;
             *) ./consumer.exe ;;
         esac
+        # Public-only selection drivers also validate installed types and APIs.
+        for driver in selection_history selection_layout_provider; do
+            "$compiler" -std=c99 -Wall -Wextra -Werror "test_$driver.c" \
+                $(pkg-config --cflags --libs $pkg_query "$package" $extra_packages) -o "$driver.exe"
+            case "$frontend" in
+                win32-*) ;;
+                *) "./$driver.exe" ;;
+            esac
+        done
     )
 done

@@ -21,7 +21,7 @@
  * @param event Normalized pointer transition supplied by a native adapter.
  * @param hit Exact revisioned view hit supplied with event.
  * @param selection_completed_out Receives whether this transition completed a
- * captured selection and may be offered to a native clipboard.
+ * captured nonempty selection and may be offered to a native clipboard.
  * @return Application routing for a host selection series, terminal routing
  * when the client owns the transition, or error when a requested host
  * selection operation failed.

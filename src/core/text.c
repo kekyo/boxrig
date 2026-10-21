@@ -433,6 +433,16 @@ static const boxrig_cell *document_cell(
     return &screen->alternate.row_cells[fragment_index][column];
 }
 
+const boxrig_cell *boxrig_screen_text_fragment_cell(
+    const boxrig_screen *screen, boxrig_text_screen text_screen,
+    size_t fragment_index, size_t column)
+{
+    if (screen == NULL || !text_screen_valid(text_screen) ||
+        fragment_index >= document_fragment_count(screen, text_screen) ||
+        column >= screen->columns) return NULL;
+    return document_cell(screen, text_screen, fragment_index, column);
+}
+
 static bool document_fragment_soft_wrapped(
     const boxrig_screen *screen,
     boxrig_text_screen text_screen,

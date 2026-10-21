@@ -2436,6 +2436,26 @@ $(SELECTION_TEST_BINARY): tests/test_selection.c src/ui/word_break.h \
 		$(PROJECT_CFLAGS) $(SANITIZERS) tests/test_selection.c \
 		$(UI_LIBRARY) $(LIBRARY) $(SANITIZERS) -o $@
 
+.PHONY: test-selection-history
+test: test-selection-history test-selection-layout-provider
+test-selection-history: $(BUILD_DIR)/tests/test_selection_history
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
+
+$(BUILD_DIR)/tests/test_selection_history: tests/test_selection_history.c \
+		$(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) \
+		-DBOXRIG_TEST_SELECTION_ALLOCATIONS $(SANITIZERS) $< $(UI_LIBRARY) \
+		$(LIBRARY) $(SANITIZERS) -Wl,--wrap=malloc -Wl,--wrap=realloc -o $@
+
+.PHONY: test-selection-layout-provider
+test-selection-layout-provider: $(BUILD_DIR)/tests/test_selection_layout_provider
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
+
+$(BUILD_DIR)/tests/test_selection_layout_provider: tests/test_selection_layout_provider.c \
+		$(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) \
+		$(SANITIZERS) $< $(UI_LIBRARY) $(LIBRARY) $(SANITIZERS) -o $@
+
 $(FRONTEND_CONFORMANCE_TEST_BINARY): tests/test_frontend_conformance.c \
 		$(FRONTEND_CONFORMANCE_MATRIX) $(FRONTEND_COMPONENT_FIXTURE_HEADER) \
 		$(FRONTEND_SAMPLE_SCENARIO_HEADER) $(FRONTEND_PUBLIC_CONTRACTS) \
@@ -4827,6 +4847,10 @@ test-scrollbar-sdk:
 	sh tests/check_scrollbar_sdk.sh "$(CC)" "$(MINGW_AMD64_CC)" "$(MINGW_I686_CC)"
 	$(WINE_RUN) $(abspath $(BUILD_DIR)/tests/scrollbar-sdk/win32-amd64/consumer.exe)
 	$(WINE_RUN) $(abspath $(BUILD_DIR)/tests/scrollbar-sdk/win32-i686/consumer.exe)
+	$(WINE_RUN) $(abspath $(BUILD_DIR)/tests/scrollbar-sdk/win32-amd64/selection_history.exe)
+	$(WINE_RUN) $(abspath $(BUILD_DIR)/tests/scrollbar-sdk/win32-amd64/selection_layout_provider.exe)
+	$(WINE_RUN) $(abspath $(BUILD_DIR)/tests/scrollbar-sdk/win32-i686/selection_history.exe)
+	$(WINE_RUN) $(abspath $(BUILD_DIR)/tests/scrollbar-sdk/win32-i686/selection_layout_provider.exe)
 
 test: test-scrollbar-sdk
 
@@ -5552,6 +5576,10 @@ test-packages:
 	bash tests/check_packages.sh "$(CC)" "$(MINGW_AMD64_CC)" "$(MINGW_I686_CC)"
 	$(WINE_RUN) $(abspath $(BUILD_DIR)/tests/package-consumers/amd64.exe)
 	$(WINE_RUN) $(abspath $(BUILD_DIR)/tests/package-consumers/i686.exe)
+	$(WINE_RUN) $(abspath $(BUILD_DIR)/tests/package-consumers/amd64-selection_history.exe)
+	$(WINE_RUN) $(abspath $(BUILD_DIR)/tests/package-consumers/amd64-selection_layout_provider.exe)
+	$(WINE_RUN) $(abspath $(BUILD_DIR)/tests/package-consumers/i686-selection_history.exe)
+	$(WINE_RUN) $(abspath $(BUILD_DIR)/tests/package-consumers/i686-selection_layout_provider.exe)
 
 include tests/headers/rules.mk
 include packaging/linux/rules.mk

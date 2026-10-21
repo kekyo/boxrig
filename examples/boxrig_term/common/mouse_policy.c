@@ -50,8 +50,11 @@ boxrig_input_mouse_route boxrig_term_mouse_policy_route_selection(
             }
         }
         if (completing) {
+            boxrig_ui_selection selection;
             *selection_drag_active = false;
-            *selection_completed_out = true;
+            *selection_completed_out = boxrig_ui_view_get_selection(view, &selection) &&
+                (selection.shape != BOXRIG_UI_SELECTION_RECTANGULAR ||
+                 selection.row_count != 0);
         }
         return BOXRIG_INPUT_MOUSE_ROUTE_APPLICATION;
     }

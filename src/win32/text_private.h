@@ -10,6 +10,13 @@ typedef struct boxrig_win32_text_face {
     float em_size;
 } boxrig_win32_text_face;
 
+/* Borrow the renderer-owned selection analyzer, or return an owned row layout. */
+boxrig_ui_status boxrig_win32_text_fragment_layout_provider(void *context,
+    boxrig_ui_fragment_layout_provider **provider_out);
+boxrig_ui_status boxrig_win32_text_fragment_layout(boxrig_win32_renderer *renderer,
+    const boxrig_terminal *terminal, boxrig_text_screen screen, size_t fragment_index,
+    size_t maximum_bytes, boxrig_text_layout **layout_out);
+
 int boxrig_win32_text_shape(boxrig_win32_renderer *renderer,
     const boxrig_terminal *terminal, size_t row, boxrig_ogl_row_shape *shape);
 int boxrig_win32_text_shape_composition(boxrig_win32_renderer *renderer,

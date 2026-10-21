@@ -673,6 +673,13 @@ static HRESULT create_factory(boxrig_d3d11_renderer *renderer)
         &IID_ID2D1Factory1, NULL, (void **)&renderer->factory);
 }
 
+static boxrig_ui_status fragment_layout_provider(void *context,
+    boxrig_ui_fragment_layout_provider **provider_out)
+{
+    boxrig_d3d11_renderer *renderer = context;
+    return boxrig_win32_text_fragment_layout_provider(renderer->text, provider_out);
+}
+
 static HRESULT create_renderer(const boxrig_d3d11_renderer_config *config,
     boxrig_win32_renderer *font, boxrig_d3d11_renderer **renderer_out)
 {
@@ -738,6 +745,7 @@ static HRESULT create_renderer(const boxrig_d3d11_renderer_config *config,
     lifecycle.limits.maximum_cache_entry_count = config->maximum_image_entries + 5;
     lifecycle.limits.maximum_dirty_rectangle_count = config->maximum_cells * BOXRIG_UI_DIRTY_LAYER_COUNT;
     lifecycle.limits.maximum_submission_count = 1;
+    lifecycle.operations.fragment_layout_provider = fragment_layout_provider;
     lifecycle.operations.prepare_frame = prepare;
     lifecycle.operations.finish_frame = finish;
     lifecycle.operations.abort_frame = abort_frame;

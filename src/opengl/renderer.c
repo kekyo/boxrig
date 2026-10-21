@@ -109,6 +109,7 @@ typedef struct frame_batch {
 } frame_batch;
 
 struct boxrig_ogl_renderer {
+    boxrig_ui_fragment_layout_provider *fragment_layout_provider;
     boxrig_ui_rgba background_color;
     boxrig_ui_background_image_view background_image;
     const boxrig_ui_view *background_owner;
@@ -3763,6 +3764,7 @@ boxrig_gl_status boxrig_ogl_renderer_destroy(
         &renderer->runtime,
         context_generation,
         diagnostic_out);
+    boxrig_ui_fragment_layout_provider_destroy(renderer->fragment_layout_provider);
     destroy_row_cache(renderer);
     boxrig_ogl_text_provider_destroy(renderer->text_provider);
     free(renderer->batch.instances);
@@ -3887,6 +3889,36 @@ int boxrig_ogl_renderer_set_composited_scrollbar_interaction(
     return 0;
 }
 
+static uint64_t fragment_layout_revision(void *context)
+{
+    boxrig_ogl_renderer *renderer = context;
+    uint64_t revision = boxrig_ogl_text_provider_revision(renderer->text_provider) * 4 +
+        renderer->config.direction_policy + 1;
+    return revision == 0 ? 1 : revision;
+}
+
+static boxrig_ui_status resolve_fragment_layout(void *context,
+    const boxrig_terminal *terminal, boxrig_text_screen screen, size_t fragment_index,
+    size_t maximum_bytes, boxrig_text_layout **layout_out)
+{
+    boxrig_ogl_renderer *renderer = context;
+    return boxrig_ogl_text_provider_fragment_layout(renderer->text_provider,
+        terminal, screen, fragment_index, maximum_bytes, layout_out);
+}
+
+static boxrig_ui_status fragment_layout_provider(void *context,
+    boxrig_ui_fragment_layout_provider **provider_out)
+{
+    boxrig_ogl_renderer *renderer = context;
+    if (renderer->fragment_layout_provider == NULL) {
+        boxrig_ui_status status = boxrig_ui_fragment_layout_provider_create(
+            resolve_fragment_layout, fragment_layout_revision, renderer, &renderer->fragment_layout_provider);
+        if (status != BOXRIG_UI_OK) return status;
+    }
+    *provider_out = renderer->fragment_layout_provider;
+    return BOXRIG_UI_OK;
+}
+
 boxrig_renderer_status boxrig_ogl_renderer_lifecycle_create(
     boxrig_ogl_renderer *renderer,
     const boxrig_renderer_target *target,
@@ -3912,6 +3944,7 @@ boxrig_renderer_status boxrig_ogl_renderer_lifecycle_create(
         renderer->config.limits.maximum_glyph_entries,
         renderer->config.limits.maximum_image_entries);
     config.limits.maximum_cache_entry_count = saturated_add(config.limits.maximum_cache_entry_count, 1);
+    config.operations.fragment_layout_provider = fragment_layout_provider;
     config.operations.prepare_frame = lifecycle_prepare_frame;
     config.operations.finish_frame = lifecycle_finish_frame;
     config.operations.abort_frame = lifecycle_abort_frame;
