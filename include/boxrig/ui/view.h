@@ -577,15 +577,25 @@ typedef struct boxrig_ui_selection {
     boxrig_text_range range;
     /** Whether retained rectangular geometry no longer names the same text. */
     bool stale;
-    /** Visual row containing the original pointer end. */
+    /** Logical column at which the rectangular anchor's physical row begins. */
+    size_t anchor_fragment_logical_column_offset;
+    /** Logical column at which the rectangular focus's physical row begins. */
+    size_t focus_fragment_logical_column_offset;
+    /** Whether anchor_visual_row names a row in the current active viewport. */
+    bool anchor_visual_row_valid;
+    /** Current anchor viewport row, or zero when anchor_visual_row_valid is false. */
     size_t anchor_visual_row;
     /** Visual boundary selected at the original pointer end. */
     size_t anchor_visual_column;
-    /** Visual row containing the moving pointer end. */
+    /** Whether focus_visual_row names a row in the current active viewport. */
+    bool focus_visual_row_valid;
+    /** Current focus viewport row, or zero when focus_visual_row_valid is false. */
     size_t focus_visual_row;
     /** Visual boundary selected at the moving pointer end. */
     size_t focus_visual_column;
-    /** Topmost visual row at materialization time. */
+    /** Whether the rectangle's first physical row is in the active viewport. */
+    bool visual_start_row_valid;
+    /** Current first viewport row, or zero when visual_start_row_valid is false. */
     size_t visual_start_row;
     /** Leftmost requested visual boundary before per-row grapheme expansion. */
     size_t visual_start_column;
@@ -595,13 +605,13 @@ typedef struct boxrig_ui_selection {
     uint64_t layout_generation;
     /** Terminal text revision represented by the current boundaries. */
     uint64_t text_revision;
-    /** Number of immutable rectangular row slices, or zero for linear. */
+    /** Number of retained rectangular row slices, or zero for linear or empty. */
     size_t row_count;
-    /** Number of immutable rectangular logical ranges, or zero for linear. */
+    /** Number of retained rectangular logical ranges, or zero for linear or empty. */
     size_t range_count;
 } boxrig_ui_selection;
 
-/** Immutable materialized description of one rectangular visual row. */
+/** Retained rectangular text geometry with query-time viewport coordinates. */
 typedef struct boxrig_ui_selection_row_slice {
     /** Logical text namespace containing this physical fragment. */
     boxrig_text_screen screen;
@@ -615,7 +625,9 @@ typedef struct boxrig_ui_selection_row_slice {
     bool fragment_soft_wrapped;
     /** Top-to-bottom sequence within the materialized rectangle. */
     size_t row_sequence;
-    /** Active viewport row used when this slice was materialized. */
+    /** Whether this physical row currently belongs to the active viewport. */
+    bool visual_row_valid;
+    /** Current viewport row, or zero when visual_row_valid is false. */
     size_t visual_row;
     /** Left requested visual boundary before grapheme expansion. */
     size_t requested_visual_column;
@@ -1627,13 +1639,16 @@ boxrig_ui_status boxrig_ui_view_update_selection(
  * range queries reject the retained details with BOXRIG_UI_STALE.
  * An empty rectangular selection also returns true, with zero visual width,
  * row count and range count. Clearing it explicitly removes the anchor.
+ * Rectangular fragment offsets identify physical rows independently of the
+ * viewport. Visual row validity flags describe the current viewport, are false
+ * for stale selections, and are unused for linear selections.
  */
 bool boxrig_ui_view_get_selection(
     const boxrig_ui_view *view,
     boxrig_ui_selection *selection_out);
 
 /**
- * Copies this view's immutable rectangular row descriptions without allocation.
+ * Copies this view's retained rectangular row descriptions without allocation.
  *
  * @param view View to inspect.
  * @param rows_out Caller-owned destination, or NULL when capacity is zero.
@@ -1646,6 +1661,8 @@ bool boxrig_ui_view_get_selection(
  * @remarks Rows are returned from top to bottom. Requested columns describe
  * the pointer rectangle, while effective columns include whole-grapheme edge
  * expansion and blank_column_count records selected empty display cells.
+ * Text identities and ranges remain stable across scrolling; visual_row and
+ * visual_row_valid describe the current active viewport at query time.
  */
 boxrig_ui_status boxrig_ui_view_query_selection_rows(
     const boxrig_ui_view *view,

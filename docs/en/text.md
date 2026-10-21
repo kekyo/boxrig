@@ -66,6 +66,13 @@ Row and range queries return zero items, and there are no visual ranges.
 Copying returns `BOXRIG_UI_UNAVAILABLE`; leave the existing clipboard unchanged.
 Calling `clear_selection()` also removes the retained anchor.
 
+Rectangular endpoints retain their logical line IDs and physical fragment offsets.
+After scrolling, synchronize the model and update the endpoint using a fresh hit-test result.
+Viewport row numbers are accompanied by `anchor_visual_row_valid`,
+`focus_visual_row_valid`, `visual_start_row_valid`, and `visual_row_valid`.
+When false, the row is outside the viewport or belongs to an inactive screen, and its row number is zero.
+`row_sequence` describes the order within the entire rectangle, including offscreen rows.
+
 Passing a selection to the OS and handling an OSC 52 request from a terminal application are separate operations.
 See [Host integration](./host-integration.md) for permission and completion handling of the latter.
 

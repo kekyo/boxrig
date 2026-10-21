@@ -2436,6 +2436,16 @@ $(SELECTION_TEST_BINARY): tests/test_selection.c src/ui/word_break.h \
 		$(PROJECT_CFLAGS) $(SANITIZERS) tests/test_selection.c \
 		$(UI_LIBRARY) $(LIBRARY) $(SANITIZERS) -o $@
 
+.PHONY: test-selection-history
+test: test-selection-history
+test-selection-history: $(BUILD_DIR)/tests/test_selection_history
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
+
+$(BUILD_DIR)/tests/test_selection_history: tests/test_selection_history.c \
+		$(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) \
+		$(SANITIZERS) $< $(UI_LIBRARY) $(LIBRARY) $(SANITIZERS) -o $@
+
 $(FRONTEND_CONFORMANCE_TEST_BINARY): tests/test_frontend_conformance.c \
 		$(FRONTEND_CONFORMANCE_MATRIX) $(FRONTEND_COMPONENT_FIXTURE_HEADER) \
 		$(FRONTEND_SAMPLE_SCENARIO_HEADER) $(FRONTEND_PUBLIC_CONTRACTS) \

@@ -66,6 +66,13 @@ UIの表示先には、通常選択と矩形選択のAPIがあります。
 コピーは`BOXRIG_UI_UNAVAILABLE`を返します。既存のクリップボードは上書きせずに扱ってください。
 `clear_selection()`を呼ぶと、開始点も含めて解除します。
 
+矩形の端点は、論理行IDと物理行の開始位置で保持します。
+スクロール後はモデルを同期し、新しいhit testの結果で終点を更新してください。
+選択と行スライスの画面内行番号には、`anchor_visual_row_valid`、
+`focus_visual_row_valid`、`visual_start_row_valid`、`visual_row_valid`が対応します。
+これらが`false`なら対象行は画面外か非表示の画面にあり、行番号の値は0です。
+`row_sequence`は、画面外も含めた矩形全体の先頭からの順序を表します。
+
 選択結果をOSへ渡す処理と、端末内アプリからのOSC 52要求は別です。
 後者の許可と完了処理は[ホスト連携](./host-integration.md)を参照してください。
 
