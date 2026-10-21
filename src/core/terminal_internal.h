@@ -362,6 +362,10 @@ void boxrig_screen_text_reset_fragment(
     boxrig_screen *screen,
     boxrig_text_fragment_metadata *fragment);
 void boxrig_screen_text_sync(boxrig_screen *screen);
+/* Borrows a document cell, validating the namespace and physical coordinates. */
+const boxrig_cell *boxrig_screen_text_fragment_cell(
+    const boxrig_screen *screen, boxrig_text_screen text_screen,
+    size_t fragment_index, size_t column);
 boxrig_status boxrig_screen_text_document_size(
     const boxrig_screen *screen,
     boxrig_text_screen text_screen,

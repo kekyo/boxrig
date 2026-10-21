@@ -446,6 +446,16 @@ boxrig_renderer_status boxrig_renderer_lifecycle_prepare_frame(
             1);
         return BOXRIG_RENDERER_UNAVAILABLE;
     }
+    if (lifecycle->config.operations.fragment_layout_provider != NULL) {
+        boxrig_ui_fragment_layout_provider *provider = NULL;
+        if (lifecycle->config.operations.fragment_layout_provider(
+                lifecycle->config.backend_context, &provider) != BOXRIG_UI_OK) {
+            return BOXRIG_RENDERER_UNAVAILABLE;
+        }
+        if (boxrig_ui_view_set_fragment_layout_provider(view, provider) != BOXRIG_UI_OK) {
+            return BOXRIG_RENDERER_BUSY;
+        }
+    }
     status = capture_dirty(lifecycle, view);
     if (status != BOXRIG_RENDERER_OK) {
         lifecycle->counters.failure_count = saturated_add(

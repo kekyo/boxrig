@@ -73,6 +73,56 @@ typedef enum boxrig_ui_status {
     BOXRIG_UI_STALE
 } boxrig_ui_status;
 
+/** Shared lifetime handle for a frontend's physical-row text analysis. */
+typedef struct boxrig_ui_fragment_layout_provider boxrig_ui_fragment_layout_provider;
+
+/**
+ * Analyzes one retained physical row using the frontend's display policy.
+ * @param context Borrowed provider context.
+ * @param terminal Read-only terminal containing the requested fragment.
+ * @param screen Logical text namespace.
+ * @param fragment_index Current document-order physical row index.
+ * @param maximum_layout_bytes Upper bound for the returned portable layout.
+ * @param layout_out Receives an owned complete-grid layout, or NULL on failure.
+ * @return A portable UI status; unresolved geometry must not be guessed.
+ * @remarks Called synchronously. Do not mutate the terminal, reenter selection
+ * or provider registration, or destroy the provider/context during analysis.
+ * No drawing, viewport movement, or native event dispatch is needed.
+ */
+typedef boxrig_ui_status (*boxrig_ui_fragment_layout_resolver)(void *context,
+    const boxrig_terminal *terminal, boxrig_text_screen screen,
+    size_t fragment_index, size_t maximum_layout_bytes, boxrig_text_layout **layout_out);
+
+/**
+ * Reads the current display-analysis configuration revision without side effects.
+ * @param context Borrowed provider context.
+ * @return Nonzero revision changed by font/direction policy changes, or zero
+ * when analysis is unavailable. Terminal text changes do not change this value.
+ */
+typedef uint64_t (*boxrig_ui_fragment_layout_revision_reader)(void *context);
+
+/**
+ * Creates an owner handle for physical-row analysis shared by attached views.
+ * @param resolver Required synchronous row analyzer.
+ * @param read_revision Required read-only configuration revision callback.
+ * @param context Borrowed context, valid until provider destruction.
+ * @param provider_out Receives an owner handle, or NULL on failure.
+ * @return OK, INVALID_ARGUMENT, or OUT_OF_MEMORY.
+ */
+boxrig_ui_status boxrig_ui_fragment_layout_provider_create(
+    boxrig_ui_fragment_layout_resolver resolver,
+    boxrig_ui_fragment_layout_revision_reader read_revision, void *context,
+    boxrig_ui_fragment_layout_provider **provider_out);
+
+/**
+ * Closes analysis before releasing the owner's handle, accepting NULL.
+ * @param provider Owner handle, consumed by this call.
+ * @remarks Attached views retain a closed handle and never call the old
+ * context again. They may be destroyed before or after the owner. The owner
+ * must call this before freeing context, outside provider callbacks.
+ */
+void boxrig_ui_fragment_layout_provider_destroy(boxrig_ui_fragment_layout_provider *provider);
+
 /** Distinct retained dirty planes owned by one terminal view. */
 typedef enum boxrig_ui_dirty_layer {
     /** Terminal cells, cursor, colors, and row layouts in logical columns. */
@@ -577,15 +627,25 @@ typedef struct boxrig_ui_selection {
     boxrig_text_range range;
     /** Whether retained rectangular geometry no longer names the same text. */
     bool stale;
-    /** Visual row containing the original pointer end. */
+    /** Logical column at which the rectangular anchor's physical row begins. */
+    size_t anchor_fragment_logical_column_offset;
+    /** Logical column at which the rectangular focus's physical row begins. */
+    size_t focus_fragment_logical_column_offset;
+    /** Whether anchor_visual_row names a row in the current active viewport. */
+    bool anchor_visual_row_valid;
+    /** Current anchor viewport row, or zero when anchor_visual_row_valid is false. */
     size_t anchor_visual_row;
     /** Visual boundary selected at the original pointer end. */
     size_t anchor_visual_column;
-    /** Visual row containing the moving pointer end. */
+    /** Whether focus_visual_row names a row in the current active viewport. */
+    bool focus_visual_row_valid;
+    /** Current focus viewport row, or zero when focus_visual_row_valid is false. */
     size_t focus_visual_row;
     /** Visual boundary selected at the moving pointer end. */
     size_t focus_visual_column;
-    /** Topmost visual row at materialization time. */
+    /** Whether the rectangle's first physical row is in the active viewport. */
+    bool visual_start_row_valid;
+    /** Current first viewport row, or zero when visual_start_row_valid is false. */
     size_t visual_start_row;
     /** Leftmost requested visual boundary before per-row grapheme expansion. */
     size_t visual_start_column;
@@ -595,13 +655,13 @@ typedef struct boxrig_ui_selection {
     uint64_t layout_generation;
     /** Terminal text revision represented by the current boundaries. */
     uint64_t text_revision;
-    /** Number of immutable rectangular row slices, or zero for linear. */
+    /** Number of retained rectangular row slices, or zero for linear or empty. */
     size_t row_count;
-    /** Number of immutable rectangular logical ranges, or zero for linear. */
+    /** Number of retained rectangular logical ranges, or zero for linear or empty. */
     size_t range_count;
 } boxrig_ui_selection;
 
-/** Immutable materialized description of one rectangular visual row. */
+/** Retained rectangular text geometry with query-time viewport coordinates. */
 typedef struct boxrig_ui_selection_row_slice {
     /** Logical text namespace containing this physical fragment. */
     boxrig_text_screen screen;
@@ -615,7 +675,9 @@ typedef struct boxrig_ui_selection_row_slice {
     bool fragment_soft_wrapped;
     /** Top-to-bottom sequence within the materialized rectangle. */
     size_t row_sequence;
-    /** Active viewport row used when this slice was materialized. */
+    /** Whether this physical row currently belongs to the active viewport. */
+    bool visual_row_valid;
+    /** Current viewport row, or zero when visual_row_valid is false. */
     size_t visual_row;
     /** Left requested visual boundary before grapheme expansion. */
     size_t requested_visual_column;
@@ -1439,6 +1501,20 @@ boxrig_ui_status boxrig_ui_view_store_row_layout(
     uint64_t revision);
 
 /**
+ * Attaches a shared physical-row analyzer to a view.
+ * @param view View whose selection may extend beyond the viewport.
+ * @param provider Open provider to retain, or NULL to detach.
+ * @return OK, INVALID_ARGUMENT, LIMIT_EXCEEDED, or BUSY during analysis.
+ * @remarks The owner keeps its handle. Replacing an existing provider makes
+ * rectangular selections stale. First attachment adopts any retained geometry;
+ * the host must use the same display policy that produced that geometry.
+ * Published row geometry remains available for the displayed frame, but a new
+ * provider must analyze selection rows until its own layouts are published.
+ */
+boxrig_ui_status boxrig_ui_view_set_fragment_layout_provider(
+    boxrig_ui_view *view, boxrig_ui_fragment_layout_provider *provider);
+
+/**
  * Maps one fixed-point view position through the retained row layout.
  *
  * @param view View to inspect.
@@ -1607,6 +1683,9 @@ boxrig_ui_status boxrig_ui_view_begin_selection_with_options(
  * hit when deterministic row layouts were populated between pointer events.
  * Grid, cell-metric, reflow, and selected-text changes still make a retained
  * rectangular selection stale.
+ * Equal rectangular column boundaries produce a successful empty selection,
+ * on either the same row or another row. Its anchor remains available for
+ * later extension; row and range counts are zero and it has no visual ranges.
  */
 boxrig_ui_status boxrig_ui_view_update_selection(
     boxrig_ui_view *view,
@@ -1622,13 +1701,18 @@ boxrig_ui_status boxrig_ui_view_update_selection(
  * @remarks range_valid is true only for a normalized linear range. A stale
  * rectangular selection remains observable here, while its bounded row and
  * range queries reject the retained details with BOXRIG_UI_STALE.
+ * An empty rectangular selection also returns true, with zero visual width,
+ * row count and range count. Clearing it explicitly removes the anchor.
+ * Rectangular fragment offsets identify physical rows independently of the
+ * viewport. Visual row validity flags describe the current viewport, are false
+ * for stale selections, and are unused for linear selections.
  */
 bool boxrig_ui_view_get_selection(
     const boxrig_ui_view *view,
     boxrig_ui_selection *selection_out);
 
 /**
- * Copies this view's immutable rectangular row descriptions without allocation.
+ * Copies this view's retained rectangular row descriptions without allocation.
  *
  * @param view View to inspect.
  * @param rows_out Caller-owned destination, or NULL when capacity is zero.
@@ -1641,6 +1725,8 @@ bool boxrig_ui_view_get_selection(
  * @remarks Rows are returned from top to bottom. Requested columns describe
  * the pointer rectangle, while effective columns include whole-grapheme edge
  * expansion and blank_column_count records selected empty display cells.
+ * Text identities and ranges remain stable across scrolling; visual_row and
+ * visual_row_valid describe the current active viewport at query time.
  */
 boxrig_ui_status boxrig_ui_view_query_selection_rows(
     const boxrig_ui_view *view,
@@ -1823,7 +1909,7 @@ size_t boxrig_ui_view_hyperlink_hover_visual_ranges(
  * @param view View whose selection is copied.
  * @param snapshot_out Receives an owned snapshot and is set to NULL on
  * failure.
- * @return BOXRIG_UI_UNAVAILABLE when no selection exists,
+ * @return BOXRIG_UI_UNAVAILABLE when no selection exists or a rectangle is empty,
  * BOXRIG_UI_LIMIT_EXCEEDED without truncation when the configured byte cap is
  * exceeded, BOXRIG_UI_STALE when retained text changed, or another portable
  * UI status.

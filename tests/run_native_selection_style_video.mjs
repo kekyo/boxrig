@@ -1,5 +1,6 @@
 /* Lossless native recordings assert observed phases and unchanged neighbors. */
 import assert from 'node:assert/strict';
+import { once } from 'node:events';
 import { spawn, execFileSync } from 'node:child_process';
 import {
   mkdirSync,
@@ -30,6 +31,50 @@ try {
     runtime = mkdtempSync(resolve(tmpdir(), 'boxrig-selection-wayland-'));
     process.env.XDG_RUNTIME_DIR = runtime;
     process.env.WAYLAND_DISPLAY = 'boxrig-selection';
+    // x11grab hides the X11 cursor, but Weston composites the Wayland cursor
+    // into its window. Use a transparent cursor so it cannot cover a one-cell
+    // selection. The Xcursor format is documented in Xcursor(3) and Xcursor.h.
+    const cursorWords = [
+      0x72756358,
+      16,
+      0x10000,
+      1, // File header, one table-of-contents entry.
+      0xfffd0002,
+      24,
+      28, // Image chunk type, nominal size and file offset.
+      36,
+      0xfffd0002,
+      24,
+      1, // Image header and version.
+      1,
+      1,
+      0,
+      0,
+      0,
+      0, // Width, height, hotspot, delay and transparent ARGB.
+    ];
+    const cursor = Buffer.alloc(cursorWords.length * 4);
+    cursorWords.forEach((word, index) => cursor.writeUInt32LE(word, index * 4));
+    const cursorThemes = new Set(['boxrig-invisible', 'default']);
+    if (process.env.GDK_BACKEND === 'wayland') {
+      // GTK 4 reads the desktop theme below XDG_DATA_HOME, bypassing XCURSOR_PATH.
+      const theme = command('gsettings', [
+        'get',
+        'org.gnome.desktop.interface',
+        'cursor-theme',
+      ]).replace(/^'|'$/g, '');
+      assert(theme && !theme.includes('/') && theme !== '.' && theme !== '..');
+      cursorThemes.add(theme);
+    }
+    process.env.XCURSOR_PATH = resolve(runtime, 'icons');
+    process.env.XCURSOR_THEME = 'boxrig-invisible';
+    process.env.XDG_DATA_HOME = runtime;
+    for (const theme of cursorThemes) {
+      const directory = resolve(runtime, 'icons', theme, 'cursors');
+      mkdirSync(directory, { recursive: true });
+      for (const name of ['default', 'left_ptr', 'text', 'xterm'])
+        writeFileSync(resolve(directory, name), cursor);
+    }
     weston = spawn(
       'weston',
       [
@@ -191,6 +236,18 @@ try {
       }
     if (right - left + 1 === cellWidth && bottom - top + 1 === cellHeight)
       break;
+    if (Date.now() >= anchorDeadline) {
+      writeFileSync(
+        resolve(output, 'anchor-failure.ppm'),
+        Buffer.concat([
+          Buffer.from('P6\n' + width + ' ' + height + '\n255\n'),
+          anchor,
+        ])
+      );
+      console.error(
+        JSON.stringify({ left, top, right, bottom, cellWidth, cellHeight })
+      );
+    }
     assert(
       Date.now() < anchorDeadline,
       'first painted grid anchor not observed'
@@ -344,6 +401,192 @@ try {
   record('fill-outline', 2);
   command('xdotool', ['key', '--clearmodifiers', 'ctrl+shift+F10']);
   record('outline-restored', 0);
+
+  // Capture every frame while the rectangle crosses zero width. Advance only
+  // after the requested geometry is visible in consecutive captured frames.
+  const gestureFrames = [];
+  let pending = Buffer.alloc(0);
+  const capture = spawn(
+    'ffmpeg',
+    [
+      '-loglevel',
+      'error',
+      '-f',
+      'x11grab',
+      '-framerate',
+      '30',
+      '-draw_mouse',
+      '0',
+      '-video_size',
+      width + 'x' + height,
+      '-i',
+      process.env.DISPLAY + '+' + values.X + ',' + values.Y,
+      '-f',
+      'rawvideo',
+      '-pix_fmt',
+      'rgb24',
+      'pipe:1',
+    ],
+    { stdio: ['pipe', 'pipe', 'pipe'] }
+  );
+  const captureClosed = once(capture, 'close');
+  let captureDiagnostics = '';
+  capture.stderr.on('data', (bytes) => {
+    captureDiagnostics += bytes;
+  });
+  capture.stdout.on('data', (bytes) => {
+    pending = Buffer.concat([pending, bytes]);
+    while (pending.length >= frameBytes) {
+      gestureFrames.push(Buffer.from(pending.subarray(0, frameBytes)));
+      pending = pending.subarray(frameBytes);
+    }
+  });
+  const ax = left + 2 * cellWidth,
+    ay = top + 5 * cellHeight;
+  assert(ay + 2 * cellHeight < height, 'gesture rows fit recorded surface');
+  const blue = (frame, px, py) => {
+    const at = (py * width + px) * 3;
+    return [46, 115, 242].every(
+      (value, channel) => Math.abs(frame[at + channel] - value) <= 2
+    );
+  };
+  const phases = [];
+  const waitGeometry = async (name, selectedColumns, selectedRows, after) => {
+    const deadline = Date.now() + 15000;
+    let examined = after,
+      consecutive = 0;
+    while (consecutive < 3) {
+      assert(Date.now() < deadline, name + ': geometry was not painted');
+      assert(capture.exitCode === null, captureDiagnostics);
+      while (examined < gestureFrames.length && consecutive < 3) {
+        const frame = gestureFrames[examined++];
+        let valid = true;
+        for (let py = ay; py < ay + 2 * cellHeight; py++) {
+          for (let px = ax; px < ax + 4 * cellWidth; px++) {
+            const edge =
+              selectedColumns > 0 &&
+              px < ax + selectedColumns * cellWidth &&
+              py < ay + selectedRows * cellHeight &&
+              (px === ax ||
+                px === ax + selectedColumns * cellWidth - 1 ||
+                py === ay ||
+                py === ay + selectedRows * cellHeight - 1);
+            if (edge && !blue(frame, px, py)) valid = false;
+            if (selectedColumns === 0 && blue(frame, px, py)) valid = false;
+          }
+        }
+        consecutive = valid ? consecutive + 1 : 0;
+      }
+      if (consecutive < 3) await setTimeout(20);
+    }
+    phases.push({
+      name,
+      firstSettledFrame: examined - consecutive,
+      lastSettledFrame: examined - 1,
+    });
+  };
+  const waitFill = async (name, selected, fullViewport, after) => {
+    const deadline = Date.now() + 15000;
+    let examined = after,
+      consecutive = 0;
+    const filled = blend(background, [60, 150, 240], 96);
+    while (consecutive < 3) {
+      assert(Date.now() < deadline, name + ': fill was not painted');
+      assert(capture.exitCode === null, captureDiagnostics);
+      while (examined < gestureFrames.length && consecutive < 3) {
+        const frame = gestureFrames[examined++];
+        let valid = true;
+        // GTK scroll containers shade the very top edge when history exists.
+        const firstY = fullViewport ? top + cellHeight : ay;
+        const lastY = fullViewport ? top + 8 * cellHeight : ay + 2 * cellHeight;
+        for (let py = firstY; py < lastY; py++) {
+          for (let px = left + cellWidth; px < left + 6 * cellWidth; px++) {
+            const expected =
+              selected && px >= ax && px < ax + 3 * cellWidth
+                ? filled
+                : background;
+            const at = (py * width + px) * 3;
+            if (
+              !expected.every(
+                (value, channel) => Math.abs(frame[at + channel] - value) <= 2
+              )
+            )
+              valid = false;
+          }
+        }
+        consecutive = valid ? consecutive + 1 : 0;
+      }
+      if (consecutive < 3) await setTimeout(20);
+    }
+    phases.push({
+      name,
+      firstSettledFrame: examined - consecutive,
+      lastSettledFrame: examined - 1,
+    });
+  };
+  const move = (column, row) =>
+    command('xdotool', [
+      'mousemove',
+      String(Number(values.X) + ax + column * cellWidth + 1),
+      String(Number(values.Y) + ay + row * cellHeight + 1),
+    ]);
+  try {
+    await waitGeometry('before-rectangle', 0, 0, 0);
+    move(0, 0);
+    command('xdotool', ['keydown', 'Control_L', 'mousedown', '1']);
+    await waitGeometry('rectangle-start', 1, 1, gestureFrames.length);
+    move(0, 1);
+    await waitGeometry('zero-width', 0, 0, gestureFrames.length);
+    move(3, 1);
+    await waitGeometry('rectangle-expanded', 3, 2, gestureFrames.length);
+    move(0, 1);
+    await waitGeometry('zero-width-restored', 0, 0, gestureFrames.length);
+    command('xdotool', ['mouseup', '1', 'keyup', 'Control_L']);
+    await waitGeometry('empty-released', 0, 0, gestureFrames.length);
+    command('xdotool', ['key', '--clearmodifiers', 'h']);
+    const historyDeadline = Date.now() + 15000;
+    while (readTitle() !== 'boxrig-selection-history-ready') {
+      assert(Date.now() < historyDeadline, 'history preparation timeout');
+      await setTimeout(20);
+    }
+    command('xdotool', ['key', '--clearmodifiers', 'ctrl+shift+F10']);
+    command('xdotool', ['key', '--clearmodifiers', 'ctrl+shift+F9']);
+    await waitFill('history-anchor', true, false, gestureFrames.length);
+    command('xdotool', ['key', '--clearmodifiers', 'ctrl+shift+F9']);
+    await waitFill('history-expanded', true, true, gestureFrames.length);
+    command('xdotool', ['key', '--clearmodifiers', 'ctrl+shift+F9']);
+    await waitFill('history-cleared', false, true, gestureFrames.length);
+  } finally {
+    capture.stdin.end('q');
+    await captureClosed;
+    execFileSync(
+      'ffmpeg',
+      [
+        '-y',
+        '-loglevel',
+        'error',
+        '-f',
+        'rawvideo',
+        '-pixel_format',
+        'rgb24',
+        '-video_size',
+        width + 'x' + height,
+        '-framerate',
+        '30',
+        '-i',
+        'pipe:0',
+        '-c:v',
+        'ffv1',
+        resolve(output, 'rectangle-gesture.mkv'),
+      ],
+      { input: Buffer.concat(gestureFrames), timeout: 30000 }
+    );
+    results.push({
+      name: 'rectangle-gesture',
+      frames: gestureFrames.length,
+      phases,
+    });
+  }
   command('xdotool', ['key', '--clearmodifiers', 'q']);
   const exitDeadline = Date.now() + 15000;
   while (child.exitCode === null && child.signalCode === null) {

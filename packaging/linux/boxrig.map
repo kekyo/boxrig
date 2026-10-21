@@ -42,6 +42,7 @@ BOXRIG_0 {
         boxrig_terminal_get_input_config;
         boxrig_terminal_get_palette_color;
         boxrig_terminal_get_text_fragment;
+        boxrig_terminal_get_text_fragment_cell;
         boxrig_terminal_get_text_position;
         boxrig_terminal_get_tty_erase;
         boxrig_terminal_host_item_consume;
@@ -65,6 +66,7 @@ BOXRIG_0 {
         boxrig_terminal_rescan_text_monitor;
         boxrig_terminal_rescan_text_recognizer;
         boxrig_terminal_resize;
+        boxrig_terminal_resolve_text_fragment_cell;
         boxrig_terminal_resolve_viewport_cell;
         boxrig_terminal_resume_text_recognizers;
         boxrig_terminal_scrollback_capacity;

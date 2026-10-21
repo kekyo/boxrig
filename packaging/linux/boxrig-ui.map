@@ -120,6 +120,8 @@ BOXRIG_0 {
         boxrig_ui_editable_document_set_limits;
         boxrig_ui_editable_document_take_replacement;
         boxrig_ui_editable_limits_default;
+        boxrig_ui_fragment_layout_provider_create;
+        boxrig_ui_fragment_layout_provider_destroy;
         boxrig_ui_host_item_consumer_complete;
         boxrig_ui_host_item_consumer_consume;
         boxrig_ui_host_item_consumer_create;
@@ -218,6 +220,7 @@ BOXRIG_0 {
         boxrig_ui_view_set_composition_active;
         boxrig_ui_view_set_cursor_style;
         boxrig_ui_view_set_focused;
+        boxrig_ui_view_set_fragment_layout_provider;
         boxrig_ui_view_set_frame_request_callback;
         boxrig_ui_view_set_geometry_capabilities;
         boxrig_ui_view_set_preferred_grid;

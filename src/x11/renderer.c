@@ -127,6 +127,7 @@ typedef struct boxrig_x11_frame_surface {
 } boxrig_x11_frame_surface;
 
 struct boxrig_x11_renderer {
+    boxrig_ui_fragment_layout_provider *fragment_layout_provider;
     boxrig_ui_rgba background_color;
     boxrig_ui_background_image_view background_image;
     const boxrig_ui_view *background_owner;
@@ -2329,6 +2330,7 @@ void boxrig_x11_renderer_destroy(boxrig_x11_renderer *renderer)
     if (renderer == NULL) {
         return;
     }
+    boxrig_ui_fragment_layout_provider_destroy(renderer->fragment_layout_provider);
     destroy_row_cache(renderer);
     destroy_image_cache(renderer);
     if (renderer->cairo != NULL) {
@@ -3399,7 +3401,7 @@ static int mark_unchanged_layout_dirty(
 
 static int collect_logical_clusters(
     const boxrig_terminal *terminal,
-    size_t row,
+    boxrig_text_screen screen, size_t fragment_index,
     size_t column_count,
     boxrig_x11_row_shape *shape)
 {
@@ -3418,7 +3420,7 @@ static int collect_logical_clusters(
         size_t width;
         size_t bytes;
 
-        if (boxrig_terminal_get_cell(terminal, row, column, &cell) !=
+        if (boxrig_terminal_get_text_fragment_cell(terminal, screen, fragment_index, column, &cell) !=
                 BOXRIG_STATUS_OK ||
             cell.continuation) {
             return -1;
@@ -3448,7 +3450,7 @@ static int collect_logical_clusters(
         const char *source;
         size_t source_length;
 
-        if (boxrig_terminal_get_cell(terminal, row, column, &cluster->cell) !=
+        if (boxrig_terminal_get_text_fragment_cell(terminal, screen, fragment_index, column, &cluster->cell) !=
             BOXRIG_STATUS_OK) {
             return -1;
         }
@@ -3858,11 +3860,11 @@ static boxrig_text_direction resolved_base_direction(
                                      : BOXRIG_TEXT_DIRECTION_RTL;
 }
 
-static int shape_terminal_row(
+static int shape_text_fragment(
     boxrig_x11_renderer *renderer,
     const boxrig_terminal *terminal,
-    size_t row,
-    boxrig_x11_row_shape *shape)
+    boxrig_text_screen screen, size_t fragment_index,
+    boxrig_x11_row_shape *shape, bool render_glyphs)
 {
     size_t rows;
     size_t columns;
@@ -3872,13 +3874,14 @@ static int shape_terminal_row(
     boxrig_text_direction base_direction;
     int result = -1;
 
-    if (renderer->render_statistics.row_shape_count != SIZE_MAX) {
+    if (render_glyphs && renderer->render_statistics.row_shape_count != SIZE_MAX) {
         renderer->render_statistics.row_shape_count++;
     }
     memset(shape, 0, sizeof(*shape));
     boxrig_terminal_size(terminal, &rows, &columns);
-    if (row >= rows || columns == 0 ||
-        collect_logical_clusters(terminal, row, columns, shape) == -1) {
+    (void)rows;
+    if (fragment_index >= boxrig_terminal_text_fragment_count(terminal, screen) || columns == 0 ||
+        collect_logical_clusters(terminal, screen, fragment_index, columns, shape) == -1) {
         goto cleanup;
     }
     attributes = create_shaping_attributes(renderer, shape);
@@ -3902,7 +3905,7 @@ static int shape_terminal_row(
         items,
         renderer->direction_policy);
     if (build_portable_layout(shape, items, base_direction) == -1 ||
-        shape_items(shape, items) == -1) {
+        (render_glyphs && shape_items(shape, items) == -1)) {
         goto cleanup;
     }
     shape->statistics.cluster_count = shape->cluster_count;
@@ -3925,6 +3928,58 @@ cleanup:
         row_shape_destroy(shape);
     }
     return result;
+}
+
+static int shape_terminal_row(boxrig_x11_renderer *renderer,
+    const boxrig_terminal *terminal, size_t row, boxrig_x11_row_shape *shape)
+{
+    size_t rows, columns;
+    boxrig_terminal_size(terminal, &rows, &columns);
+    (void)columns;
+    boxrig_text_screen screen = boxrig_terminal_active_text_screen(terminal);
+    size_t count = boxrig_terminal_text_fragment_count(terminal, screen);
+    size_t offset = boxrig_terminal_viewport_offset(terminal);
+    if (row >= rows || count < rows || offset > count - rows) return -1;
+    return shape_text_fragment(renderer, terminal, screen, count - rows - offset + row, shape, true);
+}
+
+static uint64_t fragment_layout_revision(void *context)
+{
+    boxrig_x11_renderer *renderer = context;
+    uint64_t revision = renderer->effective_metrics.layout_revision * 4 + renderer->direction_policy + 1;
+    return revision == 0 ? 1 : revision;
+}
+
+static boxrig_ui_status resolve_fragment_layout(void *context,
+    const boxrig_terminal *terminal, boxrig_text_screen screen, size_t fragment_index,
+    size_t maximum_bytes, boxrig_text_layout **layout_out)
+{
+    *layout_out = NULL;
+    boxrig_x11_row_shape shape;
+    if (shape_text_fragment(context, terminal, screen, fragment_index, &shape, false) == -1)
+        return BOXRIG_UI_UNAVAILABLE;
+    boxrig_ui_status status = BOXRIG_UI_OK;
+    if (boxrig_text_layout_estimated_bytes(shape.layout) > maximum_bytes) {
+        status = BOXRIG_UI_LIMIT_EXCEEDED;
+    } else {
+        *layout_out = shape.layout;
+        shape.layout = NULL;
+    }
+    row_shape_destroy(&shape);
+    return status;
+}
+
+static boxrig_ui_status fragment_layout_provider(void *context,
+    boxrig_ui_fragment_layout_provider **provider_out)
+{
+    boxrig_x11_renderer *renderer = context;
+    if (renderer->fragment_layout_provider == NULL) {
+        boxrig_ui_status status = boxrig_ui_fragment_layout_provider_create(
+            resolve_fragment_layout, fragment_layout_revision, renderer, &renderer->fragment_layout_provider);
+        if (status != BOXRIG_UI_OK) return status;
+    }
+    *provider_out = renderer->fragment_layout_provider;
+    return BOXRIG_UI_OK;
 }
 
 static int update_model_row(
@@ -6315,6 +6370,11 @@ static int draw_renderer(
         renderer->lifecycle_frame_active) {
         return -1;
     }
+    if (view != NULL) {
+        boxrig_ui_fragment_layout_provider *provider = NULL;
+        if (fragment_layout_provider(renderer, &provider) != BOXRIG_UI_OK ||
+            boxrig_ui_view_set_fragment_layout_provider(view, provider) != BOXRIG_UI_OK) return -1;
+    }
     if (boxrig_terminal_synchronized_output(terminal)) {
         return 0;
     }
@@ -6801,6 +6861,7 @@ boxrig_renderer_status boxrig_x11_renderer_lifecycle_create(
     config.presentation_ownership = BOXRIG_RENDERER_PRESENTATION_ADAPTER;
     config.initial_target = *target;
     config.backend_context = renderer;
+    config.operations.fragment_layout_provider = fragment_layout_provider;
     config.operations.prepare_frame = lifecycle_prepare_frame;
     config.operations.finish_frame = lifecycle_finish_frame;
     config.operations.present_frame = lifecycle_present_frame;
