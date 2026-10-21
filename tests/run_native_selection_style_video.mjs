@@ -31,6 +31,50 @@ try {
     runtime = mkdtempSync(resolve(tmpdir(), 'boxrig-selection-wayland-'));
     process.env.XDG_RUNTIME_DIR = runtime;
     process.env.WAYLAND_DISPLAY = 'boxrig-selection';
+    // x11grab hides the X11 cursor, but Weston composites the Wayland cursor
+    // into its window. Use a transparent cursor so it cannot cover a one-cell
+    // selection. The Xcursor format is documented in Xcursor(3) and Xcursor.h.
+    const cursorWords = [
+      0x72756358,
+      16,
+      0x10000,
+      1, // File header, one table-of-contents entry.
+      0xfffd0002,
+      24,
+      28, // Image chunk type, nominal size and file offset.
+      36,
+      0xfffd0002,
+      24,
+      1, // Image header and version.
+      1,
+      1,
+      0,
+      0,
+      0,
+      0, // Width, height, hotspot, delay and transparent ARGB.
+    ];
+    const cursor = Buffer.alloc(cursorWords.length * 4);
+    cursorWords.forEach((word, index) => cursor.writeUInt32LE(word, index * 4));
+    const cursorThemes = new Set(['boxrig-invisible', 'default']);
+    if (process.env.GDK_BACKEND === 'wayland') {
+      // GTK 4 reads the desktop theme below XDG_DATA_HOME, bypassing XCURSOR_PATH.
+      const theme = command('gsettings', [
+        'get',
+        'org.gnome.desktop.interface',
+        'cursor-theme',
+      ]).replace(/^'|'$/g, '');
+      assert(theme && !theme.includes('/') && theme !== '.' && theme !== '..');
+      cursorThemes.add(theme);
+    }
+    process.env.XCURSOR_PATH = resolve(runtime, 'icons');
+    process.env.XCURSOR_THEME = 'boxrig-invisible';
+    process.env.XDG_DATA_HOME = runtime;
+    for (const theme of cursorThemes) {
+      const directory = resolve(runtime, 'icons', theme, 'cursors');
+      mkdirSync(directory, { recursive: true });
+      for (const name of ['default', 'left_ptr', 'text', 'xterm'])
+        writeFileSync(resolve(directory, name), cursor);
+    }
     weston = spawn(
       'weston',
       [
