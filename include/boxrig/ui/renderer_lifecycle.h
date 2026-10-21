@@ -193,6 +193,13 @@ typedef struct boxrig_renderer_backend_operations {
     void (*release_resources)(void *context);
     /** Destroys a managed graphics runtime. */
     void (*destroy_runtime)(void *context);
+    /**
+     * Optional analyzer owned by the backend renderer, borrowed by the lifecycle.
+     * The renderer closes it before freeing its text-analysis context. Returning
+     * a stable handle also supports temporary renderer-only lifecycle wrappers.
+     */
+    boxrig_ui_status (*fragment_layout_provider)(void *context,
+        boxrig_ui_fragment_layout_provider **provider_out);
 } boxrig_renderer_backend_operations;
 
 /** Construction values for the common renderer transaction lifecycle. */

@@ -119,6 +119,13 @@ int boxrig_ogl_text_provider_shape_row(
     size_t row,
     boxrig_ogl_row_shape *shape_out);
 
+/* Analyze a retained fragment without producing glyphs or touching the viewport.
+ * The caller owns the returned layout; the same per-row limit applies on all platforms. */
+boxrig_ui_status boxrig_ogl_text_provider_fragment_layout(
+    boxrig_ogl_text_provider *provider, const boxrig_terminal *terminal,
+    boxrig_text_screen screen, size_t fragment_index, size_t maximum_bytes,
+    boxrig_text_layout **layout_out);
+
 /* Shape a visible, single-row preedit group without parsing it as terminal input. */
 int boxrig_ogl_text_provider_shape_composition(
     boxrig_ogl_text_provider *provider,

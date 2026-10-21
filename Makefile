@@ -2437,7 +2437,7 @@ $(SELECTION_TEST_BINARY): tests/test_selection.c src/ui/word_break.h \
 		$(UI_LIBRARY) $(LIBRARY) $(SANITIZERS) -o $@
 
 .PHONY: test-selection-history
-test: test-selection-history
+test: test-selection-history test-selection-layout-provider
 test-selection-history: $(BUILD_DIR)/tests/test_selection_history
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
 
@@ -2446,6 +2446,15 @@ $(BUILD_DIR)/tests/test_selection_history: tests/test_selection_history.c \
 	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) \
 		-DBOXRIG_TEST_SELECTION_ALLOCATIONS $(SANITIZERS) $< $(UI_LIBRARY) \
 		$(LIBRARY) $(SANITIZERS) -Wl,--wrap=malloc -Wl,--wrap=realloc -o $@
+
+.PHONY: test-selection-layout-provider
+test-selection-layout-provider: $(BUILD_DIR)/tests/test_selection_layout_provider
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
+
+$(BUILD_DIR)/tests/test_selection_layout_provider: tests/test_selection_layout_provider.c \
+		$(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) \
+		$(SANITIZERS) $< $(UI_LIBRARY) $(LIBRARY) $(SANITIZERS) -o $@
 
 $(FRONTEND_CONFORMANCE_TEST_BINARY): tests/test_frontend_conformance.c \
 		$(FRONTEND_CONFORMANCE_MATRIX) $(FRONTEND_COMPONENT_FIXTURE_HEADER) \

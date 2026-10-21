@@ -30,8 +30,16 @@ typedef struct boxrig_ui_row_layout_cache {
     boxrig_text_layout *layout;
     size_t estimated_bytes;
     uint64_t revision;
+    uint64_t provider_revision;
     uint64_t use_serial;
 } boxrig_ui_row_layout_cache;
+
+struct boxrig_ui_fragment_layout_provider {
+    size_t references;
+    boxrig_ui_fragment_layout_resolver resolve;
+    boxrig_ui_fragment_layout_revision_reader read_revision;
+    void *context;
+};
 
 typedef struct boxrig_ui_retained_text_annotation {
     boxrig_ui_text_annotation value;
@@ -107,6 +115,9 @@ struct boxrig_ui_host_item_consumer {
 };
 
 struct boxrig_ui_view {
+    boxrig_ui_fragment_layout_provider *fragment_layout_provider;
+    uint64_t selection_layout_revision;
+    bool resolving_fragment_layout;
     boxrig_ui_rgba background_color;
     boxrig_ui_background_image_view background_image;
     size_t maximum_background_image_bytes;
@@ -186,6 +197,7 @@ struct boxrig_ui_view {
 };
 
 static void mark_rectangular_selection_stale(boxrig_ui_view *view);
+static void clear_layout_cache(boxrig_ui_view *view);
 static boxrig_ui_status animation_model_changed(boxrig_ui_model *model);
 static boxrig_ui_status animation_model_update_time(boxrig_ui_model *model);
 static boxrig_ui_status animation_prepare_change(
@@ -203,6 +215,69 @@ static bool valid_layer(boxrig_ui_dirty_layer layer)
 {
     return layer >= BOXRIG_UI_DIRTY_MODEL &&
            layer < BOXRIG_UI_DIRTY_LAYER_COUNT;
+}
+
+static void release_fragment_layout_provider(boxrig_ui_fragment_layout_provider *provider)
+{
+    if (provider != NULL && --provider->references == 0) free(provider);
+}
+
+boxrig_ui_status boxrig_ui_fragment_layout_provider_create(
+    boxrig_ui_fragment_layout_resolver resolver,
+    boxrig_ui_fragment_layout_revision_reader read_revision, void *context,
+    boxrig_ui_fragment_layout_provider **provider_out)
+{
+    if (resolver == NULL || read_revision == NULL || provider_out == NULL) return BOXRIG_UI_INVALID_ARGUMENT;
+    *provider_out = NULL;
+    boxrig_ui_fragment_layout_provider *provider = malloc(sizeof(*provider));
+    if (provider == NULL) return BOXRIG_UI_OUT_OF_MEMORY;
+    provider->references = 1;
+    provider->resolve = resolver;
+    provider->read_revision = read_revision;
+    provider->context = context;
+    *provider_out = provider;
+    return BOXRIG_UI_OK;
+}
+
+void boxrig_ui_fragment_layout_provider_destroy(boxrig_ui_fragment_layout_provider *provider)
+{
+    if (provider == NULL) return;
+    provider->resolve = NULL;
+    provider->read_revision = NULL;
+    provider->context = NULL;
+    release_fragment_layout_provider(provider);
+}
+
+static uint64_t fragment_layout_revision(const boxrig_ui_view *view)
+{
+    boxrig_ui_fragment_layout_provider *provider = view->fragment_layout_provider;
+    return provider != NULL && provider->read_revision != NULL
+        ? provider->read_revision(provider->context) : 0;
+}
+
+static bool selection_layout_is_current(const boxrig_ui_view *view)
+{
+    if (view->fragment_layout_provider == NULL) return view->selection_layout_revision == 0;
+    uint64_t revision = fragment_layout_revision(view);
+    return revision != 0 && revision == view->selection_layout_revision;
+}
+
+boxrig_ui_status boxrig_ui_view_set_fragment_layout_provider(
+    boxrig_ui_view *view, boxrig_ui_fragment_layout_provider *provider)
+{
+    if (view == NULL || (provider != NULL && provider->resolve == NULL)) return BOXRIG_UI_INVALID_ARGUMENT;
+    if (view->resolving_fragment_layout || view->resolving_colors) return BOXRIG_UI_BUSY;
+    if (view->fragment_layout_provider == provider) return BOXRIG_UI_OK;
+    if (provider != NULL && provider->references == SIZE_MAX) return BOXRIG_UI_LIMIT_EXCEEDED;
+    if (view->fragment_layout_provider != NULL) {
+        mark_rectangular_selection_stale(view);
+        clear_layout_cache(view);
+    }
+    if (provider != NULL) provider->references++;
+    release_fragment_layout_provider(view->fragment_layout_provider);
+    view->fragment_layout_provider = provider;
+    view->selection_layout_revision = fragment_layout_revision(view);
+    return BOXRIG_UI_OK;
 }
 
 static bool valid_window_state(boxrig_ui_window_state state)
@@ -1302,7 +1377,7 @@ static const boxrig_ui_selection_row_slice *rectangular_selection_row(
 
     if (view == NULL || !view->selection_active ||
         view->selection.shape != BOXRIG_UI_SELECTION_RECTANGULAR ||
-        view->selection.stale ||
+        view->selection.stale || !selection_layout_is_current(view) ||
         boxrig_terminal_active_text_screen(view->model->terminal) !=
             view->selection.screen ||
         !view_fragment_index(view, row, &screen, &fragment_index) ||
@@ -1792,7 +1867,7 @@ static boxrig_status rebase_rectangular_selection(boxrig_ui_view *view)
 
     if (view == NULL || !view->selection_active ||
         view->selection.shape != BOXRIG_UI_SELECTION_RECTANGULAR ||
-        view->selection.stale) {
+        view->selection.stale || !selection_layout_is_current(view)) {
         return BOXRIG_STATUS_STALE;
     }
     terminal = view->model->terminal;
@@ -2124,6 +2199,13 @@ boxrig_ui_status boxrig_ui_model_synchronize(boxrig_ui_model *model)
 
     if (model == NULL || model->terminal == NULL) {
         return BOXRIG_UI_INVALID_ARGUMENT;
+    }
+    for (view = model->first_view; view != NULL; view = view->next_view) {
+        if (view->resolving_fragment_layout) return BOXRIG_UI_BUSY;
+    }
+    for (view = model->first_view; view != NULL; view = view->next_view) {
+        if (view->selection_active && view->selection.shape == BOXRIG_UI_SELECTION_RECTANGULAR &&
+            !selection_layout_is_current(view)) mark_rectangular_selection_stale(view);
     }
     status = animation_model_update_time(model);
     if (status != BOXRIG_UI_OK) {
@@ -2537,6 +2619,7 @@ void boxrig_ui_view_destroy(boxrig_ui_view *view)
     boxrig_ui_color_cache_destroy(view->color_cache);
     boxrig_ui_color_paints_destroy(view->color_paints);
     boxrig_ui_editable_document_destroy(view->editable_document);
+    release_fragment_layout_provider(view->fragment_layout_provider);
     free(view->selection_ranges);
     free(view->selection_rows);
     free(view->annotations);
@@ -3443,6 +3526,7 @@ boxrig_ui_status boxrig_ui_view_store_row_layout(
     entry->layout = layout;
     entry->estimated_bytes = estimated_bytes;
     entry->revision = revision;
+    entry->provider_revision = fragment_layout_revision(view);
     entry->use_serial = view->layout_use_serial;
     view->retained_layout_bytes += estimated_bytes;
     /* Renderers can republish the same immutable layout for overlay-only
@@ -4449,19 +4533,44 @@ static boxrig_ui_status describe_rectangular_row(
     return BOXRIG_UI_OK;
 }
 
-static boxrig_ui_status selection_fragment_layout(const boxrig_ui_view *view,
+static boxrig_ui_status selection_fragment_layout(boxrig_ui_view *view,
     boxrig_text_screen screen, size_t fragment_index, boxrig_text_layout **layout_out)
 {
     *layout_out = NULL;
+    boxrig_ui_fragment_layout_provider *provider = view->fragment_layout_provider;
     size_t row;
-    if (fragment_viewport_row(view, screen, fragment_index, &row)) {
-        const boxrig_ui_row_layout_cache *entry = &view->row_layouts[row];
-        if (entry->layout != NULL) {
-            *layout_out = boxrig_text_layout_retain(entry->layout);
-            if (*layout_out == NULL) return BOXRIG_UI_LIMIT_EXCEEDED;
-        }
-        return BOXRIG_UI_OK;
+    bool visible = fragment_viewport_row(view, screen, fragment_index, &row);
+    uint64_t revision = fragment_layout_revision(view);
+    if (visible && view->row_layouts[row].layout != NULL &&
+        (provider == NULL || (revision != 0 && view->row_layouts[row].provider_revision == revision))) {
+        *layout_out = boxrig_text_layout_retain(view->row_layouts[row].layout);
+        return *layout_out == NULL ? BOXRIG_UI_LIMIT_EXCEEDED : BOXRIG_UI_OK;
     }
+    if (provider != NULL) {
+        if (provider->resolve == NULL || revision == 0) return BOXRIG_UI_UNAVAILABLE;
+        uint64_t text_revision = boxrig_terminal_text_revision(view->model->terminal);
+        view->resolving_fragment_layout = true;
+        boxrig_ui_status status = provider->resolve(provider->context, view->model->terminal,
+            screen, fragment_index, view->maximum_retained_layout_bytes, layout_out);
+        view->resolving_fragment_layout = false;
+        if (status == BOXRIG_UI_OK &&
+            (text_revision != boxrig_terminal_text_revision(view->model->terminal) ||
+             revision != fragment_layout_revision(view))) status = BOXRIG_UI_STALE;
+        if (status == BOXRIG_UI_OK && (*layout_out == NULL ||
+            boxrig_text_layout_column_count(*layout_out) != view->column_count)) {
+            status = BOXRIG_UI_INVALID_ARGUMENT;
+        }
+        if (status == BOXRIG_UI_OK &&
+            boxrig_text_layout_estimated_bytes(*layout_out) > view->maximum_retained_layout_bytes) {
+            status = BOXRIG_UI_LIMIT_EXCEEDED;
+        }
+        if (status != BOXRIG_UI_OK) {
+            boxrig_text_layout_destroy(*layout_out);
+            *layout_out = NULL;
+        }
+        return status;
+    }
+    if (visible) return BOXRIG_UI_OK;
     /* An unrendered non-ASCII fragment needs the frontend's text analysis.
      * Never guess its bidi mapping from a different viewport row. */
     for (size_t column = 0; column < view->column_count; column++) {
@@ -4476,7 +4585,7 @@ static boxrig_ui_status selection_fragment_layout(const boxrig_ui_view *view,
 }
 
 static boxrig_ui_status materialize_rectangular_rows(
-    const boxrig_ui_view *view,
+    boxrig_ui_view *view,
     boxrig_ui_selection *selection,
     boxrig_ui_selection_row_slice **rows_out,
     boxrig_ui_selection_row_range **ranges_out)
@@ -4869,6 +4978,7 @@ boxrig_ui_status boxrig_ui_view_begin_selection_with_options(
         return BOXRIG_UI_INVALID_ARGUMENT;
     }
     memset(&replacement, 0, sizeof(replacement));
+    if (view->resolving_fragment_layout) return BOXRIG_UI_BUSY;
     replacement.shape = options->shape;
     replacement.kind = options->kind;
     if (options->shape == BOXRIG_UI_SELECTION_LINEAR) {
@@ -4932,6 +5042,7 @@ boxrig_ui_status boxrig_ui_view_begin_selection_with_options(
     view->selection_rows = replacement_rows;
     view->selection_active = true;
     view->selection = replacement;
+    view->selection_layout_revision = fragment_layout_revision(view);
     view->selection_origin_start = unit.start;
     view->selection_origin_end = unit.end;
     mark_selection_dirty(view);
@@ -4954,6 +5065,9 @@ boxrig_ui_status boxrig_ui_view_update_selection(
                    ? BOXRIG_UI_INVALID_ARGUMENT
                    : BOXRIG_UI_UNAVAILABLE;
     }
+    if (view->resolving_fragment_layout) return BOXRIG_UI_BUSY;
+    if (view->selection.shape == BOXRIG_UI_SELECTION_RECTANGULAR &&
+        !selection_layout_is_current(view)) mark_rectangular_selection_stale(view);
     if (view->selection.stale) {
         return BOXRIG_UI_STALE;
     }
@@ -5041,6 +5155,7 @@ bool boxrig_ui_view_get_selection(
     }
     *selection_out = view->selection;
     if (selection_out->shape == BOXRIG_UI_SELECTION_RECTANGULAR) {
+        selection_out->stale = selection_out->stale || !selection_layout_is_current(view);
         (void)project_rectangular_selection(view, selection_out);
     }
     return true;
@@ -5063,7 +5178,7 @@ boxrig_ui_status boxrig_ui_view_query_selection_rows(
         view->selection.shape != BOXRIG_UI_SELECTION_RECTANGULAR) {
         return BOXRIG_UI_UNAVAILABLE;
     }
-    if (view->selection.stale) {
+    if (view->selection.stale || !selection_layout_is_current(view)) {
         return BOXRIG_UI_STALE;
     }
     required = view->selection.row_count;
@@ -5104,7 +5219,7 @@ boxrig_ui_status boxrig_ui_view_query_selection_row_ranges(
         view->selection.shape != BOXRIG_UI_SELECTION_RECTANGULAR) {
         return BOXRIG_UI_UNAVAILABLE;
     }
-    if (view->selection.stale) {
+    if (view->selection.stale || !selection_layout_is_current(view)) {
         return BOXRIG_UI_STALE;
     }
     required = view->selection.range_count;
@@ -5126,6 +5241,7 @@ boxrig_ui_status boxrig_ui_view_clear_selection(boxrig_ui_view *view)
     if (view == NULL) {
         return BOXRIG_UI_INVALID_ARGUMENT;
     }
+    if (view->resolving_fragment_layout) return BOXRIG_UI_BUSY;
     mark_selection_dirty(view);
     free(view->selection_ranges);
     free(view->selection_rows);
@@ -5599,6 +5715,7 @@ boxrig_ui_status boxrig_ui_view_create_selection_snapshot(
         return BOXRIG_UI_UNAVAILABLE;
     }
     if (view->selection.shape == BOXRIG_UI_SELECTION_RECTANGULAR) {
+        if (!selection_layout_is_current(view)) mark_rectangular_selection_stale(view);
         if (view->selection.stale) {
             return BOXRIG_UI_STALE;
         }

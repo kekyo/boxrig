@@ -144,6 +144,15 @@ failure:
     return -1;
 }
 
+boxrig_ui_status boxrig_ogl_text_provider_fragment_layout(
+    boxrig_ogl_text_provider *provider, const boxrig_terminal *terminal,
+    boxrig_text_screen screen, size_t fragment_index, size_t maximum_bytes,
+    boxrig_text_layout **layout_out)
+{
+    return boxrig_win32_text_fragment_layout(provider->renderer, terminal, screen,
+        fragment_index, maximum_bytes, layout_out);
+}
+
 int boxrig_ogl_text_provider_shape_row(boxrig_ogl_text_provider *provider,
     const boxrig_terminal *terminal, size_t row, boxrig_ogl_row_shape *shape)
 {

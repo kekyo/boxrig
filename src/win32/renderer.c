@@ -1170,6 +1170,7 @@ void boxrig_win32_renderer_destroy(boxrig_win32_renderer *renderer)
     if (renderer == NULL) {
         return;
     }
+    boxrig_ui_fragment_layout_provider_destroy(renderer->fragment_layout_provider);
     destroy_image_cache(renderer);
     destroy_retained_surface(renderer);
     destroy_compositing_surface(renderer);
@@ -5086,6 +5087,11 @@ static int update_renderer_core(
     if (renderer == NULL || terminal == NULL ||
         (view != NULL && boxrig_ui_view_terminal(view) != terminal)) {
         return -1;
+    }
+    if (view != NULL) {
+        boxrig_ui_fragment_layout_provider *provider = NULL;
+        if (boxrig_win32_text_fragment_layout_provider(renderer, &provider) != BOXRIG_UI_OK ||
+            boxrig_ui_view_set_fragment_layout_provider(view, provider) != BOXRIG_UI_OK) return -1;
     }
     if (boxrig_terminal_synchronized_output(terminal)) {
         return 0;

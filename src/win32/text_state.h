@@ -135,6 +135,7 @@ typedef struct filtered_cell_colors {
 } filtered_cell_colors;
 
 struct boxrig_win32_renderer {
+    boxrig_ui_fragment_layout_provider *fragment_layout_provider;
     boxrig_ui_rgba background_color;
     boxrig_ui_background_image_view background_image;
     const boxrig_ui_view *background_owner;

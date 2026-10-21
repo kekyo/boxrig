@@ -193,6 +193,79 @@ static bool selection_history_and_ime(
     return true;
 }
 
+static bool selection_unvisited_unicode(
+    bool (*create)(boxrig_test_color_renderer *renderer))
+{
+    boxrig_test_color_renderer renderer = {0};
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    config.rows = 4; config.columns = 12; config.scrollback_capacity = 128;
+    boxrig_terminal *terminal = NULL;
+    boxrig_ui_model *model = NULL;
+    boxrig_ui_view *view = NULL;
+    boxrig_ui_view_config view_config = boxrig_ui_view_config_default();
+    CHECK(create(&renderer));
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    size_t consumed;
+    const char text[] = "Aאב界e\xcc\x81😀Z\r\n";
+    for (size_t row = 0; row < 70; row++)
+        CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)text,
+            sizeof(text) - (row == 69 ? 3 : 1), &consumed) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_create(model, &view_config, &view) == BOXRIG_UI_OK);
+    unsigned width = renderer.cell_width, height = renderer.cell_height;
+    boxrig_ui_allocation_input allocation = {0};
+    allocation.allocation_width = 12*width*BOXRIG_UI_FIXED_ONE;
+    allocation.allocation_height = 4*height*BOXRIG_UI_FIXED_ONE;
+    allocation.cell_width = width*BOXRIG_UI_FIXED_ONE;
+    allocation.cell_height = height*BOXRIG_UI_FIXED_ONE;
+    allocation.cell_metrics_revision = 1;
+    boxrig_ui_layout_result layout;
+    CHECK(boxrig_ui_view_acquire_layout_authority(view) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_accept_allocation(view, &allocation, &layout) == BOXRIG_UI_OK);
+    const struct { unsigned first, last; const char *text; } cases[] = {
+        {1, 2, "ב"}, {3, 4, "界"}, {5, 6, "e\xcc\x81"},
+        {6, 7, "😀"}, {1, 8, "אב界e\xcc\x81😀"}, {9, 12, "   "}
+    };
+    boxrig_ui_selection_options options = {BOXRIG_UI_SELECTION_RECTANGULAR,
+        BOXRIG_UI_SELECTION_CHARACTER};
+    for (size_t test = 0; test < sizeof(cases)/sizeof(cases[0]); test++) {
+        CHECK(boxrig_ui_view_clear_selection(view) == BOXRIG_UI_OK);
+        CHECK(boxrig_terminal_set_viewport_offset(terminal, 0) == BOXRIG_STATUS_OK);
+        CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+        CHECK(renderer.draw(renderer.context, view, NULL) == 0);
+        boxrig_ui_hit_test_result hit;
+        CHECK(boxrig_ui_view_hit_test(view, (cases[test].first*width+1)*BOXRIG_UI_FIXED_ONE,
+            (3*height+1)*BOXRIG_UI_FIXED_ONE, &hit) == BOXRIG_UI_OK);
+        CHECK(boxrig_ui_view_begin_selection_with_options(view, &options, &hit) == BOXRIG_UI_OK);
+        CHECK(boxrig_terminal_set_viewport_offset(terminal, 3) == BOXRIG_STATUS_OK);
+        CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+        CHECK(renderer.draw(renderer.context, view, NULL) == 0);
+        CHECK(boxrig_ui_view_hit_test(view, (cases[test].last*width-1)*BOXRIG_UI_FIXED_ONE,
+            BOXRIG_UI_FIXED_ONE, &hit) == BOXRIG_UI_OK);
+        CHECK(boxrig_ui_view_update_selection(view, &hit) == BOXRIG_UI_OK);
+        boxrig_ui_selection selection;
+        CHECK(boxrig_ui_view_get_selection(view, &selection) && !selection.stale && selection.row_count == 7);
+        boxrig_text_snapshot *copy = NULL;
+        CHECK(boxrig_ui_view_create_selection_snapshot(view, &copy) == BOXRIG_UI_OK);
+        size_t count;
+        const uint8_t *bytes = boxrig_text_snapshot_data(copy, &count);
+        size_t length = strlen(cases[test].text);
+        CHECK(count == 7*length+6);
+        for (size_t row = 0; row < 7; row++) {
+            CHECK(memcmp(bytes+row*(length+1), cases[test].text, length) == 0);
+            if (row != 6) CHECK(bytes[row*(length+1)+length] == '\n');
+        }
+        boxrig_text_snapshot_destroy(copy);
+        CHECK(renderer.draw(renderer.context, view, NULL) == 0);
+        CHECK(boxrig_ui_view_get_selection(view, &selection) && !selection.stale);
+    }
+    renderer.destroy(renderer.context);
+    boxrig_ui_view_destroy(view); boxrig_ui_model_destroy(model);
+    boxrig_terminal_destroy(terminal);
+    puts("PASS unvisited history: BiDi, wide/combining/emoji clusters and blank padding");
+    return true;
+}
+
 bool boxrig_test_renderer_selection_style(
     bool (*create)(boxrig_test_color_renderer *renderer),
     unsigned int expected_stroke_x, unsigned int expected_stroke_y)
@@ -380,6 +453,7 @@ bool boxrig_test_renderer_selection_style(
     boxrig_ui_view_destroy(view); boxrig_ui_model_destroy(model);
     boxrig_terminal_destroy(terminal);
     CHECK(selection_history_and_ime(create));
+    CHECK(selection_unvisited_unicode(create));
     CHECK(boxrig_test_renderer_selection_blink(create));
     puts("PASS selection styles, alpha, filtering, DPI, retained glyphs, wide/BiDi copy and image layers");
     return true;

@@ -73,6 +73,28 @@ Viewport row numbers are accompanied by `anchor_visual_row_valid`,
 When false, the row is outside the viewport or belongs to an inactive screen, and its row number is zero.
 `row_sequence` describes the order within the entire rectangle, including offscreen rows.
 
+Rectangles can extend beyond the viewport height into retained history.
+Native rendering components attach the same text analysis used for display.
+Unvisited rows preserve wide and combining graphemes and map bidirectional visual columns back to logical text.
+Copying includes the entire rectangle, with LF between physical rows including soft wraps. Rendering covers only the visible portion.
+
+Custom renderers create an analysis handle with `boxrig_ui_fragment_layout_provider_create()` and attach it using
+`boxrig_ui_view_set_fragment_layout_provider()`.
+The resolver returns an owned complete-grid layout for the requested screen and physical fragment.
+It needs neither viewport movement nor drawing. Terminal mutation, selection reentry, and handle destruction during analysis are prohibited.
+Register a revision reader too, and change its nonzero value when the font or direction policy changes.
+Rectangles made with the previous policy become `STALE` and cannot be copied.
+
+The owner calls `boxrig_ui_fragment_layout_provider_destroy()` before releasing its analysis context.
+Views retain a handle but never call a destroyed provider's callbacks or context. A view may also be destroyed first.
+Replacing or removing a registration invalidates existing rectangles and discards the previous display layouts.
+When initially attaching a provider to an existing selection, use the same display policy.
+
+Analysis results are processed one row at a time; `maximum_retained_layout_bytes` also bounds each returned layout.
+Retained selection rows, logical ranges, and copied bytes remain subject to their respective view limits.
+A limit, analysis, or allocation failure preserves the previous selection instead of committing a partial result.
+An offscreen non-ASCII row without a provider or display layout makes the update return `UNAVAILABLE`.
+
 Use `boxrig_terminal_get_text_fragment_cell()` to inspect retained cells without moving the viewport.
 `boxrig_terminal_resolve_text_fragment_cell()` normalizes wide-character continuation cells and returns the complete grapheme range.
 Physical fragment indices may change after terminal mutations; verify the logical line ID and revision before reusing them.

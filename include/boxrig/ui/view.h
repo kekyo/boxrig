@@ -73,6 +73,56 @@ typedef enum boxrig_ui_status {
     BOXRIG_UI_STALE
 } boxrig_ui_status;
 
+/** Shared lifetime handle for a frontend's physical-row text analysis. */
+typedef struct boxrig_ui_fragment_layout_provider boxrig_ui_fragment_layout_provider;
+
+/**
+ * Analyzes one retained physical row using the frontend's display policy.
+ * @param context Borrowed provider context.
+ * @param terminal Read-only terminal containing the requested fragment.
+ * @param screen Logical text namespace.
+ * @param fragment_index Current document-order physical row index.
+ * @param maximum_layout_bytes Upper bound for the returned portable layout.
+ * @param layout_out Receives an owned complete-grid layout, or NULL on failure.
+ * @return A portable UI status; unresolved geometry must not be guessed.
+ * @remarks Called synchronously. Do not mutate the terminal, reenter selection
+ * or provider registration, or destroy the provider/context during analysis.
+ * No drawing, viewport movement, or native event dispatch is needed.
+ */
+typedef boxrig_ui_status (*boxrig_ui_fragment_layout_resolver)(void *context,
+    const boxrig_terminal *terminal, boxrig_text_screen screen,
+    size_t fragment_index, size_t maximum_layout_bytes, boxrig_text_layout **layout_out);
+
+/**
+ * Reads the current display-analysis configuration revision without side effects.
+ * @param context Borrowed provider context.
+ * @return Nonzero revision changed by font/direction policy changes, or zero
+ * when analysis is unavailable. Terminal text changes do not change this value.
+ */
+typedef uint64_t (*boxrig_ui_fragment_layout_revision_reader)(void *context);
+
+/**
+ * Creates an owner handle for physical-row analysis shared by attached views.
+ * @param resolver Required synchronous row analyzer.
+ * @param read_revision Required read-only configuration revision callback.
+ * @param context Borrowed context, valid until provider destruction.
+ * @param provider_out Receives an owner handle, or NULL on failure.
+ * @return OK, INVALID_ARGUMENT, or OUT_OF_MEMORY.
+ */
+boxrig_ui_status boxrig_ui_fragment_layout_provider_create(
+    boxrig_ui_fragment_layout_resolver resolver,
+    boxrig_ui_fragment_layout_revision_reader read_revision, void *context,
+    boxrig_ui_fragment_layout_provider **provider_out);
+
+/**
+ * Closes analysis before releasing the owner's handle, accepting NULL.
+ * @param provider Owner handle, consumed by this call.
+ * @remarks Attached views retain a closed handle and never call the old
+ * context again. They may be destroyed before or after the owner. The owner
+ * must call this before freeing context, outside provider callbacks.
+ */
+void boxrig_ui_fragment_layout_provider_destroy(boxrig_ui_fragment_layout_provider *provider);
+
 /** Distinct retained dirty planes owned by one terminal view. */
 typedef enum boxrig_ui_dirty_layer {
     /** Terminal cells, cursor, colors, and row layouts in logical columns. */
@@ -1449,6 +1499,18 @@ boxrig_ui_status boxrig_ui_view_store_row_layout(
     boxrig_text_layout *layout,
     size_t estimated_bytes,
     uint64_t revision);
+
+/**
+ * Attaches a shared physical-row analyzer to a view.
+ * @param view View whose selection may extend beyond the viewport.
+ * @param provider Open provider to retain, or NULL to detach.
+ * @return OK, INVALID_ARGUMENT, LIMIT_EXCEEDED, or BUSY during analysis.
+ * @remarks The owner keeps its handle. Replacing an existing provider makes
+ * rectangular selections stale. First attachment adopts any retained geometry;
+ * the host must use the same display policy that produced that geometry.
+ */
+boxrig_ui_status boxrig_ui_view_set_fragment_layout_provider(
+    boxrig_ui_view *view, boxrig_ui_fragment_layout_provider *provider);
 
 /**
  * Maps one fixed-point view position through the retained row layout.
