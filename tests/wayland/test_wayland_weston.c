@@ -9,6 +9,8 @@
 #include "boxrig/wayland.h"
 #if BOXRIG_TEST_WAYLAND_OPENGL
 #include "boxrig/wayland/opengl_component.h"
+#include "boxrig/render/opengl.h"
+#include <EGL/egl.h>
 #endif
 #include "xdg-shell-client-protocol.h"
 
@@ -22,6 +24,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <time.h>
 #include <unistd.h>
 
 #define CHECK(condition)                                                        \
@@ -32,6 +35,41 @@
         }                                                                       \
     } while (0)
 
+/* Native runs use the desktop's output scale and input capabilities. */
+static bool native_display;
+#if BOXRIG_TEST_WAYLAND_OPENGL
+static boxrig_ogl_renderer *observed_renderer;
+static size_t renderer_creations;
+static size_t egl_surface_creations;
+
+boxrig_gl_status __real_boxrig_ogl_renderer_create(const boxrig_ogl_renderer_config *,
+    boxrig_ogl_renderer **, boxrig_gl_diagnostic *);
+boxrig_gl_status __wrap_boxrig_ogl_renderer_create(const boxrig_ogl_renderer_config *config,
+    boxrig_ogl_renderer **renderer, boxrig_gl_diagnostic *diagnostic)
+{
+    boxrig_gl_status status = __real_boxrig_ogl_renderer_create(config, renderer, diagnostic);
+    if (status == BOXRIG_GL_OK) {
+        observed_renderer = *renderer;
+        renderer_creations++;
+    }
+    return status;
+}
+EGLSurface __real_eglCreateWindowSurface(EGLDisplay, EGLConfig, EGLNativeWindowType, const EGLint *);
+EGLSurface __wrap_eglCreateWindowSurface(EGLDisplay display, EGLConfig config,
+    EGLNativeWindowType window, const EGLint *attributes)
+{
+    egl_surface_creations++;
+    return __real_eglCreateWindowSurface(display, config, window, attributes);
+}
+#endif
+
+static double milliseconds(clockid_t clock)
+{
+    struct timespec now;
+    CHECK(clock_gettime(clock, &now) == 0);
+    return (double)now.tv_sec * 1000.0 + (double)now.tv_nsec / 1000000.0;
+}
+
 typedef struct weston_host {
     struct wl_display *display;
     struct wl_event_queue *queue;
@@ -41,6 +79,8 @@ typedef struct weston_host {
     struct xdg_wm_base *wm_base;
     struct xdg_surface *xdg_surface;
     struct xdg_toplevel *toplevel;
+    struct wl_surface *parent;
+    boxrig_terminal *terminal;
     bool configured;
     bool closed;
 } weston_host;
@@ -350,6 +390,23 @@ static void wait_for_component(
         CHECK(boxrig_wayland_terminal_component_frame(
                   component,
                   &frame_result) == BOXRIG_UI_OK);
+        if (native_display) {
+            boxrig_ui_layout_action grid;
+            if (boxrig_wayland_terminal_component_take_layout_action(component, &grid)) {
+                CHECK(grid.kind == BOXRIG_UI_LAYOUT_ACTION_GRID_RESIZE);
+                CHECK(boxrig_terminal_resize(host->terminal, grid.value.grid_resize.rows,
+                    grid.value.grid_resize.columns) == BOXRIG_STATUS_OK);
+                CHECK(boxrig_wayland_terminal_component_complete_grid_resize(component,
+                    grid.revision, true) == BOXRIG_UI_OK);
+            }
+            boxrig_wayland_host_action action;
+            if (boxrig_wayland_terminal_component_take_host_action(component, &action)) {
+                bool applied;
+                wl_surface_commit(host->parent);
+                CHECK(boxrig_wayland_terminal_component_complete_parent_commit(component,
+                    action.revision, &applied) == BOXRIG_UI_OK && applied);
+            }
+        }
         CHECK(dispatch_once(host, context, 20));
         CHECK(boxrig_wayland_terminal_component_get_diagnostic(
                   component,
@@ -357,9 +414,9 @@ static void wait_for_component(
         CHECK(boxrig_wayland_terminal_component_get_transparency(
                   component,
                   &transparency) == BOXRIG_UI_OK);
-        if (diagnostic.scale_numerator == 240 &&
-            diagnostic.buffer_width == diagnostic.logical_width * 2 &&
-            diagnostic.buffer_height == diagnostic.logical_height * 2 &&
+        if ((native_display || diagnostic.scale_numerator == 240) &&
+            diagnostic.buffer_width == (diagnostic.logical_width * diagnostic.scale_numerator + 119) / 120 &&
+            diagnostic.buffer_height == (diagnostic.logical_height * diagnostic.scale_numerator + 119) / 120 &&
 #if BOXRIG_TEST_WAYLAND_OPENGL
             diagnostic.shm_format == 0 &&
 #else
@@ -374,7 +431,7 @@ static void wait_for_component(
             CHECK((diagnostic.fractional_scale_active &&
                    diagnostic.buffer_scale == 1) ||
                   (!diagnostic.fractional_scale_active &&
-                   diagnostic.buffer_scale == 2));
+                   diagnostic.buffer_scale * 120 == (int32_t)diagnostic.scale_numerator));
 #if BOXRIG_TEST_WAYLAND_OPENGL
             CHECK(boxrig_wayland_opengl_terminal_component_get_diagnostic(
                       component,
@@ -440,6 +497,7 @@ static void animation_cancel(void *context)
 
 int main(void)
 {
+    native_display = getenv("BOXRIG_TEST_NATIVE_WAYLAND") != NULL;
     static const uint8_t text[] = "weston \xce\xb1\xe6\xbc\xa2";
     static const uint8_t image[] =
         "\x1b_Ga=T,i=901,f=32,s=1,v=1,c=1,r=1,C=1;/wAA/w==\x1b\\";
@@ -506,18 +564,21 @@ int main(void)
               context,
               &context_diagnostic) == BOXRIG_UI_OK);
     CHECK(context_diagnostic.xkb_available);
+    if (!native_display) {
     CHECK(context_diagnostic.seat_count == 0);
     CHECK(context_diagnostic.text_input_version == 0);
     CHECK((context_diagnostic.input_capabilities &
            (BOXRIG_WAYLAND_INPUT_CAPABILITY_KEYBOARD |
             BOXRIG_WAYLAND_INPUT_CAPABILITY_POINTER |
             BOXRIG_WAYLAND_INPUT_CAPABILITY_TEXT_INPUT_V3)) == 0);
+    }
     CHECK(xdg_wm_base_add_listener(
               host.wm_base,
               &wm_base_listener,
               &host) == 0);
 
     parent = wl_compositor_create_surface(host.compositor);
+    host.parent = parent;
     CHECK(parent != NULL);
     wl_proxy_set_queue((struct wl_proxy *)parent, host.queue);
     host.xdg_surface = xdg_wm_base_get_xdg_surface(host.wm_base, parent);
@@ -545,6 +606,7 @@ int main(void)
     terminal_config.columns = 24;
     CHECK(boxrig_terminal_create(&terminal_config, &terminal) ==
           BOXRIG_STATUS_OK);
+    host.terminal = terminal;
     CHECK(boxrig_terminal_set_cell_pixel_geometry(terminal, 10, 20) ==
           BOXRIG_STATUS_OK);
     CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
@@ -744,9 +806,106 @@ int main(void)
         CHECK(bar.reserved_width == (bar.visible ? 14u : 0u));
         CHECK(boxrig_wayland_terminal_component_get_effective_metrics(component, &metrics) == BOXRIG_FONT_CATALOG_OK);
         CHECK(boxrig_wayland_terminal_component_get_layout(component, &allocation, &layout) == BOXRIG_UI_OK);
-        CHECK(layout.columns == (diagnostic.buffer_width - bar.reserved_width * 2) / metrics.cell_width);
+        CHECK(layout.columns == (diagnostic.buffer_width - (bar.reserved_width * diagnostic.scale_numerator + 119) / 120) / metrics.cell_width);
     }
     puts("PASS native Wayland standard bar visibility through Weston at scale 2");
+
+    /* Allocation work is measured separately from dispatch/compositor latency.
+     * Repeated dimensions must keep the already accepted image and resources. */
+    const unsigned int resize_sizes[][2] = {{640, 360}, {1000, 650}, {1000, 650},
+        {480, 280}, {480, 280}, {800, 500}, {640, 360}, {640, 360}};
+    host_buffer resize_background = {0};
+    for (size_t cycle = 0; cycle < 4; cycle++) {
+        for (size_t index = 0; index < sizeof(resize_sizes) / sizeof(resize_sizes[0]); index++) {
+            boxrig_wayland_component_diagnostic before;
+            CHECK(boxrig_wayland_terminal_component_get_diagnostic(component, &before) == BOXRIG_UI_OK);
+            bool same = allocation.width == resize_sizes[index][0] && allocation.height == resize_sizes[index][1];
+            allocation.width = resize_sizes[index][0];
+            allocation.height = resize_sizes[index][1];
+#if BOXRIG_TEST_WAYLAND_OPENGL
+            size_t renderers_before = renderer_creations;
+            size_t surfaces_before = egl_surface_creations;
+            boxrig_ogl_render_statistics stats_before, stats_after;
+            CHECK(boxrig_ogl_renderer_get_render_statistics(observed_renderer, &stats_before) == 0);
+#endif
+            double cpu = milliseconds(CLOCK_THREAD_CPUTIME_ID);
+            double wall = milliseconds(CLOCK_MONOTONIC);
+            CHECK(boxrig_wayland_terminal_component_allocate(component, &allocation, &layout) == BOXRIG_UI_OK);
+            wall = milliseconds(CLOCK_MONOTONIC) - wall;
+            cpu = milliseconds(CLOCK_THREAD_CPUTIME_ID) - cpu;
+            CHECK(boxrig_wayland_terminal_component_get_diagnostic(component, &diagnostic) == BOXRIG_UI_OK);
+            printf("RESIZE cycle=%zu index=%zu size=%ux%u same=%d wall_ms=%.6f cpu_ms=%.6f presentations=%llu\n",
+                cycle, index, allocation.width, allocation.height, same, wall, cpu,
+                (unsigned long long)(diagnostic.presentation_generation - before.presentation_generation));
+            fflush(stdout);
+#if BOXRIG_TEST_WAYLAND_OPENGL
+            CHECK(renderer_creations == renderers_before);
+            CHECK(egl_surface_creations == surfaces_before);
+            CHECK(boxrig_ogl_renderer_get_render_statistics(observed_renderer, &stats_after) == 0);
+            CHECK(stats_after.grayscale_glyph_upload_count == stats_before.grayscale_glyph_upload_count);
+            CHECK(stats_after.color_glyph_upload_count == stats_before.color_glyph_upload_count);
+#endif
+            if (getenv("BOXRIG_TEST_RESIZE_MEASURE") == NULL && same) {
+                CHECK(diagnostic.presentation_generation == before.presentation_generation);
+            }
+            if (boxrig_wayland_terminal_component_take_layout_action(component, &grid_action)) {
+                CHECK(boxrig_terminal_resize(terminal, grid_action.value.grid_resize.rows,
+                    grid_action.value.grid_resize.columns) == BOXRIG_STATUS_OK);
+                CHECK(boxrig_wayland_terminal_component_complete_grid_resize(component,
+                    grid_action.revision, true) == BOXRIG_UI_OK);
+            }
+            CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+            host_buffer previous_background = resize_background;
+            create_host_buffer(&host, allocation.width + 32, allocation.height + 32,
+                UINT32_C(0xff203060), &resize_background);
+            wl_surface_attach(parent, resize_background.proxy, 0, 0);
+            wl_surface_damage_buffer(parent, 0, 0, (int32_t)resize_background.width, (int32_t)resize_background.height);
+            xdg_surface_set_window_geometry(host.xdg_surface, 0, 0,
+                (int32_t)resize_background.width, (int32_t)resize_background.height);
+            bool has_action = boxrig_wayland_terminal_component_take_host_action(component, &action);
+            wl_surface_commit(parent);
+            if (has_action) CHECK(boxrig_wayland_terminal_component_complete_parent_commit(component,
+                action.revision, &applied) == BOXRIG_UI_OK && applied);
+            wait_for_component(&host, context, component);
+            destroy_host_buffer(&previous_background);
+        }
+    }
+    /* Moving an accepted image only requires the parent's position commit. */
+    CHECK(boxrig_wayland_terminal_component_get_diagnostic(component, &diagnostic) == BOXRIG_UI_OK);
+    generation = diagnostic.presentation_generation;
+    allocation.x++;
+    CHECK(boxrig_wayland_terminal_component_allocate(component, &allocation, &layout) == BOXRIG_UI_OK);
+    CHECK(boxrig_wayland_terminal_component_take_host_action(component, &action));
+    CHECK(action.x == allocation.x && action.y == allocation.y);
+    wl_surface_commit(parent);
+    CHECK(boxrig_wayland_terminal_component_complete_parent_commit(component,
+        action.revision, &applied) == BOXRIG_UI_OK && applied);
+    wait_for_component(&host, context, component);
+    CHECK(boxrig_wayland_terminal_component_get_diagnostic(component, &diagnostic) == BOXRIG_UI_OK);
+    if (getenv("BOXRIG_TEST_RESIZE_MEASURE") == NULL)
+        CHECK(diagnostic.presentation_generation == generation);
+
+    /* A same-size allocation with new content still prepares the new image. */
+    feed(terminal, (const uint8_t *)"\rZ", 2);
+    CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+    generation = diagnostic.presentation_generation;
+    CHECK(boxrig_wayland_terminal_component_allocate(component, &allocation, &layout) == BOXRIG_UI_OK);
+    CHECK(boxrig_wayland_terminal_component_take_host_action(component, &action));
+    wl_surface_commit(parent);
+    CHECK(boxrig_wayland_terminal_component_complete_parent_commit(component,
+        action.revision, &applied) == BOXRIG_UI_OK && applied);
+    wait_for_component(&host, context, component);
+    CHECK(boxrig_wayland_terminal_component_get_diagnostic(component, &diagnostic) == BOXRIG_UI_OK);
+    CHECK(diagnostic.presentation_generation > generation);
+
+    boxrig_ui_component_allocation invalid = allocation;
+    invalid.width = UINT32_MAX;
+    generation = diagnostic.presentation_generation;
+    CHECK(boxrig_wayland_terminal_component_allocate(component, &invalid, &layout) == BOXRIG_UI_LIMIT_EXCEEDED);
+    CHECK(boxrig_wayland_terminal_component_get_diagnostic(component, &diagnostic) == BOXRIG_UI_OK);
+    CHECK(diagnostic.presentation_generation == generation);
+    CHECK(diagnostic.logical_width == allocation.width && diagnostic.logical_height == allocation.height);
+    puts("PASS Wayland resize resources, position changes, pending paint, and allocation limits");
 
     boxrig_wayland_terminal_component_destroy(component);
     component = NULL;
@@ -758,6 +917,7 @@ int main(void)
     xdg_toplevel_destroy(host.toplevel);
     xdg_surface_destroy(host.xdg_surface);
     wl_surface_destroy(parent);
+    destroy_host_buffer(&resize_background);
     destroy_host_buffer(&background_second);
     destroy_host_buffer(&background_first);
     xdg_wm_base_destroy(host.wm_base);
@@ -772,9 +932,9 @@ int main(void)
     FcFini();
     printf(
 #if BOXRIG_TEST_WAYLAND_OPENGL
-        "PASS native Wayland OpenGL component renders through Weston headless\n"
+        "PASS native Wayland OpenGL component renders\n"
 #else
-        "PASS native Wayland component renders through Weston headless\n"
+        "PASS native Wayland component renders\n"
 #endif
     );
     return 0;
