@@ -874,7 +874,8 @@ uint32_t opengl_host_create_framebuffer(
     GLint previous_texture;
     GLint internal_format = format == BOXRIG_GL_TARGET_SRGB8_ALPHA8
                                 ? GL_SRGB8_ALPHA8
-                                : GL_RGBA8;
+                                : format == BOXRIG_GL_TARGET_RGB8 ? GL_RGB8 : GL_RGBA8;
+    GLenum external_format = format == BOXRIG_GL_TARGET_RGB8 ? GL_RGB : GL_RGBA;
 
     (void)host;
     glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &previous_draw);
@@ -891,7 +892,7 @@ uint32_t opengl_host_create_framebuffer(
         (GLsizei)width,
         (GLsizei)height,
         0,
-        GL_RGBA,
+        external_format,
         GL_UNSIGNED_BYTE,
         NULL);
     glGenFramebuffers(1, &framebuffer);

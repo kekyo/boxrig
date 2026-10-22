@@ -42,10 +42,18 @@ static EGLint excluded_renderable_types;
 static size_t gles_context_attempts;
 static size_t desktop_context_attempts;
 static bool fail_next_make_current;
+static bool fail_next_rebind;
+static size_t rebind_guard_destroy_count;
 static bool fail_next_swap;
 static EGLint failed_swap_error = EGL_SUCCESS;
 static size_t context_create_count;
+static size_t surface_create_count;
+static size_t surface_destroy_count;
 static size_t swap_count;
+static bool report_stale_surface_size;
+static bool fail_next_surface_size_query;
+static EGLint queried_surface_width;
+static EGLint queried_surface_height;
 static size_t font_config_parse_count;
 static bool capture_next_swap;
 static GLint capture_x;
@@ -58,6 +66,17 @@ EGLContext __real_eglCreateContext(
     EGLConfig config,
     EGLContext share_context,
     const EGLint *attributes);
+
+EGLSurface __real_eglCreateWindowSurface(
+    EGLDisplay display,
+    EGLConfig config,
+    EGLNativeWindowType window,
+    const EGLint *attributes);
+
+EGLBoolean __real_eglDestroySurface(EGLDisplay display, EGLSurface surface);
+
+EGLBoolean __real_eglQuerySurface(
+    EGLDisplay display, EGLSurface surface, EGLint attribute, EGLint *value);
 
 EGLBoolean __real_eglMakeCurrent(
     EGLDisplay display,
@@ -104,6 +123,52 @@ FcBool __wrap_FcConfigParseAndLoad(
     return __real_FcConfigParseAndLoad(config, file, complain);
 }
 
+EGLSurface __wrap_eglCreateWindowSurface(
+    EGLDisplay display,
+    EGLConfig config,
+    EGLNativeWindowType window,
+    const EGLint *attributes)
+{
+    EGLSurface surface = __real_eglCreateWindowSurface(
+        display, config, window, attributes);
+    if (surface != EGL_NO_SURFACE) {
+        surface_create_count++;
+        report_stale_surface_size = false;
+    }
+    return surface;
+}
+
+EGLBoolean __wrap_eglDestroySurface(EGLDisplay display, EGLSurface surface)
+{
+    surface_destroy_count++;
+    return __real_eglDestroySurface(display, surface);
+}
+
+EGLBoolean __wrap_eglQuerySurface(
+    EGLDisplay display, EGLSurface surface, EGLint attribute, EGLint *value)
+{
+    EGLBoolean result;
+
+    if (attribute == EGL_WIDTH || attribute == EGL_HEIGHT) {
+        if (fail_next_surface_size_query) {
+            fail_next_surface_size_query = false;
+            return EGL_FALSE;
+        }
+        if (report_stale_surface_size) {
+            *value = 1;
+            if (attribute == EGL_WIDTH) queried_surface_width = *value;
+            else queried_surface_height = *value;
+            return EGL_TRUE;
+        }
+    }
+    result = __real_eglQuerySurface(display, surface, attribute, value);
+    if (result == EGL_TRUE) {
+        if (attribute == EGL_WIDTH) queried_surface_width = *value;
+        else if (attribute == EGL_HEIGHT) queried_surface_height = *value;
+    }
+    return result;
+}
+
 EGLContext __wrap_eglCreateContext(
     EGLDisplay display,
     EGLConfig config,
@@ -133,6 +198,13 @@ EGLBoolean __wrap_eglMakeCurrent(
     EGLSurface read,
     EGLContext context)
 {
+    if (fail_next_rebind &&
+        surface_destroy_count == rebind_guard_destroy_count &&
+        context != EGL_NO_CONTEXT &&
+        eglGetCurrentContext() == EGL_NO_CONTEXT) {
+        fail_next_rebind = false;
+        return EGL_FALSE;
+    }
     if (fail_next_make_current) {
         fail_next_make_current = false;
         return EGL_FALSE;
@@ -243,7 +315,10 @@ int main(int argument_count, char **arguments)
     XWindowAttributes attributes;
     unsigned int children_before;
     size_t contexts_before;
+    size_t surface_creates_before;
+    size_t surface_destroys_before;
     size_t swaps_before;
+    bool surface_matches;
     boxrig_ui_status status;
     const GLubyte *gl_vendor;
     const GLubyte *gl_renderer;
@@ -501,6 +576,26 @@ int main(int argument_count, char **arguments)
     CHECK(captured_swap_pixel[1] == 0x34);
     CHECK(captured_swap_pixel[2] == 0x56);
 
+    /* The ordinary owned allocation changes both dimensions in one request. */
+    for (unsigned int step = 0; step < 2; step++) {
+        allocation.width = step == 0
+                               ? allocation.width + metrics.cell_width
+                               : allocation.width - metrics.cell_width;
+        allocation.height = step == 0
+                                ? allocation.height + metrics.cell_height
+                                : allocation.height - metrics.cell_height;
+        CHECK(boxrig_x11_terminal_component_allocate(
+                  component, &allocation, &layout) == BOXRIG_UI_OK);
+        capture_y = (GLint)(allocation.height - metrics.cell_height / 2 - 1);
+        captured_swap_pixel_valid = false;
+        capture_next_swap = true;
+        CHECK(boxrig_x11_terminal_component_frame(component, &frame_result) ==
+              BOXRIG_UI_OK);
+        CHECK(captured_swap_pixel_valid);
+        CHECK(captured_swap_pixel[0] == 0x12 && captured_swap_pixel[1] == 0x34 &&
+              captured_swap_pixel[2] == 0x56);
+    }
+
     /* Partial synchronized output must keep the committed frame visible. */
     {
         static const uint8_t partial[] =
@@ -614,8 +709,17 @@ int main(int argument_count, char **arguments)
      * Restoring its pixels must not require another terminal byte or Expose. */
     XResizeWindow(display, borrowed, 160, 96);
     XSync(display, False);
+    CHECK(surface_create_count != 0);
+    queried_surface_width = 0;
+    queried_surface_height = 0;
+    surface_creates_before = surface_create_count;
+    surface_destroys_before = surface_destroy_count;
     CHECK(boxrig_x11_terminal_component_set_target_extent(
               borrowed_component, 160, 96) == BOXRIG_UI_OK);
+    surface_matches = queried_surface_width == 160 &&
+                      queried_surface_height == 96;
+    CHECK(surface_create_count == surface_creates_before + !surface_matches);
+    CHECK(surface_destroy_count == surface_destroys_before + !surface_matches);
     capture_y = (GLint)(96 - metrics.cell_height / 2 - 1);
     captured_swap_pixel_valid = false;
     capture_next_swap = true;
@@ -633,13 +737,126 @@ int main(int argument_count, char **arguments)
     /* A failed presentation must leave the retained image available to retry. */
     XResizeWindow(display, borrowed, 160, 112);
     XSync(display, False);
+    queried_surface_width = 0;
+    queried_surface_height = 0;
+    surface_creates_before = surface_create_count;
+    surface_destroys_before = surface_destroy_count;
     CHECK(boxrig_x11_terminal_component_set_target_extent(
               borrowed_component, 160, 112) == BOXRIG_UI_OK);
+    surface_matches = queried_surface_width == 160 &&
+                      queried_surface_height == 112;
+    CHECK(surface_create_count == surface_creates_before + !surface_matches);
+    CHECK(surface_destroy_count == surface_destroys_before + !surface_matches);
     failed_swap_error = EGL_BAD_ALLOC;
     fail_next_swap = true;
     CHECK(boxrig_x11_terminal_component_frame(borrowed_component, &frame_result) ==
           BOXRIG_UI_UNAVAILABLE);
     capture_y = (GLint)(112 - metrics.cell_height / 2 - 1);
+    captured_swap_pixel_valid = false;
+    capture_next_swap = true;
+    CHECK(boxrig_x11_terminal_component_frame(borrowed_component, &frame_result) ==
+          BOXRIG_UI_OK);
+    CHECK(captured_swap_pixel_valid);
+    CHECK(captured_swap_pixel[0] == 0x12 && captured_swap_pixel[1] == 0x34 &&
+          captured_swap_pixel[2] == 0x56);
+    /* Shrinking a usable surface also keeps the first submitted pixel. */
+    XResizeWindow(display, borrowed, 160, 96);
+    XSync(display, False);
+    queried_surface_width = 0;
+    queried_surface_height = 0;
+    surface_creates_before = surface_create_count;
+    surface_destroys_before = surface_destroy_count;
+    CHECK(boxrig_x11_terminal_component_set_target_extent(
+              borrowed_component, 160, 96) == BOXRIG_UI_OK);
+    surface_matches = queried_surface_width == 160 &&
+                      queried_surface_height == 96;
+    CHECK(surface_create_count == surface_creates_before + !surface_matches);
+    CHECK(surface_destroy_count == surface_destroys_before + !surface_matches);
+    capture_y = (GLint)(96 - metrics.cell_height / 2 - 1);
+    captured_swap_pixel_valid = false;
+    capture_next_swap = true;
+    CHECK(boxrig_x11_terminal_component_frame(borrowed_component, &frame_result) ==
+          BOXRIG_UI_OK);
+    CHECK(captured_swap_pixel_valid);
+    CHECK(captured_swap_pixel[0] == 0x12 && captured_swap_pixel[1] == 0x34 &&
+          captured_swap_pixel[2] == 0x56);
+    /* If rebinding a retained surface fails, the next request restores it. */
+    XResizeWindow(display, borrowed, 160, 104);
+    XSync(display, False);
+    fail_next_rebind = true;
+    rebind_guard_destroy_count = surface_destroy_count;
+    status = boxrig_x11_terminal_component_set_target_extent(
+        borrowed_component, 160, 104);
+    if (!fail_next_rebind) {
+        CHECK(status == BOXRIG_UI_UNAVAILABLE);
+    } else {
+        CHECK(status == BOXRIG_UI_OK);
+        fail_next_rebind = false;
+    }
+    CHECK(boxrig_x11_terminal_component_set_target_extent(
+              borrowed_component, 160, 104) == BOXRIG_UI_OK);
+    capture_y = (GLint)(104 - metrics.cell_height / 2 - 1);
+    captured_swap_pixel_valid = false;
+    capture_next_swap = true;
+    CHECK(boxrig_x11_terminal_component_frame(borrowed_component, &frame_result) ==
+          BOXRIG_UI_OK);
+    CHECK(captured_swap_pixel_valid);
+    CHECK(captured_swap_pixel[0] == 0x12 && captured_swap_pixel[1] == 0x34 &&
+          captured_swap_pixel[2] == 0x56);
+    /* A stale or unavailable EGL extent must retain the old recovery path. */
+    XResizeWindow(display, borrowed, 160, 128);
+    XSync(display, False);
+    surface_creates_before = surface_create_count;
+    surface_destroys_before = surface_destroy_count;
+    report_stale_surface_size = true;
+    CHECK(boxrig_x11_terminal_component_set_target_extent(
+              borrowed_component, 160, 128) == BOXRIG_UI_OK);
+    CHECK(surface_create_count == surface_creates_before + 1);
+    CHECK(surface_destroy_count == surface_destroys_before + 1);
+    capture_y = (GLint)(128 - metrics.cell_height / 2 - 1);
+    captured_swap_pixel_valid = false;
+    capture_next_swap = true;
+    CHECK(boxrig_x11_terminal_component_frame(borrowed_component, &frame_result) ==
+          BOXRIG_UI_OK);
+    CHECK(captured_swap_pixel_valid);
+    CHECK(captured_swap_pixel[0] == 0x12 && captured_swap_pixel[1] == 0x34 &&
+          captured_swap_pixel[2] == 0x56);
+
+    XResizeWindow(display, borrowed, 160, 144);
+    XSync(display, False);
+    surface_creates_before = surface_create_count;
+    surface_destroys_before = surface_destroy_count;
+    fail_next_surface_size_query = true;
+    CHECK(boxrig_x11_terminal_component_set_target_extent(
+              borrowed_component, 160, 144) == BOXRIG_UI_OK);
+    CHECK(!fail_next_surface_size_query);
+    CHECK(surface_create_count == surface_creates_before + 1);
+    CHECK(surface_destroy_count == surface_destroys_before + 1);
+    capture_y = (GLint)(144 - metrics.cell_height / 2 - 1);
+    captured_swap_pixel_valid = false;
+    capture_next_swap = true;
+    CHECK(boxrig_x11_terminal_component_frame(borrowed_component, &frame_result) ==
+          BOXRIG_UI_OK);
+    CHECK(captured_swap_pixel_valid);
+    CHECK(captured_swap_pixel[0] == 0x12 && captured_swap_pixel[1] == 0x34 &&
+          captured_swap_pixel[2] == 0x56);
+    /* A context replacement has a new, unpresented EGLSurface. Resizing it
+     * before its first swap must establish a drawable for the first pixel. */
+    XResizeWindow(display, borrowed, 160, 160);
+    XSync(display, False);
+    CHECK(boxrig_x11_terminal_component_set_target_extent(
+              borrowed_component, 160, 160) == BOXRIG_UI_OK);
+    failed_swap_error = EGL_BAD_SURFACE;
+    fail_next_swap = true;
+    CHECK(boxrig_x11_terminal_component_frame(borrowed_component, &frame_result) ==
+          BOXRIG_UI_UNAVAILABLE);
+    XResizeWindow(display, borrowed, 160, 176);
+    XSync(display, False);
+    surface_creates_before = surface_create_count;
+    CHECK(boxrig_x11_terminal_component_set_target_extent(
+              borrowed_component, 160, 176) == BOXRIG_UI_OK);
+    CHECK(surface_create_count == surface_creates_before + 2);
+    capture_y = (GLint)(176 - metrics.cell_height / 2 - 1);
     captured_swap_pixel_valid = false;
     capture_next_swap = true;
     CHECK(boxrig_x11_terminal_component_frame(borrowed_component, &frame_result) ==

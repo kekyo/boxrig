@@ -183,7 +183,6 @@ boxrig coreでは、ターミナルの「描画」は実装者が行う必要が
 OS要件は使用する層で異なり、WindowsのPTYにはWindows 10 version 1809以降が必要です。
 [対応状況](./docs/ja/compatibility.md)で確認してください。
 
-<a id="windowsアプリの配布物"></a>
 Windowsアプリに同梱するファイルは、静的リンクかDLLを使うか、どのConPTYを選ぶかで変わります。
 [配布条件](./docs/ja/reference/distribution.md)を参照してください。
 
