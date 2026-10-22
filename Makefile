@@ -2677,6 +2677,8 @@ $(X11_OPENGL_COMPONENT_TEST_BINARY): \
 		$(UI_LIBRARY) $(LIBRARY) \
 		$(X11_LIBS) $(DBUS_LIBS) $(OPENGL_RENDERER_LIBS) \
 		-Wl,--wrap=eglCreateContext -Wl,--wrap=eglMakeCurrent \
+		-Wl,--wrap=eglCreateWindowSurface -Wl,--wrap=eglDestroySurface \
+		-Wl,--wrap=eglQuerySurface \
 		-Wl,--wrap=eglSwapBuffers -Wl,--wrap=eglGetError \
 		-Wl,--wrap=eglGetConfigAttrib -Wl,--wrap=eglGetProcAddress \
 		-Wl,--wrap=FcConfigParseAndLoad \

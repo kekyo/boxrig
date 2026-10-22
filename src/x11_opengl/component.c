@@ -91,6 +91,7 @@ typedef struct boxrig_x11_ogl_adapter {
     bool candidate_frame_active;
     bool expose_pending;
     bool presentation_pending;
+    bool surface_presented;
     bool context_invalid;
     bool transparency_valid;
     bool scrollbar_enabled;
@@ -866,6 +867,7 @@ static bool create_context_and_renderer(boxrig_x11_ogl_adapter *adapter)
     if (adapter->egl_context == EGL_NO_CONTEXT) {
         return false;
     }
+    adapter->surface_presented = false;
     adapter->egl_surface = eglCreateWindowSurface(
         adapter->egl_display,
         adapter->egl_config,
@@ -978,6 +980,7 @@ static bool recreate_window_surface(boxrig_x11_ogl_adapter *adapter)
     }
     (void)eglDestroySurface(adapter->egl_display, adapter->egl_surface);
     adapter->egl_surface = EGL_NO_SURFACE;
+    adapter->surface_presented = false;
     replacement = eglCreateWindowSurface(
         adapter->egl_display,
         adapter->egl_config,
@@ -1081,6 +1084,7 @@ static bool present_framebuffer(
         return false;
     }
     adapter->presentation_pending = false;
+    adapter->surface_presented = true;
     return true;
 }
 
@@ -1260,13 +1264,48 @@ static int adapter_set_target_extent(
     unsigned int height)
 {
     boxrig_x11_ogl_adapter *adapter = context;
+    EGLint surface_width;
+    EGLint surface_height;
 
     if (adapter == NULL || width == 0 || height == 0) {
         return -1;
     }
-    if ((adapter->target_width != width || adapter->target_height != height) &&
-        !recreate_window_surface(adapter)) {
-        return -1;
+    if (adapter->target_width != width || adapter->target_height != height) {
+        if (!ensure_current(adapter)) {
+            return -1;
+        }
+        /* Keep the first presentation on a freshly sized drawable: a
+         * surface without a completed swap can report its new EGL extent
+         * while still using its initial GL buffers (observed with Mesa).
+         * EGL 1.5 sections 3.5.6 and 3.10.1.1 also allow the surface extent
+         * to lag the native window until swap. */
+        if (!adapter->surface_presented) {
+            if (!recreate_window_surface(adapter)) {
+                return -1;
+            }
+        } else {
+            /* Refresh the default framebuffer binding before querying the
+             * extent. NVIDIA may retain the old extent until this rebind. */
+            if (eglMakeCurrent(adapter->egl_display, EGL_NO_SURFACE,
+                               EGL_NO_SURFACE, EGL_NO_CONTEXT) != EGL_TRUE ||
+                !make_current(adapter)) {
+                adapter->context_invalid = true;
+                return -1;
+            }
+            if ((eglQuerySurface(adapter->egl_display, adapter->egl_surface,
+                                 EGL_WIDTH, &surface_width) != EGL_TRUE ||
+                 eglQuerySurface(adapter->egl_display, adapter->egl_surface,
+                                 EGL_HEIGHT, &surface_height) != EGL_TRUE ||
+                 surface_width <= 0 || surface_height <= 0 ||
+                 (unsigned int)surface_width != width ||
+                 (unsigned int)surface_height != height) &&
+                !recreate_window_surface(adapter)) {
+                return -1;
+            }
+        }
+        /* Resizing may discard window pixels while leaving the retained
+         * viewport unchanged. Present it even without new terminal output. */
+        adapter->presentation_pending = true;
     }
     adapter->target_width = width;
     adapter->target_height = height;
