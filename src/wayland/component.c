@@ -1417,6 +1417,35 @@ boxrig_wayland_terminal_component_get_effective_metrics(
         metrics_out);
 }
 
+static bool can_reuse_allocation(
+    const boxrig_wayland_terminal_component *component,
+    const boxrig_ui_component_allocation *allocation,
+    uint64_t width,
+    uint64_t height)
+{
+    boxrig_ui_layout_action action;
+    boxrig_ui_size_command_state command_state;
+
+    /* A repeated native configure or a position-only change needs no new
+     * image. Pending layout/paint work must still pass through the complete
+     * allocation transaction, including font and scrollbar changes. */
+    return component->allocated && component->allocation_reusable &&
+           !component->scrollbar_committing &&
+           component->logical_width == allocation->width &&
+           component->logical_height == allocation->height &&
+           component->buffer_width == width &&
+           component->buffer_height == height &&
+           component->allocation.window_state == allocation->window_state &&
+           !component->presentation_pending &&
+           !component->layout_presentation_barrier &&
+           component->dispatched_grid_resize.revision == 0 &&
+           !component_frame_requested(component) &&
+           !boxrig_ui_view_peek_layout_action(component->view, &action) &&
+           boxrig_ui_view_get_size_command_state(component->view,
+               &command_state) == BOXRIG_UI_OK &&
+           command_state == BOXRIG_UI_SIZE_COMMAND_IDLE;
+}
+
 boxrig_ui_status boxrig_wayland_terminal_component_allocate(
     boxrig_wayland_terminal_component *component,
     const boxrig_ui_component_allocation *allocation,
@@ -1454,6 +1483,20 @@ boxrig_ui_status boxrig_wayland_terminal_component_allocate(
     if (width == 0 || height == 0 || width > INT_MAX || height > INT_MAX) {
         return BOXRIG_UI_LIMIT_EXCEEDED;
     }
+    if (can_reuse_allocation(component, allocation, width, height)) {
+        position_changed = schedule_position(component, allocation->x, allocation->y);
+        component->allocation = *allocation;
+        *layout_out = component->layout;
+        if (position_changed) {
+            /* Parent-focused text input and direct IMEs use the child origin. */
+            boxrig_wayland_input_update_cursor_rectangle(component);
+        }
+        return BOXRIG_UI_OK;
+    }
+    /* Candidate rendering may update the view before native publication
+     * fails. A retry, including the previously accepted size, must restore
+     * the complete allocation rather than reuse its old image alone. */
+    component->allocation_reusable = false;
     if (boxrig_pango_cairo_renderer_get_effective_metrics(
             component->renderer,
             &metrics) != BOXRIG_FONT_CATALOG_OK ||
@@ -1522,8 +1565,12 @@ boxrig_ui_status boxrig_wayland_terminal_component_allocate(
     status = BOXRIG_UI_OK;
     if (!external) {
         surface = boxrig_pango_cairo_renderer_surface(component->renderer);
-        status = boxrig_wayland_shm_pool_copy_cairo(
+        /* Only this buffer is submitted with the allocation. Other buffers
+         * retain generation zero and receive the current image when selected
+         * for their first frame. Avoid touching their pages during resize. */
+        status = boxrig_wayland_shm_buffer_copy_cairo(
             candidate,
+            0,
             surface,
             generation);
     }
@@ -1583,6 +1630,7 @@ boxrig_ui_status boxrig_wayland_terminal_component_allocate(
     component->allocation = *allocation;
     component->layout = *layout_out;
     component->allocated = true;
+    component->allocation_reusable = true;
     position_changed = schedule_position(
         component,
         allocation->x,
