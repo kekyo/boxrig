@@ -942,14 +942,16 @@ int main(void)
      * Repeated dimensions must keep the already accepted image and resources. */
     const unsigned int resize_sizes[][2] = {{640, 360}, {1000, 650}, {1000, 650},
         {480, 280}, {480, 280}, {800, 500}, {640, 360}, {640, 360}};
+    bool height_only = getenv("BOXRIG_TEST_RESIZE_HEIGHT_ONLY") != NULL;
     host_buffer resize_background = {0};
     capture_active = true;
     for (size_t cycle = 0; cycle < 4; cycle++) {
         for (size_t index = 0; index < sizeof(resize_sizes) / sizeof(resize_sizes[0]); index++) {
             boxrig_wayland_component_diagnostic before;
             CHECK(boxrig_wayland_terminal_component_get_diagnostic(component, &before) == BOXRIG_UI_OK);
-            bool same = allocation.width == resize_sizes[index][0] && allocation.height == resize_sizes[index][1];
-            allocation.width = resize_sizes[index][0];
+            unsigned int target_width = height_only ? 640 : resize_sizes[index][0];
+            bool same = allocation.width == target_width && allocation.height == resize_sizes[index][1];
+            allocation.width = target_width;
             allocation.height = resize_sizes[index][1];
 #if BOXRIG_TEST_WAYLAND_OPENGL
             size_t renderers_before = renderer_creations;
@@ -960,6 +962,7 @@ int main(void)
 #if !BOXRIG_TEST_WAYLAND_OPENGL
             size_t copies_before = copied_buffers;
 #endif
+            double resize_start = milliseconds(CLOCK_MONOTONIC);
             double cpu = milliseconds(CLOCK_THREAD_CPUTIME_ID);
             double wall = milliseconds(CLOCK_MONOTONIC);
             CHECK(boxrig_wayland_terminal_component_allocate(component, &allocation, &layout) == BOXRIG_UI_OK);
@@ -985,13 +988,18 @@ int main(void)
             if (getenv("BOXRIG_TEST_RESIZE_MEASURE") == NULL && same) {
                 CHECK(diagnostic.presentation_generation == before.presentation_generation);
             }
+            double core_ms = 0;
             if (boxrig_wayland_terminal_component_take_layout_action(component, &grid_action)) {
+                double start = milliseconds(CLOCK_MONOTONIC);
                 CHECK(boxrig_terminal_resize(terminal, grid_action.value.grid_resize.rows,
                     grid_action.value.grid_resize.columns) == BOXRIG_STATUS_OK);
+                core_ms = milliseconds(CLOCK_MONOTONIC) - start;
                 CHECK(boxrig_wayland_terminal_component_complete_grid_resize(component,
                     grid_action.revision, true) == BOXRIG_UI_OK);
             }
+            double synchronize_start = milliseconds(CLOCK_MONOTONIC);
             CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+            double synchronize_ms = milliseconds(CLOCK_MONOTONIC) - synchronize_start;
             host_buffer previous_background = resize_background;
             create_host_buffer(&host, allocation.width + 32, allocation.height + 32,
                 UINT32_C(0xff203060), &resize_background);
@@ -1000,10 +1008,25 @@ int main(void)
             xdg_surface_set_window_geometry(host.xdg_surface, 0, 0,
                 (int32_t)resize_background.width, (int32_t)resize_background.height);
             bool has_action = boxrig_wayland_terminal_component_take_host_action(component, &action);
+            double parent_start = milliseconds(CLOCK_MONOTONIC);
             wl_surface_commit(parent);
             if (has_action) CHECK(boxrig_wayland_terminal_component_complete_parent_commit(component,
                 action.revision, &applied) == BOXRIG_UI_OK && applied);
+            double parent_ms = milliseconds(CLOCK_MONOTONIC) - parent_start;
+            /* Settling includes the post-resize frame and compositor callbacks;
+             * allocation alone can submit an image before the core is resized. */
             wait_for_component(&host, context, component);
+            double settled_ms = milliseconds(CLOCK_MONOTONIC) - resize_start;
+            size_t final_rows, final_columns;
+            boxrig_ui_component_allocation final_allocation;
+            boxrig_ui_layout_result final_layout;
+            boxrig_terminal_size(terminal, &final_rows, &final_columns);
+            CHECK(boxrig_wayland_terminal_component_get_layout(component,
+                &final_allocation, &final_layout) == BOXRIG_UI_OK);
+            CHECK(final_rows == final_layout.rows && final_columns == final_layout.columns);
+            printf("RESIZE_COMPLETE cycle=%zu index=%zu height_only=%d same=%d rows=%zu columns=%zu core_ms=%.6f synchronize_ms=%.6f parent_ms=%.6f settled_ms=%.6f\n",
+                cycle, index, height_only, same, final_rows, final_columns,
+                core_ms, synchronize_ms, parent_ms, settled_ms);
             destroy_host_buffer(&previous_background);
         }
     }
