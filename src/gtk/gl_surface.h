@@ -14,6 +14,12 @@ boxrig_ui_status boxrig_gtk_gl_surface_create(
     const boxrig_ogl_renderer_config *config, boxrig_gtk_gl_surface **surface_out,
     boxrig_gtk_render_state *state);
 
+/* Retargets the renderer while retaining its glyph and image caches. Invalid
+ * arguments leave the surface unchanged. After another failure the caller
+ * must destroy the surface before attempting another frame. */
+boxrig_ui_status boxrig_gtk_gl_surface_resize(boxrig_gtk_gl_surface *surface,
+    const boxrig_gl_target *destination, boxrig_gtk_render_state *state);
+
 void boxrig_gtk_gl_surface_destroy(boxrig_gtk_gl_surface **surface);
 
 /* Dirty remains unaccepted until the complete image has been transferred. */

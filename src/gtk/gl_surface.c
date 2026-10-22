@@ -146,6 +146,92 @@ boxrig_ui_status boxrig_gtk_gl_surface_create(
     return BOXRIG_UI_OK;
 }
 
+boxrig_ui_status boxrig_gtk_gl_surface_resize(boxrig_gtk_gl_surface *surface,
+    const boxrig_gl_target *destination, boxrig_gtk_render_state *state)
+{
+    if (surface == NULL || destination == NULL || state == NULL ||
+        destination->draw_framebuffer == 0 || destination->width == 0 ||
+        destination->height == 0 || destination->width > INT_MAX ||
+        destination->height > INT_MAX || destination->samples != 0 ||
+        destination->generation <= surface->target.generation ||
+        destination->format != surface->target.format ||
+        destination->alpha_mode != surface->target.alpha_mode ||
+        destination->origin != surface->target.origin || surface->pending) {
+        return BOXRIG_UI_INVALID_ARGUMENT;
+    }
+    if (!current(surface)) {
+        return failure(state, BOXRIG_GTK_RENDER_REASON_CONTEXT_LOST,
+            "Retained GL surface context or thread changed", GL_NO_ERROR);
+    }
+
+    GLint previous_texture = 0, previous_read = 0, previous_draw = 0, previous_unpack = 0;
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &previous_texture);
+    glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &previous_read);
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &previous_draw);
+    glGetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, &previous_unpack);
+    GLuint texture = 0, framebuffer = 0;
+    glGenTextures(1, &texture);
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+    glTexImage2D(GL_TEXTURE_2D, 0,
+        destination->format == BOXRIG_GL_TARGET_SRGB8_ALPHA8 ? GL_SRGB8_ALPHA8 : GL_RGBA8,
+        (GLsizei)destination->width, (GLsizei)destination->height,
+        0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glGenFramebuffers(1, &framebuffer);
+    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0);
+    GLenum framebuffer_status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    GLenum error = glGetError();
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, (GLuint)previous_read);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, (GLuint)previous_draw);
+    glBindBuffer(GL_PIXEL_UNPACK_BUFFER, (GLuint)previous_unpack);
+    glBindTexture(GL_TEXTURE_2D, (GLuint)previous_texture);
+    if (error != GL_NO_ERROR || framebuffer_status != GL_FRAMEBUFFER_COMPLETE ||
+        texture == 0 || framebuffer == 0) {
+        glDeleteFramebuffers(1, &framebuffer);
+        glDeleteTextures(1, &texture);
+        return failure(state, BOXRIG_GTK_RENDER_REASON_RESOURCE,
+            "Could not resize the retained GL framebuffer", error);
+    }
+
+    boxrig_gl_target target = *destination;
+    target.draw_framebuffer = framebuffer;
+    boxrig_gl_diagnostic diagnostic;
+    if (boxrig_ogl_renderer_set_target(surface->renderer,
+            surface->runtime.context_generation, &target, &diagnostic) != BOXRIG_GL_OK) {
+        glDeleteFramebuffers(1, &framebuffer);
+        glDeleteTextures(1, &texture);
+        boxrig_gtk_gl_area_record_diagnostic(state, &diagnostic);
+        return state->status;
+    }
+    boxrig_renderer_target lifecycle_target = {0};
+    lifecycle_target.generation = target.generation;
+    lifecycle_target.width = target.width;
+    lifecycle_target.height = target.height;
+    lifecycle_target.scale_numerator = 1;
+    lifecycle_target.scale_denominator = 1;
+    lifecycle_target.premultiplied_alpha = target.alpha_mode == BOXRIG_GL_ALPHA_PREMULTIPLIED;
+    if (boxrig_renderer_lifecycle_prepare_target(surface->lifecycle,
+            &lifecycle_target) != BOXRIG_RENDERER_OK ||
+        boxrig_renderer_lifecycle_commit_target(surface->lifecycle) != BOXRIG_RENDERER_OK) {
+        glDeleteFramebuffers(1, &framebuffer);
+        glDeleteTextures(1, &texture);
+        return failure(state, BOXRIG_GTK_RENDER_REASON_RESOURCE,
+            "Could not retarget the retained GL frame lifecycle", GL_NO_ERROR);
+    }
+
+    GLuint old_framebuffer = surface->target.draw_framebuffer;
+    GLuint old_texture = surface->texture;
+    surface->target = target;
+    surface->texture = texture;
+    surface->complete = false;
+    glDeleteFramebuffers(1, &old_framebuffer);
+    glDeleteTextures(1, &old_texture);
+    return BOXRIG_UI_OK;
+}
+
 boxrig_ui_status boxrig_gtk_gl_surface_draw(boxrig_gtk_gl_surface *surface,
     boxrig_ui_view *view, boxrig_composition *composition,
     boxrig_gtk_render_state *state)

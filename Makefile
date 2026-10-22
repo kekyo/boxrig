@@ -4918,7 +4918,8 @@ $(BUILD_DIR)/tests/gtk3_gl_surface: tests/gtk/test_gl_surface.c src/gtk/gl_surfa
 	$(CC) $(CPPFLAGS) -Iinclude -Isrc $(GTK3_CPPFLAGS) $$(pkg-config --cflags epoxy) \
 		$(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< src/gtk/gl_area.c src/gtk/gl_surface.c \
 		$(OPENGL_RENDERER_LIBRARY) $(UI_LIBRARY) $(LIBRARY) \
-		$(GTK3_LIBS) $$(pkg-config --libs epoxy) -lm -o $@
+		$(GTK3_LIBS) $$(pkg-config --libs epoxy) -lm \
+		-Wl,--wrap=boxrig_renderer_lifecycle_commit_target -o $@
 
 test-gtk-gl-surface: $(BUILD_DIR)/tests/gtk3_gl_surface
 	$(XVFB_RUN) -a env GDK_BACKEND=x11 ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 \
@@ -4933,7 +4934,8 @@ $(MINGW_I686_BUILD_DIR)/tests/test_terminal_io_views.exe: tests/test_terminal_io
 $(BUILD_DIR)/tests/test_gtk3_rendering: tests/gtk3/test_gtk3_rendering.c $(GTK3_HEADERS) $(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) -Iinclude $(GTK3_CPPFLAGS) $(CFLAGS) $(GTK3_PROJECT_CFLAGS) $(SANITIZERS) $< \
 		-Wl,--wrap=gtk_gl_area_new -Wl,--wrap=gdk_gl_context_set_use_es -Wl,--wrap=gdk_gl_context_realize \
-		-Wl,--wrap=boxrig_gtk_gl_surface_create $(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK3_LIBS) -o $@
+		-Wl,--wrap=boxrig_gtk_gl_surface_create -Wl,--wrap=boxrig_gtk_gl_surface_draw \
+		$(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK3_LIBS) -o $@
 
 test-gtk3-rendering: $(BUILD_DIR)/tests/test_gtk3_rendering
 	$(XVFB_RUN) -a env GDK_BACKEND=x11 ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 \
@@ -4976,7 +4978,8 @@ test: test-gtk3-opengl test-gtk3-opengl-videos
 .PHONY: test-gtk4-rendering
 $(BUILD_DIR)/tests/test_gtk4_rendering: tests/gtk4/test_gtk4_rendering.c $(GTK4_HEADERS) $(GTK4_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) -Iinclude $(GTK4_CPPFLAGS) $(CFLAGS) $(GTK4_PROJECT_CFLAGS) $(SANITIZERS) $< \
-		-Wl,--wrap=gtk_gl_area_new $(GTK4_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK4_LIBS) -o $@
+		-Wl,--wrap=gtk_gl_area_new -Wl,--wrap=boxrig_gtk_gl_surface_draw \
+		$(GTK4_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK4_LIBS) -o $@
 
 test-gtk4-rendering: $(BUILD_DIR)/tests/test_gtk4_rendering
 	$(XVFB_RUN) -a env GDK_BACKEND=x11 GDK_DEBUG=gl-prefer-gl GSK_RENDERER=cairo $(GTK4_TEST_IM_ENV) ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 \

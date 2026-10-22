@@ -1,5 +1,6 @@
 /* boxrig - Under MIT. */
 #include "boxrig/gtk4.h"
+#include "../../src/gtk/gl_surface.h"
 #include <epoxy/gl.h>
 
 #include <stdio.h>
@@ -18,6 +19,25 @@ static GskRenderNode *retained_snapshots[8];
 static size_t retained_count;
 static boxrig_terminal *resize_before_render;
 static size_t accessible_rows_after_render;
+/* Sum upload deltas across renderer instances so replacement cannot reset the observation. */
+static size_t glyph_uploads;
+
+boxrig_ui_status __real_boxrig_gtk_gl_surface_draw(boxrig_gtk_gl_surface *,
+    boxrig_ui_view *, boxrig_composition *, boxrig_gtk_render_state *);
+boxrig_ui_status __wrap_boxrig_gtk_gl_surface_draw(boxrig_gtk_gl_surface *surface,
+    boxrig_ui_view *view, boxrig_composition *composition, boxrig_gtk_render_state *state)
+{
+    boxrig_ogl_render_statistics before;
+    boxrig_ogl_render_statistics after;
+    CHECK(boxrig_gtk_gl_surface_get_statistics(surface, &before) == 0);
+    boxrig_ui_status status = __real_boxrig_gtk_gl_surface_draw(surface, view, composition, state);
+    CHECK(boxrig_gtk_gl_surface_get_statistics(surface, &after) == 0);
+    CHECK(after.grayscale_glyph_upload_count >= before.grayscale_glyph_upload_count);
+    CHECK(after.color_glyph_upload_count >= before.color_glyph_upload_count);
+    glyph_uploads += after.grayscale_glyph_upload_count - before.grayscale_glyph_upload_count;
+    glyph_uploads += after.color_glyph_upload_count - before.color_glyph_upload_count;
+    return status;
+}
 
 static gboolean observe_target(GtkGLArea *area, GdkGLContext *context, gpointer data)
 {
@@ -284,6 +304,9 @@ int main(int argc, char **argv)
         CHECK(metrics.cell_width == after_metrics.cell_width && metrics.cell_height == after_metrics.cell_height);
         CHECK(boxrig_gtk4_terminal_widget_model(test.widget) == model);
         uint64_t target_generation = state.target_generation;
+        bool gl_before_resize = state.active_backend == BOXRIG_GTK_RENDER_BACKEND_OPENGL;
+        size_t uploads_before_resize = glyph_uploads;
+        if (gl_before_resize) CHECK(uploads_before_resize > 0);
         test.generation = boxrig_gtk4_terminal_widget_presentation_generation(test.widget);
         test.expected_width = 640;
         test.expected_height = 240;
@@ -291,8 +314,11 @@ int main(int argc, char **argv)
         await_frame(&test);
         CHECK(!test.failed);
         CHECK(boxrig_gtk4_terminal_widget_get_render_state(test.widget, &state) == BOXRIG_UI_OK);
-        if (state.active_backend == BOXRIG_GTK_RENDER_BACKEND_OPENGL)
+        if (gl_before_resize) {
+            CHECK(state.active_backend == BOXRIG_GTK_RENDER_BACKEND_OPENGL);
             CHECK(state.target_generation > target_generation);
+            CHECK(glyph_uploads == uploads_before_resize);
+        }
         cairo_surface_t *resized = capture(GTK_WIDGET(test.widget));
         CHECK(((uint32_t *)cairo_image_surface_get_data(resized))[0] == 0xff285078u);
         CHECK(cairo_image_surface_get_width(resized) == test.expected_width * gtk_widget_get_scale_factor(GTK_WIDGET(test.widget)));

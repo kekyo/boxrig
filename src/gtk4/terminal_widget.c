@@ -793,10 +793,12 @@ static gboolean render_gl_frame(GtkGLArea *area, GdkGLContext *context, gpointer
     }
     boxrig_gl_target previous = {0};
     (void)boxrig_gtk_gl_surface_get_target(widget->gl_surface, &previous);
-    bool replace = widget->gl_surface == NULL || previous.width != destination.width ||
-        previous.height != destination.height || previous.format != destination.format ||
+    bool replace = widget->gl_surface == NULL || previous.format != destination.format ||
+        previous.alpha_mode != destination.alpha_mode || previous.origin != destination.origin ||
         widget->gl_font_revision != metrics.layout_revision ||
         widget->gl_direction_policy != widget->direction_policy;
+    bool resize = !replace && (previous.width != destination.width ||
+        previous.height != destination.height);
     boxrig_gtk_gl_surface *candidate = NULL;
     if (replace) {
         boxrig_pango_cairo_renderer_font_selection font;
@@ -833,13 +835,23 @@ static gboolean render_gl_frame(GtkGLArea *area, GdkGLContext *context, gpointer
             return TRUE;
         }
         invalidate_complete_presentation(widget);
+    } else if (resize) {
+        destination.generation = generation + 1;
+        if (boxrig_gtk_gl_surface_resize(widget->gl_surface, &destination,
+                &widget->render_state) != BOXRIG_UI_OK) {
+            boxrig_gtk_gl_surface_destroy(&widget->gl_surface);
+            gl_failed(widget);
+            return TRUE;
+        }
+        invalidate_complete_presentation(widget);
     }
     boxrig_gtk_gl_surface *surface = replace ? candidate : widget->gl_surface;
-    bool changed = replace || widget->gl_pending || boxrig_ui_view_frame_requested(widget->view);
+    bool changed = replace || resize || widget->gl_pending || boxrig_ui_view_frame_requested(widget->view);
     if ((changed && boxrig_gtk_gl_surface_draw(surface, widget->view,
             boxrig_gtk4_input_composition(widget->input), &widget->render_state) != BOXRIG_UI_OK) ||
         boxrig_gtk_gl_surface_present(surface, &destination, &widget->render_state) != BOXRIG_UI_OK) {
         boxrig_gtk_gl_surface_destroy(&candidate);
+        if (resize) boxrig_gtk_gl_surface_destroy(&widget->gl_surface);
         gl_failed(widget);
         return TRUE;
     }
@@ -849,6 +861,8 @@ static gboolean render_gl_frame(GtkGLArea *area, GdkGLContext *context, gpointer
         widget->gl_font_revision = metrics.layout_revision;
         widget->gl_direction_policy = widget->direction_policy;
         widget->render_state.target_generation = config.initial_target.generation;
+    } else if (resize) {
+        widget->render_state.target_generation = destination.generation;
     }
     widget->gl_pending = false;
     widget->gl_presented = true;

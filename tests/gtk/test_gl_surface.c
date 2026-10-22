@@ -18,6 +18,20 @@ typedef struct fixture {
     bool done;
 } fixture;
 
+static bool fail_target_commit;
+
+boxrig_renderer_status __real_boxrig_renderer_lifecycle_commit_target(
+    boxrig_renderer_lifecycle *lifecycle);
+boxrig_renderer_status __wrap_boxrig_renderer_lifecycle_commit_target(
+    boxrig_renderer_lifecycle *lifecycle)
+{
+    if (fail_target_commit) {
+        fail_target_commit = false;
+        return BOXRIG_RENDERER_UNAVAILABLE;
+    }
+    return __real_boxrig_renderer_lifecycle_commit_target(lifecycle);
+}
+
 static void feed(fixture *test, const char *text)
 {
     size_t consumed;
@@ -167,11 +181,93 @@ static gboolean render(GtkGLArea *area, GdkGLContext *context, gpointer data)
     CHECK(transparent[0] == 4 && transparent[1] == 4 && transparent[2] == 4);
     free(transparent);
 
+    boxrig_ogl_render_statistics warm;
+    CHECK(boxrig_gtk_gl_surface_get_statistics(surface, &warm) == 0);
+    GLuint larger_texture = 0, larger_framebuffer = 0;
+    boxrig_gl_target larger = destination;
+    larger.width += 16;
+    larger.height += 16;
+    larger.generation++;
+    glGenTextures(1, &larger_texture);
+    glBindTexture(GL_TEXTURE_2D, larger_texture);
+    glTexImage2D(GL_TEXTURE_2D, 0,
+        larger.format == BOXRIG_GL_TARGET_SRGB8_ALPHA8 ? GL_SRGB8_ALPHA8 : GL_RGBA8,
+        (GLsizei)larger.width, (GLsizei)larger.height,
+        0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glGenFramebuffers(1, &larger_framebuffer);
+    glBindFramebuffer(GL_FRAMEBUFFER, larger_framebuffer);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+        larger_texture, 0);
+    CHECK(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
+    CHECK(glGetError() == GL_NO_ERROR);
+    larger.draw_framebuffer = larger_framebuffer;
+    boxrig_gl_target stale = larger;
+    stale.generation = retained.generation;
+    CHECK(boxrig_gtk_gl_surface_resize(surface, &stale, &state) == BOXRIG_UI_INVALID_ARGUMENT);
+    boxrig_gl_target unchanged_target;
+    CHECK(boxrig_gtk_gl_surface_get_target(surface, &unchanged_target) == BOXRIG_UI_OK);
+    CHECK(unchanged_target.draw_framebuffer == retained.draw_framebuffer &&
+        unchanged_target.generation == retained.generation);
+    CHECK(boxrig_gtk_gl_surface_resize(surface, &larger, &state) == BOXRIG_UI_OK);
+    GLint bound_texture = 0, bound_read = 0, bound_draw = 0;
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &bound_texture);
+    glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &bound_read);
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &bound_draw);
+    CHECK(bound_texture == (GLint)larger_texture &&
+        bound_read == (GLint)larger_framebuffer &&
+        bound_draw == (GLint)larger_framebuffer);
+    boxrig_gl_target larger_retained;
+    CHECK(boxrig_gtk_gl_surface_get_target(surface, &larger_retained) == BOXRIG_UI_OK);
+    CHECK(larger_retained.width == larger.width && larger_retained.height == larger.height &&
+        larger_retained.generation == larger.generation &&
+        larger_retained.draw_framebuffer != retained.draw_framebuffer);
+    CHECK(!glIsFramebuffer(retained.draw_framebuffer));
+    CHECK(boxrig_gtk_gl_surface_draw(surface, test->view, NULL, &state) == BOXRIG_UI_OK);
+    CHECK(boxrig_gtk_gl_surface_present(surface, &larger, &state) == BOXRIG_UI_OK);
+    uint8_t *larger_pixels = capture(&larger);
+    CHECK(larger_pixels[3] == 64);
+    free(larger_pixels);
+    boxrig_ogl_render_statistics enlarged;
+    CHECK(boxrig_gtk_gl_surface_get_statistics(surface, &enlarged) == 0);
+    CHECK(enlarged.grayscale_glyph_upload_count == warm.grayscale_glyph_upload_count &&
+        enlarged.color_glyph_upload_count == warm.color_glyph_upload_count);
+
+    destination.generation = larger.generation + 1;
+    CHECK(boxrig_gtk_gl_surface_resize(surface, &destination, &state) == BOXRIG_UI_OK);
+    boxrig_ui_dirty dirty = {.row = 0, .column = 0, .row_count = 1, .column_count = 1};
+    CHECK(boxrig_ui_view_invalidate(test->view, BOXRIG_UI_DIRTY_PRESENT, dirty) == BOXRIG_UI_OK);
+    boxrig_gtk_gl_surface_fail_next(surface, BOXRIG_OGL_FAILURE_DRAW);
+    CHECK(boxrig_gtk_gl_surface_draw(surface, test->view, NULL, &state) != BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_frame_requested(test->view));
+    CHECK(boxrig_gtk_gl_surface_draw(surface, test->view, NULL, &state) == BOXRIG_UI_OK);
+    CHECK(boxrig_gtk_gl_surface_present(surface, &destination, &state) == BOXRIG_UI_OK);
+    CHECK(!boxrig_ui_view_frame_requested(test->view));
+    boxrig_ogl_render_statistics shrunk;
+    CHECK(boxrig_gtk_gl_surface_get_statistics(surface, &shrunk) == 0);
+    CHECK(shrunk.grayscale_glyph_upload_count == warm.grayscale_glyph_upload_count &&
+        shrunk.color_glyph_upload_count == warm.color_glyph_upload_count);
+
+    /* The renderer generation cannot be rolled back after target update.
+     * A rejected lifecycle commit must leave dirty unaccepted for fallback. */
+    CHECK(boxrig_ui_view_invalidate(test->view, BOXRIG_UI_DIRTY_PRESENT, dirty) == BOXRIG_UI_OK);
+    larger.generation = destination.generation + 1;
+    fail_target_commit = true;
+    CHECK(boxrig_gtk_gl_surface_resize(surface, &larger, &state) != BOXRIG_UI_OK);
+    CHECK(!fail_target_commit && boxrig_ui_view_frame_requested(test->view));
+    boxrig_gl_target final_target;
+    CHECK(boxrig_gtk_gl_surface_get_target(surface, &final_target) == BOXRIG_UI_OK);
+    CHECK(glIsFramebuffer(final_target.draw_framebuffer));
+
     boxrig_gtk_gl_surface_destroy(&surface);
     CHECK(surface == NULL);
+    CHECK(!glIsFramebuffer(final_target.draw_framebuffer));
     CHECK(!glIsFramebuffer(retained.draw_framebuffer));
     CHECK(!glIsTexture((GLuint)texture));
     CHECK(glIsFramebuffer(destination.draw_framebuffer));
+    glDeleteFramebuffers(1, &larger_framebuffer);
+    glDeleteTextures(1, &larger_texture);
     free(before);
     free(after);
     free(failed);
