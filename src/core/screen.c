@@ -958,6 +958,7 @@ static boxrig_status build_reflowed_primary(
         &logical_cursors[1]);
     status = append_reflow_row(reflow);
     if (status != BOXRIG_STATUS_OK) {
+        destroy_reflow_rows(reflow);
         return status;
     }
     for (physical_row = 0; physical_row < source_count; physical_row++) {
@@ -1159,16 +1160,190 @@ static void transfer_reflowed_primary(
     destination->primary.saved_cursor.pending_wrap = cursor_pending_wrap[1];
 }
 
+static bool reflow_row_has_content(
+    const boxrig_screen *screen,
+    size_t physical_row)
+{
+    for (size_t column = 0; column < screen->columns; column++) {
+        if (!cell_is_reflow_empty(source_primary_cell(screen, physical_row,
+                column))) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static size_t reusable_history_prefix(
+    const boxrig_screen *source,
+    size_t limit)
+{
+    size_t prefix = 0;
+    size_t line_start = 0;
+    boxrig_text_line_id line_id = {0};
+
+    for (size_t row = 0; row < limit; row++) {
+        const boxrig_text_fragment_metadata *fragment =
+            source_primary_text_fragment(source, row);
+
+        if (row == line_start) {
+            line_id = fragment->line_id;
+        }
+        if (fragment->needs_sync || fragment->newly_created ||
+            line_id.epoch == 0 || line_id.serial == 0 ||
+            fragment->line_id.epoch != line_id.epoch ||
+            fragment->line_id.serial != line_id.serial ||
+            fragment->logical_column_offset !=
+                (row - line_start) * source->columns) {
+            break;
+        }
+        if (!source_primary_soft_wrapped(source, row)) {
+            /* A vacant final fragment of a wrapped line disappears even when
+             * the width is unchanged. Let the original reflow handle it. */
+            if (row != line_start && !reflow_row_has_content(source, row)) {
+                break;
+            }
+            prefix = row + 1;
+            line_start = prefix;
+        }
+    }
+    return prefix;
+}
+
+static boxrig_status reuse_history_prefix_for_resize(
+    boxrig_screen *destination,
+    boxrig_screen *source,
+    boxrig_screen_reflow_marker *markers,
+    size_t marker_count,
+    bool *used_out)
+{
+    size_t source_count = primary_reflow_source_count(source, markers,
+        marker_count);
+    size_t visible_start = source_count > destination->rows
+                               ? source_count - destination->rows : 0;
+    size_t prefix_limit = visible_start < source->history_count
+                              ? visible_start : source->history_count;
+    size_t prefix = reusable_history_prefix(source, prefix_limit);
+    size_t prefix_markers = 0;
+    boxrig_screen tail_source;
+    boxrig_reflow_rows tail_reflow;
+    boxrig_reflow_rows combined;
+    boxrig_cell_position cursors[2] = {{0, 0}, {0, 0}};
+    bool cursor_pending_wrap[2] = {false, false};
+    boxrig_status status;
+
+    *used_out = false;
+    if (prefix == 0) {
+        return BOXRIG_STATUS_OK;
+    }
+    *used_out = true;
+    while (prefix_markers < marker_count &&
+           markers[prefix_markers].source_row < prefix) {
+        prefix_markers++;
+    }
+    tail_source = *source;
+    tail_source.history_start =
+        (source->history_start + prefix) % source->history_capacity;
+    tail_source.history_count = source->history_count - prefix;
+    for (size_t index = prefix_markers; index < marker_count; index++) {
+        markers[index].source_row -= prefix;
+    }
+    status = build_reflowed_primary(&tail_source, destination->columns,
+        &tail_reflow, cursors, cursor_pending_wrap,
+        prefix_markers == marker_count ? NULL : markers + prefix_markers,
+        marker_count - prefix_markers);
+    for (size_t index = prefix_markers; index < marker_count; index++) {
+        markers[index].source_row += prefix;
+    }
+    if (status != BOXRIG_STATUS_OK) {
+        return status;
+    }
+    if (prefix > SIZE_MAX - tail_reflow.count ||
+        prefix + tail_reflow.count > SIZE_MAX / sizeof(*combined.rows)) {
+        destroy_reflow_rows(&tail_reflow);
+        return BOXRIG_STATUS_LIMIT_EXCEEDED;
+    }
+    memset(&combined, 0, sizeof(combined));
+    combined.count = prefix + tail_reflow.count;
+    combined.columns = destination->columns;
+    combined.rows = malloc(combined.count * sizeof(*combined.rows));
+    if (combined.rows == NULL) {
+        destroy_reflow_rows(&tail_reflow);
+        return BOXRIG_STATUS_OUT_OF_MEMORY;
+    }
+    for (size_t row = 0; row < prefix; row++) {
+        size_t slot = (source->history_start + row) % source->history_capacity;
+        combined.rows[row].cell_storage = source->history[slot].cell_storage;
+        combined.rows[row].soft_wrapped = source->history[slot].soft_wrapped;
+        combined.rows[row].text = source->history[slot].text;
+    }
+    memcpy(combined.rows + prefix, tail_reflow.rows,
+        tail_reflow.count * sizeof(*combined.rows));
+    free(tail_reflow.rows);
+    for (size_t index = 0; index < 2; index++) {
+        cursors[index].row += prefix;
+    }
+    for (size_t index = 0; index < marker_count; index++) {
+        if (index < prefix_markers) {
+            const boxrig_text_fragment_metadata *fragment =
+                source_primary_text_fragment(source, markers[index].source_row);
+            markers[index].logical_offset = fragment->logical_column_offset +
+                                            markers[index].source_column;
+            markers[index].destination_row = (int64_t)markers[index].source_row;
+            markers[index].destination_column = markers[index].source_column;
+        } else {
+            markers[index].destination_row += (int64_t)prefix;
+        }
+    }
+    /* Every fallible allocation has succeeded. Transfer the borrowed history
+     * cells only now, so an earlier failure leaves the source intact. */
+    for (size_t row = 0; row < prefix; row++) {
+        size_t slot = (source->history_start + row) % source->history_capacity;
+        source->history[slot].cell_storage = NULL;
+    }
+    transfer_reflowed_primary(destination, &combined, cursors,
+        cursor_pending_wrap);
+    visible_start = combined.count > destination->rows
+                        ? combined.count - destination->rows : 0;
+    for (size_t index = 0; index < marker_count; index++) {
+        markers[index].destination_row -= (int64_t)visible_start;
+    }
+    size_t dropped = visible_start > destination->history_capacity
+                         ? visible_start - destination->history_capacity : 0;
+    if (dropped != 0) {
+        /* Dropping the head can split a logical line and change its identity. */
+        if (destination->history_count != 0) {
+            destination->history[0].text.needs_sync = true;
+        } else {
+            destination->primary.text_fragments[0].needs_sync = true;
+        }
+    }
+    destination->text_history_sync_start = prefix > dropped
+                                               ? prefix - dropped : 0;
+    destroy_reflow_rows(&combined);
+    return BOXRIG_STATUS_OK;
+}
+
 static boxrig_status reflow_primary_for_resize(
     boxrig_screen *destination,
-    const boxrig_screen *source,
+    boxrig_screen *source,
     boxrig_screen_reflow_marker *markers,
     size_t marker_count)
 {
     boxrig_reflow_rows reflow;
     boxrig_cell_position cursors[2] = {{0, 0}, {0, 0}};
     bool cursor_pending_wrap[2] = {false, false};
-    boxrig_status status = build_reflowed_primary(
+    bool used = false;
+    boxrig_status status;
+
+    if (destination->columns == source->columns &&
+        source->history_count != 0) {
+        status = reuse_history_prefix_for_resize(destination, source,
+            markers, marker_count, &used);
+        if (used) {
+            return status;
+        }
+    }
+    status = build_reflowed_primary(
         source,
         destination->columns,
         &reflow,
@@ -1284,6 +1459,14 @@ boxrig_status boxrig_screen_resize_with_markers(
         screen->columns,
         rows,
         columns);
+    /* Reflow may leave trailing primary rows untouched. Keep their existing
+     * text identities without cloning cells that reflow will replace. */
+    size_t primary_copy_rows = rows < screen->rows ? rows : screen->rows;
+    for (size_t row = 0; row < primary_copy_rows; row++) {
+        replacement.primary.text_fragments[row] =
+            screen->primary.text_fragments[row];
+        replacement.primary.text_fragments[row].needs_sync = true;
+    }
     status = copy_buffer_for_resize(
         &replacement.alternate,
         &screen->alternate,
