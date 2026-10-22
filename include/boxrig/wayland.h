@@ -1190,7 +1190,8 @@ boxrig_wayland_terminal_component_text_direction(
     const boxrig_wayland_terminal_component *component);
 
 /**
- * Accepts an actual surface-logical allocation and prepares a complete frame.
+ * Accepts an actual surface-logical allocation and prepares or retains a
+ * complete frame.
  *
  * @param component Component to resize and reposition.
  * @param allocation Actual parent-relative allocation accepted by the host.
@@ -1198,10 +1199,14 @@ boxrig_wayland_terminal_component_text_direction(
  * @return A portable UI status.
  *
  * @remarks Buffer dimensions, renderer image, and layout are replaced only
- * after bounded size validation and complete wl_shm allocation. A visible
- * allocation caches its complete child state until the host performs the
- * returned parent-commit action. This acceptance never creates an application
- * size command for the parent.
+ * after bounded size validation and complete wl_shm allocation. A new visible
+ * frame caches its complete child state until the host performs the returned
+ * parent-commit action. An unchanged, settled allocation retains its frame
+ * without requesting another parent commit. A position-only change still
+ * requests a parent commit and updates input-method coordinates. Pending
+ * layout or paint work, and retries after a failed allocation, prepare a new
+ * complete frame. This acceptance never creates an application size command
+ * for the parent.
  */
 boxrig_ui_status boxrig_wayland_terminal_component_allocate(
     boxrig_wayland_terminal_component *component,
