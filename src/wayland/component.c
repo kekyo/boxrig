@@ -1484,9 +1484,13 @@ boxrig_ui_status boxrig_wayland_terminal_component_allocate(
         return BOXRIG_UI_LIMIT_EXCEEDED;
     }
     if (can_reuse_allocation(component, allocation, width, height)) {
-        (void)schedule_position(component, allocation->x, allocation->y);
+        position_changed = schedule_position(component, allocation->x, allocation->y);
         component->allocation = *allocation;
         *layout_out = component->layout;
+        if (position_changed) {
+            /* Parent-focused text input and direct IMEs use the child origin. */
+            boxrig_wayland_input_update_cursor_rectangle(component);
+        }
         return BOXRIG_UI_OK;
     }
     /* Candidate rendering may update the view before native publication

@@ -7405,6 +7405,22 @@ static void test_text_input_v2_cursor_surface_commit(void)
             CHECK(server.text_input_v2_apply_count == before + 1);
             CHECK(server.text_input_v2_applied_x == cursor * (int32_t)metrics.cell_width + (focus_parent ? 7 : 0));
         }
+        /* Repositioning a settled child does not repaint it, but a parent-
+         * focused IME still needs its candidate coordinates moved with it. */
+        boxrig_wayland_component_diagnostic diagnostic;
+        CHECK(boxrig_wayland_terminal_component_get_diagnostic(component, &diagnostic) == BOXRIG_UI_OK);
+        uint64_t generation = diagnostic.presentation_generation;
+        allocation.x += 13;
+        allocation.y += 17;
+        CHECK(boxrig_wayland_terminal_component_allocate(component, &allocation, &layout) == BOXRIG_UI_OK);
+        CHECK(boxrig_wayland_terminal_component_take_host_action(component, &action));
+        wl_surface_commit(parent);
+        CHECK(boxrig_wayland_terminal_component_complete_parent_commit(component, action.revision, &applied) == BOXRIG_UI_OK && applied);
+        pump(&server);
+        CHECK(server.text_input_v2_applied_x == 3 * (int32_t)metrics.cell_width + (focus_parent ? allocation.x : 0));
+        CHECK(server.text_input_cursor_y == (focus_parent ? allocation.y : 0));
+        CHECK(boxrig_wayland_terminal_component_get_diagnostic(component, &diagnostic) == BOXRIG_UI_OK);
+        CHECK(diagnostic.presentation_generation == generation);
         wl_array_release(&keys);
         boxrig_wayland_terminal_component_destroy(component);
         wl_surface_destroy(parent);
