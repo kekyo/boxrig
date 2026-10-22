@@ -601,37 +601,14 @@ static void repair_buffer_wide_cells(
     }
 }
 
-static boxrig_status copy_buffer_for_resize(
+static void copy_buffer_state_for_resize(
     boxrig_screen_buffer *destination,
     const boxrig_screen_buffer *source,
     size_t old_rows,
     size_t old_columns,
     size_t rows,
-    size_t columns,
-    boxrig_cell_style style)
+    size_t columns)
 {
-    size_t copy_rows = rows < old_rows ? rows : old_rows;
-    size_t copy_columns = columns < old_columns ? columns : old_columns;
-    size_t row;
-    size_t column;
-
-    for (row = 0; row < copy_rows; row++) {
-        for (column = 0; column < copy_columns; column++) {
-            boxrig_status status = clone_cell(
-                &destination->row_cells[row][column],
-                &source->row_cells[row][column]);
-
-            if (status != BOXRIG_STATUS_OK) {
-                return status;
-            }
-        }
-        destination->line_soft_wrapped[row] =
-            source->line_soft_wrapped[row];
-        destination->text_fragments[row] = source->text_fragments[row];
-        /* Cropping and wide-cell repair can change the projected line. */
-        destination->text_fragments[row].needs_sync = true;
-        repair_buffer_wide_cells(destination, columns, row, style);
-    }
     destination->cursor.row = clamp_index(source->cursor.row, rows);
     destination->cursor.column = clamp_index(source->cursor.column, columns);
     destination->saved_cursor = source->saved_cursor;
@@ -664,6 +641,39 @@ static boxrig_status copy_buffer_for_resize(
         destination->horizontal_margin_right = columns - 1;
     }
     destination->pending_wrap = false;
+}
+
+static boxrig_status copy_buffer_for_resize(
+    boxrig_screen_buffer *destination,
+    const boxrig_screen_buffer *source,
+    size_t old_rows,
+    size_t old_columns,
+    size_t rows,
+    size_t columns,
+    boxrig_cell_style style)
+{
+    size_t copy_rows = rows < old_rows ? rows : old_rows;
+    size_t copy_columns = columns < old_columns ? columns : old_columns;
+
+    for (size_t row = 0; row < copy_rows; row++) {
+        for (size_t column = 0; column < copy_columns; column++) {
+            boxrig_status status = clone_cell(
+                &destination->row_cells[row][column],
+                &source->row_cells[row][column]);
+
+            if (status != BOXRIG_STATUS_OK) {
+                return status;
+            }
+        }
+        destination->line_soft_wrapped[row] =
+            source->line_soft_wrapped[row];
+        destination->text_fragments[row] = source->text_fragments[row];
+        /* Cropping and wide-cell repair can change the projected line. */
+        destination->text_fragments[row].needs_sync = true;
+        repair_buffer_wide_cells(destination, columns, row, style);
+    }
+    copy_buffer_state_for_resize(destination, source, old_rows, old_columns,
+        rows, columns);
     return BOXRIG_STATUS_OK;
 }
 
@@ -1266,18 +1276,14 @@ boxrig_status boxrig_screen_resize_with_markers(
             &replacement.alternate.text_fragments[column]);
     }
     copy_columns = columns < screen->columns ? columns : screen->columns;
-    status = copy_buffer_for_resize(
+    /* Reflow supplies primary cells; only the alternate buffer needs a copy. */
+    copy_buffer_state_for_resize(
         &replacement.primary,
         &screen->primary,
         screen->rows,
         screen->columns,
         rows,
-        columns,
-        screen->style);
-    if (status != BOXRIG_STATUS_OK) {
-        boxrig_screen_destroy(&replacement);
-        return status;
-    }
+        columns);
     status = copy_buffer_for_resize(
         &replacement.alternate,
         &screen->alternate,

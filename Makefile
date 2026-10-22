@@ -1140,6 +1140,17 @@ test-history-transfer: $(BUILD_DIR)/tests/test_history_transfer
 $(BUILD_DIR)/tests/test_history_transfer: tests/test_history_transfer.c $(CORE_HEADERS) $(LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(LIBRARY) $(SANITIZERS) -Wl,--wrap=malloc -Wl,--wrap=calloc -Wl,--wrap=realloc -o $@
 
+.PHONY: test-resize-history
+test: test-resize-history
+test-resize-history: $(BUILD_DIR)/tests/test_resize_history
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
+
+$(BUILD_DIR)/tests/test_resize_history: tests/test_resize_history.c $(CORE_HEADERS) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(LIBRARY) $(SANITIZERS) -Wl,--wrap=malloc -Wl,--wrap=calloc -Wl,--wrap=realloc -o $@
+
+$(BUILD_DIR)/tests/measure_resize_history: tests/performance/resize_history.c $(CORE_HEADERS) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(LIBRARY) $(SANITIZERS) -o $@
+
 .PHONY: test-cell-text-storage
 test: test-cell-text-storage
 test-cell-text-storage: $(BUILD_DIR)/tests/test_cell_text_storage
