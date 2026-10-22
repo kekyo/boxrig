@@ -144,6 +144,8 @@ struct boxrig_wayland_terminal_component {
     bool scale_dirty;
     bool scale_work_queued;
     bool allocated;
+    /* Only a successful allocation can be reused after a failed candidate. */
+    bool allocation_reusable;
     bool visible;
     bool running;
     bool input_blocked;

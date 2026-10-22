@@ -1429,7 +1429,8 @@ static bool can_reuse_allocation(
     /* A repeated native configure or a position-only change needs no new
      * image. Pending layout/paint work must still pass through the complete
      * allocation transaction, including font and scrollbar changes. */
-    return component->allocated && !component->scrollbar_committing &&
+    return component->allocated && component->allocation_reusable &&
+           !component->scrollbar_committing &&
            component->logical_width == allocation->width &&
            component->logical_height == allocation->height &&
            component->buffer_width == width &&
@@ -1488,6 +1489,10 @@ boxrig_ui_status boxrig_wayland_terminal_component_allocate(
         *layout_out = component->layout;
         return BOXRIG_UI_OK;
     }
+    /* Candidate rendering may update the view before native publication
+     * fails. A retry, including the previously accepted size, must restore
+     * the complete allocation rather than reuse its old image alone. */
+    component->allocation_reusable = false;
     if (boxrig_pango_cairo_renderer_get_effective_metrics(
             component->renderer,
             &metrics) != BOXRIG_FONT_CATALOG_OK ||
@@ -1556,8 +1561,12 @@ boxrig_ui_status boxrig_wayland_terminal_component_allocate(
     status = BOXRIG_UI_OK;
     if (!external) {
         surface = boxrig_pango_cairo_renderer_surface(component->renderer);
-        status = boxrig_wayland_shm_pool_copy_cairo(
+        /* Only this buffer is submitted with the allocation. Other buffers
+         * retain generation zero and receive the current image when selected
+         * for their first frame. Avoid touching their pages during resize. */
+        status = boxrig_wayland_shm_buffer_copy_cairo(
             candidate,
+            0,
             surface,
             generation);
     }
@@ -1617,6 +1626,7 @@ boxrig_ui_status boxrig_wayland_terminal_component_allocate(
     component->allocation = *allocation;
     component->layout = *layout_out;
     component->allocated = true;
+    component->allocation_reusable = true;
     position_changed = schedule_position(
         component,
         allocation->x,

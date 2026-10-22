@@ -4639,6 +4639,34 @@ static void test_visible_resize_commits_child_with_parent(void)
     CHECK(server.child_commit_order < server.parent_commit_order);
     CHECK(server.parent_commit_order < server.subsurface_desync_order);
 
+    /* Buffers not used by the resize must get a complete image on their first
+     * presentation, even if only a small area is invalidated afterwards. The
+     * compositor still owns the first buffer throughout these two frames. */
+    size_t image_bytes = (size_t)server.shm_stride * (size_t)server.shm_height;
+    size_t resize_buffer = server.last_attached_buffer;
+    uint8_t *resize_pixels = (uint8_t *)server.shm_mapping + server.shm_buffer_offsets[resize_buffer];
+    uint8_t *expected = malloc(image_bytes);
+    CHECK(expected != NULL);
+    memcpy(expected, resize_pixels, image_bytes);
+    for (size_t index = 0; index < 2; index++) {
+        for (size_t frame = 0; frame < server.frame_callback_count; frame++) {
+            if (server.frame_callbacks[frame] != NULL) complete_frame(&server, frame);
+        }
+        pump(&server);
+        boxrig_ui_dirty dirty = {.row_count = 1, .column_count = 1};
+        CHECK(boxrig_ui_view_invalidate(boxrig_wayland_terminal_component_view(component),
+            BOXRIG_UI_DIRTY_PRESENT, dirty) == BOXRIG_UI_OK);
+        CHECK(boxrig_wayland_terminal_component_frame(component, &frame_result) == BOXRIG_UI_OK);
+        pump(&server);
+        CHECK(server.last_attached_buffer == resize_buffer + index + 1);
+        const uint8_t *pixels = (const uint8_t *)server.shm_mapping +
+            server.shm_buffer_offsets[server.last_attached_buffer];
+        CHECK(memcmp(pixels, expected, image_bytes) == 0);
+        CHECK(memcmp(resize_pixels, expected, image_bytes) == 0);
+    }
+    free(expected);
+    puts("PASS Wayland resized buffers initialize on presentation and preserve busy buffers");
+
     boxrig_wayland_terminal_component_destroy(component);
     wl_surface_destroy(parent);
     wl_compositor_destroy(host.compositor);

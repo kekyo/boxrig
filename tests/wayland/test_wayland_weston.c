@@ -7,10 +7,14 @@
 #define _GNU_SOURCE
 
 #include "boxrig/wayland.h"
+#include "../../src/wayland/shm_private.h"
 #if BOXRIG_TEST_WAYLAND_OPENGL
 #include "boxrig/wayland/opengl_component.h"
 #include "boxrig/render/opengl.h"
 #include <EGL/egl.h>
+#define GL_GLEXT_PROTOTYPES
+#include <GL/gl.h>
+#include <GL/glext.h>
 #endif
 #include "xdg-shell-client-protocol.h"
 
@@ -37,10 +41,121 @@
 
 /* Native runs use the desktop's output scale and input capabilities. */
 static bool native_display;
+static bool capture_active;
+static size_t captured_frames;
+static bool fail_next_presentation;
+
+/* Save the submitted image, before desktop compositing, for a separate video
+ * run. Captures never participate in the performance measurements. */
+static void save_frame(const uint8_t *pixels, unsigned int width, unsigned int height,
+    size_t stride, bool rgba_bottom_up)
+{
+    const char *directory = getenv("BOXRIG_TEST_RESIZE_CAPTURE");
+    if (!capture_active || directory == NULL) return;
+    char path[1024];
+    CHECK(snprintf(path, sizeof(path), "%s/frame-%04zu.ppm", directory, captured_frames) > 0);
+    FILE *file = fopen(path, "wb");
+    CHECK(file != NULL);
+    CHECK(fprintf(file, "P6\n%u %u\n255\n", width, height) > 0);
+    uint8_t *row = malloc((size_t)width * 3);
+    CHECK(row != NULL);
+    size_t nonbackground = 0;
+    for (unsigned int y = 0; y < height; y++) {
+        const uint8_t *source = pixels + (rgba_bottom_up ? height - 1 - y : y) * stride;
+        for (unsigned int x = 0; x < width; x++) {
+            if (rgba_bottom_up) memcpy(row + x * 3, source + x * 4, 3);
+            else {
+                uint32_t pixel;
+                memcpy(&pixel, source + x * 4, sizeof(pixel));
+                row[x * 3] = (uint8_t)(pixel >> 16);
+                row[x * 3 + 1] = (uint8_t)(pixel >> 8);
+                row[x * 3 + 2] = (uint8_t)pixel;
+            }
+            if (row[x * 3] > 100 || row[x * 3 + 1] > 100 || row[x * 3 + 2] > 100)
+                nonbackground++;
+        }
+        CHECK(fwrite(row, 3, width, file) == width);
+    }
+    CHECK(fclose(file) == 0);
+    free(row);
+    CHECK(nonbackground > 20);
+    printf("CAPTURE frame=%zu width=%u height=%u content_pixels=%zu\n",
+        captured_frames++, width, height, nonbackground);
+}
+
+#if !BOXRIG_TEST_WAYLAND_OPENGL
+static size_t copied_buffers;
+boxrig_ui_status __real_boxrig_wayland_shm_pool_copy_cairo(boxrig_wayland_shm_pool *, cairo_surface_t *, uint64_t);
+boxrig_ui_status __wrap_boxrig_wayland_shm_pool_copy_cairo(boxrig_wayland_shm_pool *pool,
+    cairo_surface_t *surface, uint64_t generation)
+{
+    if (fail_next_presentation) {
+        fail_next_presentation = false;
+        return BOXRIG_UI_UNAVAILABLE;
+    }
+    copied_buffers += pool->buffer_count;
+    boxrig_ui_status status = __real_boxrig_wayland_shm_pool_copy_cairo(pool, surface, generation);
+    if (status == BOXRIG_UI_OK) save_frame(pool->mapping, (unsigned int)pool->width,
+        (unsigned int)pool->height, (size_t)pool->stride, false);
+    return status;
+}
+boxrig_ui_status __real_boxrig_wayland_shm_buffer_copy_cairo(boxrig_wayland_shm_pool *, size_t, cairo_surface_t *, uint64_t);
+boxrig_ui_status __wrap_boxrig_wayland_shm_buffer_copy_cairo(boxrig_wayland_shm_pool *pool,
+    size_t index, cairo_surface_t *surface, uint64_t generation)
+{
+    if (fail_next_presentation) {
+        fail_next_presentation = false;
+        return BOXRIG_UI_UNAVAILABLE;
+    }
+    copied_buffers++;
+    boxrig_ui_status status = __real_boxrig_wayland_shm_buffer_copy_cairo(pool, index, surface, generation);
+    if (status == BOXRIG_UI_OK) save_frame((uint8_t *)pool->mapping + index * pool->buffer_size,
+        (unsigned int)pool->width, (unsigned int)pool->height, (size_t)pool->stride, false);
+    return status;
+}
+#endif
 #if BOXRIG_TEST_WAYLAND_OPENGL
 static boxrig_ogl_renderer *observed_renderer;
 static size_t renderer_creations;
 static size_t egl_surface_creations;
+static unsigned int blit_width, blit_height;
+void __real_glBlitFramebuffer(GLint, GLint, GLint, GLint, GLint, GLint, GLint, GLint, GLbitfield, GLenum);
+void __wrap_glBlitFramebuffer(GLint sx0, GLint sy0, GLint sx1, GLint sy1,
+    GLint dx0, GLint dy0, GLint dx1, GLint dy1, GLbitfield mask, GLenum filter)
+{
+    blit_width = (unsigned int)(dx1 - dx0);
+    blit_height = (unsigned int)(dy1 - dy0);
+    __real_glBlitFramebuffer(sx0, sy0, sx1, sy1, dx0, dy0, dx1, dy1, mask, filter);
+}
+EGLBoolean __real_eglSwapBuffers(EGLDisplay, EGLSurface);
+EGLBoolean __wrap_eglSwapBuffers(EGLDisplay display, EGLSurface surface)
+{
+    if (fail_next_presentation) {
+        fail_next_presentation = false;
+        return EGL_FALSE;
+    }
+    if (capture_active && getenv("BOXRIG_TEST_RESIZE_CAPTURE") != NULL) {
+        GLint source_framebuffer, source_buffer;
+        glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &source_framebuffer);
+        glGetIntegerv(GL_READ_BUFFER, &source_buffer);
+        CHECK(source_framebuffer != 0 && blit_width > 0 && blit_height > 0);
+        size_t bytes = (size_t)blit_width * blit_height * 4;
+        uint8_t *expected = calloc(1, bytes), *actual = calloc(1, bytes);
+        CHECK(expected != NULL && actual != NULL);
+        glReadPixels(0, 0, (GLsizei)blit_width, (GLsizei)blit_height, GL_RGBA, GL_UNSIGNED_BYTE, expected);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+        glReadBuffer(GL_BACK);
+        glReadPixels(0, 0, (GLsizei)blit_width, (GLsizei)blit_height, GL_RGBA, GL_UNSIGNED_BYTE, actual);
+        CHECK(glGetError() == GL_NO_ERROR);
+        CHECK(memcmp(expected, actual, bytes) == 0);
+        save_frame(actual, blit_width, blit_height, (size_t)blit_width * 4, true);
+        free(actual);
+        free(expected);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, (GLuint)source_framebuffer);
+        glReadBuffer((GLenum)source_buffer);
+    }
+    return __real_eglSwapBuffers(display, surface);
+}
 
 boxrig_gl_status __real_boxrig_ogl_renderer_create(const boxrig_ogl_renderer_config *,
     boxrig_ogl_renderer **, boxrig_gl_diagnostic *);
@@ -51,6 +166,8 @@ boxrig_gl_status __wrap_boxrig_ogl_renderer_create(const boxrig_ogl_renderer_con
     if (status == BOXRIG_GL_OK) {
         observed_renderer = *renderer;
         renderer_creations++;
+        printf("GL vendor=%s renderer=%s version=%s\n", glGetString(GL_VENDOR),
+            glGetString(GL_RENDERER), glGetString(GL_VERSION));
     }
     return status;
 }
@@ -808,13 +925,25 @@ int main(void)
         CHECK(boxrig_wayland_terminal_component_get_layout(component, &allocation, &layout) == BOXRIG_UI_OK);
         CHECK(layout.columns == (diagnostic.buffer_width - (bar.reserved_width * diagnostic.scale_numerator + 119) / 120) / metrics.cell_width);
     }
-    puts("PASS native Wayland standard bar visibility through Weston at scale 2");
+    printf("PASS native Wayland standard bar visibility at scale %u/120\n", diagnostic.scale_numerator);
+
+    if (getenv("BOXRIG_TEST_RESIZE_HISTORY") != NULL) {
+        for (size_t line = 0; line < 10050; line++) {
+            feed(terminal, text, sizeof(text) - 1);
+            feed(terminal, (const uint8_t *)"\r\n", 2);
+        }
+        CHECK(boxrig_terminal_scrollback_rows(terminal) == 10000);
+        CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+        wait_for_component(&host, context, component);
+        printf("HISTORY rows=%zu\n", boxrig_terminal_scrollback_rows(terminal));
+    }
 
     /* Allocation work is measured separately from dispatch/compositor latency.
      * Repeated dimensions must keep the already accepted image and resources. */
     const unsigned int resize_sizes[][2] = {{640, 360}, {1000, 650}, {1000, 650},
         {480, 280}, {480, 280}, {800, 500}, {640, 360}, {640, 360}};
     host_buffer resize_background = {0};
+    capture_active = true;
     for (size_t cycle = 0; cycle < 4; cycle++) {
         for (size_t index = 0; index < sizeof(resize_sizes) / sizeof(resize_sizes[0]); index++) {
             boxrig_wayland_component_diagnostic before;
@@ -828,6 +957,9 @@ int main(void)
             boxrig_ogl_render_statistics stats_before, stats_after;
             CHECK(boxrig_ogl_renderer_get_render_statistics(observed_renderer, &stats_before) == 0);
 #endif
+#if !BOXRIG_TEST_WAYLAND_OPENGL
+            size_t copies_before = copied_buffers;
+#endif
             double cpu = milliseconds(CLOCK_THREAD_CPUTIME_ID);
             double wall = milliseconds(CLOCK_MONOTONIC);
             CHECK(boxrig_wayland_terminal_component_allocate(component, &allocation, &layout) == BOXRIG_UI_OK);
@@ -838,6 +970,11 @@ int main(void)
                 cycle, index, allocation.width, allocation.height, same, wall, cpu,
                 (unsigned long long)(diagnostic.presentation_generation - before.presentation_generation));
             fflush(stdout);
+#if !BOXRIG_TEST_WAYLAND_OPENGL
+            printf("COPIES cycle=%zu index=%zu count=%zu\n", cycle, index, copied_buffers - copies_before);
+            if (getenv("BOXRIG_TEST_RESIZE_MEASURE") == NULL)
+                CHECK(copied_buffers - copies_before == (same ? 0u : 1u));
+#endif
 #if BOXRIG_TEST_WAYLAND_OPENGL
             CHECK(renderer_creations == renderers_before);
             CHECK(egl_surface_creations == surfaces_before);
@@ -870,6 +1007,8 @@ int main(void)
             destroy_host_buffer(&previous_background);
         }
     }
+    capture_active = false;
+
     /* Moving an accepted image only requires the parent's position commit. */
     CHECK(boxrig_wayland_terminal_component_get_diagnostic(component, &diagnostic) == BOXRIG_UI_OK);
     generation = diagnostic.presentation_generation;
@@ -905,6 +1044,53 @@ int main(void)
     CHECK(boxrig_wayland_terminal_component_get_diagnostic(component, &diagnostic) == BOXRIG_UI_OK);
     CHECK(diagnostic.presentation_generation == generation);
     CHECK(diagnostic.logical_width == allocation.width && diagnostic.logical_height == allocation.height);
+
+    /* A failure within the same terminal grid must still restore the old
+     * allocation's excess pixels when the host retries its accepted size. */
+    boxrig_ui_component_allocation failed_allocation = allocation;
+    failed_allocation.width++;
+    failed_allocation.height++;
+    fail_next_presentation = true;
+    CHECK(boxrig_wayland_terminal_component_allocate(component, &failed_allocation, &layout) == BOXRIG_UI_UNAVAILABLE);
+    CHECK(!fail_next_presentation);
+    CHECK(boxrig_wayland_terminal_component_allocate(component, &allocation, &layout) == BOXRIG_UI_OK);
+    boxrig_ui_layout_result view_layout;
+    CHECK(boxrig_ui_view_get_layout(boxrig_wayland_terminal_component_view(component), &view_layout) == BOXRIG_UI_OK);
+    CHECK(view_layout.excess_right == layout.excess_right && view_layout.excess_bottom == layout.excess_bottom);
+    if (boxrig_wayland_terminal_component_take_host_action(component, &action)) {
+        wl_surface_commit(parent);
+        CHECK(boxrig_wayland_terminal_component_complete_parent_commit(component,
+            action.revision, &applied) == BOXRIG_UI_OK && applied);
+    }
+    wait_for_component(&host, context, component);
+    CHECK(boxrig_wayland_terminal_component_get_diagnostic(component, &diagnostic) == BOXRIG_UI_OK);
+    generation = diagnostic.presentation_generation;
+
+    /* A failed resized presentation retains the accepted dimensions and
+     * accepts a subsequent retry of the new allocation. */
+    allocation.width += 10;
+    allocation.height += 10;
+    fail_next_presentation = true;
+    CHECK(boxrig_wayland_terminal_component_allocate(component, &allocation, &layout) == BOXRIG_UI_UNAVAILABLE);
+    CHECK(!fail_next_presentation);
+    CHECK(boxrig_wayland_terminal_component_get_diagnostic(component, &diagnostic) == BOXRIG_UI_OK);
+    CHECK(diagnostic.presentation_generation == generation);
+    CHECK(diagnostic.logical_width + 10 == allocation.width && diagnostic.logical_height + 10 == allocation.height);
+    CHECK(boxrig_wayland_terminal_component_allocate(component, &allocation, &layout) == BOXRIG_UI_OK);
+    if (boxrig_wayland_terminal_component_take_layout_action(component, &grid_action)) {
+        CHECK(boxrig_terminal_resize(terminal, grid_action.value.grid_resize.rows,
+            grid_action.value.grid_resize.columns) == BOXRIG_STATUS_OK);
+        CHECK(boxrig_wayland_terminal_component_complete_grid_resize(component,
+            grid_action.revision, true) == BOXRIG_UI_OK);
+    }
+    CHECK(boxrig_wayland_terminal_component_take_host_action(component, &action));
+    wl_surface_commit(parent);
+    CHECK(boxrig_wayland_terminal_component_complete_parent_commit(component,
+        action.revision, &applied) == BOXRIG_UI_OK && applied);
+    wait_for_component(&host, context, component);
+    CHECK(boxrig_wayland_terminal_component_get_diagnostic(component, &diagnostic) == BOXRIG_UI_OK);
+    CHECK(diagnostic.logical_width == allocation.width && diagnostic.logical_height == allocation.height);
+    CHECK(diagnostic.presentation_generation > generation);
     puts("PASS Wayland resize resources, position changes, pending paint, and allocation limits");
 
     boxrig_wayland_terminal_component_destroy(component);
