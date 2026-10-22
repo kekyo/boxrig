@@ -693,6 +693,11 @@ static boxrig_gl_status validate_target_properties(
             "target sample count differs from the borrowed descriptor");
         return BOXRIG_GL_TARGET_MISMATCH;
     }
+    if (target->draw_framebuffer == 0 && target->format == BOXRIG_GL_TARGET_RGB8) {
+        set_diagnostic(diagnostic, BOXRIG_GL_TARGET_MISMATCH, 0, 0,
+            "RGB8 requires an attachment whose zero alpha bits can be verified");
+        return BOXRIG_GL_TARGET_MISMATCH;
+    }
     if (target->draw_framebuffer != 0) {
         static const GLenum size_names[] = {
             GL_FRAMEBUFFER_ATTACHMENT_RED_SIZE,
@@ -723,8 +728,10 @@ static boxrig_gl_status validate_target_properties(
             &component_type);
         runtime->counters.query_count += 6;
         if (sizes[0] != 8 || sizes[1] != 8 || sizes[2] != 8 ||
-            sizes[3] != 8 || component_type != GL_UNSIGNED_NORMALIZED ||
-            (target->format == BOXRIG_GL_TARGET_RGBA8 &&
+            sizes[3] != (target->format == BOXRIG_GL_TARGET_RGB8 ? 0 : 8) ||
+            component_type != GL_UNSIGNED_NORMALIZED ||
+            ((target->format == BOXRIG_GL_TARGET_RGBA8 ||
+              target->format == BOXRIG_GL_TARGET_RGB8) &&
              encoding != GL_LINEAR) ||
             (target->format == BOXRIG_GL_TARGET_SRGB8_ALPHA8 &&
              encoding != GL_SRGB)) {
@@ -733,7 +740,7 @@ static boxrig_gl_status validate_target_properties(
                 BOXRIG_GL_TARGET_MISMATCH,
                 (uint32_t)encoding,
                 0,
-                "target attachment is not the declared RGBA8 encoding");
+                "target attachment does not match the declared color storage");
             return BOXRIG_GL_TARGET_MISMATCH;
         }
     }
@@ -1169,9 +1176,11 @@ boxrig_gl_status boxrig_gl_runtime_begin_target(
         return BOXRIG_GL_STALE_GENERATION;
     }
     if (target->format < BOXRIG_GL_TARGET_RGBA8 ||
-        target->format > BOXRIG_GL_TARGET_SRGB8_ALPHA8 ||
+        target->format > BOXRIG_GL_TARGET_RGB8 ||
         target->alpha_mode < BOXRIG_GL_ALPHA_OPAQUE ||
         target->alpha_mode > BOXRIG_GL_ALPHA_PREMULTIPLIED ||
+        (target->format == BOXRIG_GL_TARGET_RGB8 &&
+         target->alpha_mode != BOXRIG_GL_ALPHA_OPAQUE) ||
         target->origin != BOXRIG_GL_TARGET_ORIGIN_LOWER_LEFT ||
         target->samples > runtime->capabilities.maximum_samples) {
         set_diagnostic(

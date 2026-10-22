@@ -39,7 +39,10 @@ The [OpenGL public API](../../include/boxrig/render/opengl.h) targets OpenGL 3.3
 The application supplies a current context, a function resolver callback, and context and thread identities.
 The library does not create a context or make one current on its own.
 
-The target is RGBA8 or sRGB8 alpha8, with explicit alpha interpretation, physical-pixel dimensions, and a monotonically increasing generation.
+Targets may use RGBA8, sRGB8 alpha8, or opaque RGB8 storage.
+Specify the alpha interpretation, physical-pixel dimensions, and a monotonically increasing generation.
+RGB8 has no alpha channel and requires `BOXRIG_GL_ALPHA_OPAQUE`.
+RGB8 requires a nonzero framebuffer whose lack of alpha storage can be verified.
 The current target contract does not accept multisampling.
 See [runtime.h](../../include/boxrig/render/runtime.h) for details.
 

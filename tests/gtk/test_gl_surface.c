@@ -266,6 +266,77 @@ static gboolean render(GtkGLArea *area, GdkGLContext *context, gpointer data)
     CHECK(!glIsFramebuffer(retained.draw_framebuffer));
     CHECK(!glIsTexture((GLuint)texture));
     CHECK(glIsFramebuffer(destination.draw_framebuffer));
+    transparency.request = BOXRIG_UI_TRANSPARENCY_OPAQUE;
+    CHECK(boxrig_ui_view_set_transparency_config(test->view, &transparency) == BOXRIG_UI_OK);
+    GLuint rgb_texture = 0, rgb_framebuffer = 0;
+    glGenTextures(1, &rgb_texture);
+    glBindTexture(GL_TEXTURE_2D, rgb_texture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8, (GLsizei)destination.width,
+        (GLsizei)destination.height, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glGenFramebuffers(1, &rgb_framebuffer);
+    glBindFramebuffer(GL_FRAMEBUFFER, rgb_framebuffer);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, rgb_texture, 0);
+    CHECK(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
+    CHECK(glGetError() == GL_NO_ERROR);
+    boxrig_gl_target rgb = destination;
+    rgb.draw_framebuffer = rgb_framebuffer;
+    rgb.format = BOXRIG_GL_TARGET_RGB8;
+    rgb.alpha_mode = BOXRIG_GL_ALPHA_OPAQUE;
+    rgb.generation++;
+    config.initial_target = rgb;
+    config.runtime.target_generation = rgb.generation;
+    config.initial_target.alpha_mode = BOXRIG_GL_ALPHA_PREMULTIPLIED;
+    CHECK(boxrig_gtk_gl_surface_create(&config, &surface, &state) == BOXRIG_UI_INVALID_ARGUMENT);
+    CHECK(surface == NULL);
+    config.initial_target.alpha_mode = BOXRIG_GL_ALPHA_OPAQUE;
+    CHECK(boxrig_gtk_gl_surface_create(&config, &surface, &state) == BOXRIG_UI_OK);
+    CHECK(boxrig_gtk_gl_surface_draw(surface, test->view, NULL, &state) == BOXRIG_UI_OK);
+    CHECK(boxrig_gtk_gl_surface_present(surface, &rgb, &state) == BOXRIG_UI_OK);
+    uint8_t *rgb_pixels = capture(&rgb);
+    CHECK(rgb_pixels[0] == 16 && rgb_pixels[1] == 16 && rgb_pixels[2] == 16 &&
+        rgb_pixels[3] == 255);
+    free(rgb_pixels);
+    CHECK(boxrig_terminal_set_cell_pixel_geometry(test->terminal, 10,
+        boxrig_gtk_gl_surface_cell_height(surface)) == BOXRIG_STATUS_OK);
+    feed(test, "\033[1;1H\033_Ga=T,i=905,f=32,s=1,v=1,c=1,r=1,C=1;/wAAgA==\033\\");
+    CHECK(boxrig_terminal_image_placement_count(test->terminal) == 1);
+    CHECK(boxrig_gtk_gl_surface_draw(surface, test->view, NULL, &state) == BOXRIG_UI_OK);
+    CHECK(boxrig_gtk_gl_surface_present(surface, &rgb, &state) == BOXRIG_UI_OK);
+    rgb_pixels = capture(&rgb);
+    bool saw_image = false;
+    for (unsigned int y = 0; y < boxrig_gtk_gl_surface_cell_height(surface); y++) {
+        for (unsigned int x = 0; x < 32; x++) {
+            size_t pixel = ((size_t)(rgb.height - y - 1) * rgb.width + x) * 4;
+            CHECK(rgb_pixels[pixel + 3] == 255);
+            if (rgb_pixels[pixel] == 148 && rgb_pixels[pixel + 1] == 40 &&
+                rgb_pixels[pixel + 2] == 60) {
+                saw_image = true;
+            }
+        }
+    }
+    CHECK(saw_image);
+    free(rgb_pixels);
+    boxrig_ogl_render_statistics rgb_warm;
+    CHECK(boxrig_gtk_gl_surface_get_statistics(surface, &rgb_warm) == 0);
+    CHECK(rgb_warm.image_cache_upload_count > 0);
+    rgb.generation++;
+    CHECK(boxrig_gtk_gl_surface_resize(surface, &rgb, &state) == BOXRIG_UI_OK);
+    CHECK(boxrig_gtk_gl_surface_draw(surface, test->view, NULL, &state) == BOXRIG_UI_OK);
+    CHECK(boxrig_gtk_gl_surface_present(surface, &rgb, &state) == BOXRIG_UI_OK);
+    boxrig_ogl_render_statistics rgb_resized;
+    CHECK(boxrig_gtk_gl_surface_get_statistics(surface, &rgb_resized) == 0);
+    CHECK(rgb_resized.grayscale_glyph_upload_count == rgb_warm.grayscale_glyph_upload_count &&
+        rgb_resized.color_glyph_upload_count == rgb_warm.color_glyph_upload_count);
+    CHECK(rgb_resized.image_cache_upload_count == rgb_warm.image_cache_upload_count);
+    rgb_pixels = capture(&rgb);
+    CHECK(rgb_pixels[0] == 16 && rgb_pixels[1] == 16 && rgb_pixels[2] == 16 &&
+        rgb_pixels[3] == 255);
+    free(rgb_pixels);
+    boxrig_gtk_gl_surface_destroy(&surface);
+    glDeleteFramebuffers(1, &rgb_framebuffer);
+    glDeleteTextures(1, &rgb_texture);
     glDeleteFramebuffers(1, &larger_framebuffer);
     glDeleteTextures(1, &larger_texture);
     free(before);

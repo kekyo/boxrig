@@ -72,7 +72,10 @@ boxrig_ui_status boxrig_gtk_gl_surface_create(
         config->initial_target.generation == 0 || config->runtime.context_generation == 0 ||
         config->runtime.target_generation != config->initial_target.generation ||
         (config->initial_target.format != BOXRIG_GL_TARGET_RGBA8 &&
-         config->initial_target.format != BOXRIG_GL_TARGET_SRGB8_ALPHA8)) {
+         config->initial_target.format != BOXRIG_GL_TARGET_SRGB8_ALPHA8 &&
+         config->initial_target.format != BOXRIG_GL_TARGET_RGB8) ||
+        (config->initial_target.format == BOXRIG_GL_TARGET_RGB8 &&
+         config->initial_target.alpha_mode != BOXRIG_GL_ALPHA_OPAQUE)) {
         return BOXRIG_UI_INVALID_ARGUMENT;
     }
     *surface_out = NULL;
@@ -101,9 +104,11 @@ boxrig_ui_status boxrig_gtk_gl_surface_create(
     glBindTexture(GL_TEXTURE_2D, surface->texture);
     glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
     glTexImage2D(GL_TEXTURE_2D, 0,
-        surface->target.format == BOXRIG_GL_TARGET_SRGB8_ALPHA8 ? GL_SRGB8_ALPHA8 : GL_RGBA8,
+        surface->target.format == BOXRIG_GL_TARGET_RGB8 ? GL_RGB8 :
+            surface->target.format == BOXRIG_GL_TARGET_SRGB8_ALPHA8 ? GL_SRGB8_ALPHA8 : GL_RGBA8,
         (GLsizei)surface->target.width, (GLsizei)surface->target.height,
-        0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        0, surface->target.format == BOXRIG_GL_TARGET_RGB8 ? GL_RGB : GL_RGBA,
+        GL_UNSIGNED_BYTE, NULL);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glGenFramebuffers(1, &surface->target.draw_framebuffer);
@@ -174,9 +179,11 @@ boxrig_ui_status boxrig_gtk_gl_surface_resize(boxrig_gtk_gl_surface *surface,
     glBindTexture(GL_TEXTURE_2D, texture);
     glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
     glTexImage2D(GL_TEXTURE_2D, 0,
-        destination->format == BOXRIG_GL_TARGET_SRGB8_ALPHA8 ? GL_SRGB8_ALPHA8 : GL_RGBA8,
+        destination->format == BOXRIG_GL_TARGET_RGB8 ? GL_RGB8 :
+            destination->format == BOXRIG_GL_TARGET_SRGB8_ALPHA8 ? GL_SRGB8_ALPHA8 : GL_RGBA8,
         (GLsizei)destination->width, (GLsizei)destination->height,
-        0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        0, destination->format == BOXRIG_GL_TARGET_RGB8 ? GL_RGB : GL_RGBA,
+        GL_UNSIGNED_BYTE, NULL);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glGenFramebuffers(1, &framebuffer);

@@ -4940,6 +4940,12 @@ $(BUILD_DIR)/tests/test_gtk3_rendering: tests/gtk3/test_gtk3_rendering.c $(GTK3_
 test-gtk3-rendering: $(BUILD_DIR)/tests/test_gtk3_rendering
 	$(XVFB_RUN) -a env GDK_BACKEND=x11 ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 \
 		UBSAN_OPTIONS=halt_on_error=1 bash -c 'for policy in cairo prefer require; do for fault in none context; do $(BUILD_DIR)/tests/test_gtk3_rendering $$policy $$fault || exit; done; done'
+	$(XVFB_RUN) -a env GDK_BACKEND=x11 GDK_GL=gles LIBGL_ALWAYS_SOFTWARE=1 \
+		ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 \
+		$(BUILD_DIR)/tests/test_gtk3_rendering require toggle
+	$(XVFB_RUN) -a env GDK_BACKEND=x11 GDK_GL=gles LIBGL_ALWAYS_SOFTWARE=1 \
+		ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 \
+		$(BUILD_DIR)/tests/test_gtk3_rendering prefer toggle
 
 test: test-gtk3-rendering
 

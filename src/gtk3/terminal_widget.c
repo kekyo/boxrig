@@ -740,6 +740,20 @@ static gboolean render_gl_frame(GtkGLArea *area, GdkGLContext *context, gpointer
         gl_failed(widget);
         return TRUE;
     }
+    boxrig_ui_transparency_state transparency;
+    if (boxrig_ui_view_get_transparency(widget->view, &transparency) != BOXRIG_UI_OK) {
+        boxrig_gtk_gl_area_record_error(&widget->render_state,
+            BOXRIG_GTK_RENDER_REASON_DRAW, BOXRIG_UI_UNAVAILABLE,
+            "Could not resolve GTK surface transparency");
+        gl_failed(widget);
+        return TRUE;
+    }
+    bool has_alpha = transparency.effective == BOXRIG_UI_TRANSPARENCY_PREMULTIPLIED_ALPHA &&
+        (transparency.effective_scopes & BOXRIG_UI_TRANSPARENCY_VIEW_SURFACE) != 0;
+    if (gtk_gl_area_get_has_alpha(area) != has_alpha) {
+        gtk_gl_area_set_has_alpha(area, has_alpha);
+        gtk_gl_area_attach_buffers(area);
+    }
     boxrig_ogl_renderer_config config = boxrig_ogl_renderer_config_default();
     uint64_t generation = widget->render_state.target_generation;
     if (generation == 0) generation = 1;
