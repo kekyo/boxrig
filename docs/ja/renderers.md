@@ -39,7 +39,10 @@ boxrig UIは、既存のウィンドウ内へ端末を表示する構成と、�
 アプリはcurrentなcontext、関数解決コールバック、contextとスレッドの識別情報を渡します。
 ライブラリがcontextを作ったり、勝手にcurrentへ切り替えたりはしません。
 
-描画先はRGBA8またはsRGB8 alpha8で、alphaの解釈、物理ピクセルの寸法、単調増加する世代を明示します。
+描画先にはRGBA8、sRGB8 alpha8、不透明なRGB8を使えます。
+alphaの解釈、物理ピクセルの寸法、単調増加する世代を明示します。
+RGB8にはalphaチャンネルがないため、`BOXRIG_GL_ALPHA_OPAQUE`を指定してください。
+RGB8はalphaがないことを検証できる、名前が0以外のフレームバッファーで使えます。
 現在の描画先の契約はマルチサンプルを受け付けません。
 詳しい条件は[runtime.h](../../include/boxrig/render/runtime.h)にあります。
 

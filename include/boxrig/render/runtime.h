@@ -79,7 +79,9 @@ typedef enum boxrig_gl_target_format {
     /** Linear 8-bit RGBA storage. */
     BOXRIG_GL_TARGET_RGBA8 = 0,
     /** sRGB 8-bit color with linear 8-bit alpha storage. */
-    BOXRIG_GL_TARGET_SRGB8_ALPHA8
+    BOXRIG_GL_TARGET_SRGB8_ALPHA8,
+    /** Linear 8-bit RGB storage without alpha; requires opaque output and a nonzero framebuffer. */
+    BOXRIG_GL_TARGET_RGB8
 } boxrig_gl_target_format;
 
 /** Alpha semantics requested by the caller. */

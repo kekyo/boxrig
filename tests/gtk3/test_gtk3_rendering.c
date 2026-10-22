@@ -2,6 +2,7 @@
 #include "boxrig/gtk3.h"
 #include "../../src/gtk/gl_surface.h"
 
+#include <epoxy/gl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,11 +14,36 @@
 static bool fail_context;
 static bool fail_es_context;
 static bool fail_es_renderer;
+static bool fail_toggle_renderer;
+static bool test_toggle_failure;
 static unsigned int rejected_es_contexts;
 static unsigned int rejected_es_renderers;
 static unsigned int context_attempts;
 static boxrig_terminal *resize_before_render;
 static size_t accessible_rows_after_render;
+/* Sum upload deltas across renderer instances so replacement cannot reset the observation. */
+static size_t glyph_uploads;
+static GtkGLArea *observed_area;
+static GLint observed_alpha_bits = -1;
+static boxrig_gl_target_format observed_format;
+static boxrig_gl_alpha_mode observed_alpha_mode;
+
+boxrig_ui_status __real_boxrig_gtk_gl_surface_draw(boxrig_gtk_gl_surface *,
+    boxrig_ui_view *, boxrig_composition *, boxrig_gtk_render_state *);
+boxrig_ui_status __wrap_boxrig_gtk_gl_surface_draw(boxrig_gtk_gl_surface *surface,
+    boxrig_ui_view *view, boxrig_composition *composition, boxrig_gtk_render_state *state)
+{
+    boxrig_ogl_render_statistics before;
+    boxrig_ogl_render_statistics after;
+    CHECK(boxrig_gtk_gl_surface_get_statistics(surface, &before) == 0);
+    boxrig_ui_status status = __real_boxrig_gtk_gl_surface_draw(surface, view, composition, state);
+    CHECK(boxrig_gtk_gl_surface_get_statistics(surface, &after) == 0);
+    CHECK(after.grayscale_glyph_upload_count >= before.grayscale_glyph_upload_count);
+    CHECK(after.color_glyph_upload_count >= before.color_glyph_upload_count);
+    glyph_uploads += after.grayscale_glyph_upload_count - before.grayscale_glyph_upload_count;
+    glyph_uploads += after.color_glyph_upload_count - before.color_glyph_upload_count;
+    return status;
+}
 
 void __real_gdk_gl_context_set_use_es(GdkGLContext *, int);
 void __wrap_gdk_gl_context_set_use_es(GdkGLContext *context, int use_es)
@@ -50,6 +76,18 @@ boxrig_ui_status __wrap_boxrig_gtk_gl_surface_create(const boxrig_ogl_renderer_c
         state->reason = BOXRIG_GTK_RENDER_REASON_RESOURCE;
         return state->status;
     }
+    if (fail_toggle_renderer && config->initial_target.alpha_mode == BOXRIG_GL_ALPHA_PREMULTIPLIED) {
+        fail_toggle_renderer = false;
+        *surface = NULL;
+        state->status = BOXRIG_UI_UNAVAILABLE;
+        state->reason = BOXRIG_GTK_RENDER_REASON_RESOURCE;
+        return state->status;
+    }
+    observed_format = config->initial_target.format;
+    observed_alpha_mode = config->initial_target.alpha_mode;
+    glGetFramebufferAttachmentParameteriv(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+        GL_FRAMEBUFFER_ATTACHMENT_ALPHA_SIZE, &observed_alpha_bits);
+    CHECK(glGetError() == GL_NO_ERROR);
     return __real_boxrig_gtk_gl_surface_create(config, surface, state);
 }
 
@@ -89,6 +127,7 @@ static GdkGLContext *create_context(GtkGLArea *area, gpointer data)
 GtkWidget *__wrap_gtk_gl_area_new(void)
 {
     GtkWidget *area = __real_gtk_gl_area_new();
+    observed_area = GTK_GL_AREA(area);
     g_signal_connect(area, "create-context", G_CALLBACK(create_context), NULL);
     g_signal_connect(area, "render", G_CALLBACK(before_render), NULL);
     return area;
@@ -207,6 +246,7 @@ int main(int argc, char **argv)
     fail_context = strcmp(argv[2], "context") == 0;
     fail_es_context = strcmp(argv[2], "es-context") == 0;
     fail_es_renderer = strcmp(argv[2], "es-renderer") == 0;
+    test_toggle_failure = strcmp(argv[2], "toggle") == 0;
     boxrig_gtk3_terminal_widget_config config = boxrig_gtk3_terminal_widget_config_default();
     config.accessibility_enabled = true;
     CHECK(config.render_policy == BOXRIG_GTK_RENDER_CAIRO);
@@ -255,6 +295,12 @@ int main(int argc, char **argv)
         const char *expected_api = getenv("BOXRIG_TEST_GL_API");
         if (state.active_backend == BOXRIG_GTK_RENDER_BACKEND_OPENGL && expected_api != NULL)
             CHECK(state.is_gles == (strcmp(expected_api, "gles") == 0));
+        if (state.active_backend == BOXRIG_GTK_RENDER_BACKEND_OPENGL) {
+            CHECK(!gtk_gl_area_get_has_alpha(observed_area));
+            CHECK(observed_alpha_bits == 0);
+            CHECK(observed_format == BOXRIG_GL_TARGET_RGB8);
+            CHECK(observed_alpha_mode == BOXRIG_GL_ALPHA_OPAQUE);
+        }
         cairo_surface_t *before = capture(GTK_WIDGET(test.widget));
         uint32_t *before_pixels = (uint32_t *)cairo_image_surface_get_data(before);
         CHECK(before_pixels[0] == 0xff285078u);
@@ -277,6 +323,9 @@ int main(int argc, char **argv)
         CHECK(metrics.cell_width == after_metrics.cell_width && metrics.cell_height == after_metrics.cell_height);
         CHECK(boxrig_gtk3_terminal_widget_model(test.widget) == model);
         uint64_t target_generation = state.target_generation;
+        bool gl_before_resize = state.active_backend == BOXRIG_GTK_RENDER_BACKEND_OPENGL;
+        size_t uploads_before_resize = glyph_uploads;
+        if (gl_before_resize) CHECK(uploads_before_resize > 0);
         test.generation = boxrig_gtk3_terminal_widget_presentation_generation(test.widget);
         test.expected_width = 640;
         test.expected_height = 240;
@@ -284,8 +333,12 @@ int main(int argc, char **argv)
         await_frame(&test);
         CHECK(!test.failed);
         CHECK(boxrig_gtk3_terminal_widget_get_render_state(test.widget, &state) == BOXRIG_UI_OK);
-        if (state.active_backend == BOXRIG_GTK_RENDER_BACKEND_OPENGL)
+        CHECK(state.active_backend == (gl_before_resize
+            ? BOXRIG_GTK_RENDER_BACKEND_OPENGL : BOXRIG_GTK_RENDER_BACKEND_CAIRO));
+        if (gl_before_resize) {
             CHECK(state.target_generation > target_generation);
+            CHECK(glyph_uploads == uploads_before_resize);
+        }
         cairo_surface_t *resized = capture(GTK_WIDGET(test.widget));
         CHECK(((uint32_t *)cairo_image_surface_get_data(resized))[0] == 0xff285078u);
         CHECK(cairo_image_surface_get_width(resized) == test.expected_width * gtk_widget_get_scale_factor(GTK_WIDGET(test.widget)));
@@ -302,7 +355,9 @@ int main(int argc, char **argv)
         CHECK(boxrig_gtk3_terminal_widget_get_effective_metrics(test.widget, &after_metrics) == BOXRIG_FONT_CATALOG_OK);
         CHECK(after_metrics.cell_width > metrics.cell_width && after_metrics.cell_height > metrics.cell_height);
         CHECK(boxrig_gtk3_terminal_widget_get_render_state(test.widget, &state) == BOXRIG_UI_OK);
-        if (state.active_backend == BOXRIG_GTK_RENDER_BACKEND_OPENGL)
+        CHECK(state.active_backend == (gl_before_resize
+            ? BOXRIG_GTK_RENDER_BACKEND_OPENGL : BOXRIG_GTK_RENDER_BACKEND_CAIRO));
+        if (gl_before_resize)
             CHECK(state.target_generation > target_generation);
         cairo_surface_t *enlarged = capture(GTK_WIDGET(test.widget));
         CHECK(((uint32_t *)cairo_image_surface_get_data(enlarged))[0] == 0xff285078u);
@@ -311,13 +366,59 @@ int main(int argc, char **argv)
         transparency.request = BOXRIG_UI_TRANSPARENCY_REQUIRED;
         transparency.requested_scopes = BOXRIG_UI_TRANSPARENCY_VIEW_SURFACE;
         transparency.background_opacity = 64;
+        if (test_toggle_failure) {
+            CHECK(config.render_policy != BOXRIG_GTK_RENDER_CAIRO);
+            fail_toggle_renderer = true;
+        }
+        test.generation = boxrig_gtk3_terminal_widget_presentation_generation(test.widget);
+        CHECK(boxrig_gtk3_terminal_widget_set_transparency(test.widget, &transparency) == BOXRIG_UI_OK);
+        await_frame(&test);
+        if (test_toggle_failure) {
+            CHECK(!fail_toggle_renderer);
+            CHECK(boxrig_gtk3_terminal_widget_get_render_state(test.widget, &state) == BOXRIG_UI_OK);
+            if (config.render_policy == BOXRIG_GTK_RENDER_OPENGL_REQUIRED) {
+                CHECK(test.failed);
+                CHECK(boxrig_ui_view_frame_requested(boxrig_gtk3_terminal_widget_view(test.widget)));
+                CHECK(state.active_backend == BOXRIG_GTK_RENDER_BACKEND_NONE);
+            } else {
+                CHECK(!test.failed && state.active_backend == BOXRIG_GTK_RENDER_BACKEND_CAIRO);
+                CHECK(!boxrig_ui_view_frame_requested(boxrig_gtk3_terminal_widget_view(test.widget)));
+                cairo_surface_t *fallback = capture(GTK_WIDGET(test.widget));
+                CHECK(((uint32_t *)cairo_image_surface_get_data(fallback))[0] == 0x400a141eu);
+                cairo_surface_destroy(fallback);
+            }
+            goto teardown;
+        }
+        CHECK(!test.failed);
+        CHECK(boxrig_gtk3_terminal_widget_get_render_state(test.widget, &state) == BOXRIG_UI_OK);
+        CHECK(state.active_backend == (gl_before_resize
+            ? BOXRIG_GTK_RENDER_BACKEND_OPENGL : BOXRIG_GTK_RENDER_BACKEND_CAIRO));
+        if (gl_before_resize) {
+            CHECK(gtk_gl_area_get_has_alpha(observed_area));
+            CHECK(observed_alpha_bits == 8);
+            CHECK(observed_format != BOXRIG_GL_TARGET_RGB8);
+            CHECK(observed_alpha_mode == BOXRIG_GL_ALPHA_PREMULTIPLIED);
+        }
+        cairo_surface_t *alpha = capture(GTK_WIDGET(test.widget));
+        CHECK(((uint32_t *)cairo_image_surface_get_data(alpha))[0] == 0x400a141eu);
+        cairo_surface_destroy(alpha);
+        transparency.request = BOXRIG_UI_TRANSPARENCY_OPAQUE;
         test.generation = boxrig_gtk3_terminal_widget_presentation_generation(test.widget);
         CHECK(boxrig_gtk3_terminal_widget_set_transparency(test.widget, &transparency) == BOXRIG_UI_OK);
         await_frame(&test);
         CHECK(!test.failed);
-        cairo_surface_t *alpha = capture(GTK_WIDGET(test.widget));
-        CHECK(((uint32_t *)cairo_image_surface_get_data(alpha))[0] == 0x400a141eu);
-        cairo_surface_destroy(alpha);
+        CHECK(boxrig_gtk3_terminal_widget_get_render_state(test.widget, &state) == BOXRIG_UI_OK);
+        CHECK(state.active_backend == (gl_before_resize
+            ? BOXRIG_GTK_RENDER_BACKEND_OPENGL : BOXRIG_GTK_RENDER_BACKEND_CAIRO));
+        if (gl_before_resize) {
+            CHECK(!gtk_gl_area_get_has_alpha(observed_area));
+            CHECK(observed_alpha_bits == 0);
+            CHECK(observed_format == BOXRIG_GL_TARGET_RGB8);
+            CHECK(observed_alpha_mode == BOXRIG_GL_ALPHA_OPAQUE);
+        }
+        cairo_surface_t *opaque = capture(GTK_WIDGET(test.widget));
+        CHECK(((uint32_t *)cairo_image_surface_get_data(opaque))[0] == 0xff285078u);
+        cairo_surface_destroy(opaque);
         if (state.active_backend == BOXRIG_GTK_RENDER_BACKEND_OPENGL) {
             /* Complete a host resize between queued work and GTK rendering. */
             resize_before_render = test.terminal;
@@ -329,6 +430,7 @@ int main(int argc, char **argv)
             CHECK(state.active_backend == BOXRIG_GTK_RENDER_BACKEND_OPENGL && state.status == BOXRIG_UI_OK);
         }
     }
+teardown:
     gtk_widget_destroy(window);
     g_object_unref(window);
     boxrig_ui_model_destroy(model);

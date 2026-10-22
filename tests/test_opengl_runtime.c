@@ -84,6 +84,8 @@ static bool validates_context_and_target(opengl_host *host, bool is_gles)
     uint32_t second_texture;
     uint32_t srgb_framebuffer;
     uint32_t srgb_texture;
+    uint32_t rgb_framebuffer;
+    uint32_t rgb_texture;
     uint32_t empty_framebuffer;
 
     CHECK(boxrig_gl_runtime_create(&config, &runtime, &diagnostic) ==
@@ -260,7 +262,28 @@ static bool validates_context_and_target(opengl_host *host, bool is_gles)
     CHECK(boxrig_gl_runtime_end_target(runtime, 7, &diagnostic) == BOXRIG_GL_OK);
     opengl_host_delete_framebuffer(host, srgb_framebuffer, srgb_texture);
 
+    rgb_framebuffer = opengl_host_create_framebuffer(
+        host, BOXRIG_GL_TARGET_RGB8, 64, 48, &rgb_texture);
+    CHECK(rgb_framebuffer != 0);
+    target.draw_framebuffer = rgb_framebuffer;
+    target.format = BOXRIG_GL_TARGET_RGB8;
+    target.alpha_mode = BOXRIG_GL_ALPHA_OPAQUE;
+    CHECK(boxrig_gl_runtime_begin_target(runtime, 7, &target, &clip,
+        &diagnostic) == BOXRIG_GL_OK);
+    CHECK(boxrig_gl_runtime_end_target(runtime, 7, &diagnostic) == BOXRIG_GL_OK);
+    target.alpha_mode = BOXRIG_GL_ALPHA_PREMULTIPLIED;
+    CHECK(boxrig_gl_runtime_begin_target(runtime, 7, &target, &clip,
+        &diagnostic) == BOXRIG_GL_TARGET_MISMATCH);
+    target.alpha_mode = BOXRIG_GL_ALPHA_OPAQUE;
+    target.format = BOXRIG_GL_TARGET_RGBA8;
+    CHECK(boxrig_gl_runtime_begin_target(runtime, 7, &target, &clip,
+        &diagnostic) == BOXRIG_GL_TARGET_MISMATCH);
+    opengl_host_delete_framebuffer(host, rgb_framebuffer, rgb_texture);
+
     target.draw_framebuffer = 0;
+    target.format = BOXRIG_GL_TARGET_RGB8;
+    CHECK(boxrig_gl_runtime_begin_target(runtime, 7, &target, &clip,
+        &diagnostic) == BOXRIG_GL_TARGET_MISMATCH);
     target.format = BOXRIG_GL_TARGET_RGBA8;
     target.alpha_mode = BOXRIG_GL_ALPHA_OPAQUE;
     CHECK(boxrig_gl_runtime_begin_target(

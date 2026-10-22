@@ -239,19 +239,29 @@ boxrig_ui_status boxrig_gtk_gl_area_describe(
     const GLenum channels[] = {GL_FRAMEBUFFER_ATTACHMENT_RED_SIZE,
         GL_FRAMEBUFFER_ATTACHMENT_GREEN_SIZE, GL_FRAMEBUFFER_ATTACHMENT_BLUE_SIZE,
         GL_FRAMEBUFFER_ATTACHMENT_ALPHA_SIZE};
+    GLint alpha_bits = 0;
     for (size_t i = 0; i < sizeof(channels) / sizeof(channels[0]); i++) {
         GLint bits = 0;
         glGetFramebufferAttachmentParameteriv(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, channels[i], &bits);
-        if (bits != 8) {
+        if (i == 3) alpha_bits = bits;
+        if ((i < 3 && bits != 8) || (i == 3 && bits != 0 && bits != 8)) {
             boxrig_gtk_gl_area_record_error(state, BOXRIG_GTK_RENDER_REASON_CAPABILITY,
-                BOXRIG_UI_UNAVAILABLE, "GTK GL color storage must have eight bits per RGBA channel");
+                BOXRIG_UI_UNAVAILABLE, "GTK GL color storage must have eight RGB bits and zero or eight alpha bits");
             return state->status;
         }
     }
+#if GTK_MAJOR_VERSION == 3
+    if ((alpha_bits == 8) != gtk_gl_area_get_has_alpha(area)) {
+        boxrig_gtk_gl_area_record_error(state, BOXRIG_GTK_RENDER_REASON_CAPABILITY,
+            BOXRIG_UI_UNAVAILABLE, "GTK GL alpha storage differs from its transparency policy");
+        return state->status;
+    }
+#endif
     GLint encoding = 0;
     glGetFramebufferAttachmentParameteriv(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
         GL_FRAMEBUFFER_ATTACHMENT_COLOR_ENCODING, &encoding);
-    if (glGetError() != GL_NO_ERROR || (encoding != GL_LINEAR && encoding != GL_SRGB)) {
+    if (glGetError() != GL_NO_ERROR || (encoding != GL_LINEAR && encoding != GL_SRGB) ||
+        (alpha_bits == 0 && encoding != GL_LINEAR)) {
         boxrig_gtk_gl_area_record_error(state, BOXRIG_GTK_RENDER_REASON_CAPABILITY,
             BOXRIG_UI_UNAVAILABLE, "GTK GL framebuffer encoding could not be established");
         return state->status;
@@ -260,8 +270,10 @@ boxrig_ui_status boxrig_gtk_gl_area_describe(
         area, current_context, context_generation, target_generation};
     config->initial_target = (boxrig_gl_target){(uint32_t)framebuffer,
         (uint32_t)viewport[2], (uint32_t)viewport[3], target_generation,
-        encoding == GL_SRGB ? BOXRIG_GL_TARGET_SRGB8_ALPHA8 : BOXRIG_GL_TARGET_RGBA8,
-        BOXRIG_GL_ALPHA_PREMULTIPLIED, BOXRIG_GL_TARGET_ORIGIN_LOWER_LEFT, 0};
+        alpha_bits == 0 ? BOXRIG_GL_TARGET_RGB8 :
+            encoding == GL_SRGB ? BOXRIG_GL_TARGET_SRGB8_ALPHA8 : BOXRIG_GL_TARGET_RGBA8,
+        alpha_bits == 0 ? BOXRIG_GL_ALPHA_OPAQUE : BOXRIG_GL_ALPHA_PREMULTIPLIED,
+        BOXRIG_GL_TARGET_ORIGIN_LOWER_LEFT, 0};
     state->context_generation = context_generation;
     state->target_generation = target_generation;
     state->is_gles = is_gles;
