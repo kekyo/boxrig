@@ -184,6 +184,27 @@ static boxrig_status clone_cell(boxrig_cell *destination, const boxrig_cell *sou
     return BOXRIG_STATUS_OK;
 }
 
+static boxrig_status clone_cell_into_uninitialized(
+    boxrig_cell *destination, const boxrig_cell *source)
+{
+    char *text = NULL;
+
+    /* Publish the cell only after its text is owned; failure leaves the
+     * destination outside the reflow row's initialized prefix. */
+    if (source->text_length > BOXRIG_CELL_INLINE_BYTES) {
+        text = malloc(source->text_length);
+        if (text == NULL) {
+            return BOXRIG_STATUS_OUT_OF_MEMORY;
+        }
+        memcpy(text, boxrig_cell_text(source), source->text_length);
+    }
+    *destination = *source;
+    if (text != NULL) {
+        destination->text_storage.heap = text;
+    }
+    return BOXRIG_STATUS_OK;
+}
+
 static inline void move_cell(boxrig_cell *destination, boxrig_cell *source)
 {
     if (destination == source) {
@@ -679,6 +700,8 @@ static boxrig_status copy_buffer_for_resize(
 
 typedef struct boxrig_reflow_row {
     boxrig_cell *cell_storage;
+    /* Only this contiguous prefix may be destroyed after a failed copy. */
+    size_t initialized_columns;
     bool soft_wrapped;
     boxrig_text_fragment_metadata text;
 } boxrig_reflow_row;
@@ -696,17 +719,42 @@ static void destroy_reflow_rows(boxrig_reflow_rows *reflow)
     size_t row;
 
     for (row = 0; row < reflow->count; row++) {
-        destroy_cells(reflow->rows[row].cell_storage, reflow->columns);
+        destroy_cells(reflow->rows[row].cell_storage,
+            reflow->rows[row].initialized_columns);
     }
     free(reflow->rows);
     memset(reflow, 0, sizeof(*reflow));
+}
+
+static void initialize_reflow_blank(
+    boxrig_cell *cell, boxrig_cell_style style)
+{
+    memset(cell, 0, sizeof(*cell));
+    cell->column_width = 1;
+    style.protected_cell = false;
+    cell->style = style;
+}
+
+static void finish_reflow_row(boxrig_reflow_rows *reflow)
+{
+    boxrig_reflow_row *row = &reflow->rows[reflow->count - 1];
+
+    while (row->initialized_columns < reflow->columns) {
+        initialize_reflow_blank(
+            &row->cell_storage[row->initialized_columns],
+            reflow->blank_style);
+        row->initialized_columns++;
+    }
 }
 
 static boxrig_status append_reflow_row(boxrig_reflow_rows *reflow)
 {
     boxrig_reflow_row *replacement;
     boxrig_cell *cell_storage;
-    size_t column;
+
+    if (reflow->count != 0) {
+        finish_reflow_row(reflow);
+    }
 
     if (reflow->count == reflow->capacity) {
         size_t capacity = reflow->capacity == 0 ? 16 : reflow->capacity * 2;
@@ -724,14 +772,15 @@ static boxrig_status append_reflow_row(boxrig_reflow_rows *reflow)
         reflow->rows = replacement;
         reflow->capacity = capacity;
     }
-    cell_storage = calloc(reflow->columns, sizeof(*cell_storage));
+    if (reflow->columns > SIZE_MAX / sizeof(*cell_storage)) {
+        return BOXRIG_STATUS_LIMIT_EXCEEDED;
+    }
+    cell_storage = malloc(reflow->columns * sizeof(*cell_storage));
     if (cell_storage == NULL) {
         return BOXRIG_STATUS_OUT_OF_MEMORY;
     }
-    for (column = 0; column < reflow->columns; column++) {
-        set_blank(&cell_storage[column], reflow->blank_style);
-    }
     reflow->rows[reflow->count].cell_storage = cell_storage;
+    reflow->rows[reflow->count].initialized_columns = 0;
     reflow->rows[reflow->count].soft_wrapped = false;
     memset(
         &reflow->rows[reflow->count].text,
@@ -889,7 +938,7 @@ static boxrig_status copy_cell_to_reflow(
         *destination_column = 0;
     }
     row = &reflow->rows[reflow->count - 1];
-    status = clone_cell(
+    status = clone_cell_into_uninitialized(
         &row->cell_storage[*destination_column],
         source);
     if (status != BOXRIG_STATUS_OK) {
@@ -897,15 +946,17 @@ static boxrig_status copy_cell_to_reflow(
     }
     row->cell_storage[*destination_column].column_width = (uint8_t)width;
     row->cell_storage[*destination_column].continuation = false;
+    row->initialized_columns++;
     for (continuation = 1; continuation < width; continuation++) {
         boxrig_cell *cell = &row->cell_storage[
             *destination_column + continuation];
 
-        set_blank(cell, source->style);
+        initialize_reflow_blank(cell, source->style);
         cell->column_width = 0;
         cell->continuation = true;
         cell->hyperlink_handle = source->hyperlink_handle;
         cell->style = source->style;
+        row->initialized_columns++;
     }
     *destination_column += width;
     return BOXRIG_STATUS_OK;
@@ -1093,6 +1144,7 @@ static boxrig_status build_reflowed_primary(
             }
         }
     }
+    finish_reflow_row(reflow);
     return BOXRIG_STATUS_OK;
 }
 
@@ -1273,6 +1325,7 @@ static boxrig_status reuse_history_prefix_for_resize(
     for (size_t row = 0; row < prefix; row++) {
         size_t slot = (source->history_start + row) % source->history_capacity;
         combined.rows[row].cell_storage = source->history[slot].cell_storage;
+        combined.rows[row].initialized_columns = destination->columns;
         combined.rows[row].soft_wrapped = source->history[slot].soft_wrapped;
         combined.rows[row].text = source->history[slot].text;
     }

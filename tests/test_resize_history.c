@@ -26,8 +26,11 @@ void *__real_realloc(void *pointer, size_t size);
 static const char grapheme[] = "a\xcc\x81\xcc\x82\xcc\x83\xcc\x84\xcc\x85\xcc\x86";
 static bool tracking;
 static size_t allocations;
+static size_t calloc_bytes;
 static size_t text_copies;
 static size_t failure_countdown;
+static bool poison_reflow_rows;
+static size_t poisoned_allocations;
 
 void *__wrap_malloc(size_t size)
 {
@@ -36,13 +39,20 @@ void *__wrap_malloc(size_t size)
         if (size == sizeof(grapheme) - 1) text_copies++;
         if (failure_countdown != 0 && --failure_countdown == 0) return NULL;
     }
-    return __real_malloc(size);
+    void *result = __real_malloc(size);
+    if (result != NULL && tracking && poison_reflow_rows &&
+        size == 9 * sizeof(boxrig_cell)) {
+        memset(result, 0xa5, size);
+        poisoned_allocations++;
+    }
+    return result;
 }
 
 void *__wrap_calloc(size_t count, size_t size)
 {
     if (tracking) {
         allocations++;
+        calloc_bytes += count * size;
         if (failure_countdown != 0 && --failure_countdown == 0) return NULL;
     }
     return __real_calloc(count, size);
@@ -198,6 +208,81 @@ static bool test_height_resize_reuses_wrapped_history(void)
     return true;
 }
 
+static bool measure_width_resize_calloc(size_t line_count,
+    size_t *calloc_bytes_out)
+{
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    boxrig_terminal *terminal = NULL;
+    char line[sizeof(grapheme) + 3];
+
+    config.rows = 4;
+    config.columns = 8;
+    config.scrollback_capacity = 600;
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    memcpy(line, grapheme, sizeof(grapheme) - 1);
+    memcpy(line + sizeof(grapheme) - 1, "\r\n", 3);
+    for (size_t index = 0; index < line_count; index++) {
+        CHECK(feed(terminal, line));
+    }
+    calloc_bytes = 0;
+    poisoned_allocations = 0;
+    poison_reflow_rows = true;
+    tracking = true;
+    boxrig_status status = boxrig_terminal_resize(terminal, 4, 9);
+    tracking = false;
+    poison_reflow_rows = false;
+    *calloc_bytes_out = calloc_bytes;
+    boxrig_terminal_destroy(terminal);
+    CHECK(status == BOXRIG_STATUS_OK);
+    CHECK(poisoned_allocations != 0);
+    return true;
+}
+
+static bool test_width_reflow_does_not_zero_initialize_all_history(void)
+{
+    size_t small_bytes, large_bytes;
+
+    CHECK(measure_width_resize_calloc(32, &small_bytes));
+    CHECK(measure_width_resize_calloc(512, &large_bytes));
+    printf("width resize calloc bytes=%zu/%zu\n", small_bytes, large_bytes);
+    CHECK(large_bytes <= small_bytes + 8192);
+    return true;
+}
+
+static bool test_width_reflow_initializes_wide_and_padding_cells(void)
+{
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    boxrig_terminal *terminal = NULL;
+
+    config.rows = 3;
+    config.columns = 5;
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    CHECK(feed(terminal, "ABC\xe7\x95\x8c"));
+    CHECK(boxrig_terminal_resize(terminal, 3, 4) == BOXRIG_STATUS_OK);
+    const boxrig_cell *first = terminal->screen.primary.row_cells[0];
+    const boxrig_cell *second = terminal->screen.primary.row_cells[1];
+    bool correct = first[0].text_length == 1 &&
+                   boxrig_cell_text(&first[0])[0] == 'A' &&
+                   first[1].text_length == 1 &&
+                   boxrig_cell_text(&first[1])[0] == 'B' &&
+                   first[2].text_length == 1 &&
+                   boxrig_cell_text(&first[2])[0] == 'C' &&
+                   first[3].text_length == 0 &&
+                   first[3].column_width == 1 &&
+                   !first[3].continuation &&
+                   second[0].text_length == 3 &&
+                   memcmp(boxrig_cell_text(&second[0]), "\xe7\x95\x8c", 3) == 0 &&
+                   second[0].column_width == 2 &&
+                   second[1].continuation &&
+                   second[1].text_length == 0 &&
+                   second[2].text_length == 0 &&
+                   second[2].column_width == 1 &&
+                   !second[2].continuation;
+    boxrig_terminal_destroy(terminal);
+    CHECK(correct);
+    return true;
+}
+
 typedef struct resize_cell_snapshot {
     boxrig_cell cell;
     char text[sizeof(grapheme)];
@@ -257,10 +342,11 @@ static bool resize_cells_match(const boxrig_screen *screen,
     return true;
 }
 
-static bool test_failed_height_resize_keeps_history(void)
+static bool test_failed_resize_keeps_history(void)
 {
-    for (size_t failed_allocation = 1; failed_allocation <= 32;
-         failed_allocation++) {
+    for (size_t case_index = 0; case_index < 64; case_index++) {
+        size_t failed_allocation = case_index % 32 + 1;
+        bool width_change = case_index >= 32;
         boxrig_terminal_config config = boxrig_terminal_config_default();
         boxrig_terminal *terminal = NULL;
         size_t old_history;
@@ -282,7 +368,8 @@ static bool test_failed_height_resize_keeps_history(void)
         CHECK(snapshot != NULL);
         failure_countdown = failed_allocation;
         tracking = true;
-        boxrig_status status = boxrig_terminal_resize(terminal, 5, 8);
+        boxrig_status status = boxrig_terminal_resize(terminal,
+            width_change ? 4 : 5, width_change ? 9 : 8);
         tracking = false;
         failure_countdown = 0;
         bool unchanged = true;
@@ -308,7 +395,9 @@ int main(void)
     if (!test_height_growth_preserves_unfilled_row_identity()) return 1;
     if (!test_height_resize_reuses_completed_history()) return 1;
     if (!test_height_resize_reuses_wrapped_history()) return 1;
-    if (!test_failed_height_resize_keeps_history()) return 1;
+    if (!test_width_reflow_does_not_zero_initialize_all_history()) return 1;
+    if (!test_width_reflow_initializes_wide_and_padding_cells()) return 1;
+    if (!test_failed_resize_keeps_history()) return 1;
     puts("history resize tests passed");
     return 0;
 }
