@@ -2022,8 +2022,8 @@ static void scroll_up(
             false);
     }
     if (left == 0 && right == screen->columns - 1) {
-        if (screen->active == &screen->primary && top == 0 &&
-            bottom == screen->rows - 1) {
+        /* A fixed footer does not prevent top-edge output entering history. */
+        if (screen->active == &screen->primary && top == 0) {
             for (row = 0; row < count; row++) {
                 push_history_row(screen, top + row);
             }
