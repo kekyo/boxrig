@@ -115,6 +115,63 @@ static int wrapped_history_and_invalidation(void)
     return EXIT_SUCCESS;
 }
 
+static int top_anchored_partial_scroll_keeps_selection(void)
+{
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    config.rows = 4; config.columns = 8; config.scrollback_capacity = 8;
+    boxrig_terminal *terminal = NULL;
+    boxrig_ui_model *model = NULL;
+    boxrig_ui_view *view = NULL;
+    boxrig_ui_view_config view_config = boxrig_ui_view_config_default();
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    static const uint8_t text[] = "AAAA\r\nBBBB\r\nCCCC\r\nFOOT";
+    size_t consumed;
+    CHECK(boxrig_terminal_feed(terminal, text, sizeof(text) - 1, &consumed) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_create(model, &view_config, &view) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_acquire_layout_authority(view) == BOXRIG_UI_OK);
+    const boxrig_ui_allocation_input allocation = {
+        .allocation_width = 80 * BOXRIG_UI_FIXED_ONE,
+        .allocation_height = 80 * BOXRIG_UI_FIXED_ONE,
+        .cell_width = 10 * BOXRIG_UI_FIXED_ONE,
+        .cell_height = 20 * BOXRIG_UI_FIXED_ONE,
+        .cell_metrics_revision = 1, .window_state = BOXRIG_UI_WINDOW_NORMAL
+    };
+    boxrig_ui_layout_result layout;
+    CHECK(boxrig_ui_view_accept_allocation(view, &allocation, &layout) == BOXRIG_UI_OK);
+    const boxrig_ui_selection_options options = {
+        BOXRIG_UI_SELECTION_RECTANGULAR, BOXRIG_UI_SELECTION_CHARACTER
+    };
+    boxrig_ui_hit_test_result anchor, focus;
+    CHECK(boxrig_ui_view_hit_test(view, BOXRIG_UI_FIXED_ONE,
+        BOXRIG_UI_FIXED_ONE, &anchor) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_begin_selection_with_options(view, &options, &anchor) == BOXRIG_UI_OK);
+    static const uint8_t scroll[] = "\033[1;3r\033[1S";
+    CHECK(boxrig_terminal_feed(terminal, scroll, sizeof(scroll) - 1, &consumed) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_scrollback_rows(terminal) == 1);
+    CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+    boxrig_ui_selection selection;
+    CHECK(boxrig_ui_view_get_selection(view, &selection));
+    CHECK(!selection.stale && !selection.anchor_visual_row_valid);
+    CHECK(boxrig_terminal_set_viewport_offset(terminal, 1) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_hit_test(view, 11 * BOXRIG_UI_FIXED_ONE,
+        41 * BOXRIG_UI_FIXED_ONE, &focus) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_update_selection(view, &focus) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_get_selection(view, &selection));
+    CHECK(!selection.stale && selection.row_count == 3);
+    boxrig_text_snapshot *copy = NULL;
+    CHECK(boxrig_ui_view_create_selection_snapshot(view, &copy) == BOXRIG_UI_OK);
+    size_t length;
+    const uint8_t *bytes = boxrig_text_snapshot_data(copy, &length);
+    CHECK(length == 5 && memcmp(bytes, "A\nB\nC", length) == 0);
+    boxrig_text_snapshot_destroy(copy);
+    boxrig_ui_view_destroy(view);
+    boxrig_ui_model_destroy(model);
+    boxrig_terminal_destroy(terminal);
+    return EXIT_SUCCESS;
+}
+
 int main(void)
 {
     boxrig_terminal_config config = boxrig_terminal_config_default();
@@ -266,6 +323,7 @@ int main(void)
     boxrig_ui_model_destroy(model);
     boxrig_terminal_destroy(terminal);
     CHECK(wrapped_history_and_invalidation() == EXIT_SUCCESS);
+    CHECK(top_anchored_partial_scroll_keeps_selection() == EXIT_SUCCESS);
     puts("PASS rectangular selection history driver");
     return EXIT_SUCCESS;
 }
