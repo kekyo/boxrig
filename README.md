@@ -50,6 +50,8 @@ In-terminal images using Kitty graphics:
 
 Transparent background:
 
+An OpenGL example with translucent red and the built-in background image beneath the transparent terminal background.
+
 ![Transparent background example](./images/transparent-background.png)
 
 ## Implementation examples

@@ -1486,7 +1486,7 @@ GLからCairoへの切り替えでも同じ扱いです。
 
 GL描画にはOpenGL ES 3.0以上、またはデスクトップOpenGL 3.3 core以上が必要です。
 GTK 3ではESを優先して要求し、利用できなければデスクトップGLを試します。実際のAPIは[GDKの共有コンテキスト](https://gitlab.gnome.org/GNOME/gtk/-/blob/3.24.41/gdk/x11/gdkglcontext-x11.c)にも依存します。
-描画先はRGBA各8ビット、sRGB8 alpha8、または不透明なRGB8を使え、マルチサンプルは使えません。GTK 3の不透明経路はalphaを持たないRGB8です。
+描画先はRGBA各8ビット、sRGB8 alpha8、または不透明なRGB8を使え、マルチサンプルは使えません。GTK 3の不透明経路はalphaを持たないRGB8です。透過表示にはalpha付きの描画先が必要です。
 要求方針と実効経路は[GTK共通の描画設定](../../../include/boxrig/gtk/rendering.h)で区別します。
 GTK 4では[GtkGLAreaで両APIを許可](https://docs.gtk.org/gtk4/method.GLArea.set_allowed_apis.html)し、GTKが実行環境に応じてAPIを選びます。
 最後に検証したGLコンテキストのAPIは描画状態の`is_gles`で判別でき、サンプルの`graphics-api`には`OpenGL`または`OpenGL ES`を表示します。

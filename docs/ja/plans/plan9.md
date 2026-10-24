@@ -2,7 +2,13 @@
 
 作成日：2026年10月24日
 
-## 目的と作業範囲
+## 今回の実施範囲
+
+2026年10月24日、実施対象について「このboxrigリポジトリ内のみ」と確認しました。
+以下に残す当初計画のうち、段階1と段階4のboxrig側を対象にします。elder-termsの設定保存・設定画面・翻訳・依存参照更新と、同プロジェクトの`npm test`は今回の対象外です。
+boxrigではビューの既定値を空白除去とし、保持を指定するAPIと、検証アプリの実行中切り替えを追加します。
+
+## 当初計画の目的と作業範囲
 
 ブロックコピー時に、行末まで続く空白を除去するかどうかの設定を追加します。既定値は除去です。選択範囲の末尾が空白でも、その右側から行末までの間に文字がある場合は空白を保持します。
 
@@ -22,25 +28,25 @@ PRIMARYは選択完了時に登録し、中央ボタンで貼り付ける領域�
 
 終端空白の対象は、空セルと半角スペース単独（U+0020）とする案です。全角空白、改行を禁止する空白文字のNBSP、結合文字を伴う文字は保持します。行の単位と空白文字の範囲は、今回の依頼を具体化するために置いた仕様上の前提です。
 
-## 現在のコードで確認したこと
+## 計画作成時のコードで確認したこと
 
 調査の基点はelder-termsの`0b8a686162f79a73c650ab29517f066c74ac560f`です。`deps/boxrig`のコミットは`ea62f220d87f83ea017548c36d79f267ee79576c`で、通常用・配布用のSDK生成スクリプトはいずれも0.7.0を指定しています。
 
-| 確認対象 | 現在の動作 | 計画への影響 |
+| 確認対象 | 調査時点の動作 | 計画への影響 |
 | --- | --- | --- |
-| [boxrigの選択スナップショットAPI](elder-terms/deps/boxrig/include/boxrig/ui/view.h) | ブロック内の空欄と末尾空白をスペースとして保持し、各物理行の間にLFを入れる | 現行APIにコピー方針を追加する必要がある |
-| [boxrigのビュー実装](elder-terms/deps/boxrig/src/ui/view.c) | `boxrig_ui_view_create_selection_snapshot()`が矩形の行別範囲をcoreへ渡す | 行の判定とコピー本文の生成を共通処理にまとめられる |
-| [boxrigの本文生成](elder-terms/deps/boxrig/src/core/text.c) | `boxrig_terminal_create_text_snapshot_rows()`が範囲を検証し、必要容量を測定してから本文を生成する | 空になった出力行と、除去後の本文容量を扱う必要がある |
-| [boxrigのGTK3コピー処理](elder-terms/deps/boxrig/src/gtk3/input.c) | 選択スナップショットを作り、指定されたクリップボードへ登録する | コピー元の共通処理を変えれば、両領域に同じ方針を適用できる |
-| [terminal-runtime.cpp](elder-terms/elder-terms-terminal/src/terminal-runtime.cpp)の`finish_selection()` | 選択完了時にboxrigへPRIMARYへのコピーを依頼する | アプリ側に別の本文加工処理を追加する必要がない |
-| [main-window.cpp](elder-terms/elder-terms-terminal/src/main-window.cpp)のコピー操作 | boxrigへCLIPBOARDへのコピーを依頼する | 右クリックとショートカットを含め、実際の操作経路で検証する |
-| [端末設定](elder-terms/shared/src/settings/terminal-settings.cpp) | 真偽値の既定値、設定キー、継承した実効値を扱う | 新しい設定を既存の保存・継承方式へ組み込める |
-| [設定の適用](elder-terms/elder-terms-terminal/src/terminal-presentation.cpp) | `apply_terminal_presentation()`が設定を端末の表示部品へ反映する | 初期化、設定変更、表示部品の再作成でコピー方針を適用する |
-| [選択のC++試験](elder-terms/elder-terms-terminal/tests/cpp/terminal-selection-state-test.cpp) | Unicodeを含む未表示の履歴、折り返し、空欄、PRIMARYとCLIPBOARDの本文を検証する | 既存試験を拡張し、除去する場合と保持する場合を確認できる |
+| [boxrigの選択スナップショットAPI](../../../include/boxrig/ui/view.h) | ブロック内の空欄と末尾空白をスペースとして保持し、各物理行の間にLFを入れる | 現行APIにコピー方針を追加する必要がある |
+| [boxrigのビュー実装](../../../src/ui/view.c) | `boxrig_ui_view_create_selection_snapshot()`が矩形の行別範囲をcoreへ渡す | 行の判定とコピー本文の生成を共通処理にまとめられる |
+| [boxrigの本文生成](../../../src/core/text.c) | `boxrig_terminal_create_text_snapshot_rows()`が範囲を検証し、必要容量を測定してから本文を生成する | 空になった出力行と、除去後の本文容量を扱う必要がある |
+| [boxrigのGTK3コピー処理](../../../src/gtk3/input.c) | 選択スナップショットを作り、指定されたクリップボードへ登録する | コピー元の共通処理を変えれば、両領域に同じ方針を適用できる |
+| [terminal-runtime.cpp](https://github.com/kekyo/elder-terms/blob/0b8a686162f79a73c650ab29517f066c74ac560f/elder-terms-terminal/src/terminal-runtime.cpp)の`finish_selection()` | 選択完了時にboxrigへPRIMARYへのコピーを依頼する | アプリ側に別の本文加工処理を追加する必要がない |
+| [main-window.cpp](https://github.com/kekyo/elder-terms/blob/0b8a686162f79a73c650ab29517f066c74ac560f/elder-terms-terminal/src/main-window.cpp)のコピー操作 | boxrigへCLIPBOARDへのコピーを依頼する | 右クリックとショートカットを含め、実際の操作経路で検証する |
+| [端末設定](https://github.com/kekyo/elder-terms/blob/0b8a686162f79a73c650ab29517f066c74ac560f/shared/src/settings/terminal-settings.cpp) | 真偽値の既定値、設定キー、継承した実効値を扱う | 新しい設定を既存の保存・継承方式へ組み込める |
+| [設定の適用](https://github.com/kekyo/elder-terms/blob/0b8a686162f79a73c650ab29517f066c74ac560f/elder-terms-terminal/src/terminal-presentation.cpp) | `apply_terminal_presentation()`が設定を端末の表示部品へ反映する | 初期化、設定変更、表示部品の再作成でコピー方針を適用する |
+| [選択のC++試験](https://github.com/kekyo/elder-terms/blob/0b8a686162f79a73c650ab29517f066c74ac560f/elder-terms-terminal/tests/cpp/terminal-selection-state-test.cpp) | Unicodeを含む未表示の履歴、折り返し、空欄、PRIMARYとCLIPBOARDの本文を検証する | 既存試験を拡張し、除去する場合と保持する場合を確認できる |
 
 boxrigの公式説明では、ブロック選択は表示列から本文の範囲へ対応付けられ、未表示の履歴でも全角文字や結合文字を分割せずに扱います。コピー結果は行内の論理順です。行の識別情報と内容の改訂を保持し、本文や文字配置が変わった選択は失効します。[公式説明][boxrig-text]、[公開APIコメント][boxrig-view]
 
-現在の行別スナップショットAPIは、各出力行に少なくとも一つの空でない範囲を要求します。空白除去後に空になる行を扱うには、この表現も見直す必要があります。範囲を削除するだけでは、空行や行間の改行を失うためです。[coreのAPIコメント][boxrig-terminal]、[本文生成の実装][boxrig-core-text]
+調査時点の行別スナップショットAPIは、各出力行に少なくとも一つの空でない範囲を要求していました。空白除去後に空になる行を扱うには、この表現も見直す必要があります。範囲を削除するだけでは、空行や行間の改行を失うためです。[coreのAPIコメント][boxrig-terminal]、[本文生成の実装][boxrig-core-text]
 
 plan8では、ブロック内の末尾空白を保持する仕様を検証しました。本計画ではその動作を設定が無効な場合として残し、設定が有効な場合に終端空白の除去を追加します。
 
@@ -115,7 +121,7 @@ UIと利用者向け説明には、選択範囲の右側に文字がある場合
 
 拡張済みのboxrigを利用できることを開始条件にします。対応版の取り込みで依存参照を更新する必要がある場合は、外部コード変更禁止の指示との関係を整理した別作業として扱います。
 
-[端末設定の公開定義](elder-terms/shared/include/elder-terms/settings/terminal-settings.h)と[実装](elder-terms/shared/src/settings/terminal-settings.cpp)へ、設定キー、既定値、実効値の取得を追加します。[設定の適用処理](elder-terms/elder-terms-terminal/src/terminal-presentation.cpp)からboxrigのビューへコピー方針を反映します。
+[端末設定の公開定義](https://github.com/kekyo/elder-terms/blob/0b8a686162f79a73c650ab29517f066c74ac560f/shared/include/elder-terms/settings/terminal-settings.h)と[実装](https://github.com/kekyo/elder-terms/blob/0b8a686162f79a73c650ab29517f066c74ac560f/shared/src/settings/terminal-settings.cpp)へ、設定キー、既定値、実効値の取得を追加します。[設定の適用処理](https://github.com/kekyo/elder-terms/blob/0b8a686162f79a73c650ab29517f066c74ac560f/elder-terms-terminal/src/terminal-presentation.cpp)からboxrigのビューへコピー方針を反映します。
 
 設定の試験では、未指定時の`true`、継承、明示的な`false`、保存・再読込、リセットを検証します。端末の試験では、設定ファイルを使ってコピー結果を切り替え、起動中の変更と表示部品の再作成後にも方針が反映されることを確認します。
 
@@ -123,7 +129,7 @@ UIと利用者向け説明には、選択範囲の右側に文字がある場合
 
 ### 段階3：設定画面と利用者向け説明を追加する
 
-[設定画面](elder-terms/shared/src/settings-widget/settings-widget.cpp)と[表示文字列](elder-terms/shared/src/settings-widget/settings-presentation.cpp)へ、新しい設定項目を追加します。既存の真偽値設定と同じ継承操作を使い、起動中にも適用できるようにします。
+[設定画面](https://github.com/kekyo/elder-terms/blob/0b8a686162f79a73c650ab29517f066c74ac560f/shared/src/settings-widget/settings-widget.cpp)と[表示文字列](https://github.com/kekyo/elder-terms/blob/0b8a686162f79a73c650ab29517f066c74ac560f/shared/src/settings-widget/settings-presentation.cpp)へ、新しい設定項目を追加します。既存の真偽値設定と同じ継承操作を使い、起動中にも適用できるようにします。
 
 設定画面の試験では、変更、適用、保存、再読込、リセットを操作し、実効値とコピー本文を照合します。設定を変更した後も、同じ選択から新しい方針でコピーできることを確認します。
 
@@ -141,7 +147,7 @@ boxrig側の全体テストとelder-termsルートの`npm test`を最後まで�
 
 完了条件は、各コピー経路と両描画方式で期待する本文を取得でき、両プロジェクトの全体テストが成功し、ビルド警告を解消していることです。
 
-## 最終的な受入条件
+## 当初計画の受入条件（両プロジェクト）
 
 実装の完了時に、次の条件を実際の検証結果と照合します。
 
@@ -155,6 +161,47 @@ boxrig側の全体テストとelder-termsルートの`npm test`を最後まで�
 - [ ] 有効な選択の空文字列と、幅ゼロ・失効した選択を区別し、失敗時には既存のクリップボードを保持する。
 - [ ] CairoとOpenGLの検証、boxrig側の全体テスト、elder-termsの`npm test`が成功する。
 - [ ] ビルド警告を解消し、日本語・英語の利用者向け説明、翻訳、段階ごとのコミットと検証記録がそろう。
+
+## boxrig内の実施記録
+
+2026年10月24日、`17e10f33`で公開API、coreの空行表現、検証アプリ、試験と日英ガイドを追加した。
+
+ビューの生成設定は`boxrig_ui_view_config.rectangular_copy_policy`、実行中の変更と取得は`boxrig_ui_view_set_rectangular_copy_policy()`と`boxrig_ui_view_get_rectangular_copy_policy()`で行う。
+値は`BOXRIG_UI_RECTANGULAR_COPY_TRIM_TRAILING_SPACES`（既定の除去）と`BOXRIG_UI_RECTANGULAR_COPY_PRESERVE_SPACES`（保持）である。
+coreの行別スナップショットは、有効な境界のゼロ長範囲で空行を表現する。必要なLFも含め、除去後の本文で容量を検査する。
+
+`boxrig_term`は`BOXRIG_BLOCK_COPY_TRIM_TRAILING_SPACES=0/1`で起動時の方針を指定でき、この環境変数を指定した場合はCtrl＋Shift＋F5で切り替えられる。
+同じ選択からコピーし直し、OSのPRIMARYとCLIPBOARDを読み戻して両方の本文を確認した。
+
+| 今回の受入条件 | 検証 |
+| --- | --- |
+| 既定で除去し、明示的な保持に切り替えられる | `test_rectangular_copy`で既定値、生成設定、実行中の切り替え、ビュー間の独立性、不正値の拒否を確認した。 |
+| 選択外に文字がある場合の空白を保持する | 計画の4例を実際のスナップショット本文で検証した。変更前は本文比較でRED、実装後はGREENとなった。 |
+| 空行、必要なLF、有効な空文字列を維持する | 空の1行、空の3行、最後が空の2行を検証した。容量0での有効な空文字列と、幅ゼロ選択のUNAVAILABLEを区別した。 |
+| 物理行、履歴、Unicodeと表示列に従う | 折り返し、未表示の履歴、全角文字、結合文字、複合絵文字、NBSP、全角空白、双方向文字を確認した。表示上の右端が論理順の先頭に当たるRTL行も検証した。 |
+| 通常選択と選択表示を維持する | 通常選択の本文を両方針で比較し、方針変更の前後で矩形の始点・終点・行数・列幅・範囲数が変わらないことを確認した。 |
+| 失敗時に途中の本文やコピー先を公開しない | 全確保段階のメモリ不足、除去後の容量判定、選択外を含む本文変更による失効を検証した。GTK 3の実クリップボードでも、容量超過・メモリ不足・幅ゼロ選択が以前の本文を保持することを両ターゲットで確認した。 |
+| コピー経路と描画方式を通して観測できる | 実際のGTK 3版をCairoとOpenGLで起動し、Ctrl＋Shift＋C、右クリック、選択終了時のPRIMARYを検証した。方針切り替え、空文字列、空行、通常選択と失効をOSの読み戻しで確認した。 |
+| 日本語・英語の公開説明がある | `docs/ja/text.md`と`docs/ja/boxrig_term.md`を原本に英語版を更新し、公開APIコメントにも条件を記載した。yomiyasuと差分点検を実施した。 |
+
+対象試験は`make test-rectangular-copy test-selection-history test-selection-layout-provider test-selection-style test-example-copy`、Unicode WordBreakTestを使う`test_selection`、GTK 3ウィジェット試験、`run_native_copy_policy.mjs`のCairo／OpenGL実行で成功した。
+最初の全体テストでは、レンダラー共通試験に残っていた「既定で空白を保持する」という期待で失敗した。本計画の既存保持試験を残す方針に従い、`ba82c958`で保持を明示する検証と除去の検証を同じfixtureへ追加した。PangoCairoとOpenGLの対象試験は両方針で成功した。
+2回目は配布SDKのリンク試験で、新setterが共有ライブラリから公開されていないことが分かった。公開API追加の対象にはLinuxのexport mapも必要だったが、登録が漏れていた。配布先の利用例にgetter／setterの動作検証を追加し、両関数のリンク失敗を確認した後、`dced502c`で公開一覧とAPI契約の登録を補った。修正後はLinuxとWindowsの配布SDK試験、および72ヘッダーの公開契約試験が成功した。
+全体テストは、成功済みの独立した試験ターゲット142件を`make -o`で指定し、未実行の依存ターゲットと`test`本体から再開した。実ファイルのビルドターゲットは除外せず、変更に応じて再ビルドした。共有SDK、公開ヘッダー、GTK 3／4のAT-SPI・Orca、IME、端末コア、各表示環境の試験を通過した。コピー試験ではX11、GTK 3／4、Waylandの各経路でも新しい方針を確認できた。
+
+最後のWindows終了試験では、Wine上でButton1を保持したリサイズ中の画面取得が失敗した。amd64の同じケースを単独で再実行しても再現したため、`make test`の終了値は2であり、単一コマンドでの全体成功とはしていない。該当するWin32の描画・終了処理は今回変更しておらず、失敗した経路では選択やコピーを行っていない。
+
+AGENTS.mdのWineに関する方針に従い、既存のagent-rover試験で実Windowsへ切り替えた。最後の2ケースに対応する`win32-sample-policies.test.ts`の`shutdown`を実行し、amd64とi686の両方で成功した。さらに`win32-interactive-resize.test.ts`の`keeps opacity 100 terminal bands`を実行し、ソフトウェア描画の拡大・縮小・再拡大と動画の検証が成功した。実PCは各試験の終了時に解放した。記録は`build/test-results/win32-sample-policies/`と`build/test-results/p2-win32-interactive-resize/`にある。Wine向けの製品修正や期待値の緩和は行っていない。
+
+環境による未実施項目は次のとおりである。実Windowsで追加確認したのは上記3ケースであり、以下の全項目を実PCで検証したとはしていない。
+
+- `BOXRIG_TEST_GTK_SUPPORTED_LIBS`を指定する追加GTKの試験は、ライブラリ未指定のためスキップした。
+- Wine上のD3D11資源生成、OpenGL ES専用ケースは、必要な資源・コンテキストを利用できずスキップした。
+- WineのConPTYを使うCtrl-C、Kitty APC、DSR、タイトル、端末サイズの一部とGPUのリサイズ取得は、既存試験の条件でスキップした。条件と診断の出典は[Win32サンプル試験](../../../tests/win32/test_win32_sample.c)と[PTY試験](../../../tests/win32/test_win32_pty.c)にある。
+
+コンパイル警告はなかった。実行時にはXvfbのDRI3、支援技術バス未接続、Wine終了時の`free(): corrupted unsorted chunks`などの診断が出た。該当する配布SDK試験の終了値は0であり、支援技術の専用試験は独立したバス上で成功した。これらの診断と、上記のリサイズ取得失敗は検証上の制約として残す。
+
+ログは`/tmp/boxrig-plan8-plan9-full-test2.log`、`/tmp/boxrig-plan8-plan9-full-test-resume.log`、`/tmp/boxrig-plan9-packages-green.log`、`/tmp/boxrig-plan9-native-shutdown.log`、`/tmp/boxrig-plan9-native-resize.log`に保存した。elder-terms側の当初受入条件は、このリポジトリで達成したものとして扱わない。
 
 [boxrig-text]: https://github.com/kekyo/boxrig/blob/ea62f220d87f83ea017548c36d79f267ee79576c/docs/ja/text.md
 [boxrig-view]: https://github.com/kekyo/boxrig/blob/ea62f220d87f83ea017548c36d79f267ee79576c/include/boxrig/ui/view.h
