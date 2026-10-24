@@ -146,8 +146,8 @@ Win32では`EmptyClipboard()`成功後の`SetClipboardData()`失敗まで旧内�
 [Windowsのclipboard操作](https://learn.microsoft.com/en-us/windows/win32/dataxchg/clipboard-operations)に従う制約です。
 
 GTK 3は`ATK_ROLE_TERMINAL`、GTK 4は`GTK_ACCESSIBLE_ROLE_TERMINAL`を設定します。
-AtkTextやGtkAccessibleTextによる本文、変更、選択の公開には未対応です。
-roleだけで読み上げ機能全体への対応とはしません。
+本文公開を有効にすると、GTK 3の`AtkText`とGTK 4の`GtkAccessibleText`から、表示中の本文、caret、選択範囲、文字属性、変更通知を取得できます。本文公開は既定で無効です。
+GTK 4は本文座標取得と、支援技術からのcaret・選択変更を提供しません。roleだけでは本文公開されず、設定方法と範囲は[GTK](../platforms/gtk.md#支援技術から本文を取得する)を参照してください。
 
 ## 検証方法と実環境での確認
 
