@@ -54,7 +54,12 @@ bool boxrig_ui_view_cursor_filled(const boxrig_ui_view *view,
     const boxrig_cursor_view *cursor);
 /* Both colors are already display-filtered; contrast is a final paint choice. */
 boxrig_rgb boxrig_ui_cursor_contrast_color(boxrig_rgb fill, boxrig_rgb underlay);
-/* Cell-relative, nonoverlapping opaque rectangles shared by all renderers. */
+/* The styled block covers the complete grapheme, including a continuation cell.
+ * Other shapes keep their one-cell logical position. Layout is already shaped. */
+bool boxrig_ui_cursor_visual_range(const boxrig_terminal *terminal,
+    const boxrig_cursor_view *cursor, const boxrig_text_layout *layout,
+    boxrig_text_layout_range *range_out);
+/* Cursor-relative, nonoverlapping opaque rectangles shared by all renderers. */
 typedef struct boxrig_ui_cursor_rectangle {
     unsigned int x, y, width, height;
 } boxrig_ui_cursor_rectangle;

@@ -2200,9 +2200,10 @@ static int draw_filled_cursor(
     const boxrig_terminal *terminal, const boxrig_cursor_view *cursor,
     size_t column, uint32_t fill)
 {
-    boxrig_cell_view cell;
-    if (boxrig_terminal_get_cell(terminal, cursor->row, cursor->column, &cell) !=
-            BOXRIG_STATUS_OK) return -1;
+    boxrig_viewport_cell_resolution resolution;
+    if (boxrig_terminal_resolve_viewport_cell(terminal, cursor->row,
+            cursor->column, &resolution) != BOXRIG_STATUS_OK) return -1;
+    boxrig_cell_view cell = resolution.cell;
     resolved_colors saved = renderer->row_colors[column];
     boxrig_rgb fill_rgb = {(uint8_t)(fill >> 16), (uint8_t)(fill >> 8), (uint8_t)fill};
     uint32_t ink = rgb_pixel(boxrig_ui_cursor_contrast_color(fill_rgb, saved.display_background));
@@ -2212,8 +2213,8 @@ static int draw_filled_cursor(
             (float)clip.height, fill, 255, false) == -1) return -1;
     boxrig_ogl_row_shape *shape = &renderer->rows[cursor->row].shape;
     dirty_interval dirty = {column, 1, true};
-    /* Atlas entries and shaped positions are retained. Clip the recolored
-     * glyph to one cell, including either half of a wide grapheme. */
+    /* Atlas entries and shaped positions are retained. Recolor each cell of
+     * the complete cursor span against its own resolved underlay. */
     if ((cell.continuation || (cell.text_length != 0 &&
             !(cell.text_length == 1 && cell.text[0] == ' '))) &&
         (cell.attributes & BOXRIG_CELL_CONCEALED) == 0 &&
@@ -2236,7 +2237,7 @@ static int draw_cursor(
     boxrig_cursor_view styled = *cursor;
     boxrig_ui_view_apply_cursor_style(view, &styled);
     cursor = &styled;
-    size_t visual_column;
+    boxrig_text_layout_range range;
     boxrig_rgb cursor_color;
     uint32_t pixel;
     float x;
@@ -2247,16 +2248,15 @@ static int draw_cursor(
         cursor->column >= renderer->cached_columns) {
         return 0;
     }
-    if (boxrig_text_layout_logical_to_visual(
-            renderer->rows[cursor->row].shape.layout,
-            cursor->column,
-            &visual_column) != BOXRIG_TEXT_LAYOUT_OK ||
+    if (!boxrig_ui_cursor_visual_range(terminal, cursor,
+            renderer->rows[cursor->row].shape.layout, &range) ||
         boxrig_terminal_get_dynamic_color(
             terminal,
             BOXRIG_DYNAMIC_COLOR_CURSOR,
             &cursor_color) != BOXRIG_STATUS_OK) {
         return -1;
     }
+    size_t visual_column = range.column;
     boxrig_ui_color_source_role source = BOXRIG_UI_COLOR_DEFAULT_CURSOR;
     boxrig_ui_view_cursor_base_color(view, &cursor_color, &source);
     pixel = rgb_pixel(cursor_color);
@@ -2267,14 +2267,15 @@ static int draw_cursor(
     x = visual_column * (float)renderer->cell_width;
     y = cursor->row * (float)renderer->cell_height;
     if (boxrig_ui_view_cursor_filled(view, cursor)) {
-        if (draw_filled_cursor(renderer, view, terminal, cursor, visual_column, pixel) == -1)
-            return -1;
+        for (size_t offset = 0; offset < range.column_count; offset++)
+            if (draw_filled_cursor(renderer, view, terminal, cursor,
+                    visual_column + offset, pixel) == -1) return -1;
     } else {
         boxrig_ui_cursor_rectangle rectangles[4];
         size_t count = boxrig_ui_view_cursor_rectangles(view, cursor,
             renderer->config.rendering_policy.dpi_x,
             renderer->config.rendering_policy.dpi_y,
-            renderer->config.rendering_policy.output_scale, renderer->cell_width,
+            renderer->config.rendering_policy.output_scale, range.column_count * renderer->cell_width,
             renderer->cell_height, rectangles);
         for (size_t i = 0; i < count; i++)
             if (emit_solid(renderer, x + rectangles[i].x, y + rectangles[i].y,
@@ -2668,15 +2669,19 @@ static int ensure_frame_shapes(
                 renderer->cached_columns,
                 renderer->cached_columns);
         } else if (renderer->shape_dirty[row].dirty) {
-            /* MODEL dirty uses logical columns. Cursor visibility changes can
-             * leave the shape intact, but still need its BiDi visual mapping. */
+            /* MODEL dirty includes the old and new logical cursor cells.
+             * An unchanged shape still needs the complete grapheme repainted,
+             * including a block cursor on either storage half and BiDi. */
             const dirty_interval *logical = &renderer->shape_dirty[row];
             for (size_t column = logical->column;
                  column < logical->column + logical->column_count; column++) {
-                size_t visual;
-                if (boxrig_text_layout_logical_to_visual(renderer->rows[row].shape.layout,
-                        column, &visual) != BOXRIG_TEXT_LAYOUT_OK) return -1;
-                mark_dirty(&renderer->dirty[row], visual, 1, renderer->cached_columns);
+                boxrig_cursor_view position = {.row = row, .column = column,
+                    .shape = BOXRIG_CURSOR_BLOCK};
+                boxrig_text_layout_range range;
+                if (!boxrig_ui_cursor_visual_range(terminal, &position,
+                        renderer->rows[row].shape.layout, &range)) return -1;
+                mark_dirty(&renderer->dirty[row], range.column, range.column_count,
+                    renderer->cached_columns);
             }
         }
     }

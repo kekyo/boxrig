@@ -4120,9 +4120,10 @@ static int draw_filled_cursor(
     boxrig_cursor_view cursor, const boxrig_win32_row_shape *shape,
     size_t column, const RECT *rectangle, boxrig_rgb fill)
 {
-    boxrig_cell_view cell;
-    if (boxrig_terminal_get_cell(renderer->color_terminal, cursor.row, cursor.column,
-            &cell) != BOXRIG_STATUS_OK) return -1;
+    boxrig_viewport_cell_resolution resolution;
+    if (boxrig_terminal_resolve_viewport_cell(renderer->color_terminal,
+            cursor.row, cursor.column, &resolution) != BOXRIG_STATUS_OK) return -1;
+    boxrig_cell_view cell = resolution.cell;
     resolved_cell_colors saved = renderer->row_colors[column];
     COLORREF ink = color_pixel(renderer,
         boxrig_ui_cursor_contrast_color(fill, saved.display_background));
@@ -4167,7 +4168,7 @@ static int draw_cursor(
     const boxrig_win32_row_shape *shape,
     RECT *rectangle_out)
 {
-    size_t visual_column;
+    boxrig_text_layout_range range;
     RECT rectangle;
     int result = 0;
     boxrig_ui_view_apply_cursor_style(view, &cursor);
@@ -4175,18 +4176,17 @@ static int draw_cursor(
     if (renderer->render_statistics.cursor_raster_count != SIZE_MAX) {
         renderer->render_statistics.cursor_raster_count++;
     }
-    if (boxrig_text_layout_logical_to_visual(
-            shape->layout,
-            cursor.column,
-            &visual_column) != BOXRIG_TEXT_LAYOUT_OK ||
+    if (!boxrig_ui_cursor_visual_range(renderer->color_terminal, &cursor,
+            shape->layout, &range) ||
         !cell_rectangle(
             renderer,
             cursor.row,
-            visual_column,
-            1,
+            range.column,
+            range.column_count,
             &rectangle)) {
         return -1;
     }
+    size_t visual_column = range.column;
     boxrig_rgb color;
     boxrig_ui_color_source_role source = BOXRIG_UI_COLOR_DEFAULT_CURSOR;
     if (boxrig_terminal_get_dynamic_color(renderer->color_terminal,
@@ -4197,10 +4197,14 @@ static int draw_cursor(
             BOXRIG_UI_COLOR_CURSOR, color, source, &color) == -1) return -1;
     COLORREF pixel = color_pixel(renderer, color);
     if (boxrig_ui_view_cursor_filled(view, &cursor)) {
-        int filled = draw_filled_cursor(renderer, memory_context, view, cursor, shape,
-            visual_column, &rectangle, color);
-        if (filled == 0) *rectangle_out = rectangle;
-        return filled;
+        for (size_t offset = 0; offset < range.column_count; offset++) {
+            RECT cell;
+            if (!cell_rectangle(renderer, cursor.row, visual_column + offset, 1, &cell) ||
+                draw_filled_cursor(renderer, memory_context, view, cursor, shape,
+                    visual_column + offset, &cell, color) == -1) return -1;
+        }
+        *rectangle_out = rectangle;
+        return 0;
     }
     if (renderer->premultiplied_argb32_target) {
         renderer->alpha_clip = rectangle;
@@ -4209,7 +4213,7 @@ static int draw_cursor(
     boxrig_ui_cursor_rectangle rectangles[4];
     size_t count = boxrig_ui_view_cursor_rectangles(view, &cursor,
         renderer->rendering_policy.dpi_x, renderer->rendering_policy.dpi_y,
-        renderer->rendering_policy.output_scale, renderer->cell_width,
+        renderer->rendering_policy.output_scale, range.column_count * renderer->cell_width,
         renderer->cell_height, rectangles);
     for (size_t i = 0; i < count; i++) {
         LONG left = rectangle.left + (LONG)rectangles[i].x;
@@ -4804,10 +4808,11 @@ static int update_composition_extent(
 static bool cursor_state_matches(
     const boxrig_win32_renderer *renderer,
     boxrig_cursor_view cursor,
-    size_t visual_column)
+    size_t visual_column, size_t visual_column_count)
 {
     return renderer->cursor_drawn && renderer->cursor_row == cursor.row &&
            renderer->cursor_visual_column == visual_column &&
+           renderer->cursor_visual_column_count == visual_column_count &&
            renderer->cursor_shape == cursor.shape &&
            renderer->cursor_blinking == cursor.blinking;
 }
@@ -5072,6 +5077,7 @@ static int update_renderer_core(
     size_t columns;
     size_t row;
     size_t cursor_visual_column = 0;
+    size_t cursor_visual_column_count = 0;
     boxrig_composition_view composition_view;
     bool composition_visible = false;
     bool desired_cursor = false;
@@ -5222,25 +5228,28 @@ static int update_renderer_core(
         goto cleanup;
     }
     boxrig_terminal_get_cursor(terminal, &cursor);
+    boxrig_cursor_view styled_cursor = cursor;
+    boxrig_ui_view_apply_cursor_style(view, &styled_cursor);
     desired_cursor = cursor.visible && !composition_visible &&
                      boxrig_ui_view_cursor_blink_visible(view);
     if (desired_cursor) {
+        boxrig_text_layout_range range;
         if (cursor.row >= rows || cursor.column >= columns ||
             ensure_cached_row(
                 renderer,
                 terminal,
                 cursor.row,
                 &cursor_shape) == -1 ||
-            boxrig_text_layout_logical_to_visual(
-                cursor_shape->layout,
-                cursor.column,
-                &cursor_visual_column) != BOXRIG_TEXT_LAYOUT_OK) {
+            !boxrig_ui_cursor_visual_range(terminal, &styled_cursor,
+                cursor_shape->layout, &range)) {
             goto cleanup;
         }
+        cursor_visual_column = range.column;
+        cursor_visual_column_count = range.column_count;
         cursor_changed = !cursor_state_matches(
             renderer,
             cursor,
-            cursor_visual_column);
+            cursor_visual_column, cursor_visual_column_count);
     } else {
         cursor_changed = renderer->cursor_drawn;
     }
@@ -5249,16 +5258,22 @@ static int update_renderer_core(
         mark_dirty_interval(
             &renderer->frame_dirty[renderer->cursor_row],
             renderer->cursor_visual_column,
-            1,
+            renderer->cursor_visual_column_count,
             columns);
     }
     if (cursor_changed && desired_cursor) {
         mark_dirty_interval(
             &renderer->frame_dirty[cursor.row],
             cursor_visual_column,
-            1,
+            cursor_visual_column_count,
             columns);
     }
+    if (desired_cursor && renderer->frame_dirty[cursor.row].dirty &&
+        cursor_visual_column < renderer->frame_dirty[cursor.row].column +
+            renderer->frame_dirty[cursor.row].column_count &&
+        renderer->frame_dirty[cursor.row].column < cursor_visual_column + cursor_visual_column_count)
+        mark_dirty_interval(&renderer->frame_dirty[cursor.row], cursor_visual_column,
+            cursor_visual_column_count, columns);
     for (row = 0; row < rows; row++) {
         const boxrig_win32_row_shape *shape;
 
@@ -5346,6 +5361,7 @@ static int update_renderer_core(
     if (desired_cursor) {
         renderer->cursor_row = cursor.row;
         renderer->cursor_visual_column = cursor_visual_column;
+        renderer->cursor_visual_column_count = cursor_visual_column_count;
         renderer->cursor_shape = cursor.shape;
         renderer->cursor_blinking = cursor.blinking;
     }

@@ -243,6 +243,7 @@ struct boxrig_win32_renderer {
     bool cursor_drawn;
     size_t cursor_row;
     size_t cursor_visual_column;
+    size_t cursor_visual_column_count;
     boxrig_cursor_shape cursor_shape;
     bool cursor_blinking;
     bool composition_state_known;
