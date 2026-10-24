@@ -10,7 +10,8 @@ coreの機能、UIの表示や操作、ターミナル実装例への接続を�
 
 C99のGCC、Make、LinuxのGUI開発パッケージ、MinGWのamd64／i686、Wine、Node.jsとnpmを用意します。
 GUIの自動試験にはXvfb、Weston、IBusなど、対象に応じた実行環境も必要です。
-GTKのAT-SPI試験をビルドするには、`pkg-config`で`atspi-2`と`gobject-2.0`を取得できる開発パッケージを用意します。AT-SPI・Orca試験を実行するには、D-Busのアクセシビリティサービス、Xvfb、Orca、`xdotool`も必要です。パッケージ名は利用するOSの配布物に従って確認してください。
+GTKのAT-SPI試験をビルドするには、`pkg-config`で`atspi-2`と`gobject-2.0`を取得できる開発パッケージを用意します。AT-SPI・Orca試験を実行するには、D-Busのアクセシビリティサービス、Xvfb、Orca、`xdotool`も必要です。
+Ubuntu 24.04では、`libatspi2.0-dev`、`libglib2.0-dev`、`at-spi2-core`、`dbus-daemon`、`orca`、`xvfb`、`xauth`、`xdotool`、`util-linux`、`bsdutils`を用意してください。`dbus-run-session`は`dbus-daemon`、`setsid`は`util-linux`、Orcaを端末内で起動する`script`は`bsdutils`に含まれます。
 具体的なビルド依存は[ビルドとインストール](../building.md)、npm依存は[生成ツールのpackage.json](../../../tools/codegen/package.json)と[Win32 P2のpackage.json](../../../tests/p2/win32/package.json)で確認できます。
 
 ```sh

@@ -109,6 +109,20 @@ The following sections build the necessary processing around these calls.
 
 First, display the fixed string `"Hello boxrig UI!"` in an 80-column, 25-row window.
 
+This example derives the parent window's initial size from terminal cell metrics, passes the parent allocation to the component, then applies the resulting row and column count to the terminal. This order keeps the parent window, component, and terminal on the same grid.
+
+boxrig UI prepares the font, so the application does not need to load an X11 font itself. `boxrig_x11_terminal_component_get_effective_metrics()` returns the effective width and height of a cell, which the example uses to size the parent window for 80 columns and 25 rows.
+
+`boxrig_x11_terminal_component_allocate()` specifies the component's position and size inside its parent.
+The component fills the parent here, so its origin is `0, 0`.
+`BOXRIG_UI_WINDOW_EMBEDDED` makes the component follow the parent's allocation.
+
+This example hides the scrollbar to simplify initial size calculation.
+Without an explicit `scrollbar_presentation`, the component adds its own scrollbar by default.
+
+`apply_grid_resize()` applies the row and column counts chosen by the component to the terminal.
+This must happen before drawing begins. The resizing section explains it in detail.
+
 Save the following as `hello_ui_term.c`:
 
 <!-- ui-guide-source: hello_ui_term.c -->
@@ -284,20 +298,6 @@ cleanup:
     return result;
 }
 ```
-
-This example derives the parent window's initial size from terminal cell metrics, passes the parent allocation to the component, then applies the resulting row and column count to the terminal. This order keeps the parent window, component, and terminal on the same grid.
-
-boxrig UI prepares the font, so the application does not need to load an X11 font itself. `boxrig_x11_terminal_component_get_effective_metrics()` returns the effective width and height of a cell, which the example uses to size the parent window for 80 columns and 25 rows.
-
-`boxrig_x11_terminal_component_allocate()` specifies the component's position and size inside its parent.
-The component fills the parent here, so its origin is `0, 0`.
-`BOXRIG_UI_WINDOW_EMBEDDED` makes the component follow the parent's allocation.
-
-This example hides the scrollbar to simplify initial size calculation.
-Without an explicit `scrollbar_presentation`, the component adds its own scrollbar by default.
-
-`apply_grid_resize()` applies the row and column counts chosen by the component to the terminal.
-This must happen before drawing begins. The resizing section explains it in detail.
 
 ### Building and running
 
@@ -1403,11 +1403,17 @@ The [Makefile](../../ja/step-by-step/Makefile) in the shared source directory bu
 
 ### Wayland
 
-With native Wayland, the application owns the `wl_display`, dedicated event queue, and parent surface, then creates a child-surface component from a context that has reached READY. Instead of forwarding parent-window events as on X11, dispatch the dedicated queue; complete placement changes that require a parent commit through `take_host_action()` and `complete_parent_commit()`. Pass surface logical coordinates to `allocate()`; the component prepares a render target for the display scale. See [native Wayland](../platforms/wayland.md) for details and a creation example.
+With native Wayland, the application owns the `wl_display` connection, dedicated event queue, and parent surface. Once the connection-management context created by `boxrig_wayland_context_create()` reaches READY, create a child surface with `boxrig_wayland_terminal_component_create()`.
+
+Dispatch the dedicated queue, call `boxrig_wayland_context_dispatch()`, synchronize the model, and advance the component's `frame()`. Pass surface logical coordinates to `allocate()`; the component prepares a target for the display scale. Take placement requests requiring a parent commit through `take_host_action()`, commit the parent, then acknowledge with `complete_parent_commit()`. Return to event waiting while buffer release or a frame callback is pending.
+
+At shutdown, stop wait registrations and callbacks, destroy the component and context, then release the parent surface, queue, and display. Terminal and model handling remains the same as in the main guide. See [native Wayland](../platforms/wayland.md) for creation and event-loop examples.
 
 ### OpenGL
 
-OpenGL components for X11, Wayland, and Win32 attach to their respective parent and event loop. For drawing into an application-owned FBO or texture, use the OpenGL renderer rather than a component and supply the current context, function resolver, target, and generation. The application manages context creation and swapping. See [Rendering](../renderers.md#prepare-an-opengl-target) for target requirements and a runnable example.
+Replace the X11 factory with `boxrig_x11_opengl_terminal_component_create_child()` to create an OpenGL child window. The parent window, `allocate()`, event forwarding, model synchronization, and `frame()` remain the same as in the X11 example. The component manages its graphics context and presentation resources; return to event waiting while presentation completion is pending. Destroy the component before the parent window and display.
+
+Wayland provides `boxrig_wayland_opengl_terminal_component_create()`, and Win32 provides `boxrig_win32_opengl_terminal_component_create_child()`. Use each platform's parent, allocation, event handling, and destruction order. For application-owned framebuffers (FBOs) or textures, see the standalone-renderer appendix below and [Rendering](../renderers.md#prepare-an-opengl-target).
 
 ### Checking GTK 3/4 OpenGL integration
 
@@ -1502,11 +1508,15 @@ Runtime fallback to Cairo does not guarantee startup when a linked library is mi
 
 ### Win32 (GDI)
 
-The standard Win32 component creates a child window inside an existing `HWND`. The application supplies the parent window and message loop, advances `pretranslate_message()`, model synchronization, and `frame()`, then passes the client area to `allocate()`. Apply the confirmed grid to the terminal and PTY. See [Win32](../platforms/win32.md) for creation, input, allocation, and shutdown details.
+`boxrig_win32_terminal_component_create_child()` creates a child window beneath the existing parent's `HWND`. The application supplies the parent and message loop, advances `pretranslate_message()`, model synchronization, and `frame()`, and passes the client area to `allocate()`. Apply the confirmed grid to the terminal and PTY.
 
-### Direct2D/3D
+When no additional work remains, wait for messages and communication activity. Stop wait registrations and input, destroy the component on its creating UI thread, then release the model, terminal, and parent resources. See [Win32](../platforms/win32.md) for creation examples and presentation completion.
 
-The Direct3D 11 component manages GPU display in a child window through the same input, allocation, and frame operations as the standard Win32 component. To composite into an application-owned texture, use the Direct3D 11 renderer and manage its device, target, and frame acceptance or abort. See the [Direct3D 11 component](../d3d11-component.md) and [Direct3D 11 renderer](../d3d11-renderer.md) for the appropriate integration.
+### Direct3D 11
+
+`boxrig_win32_d3d11_terminal_component_create_child()` returns the common Win32 component and manages GPU presentation in its child window. Input, `allocate()`, model synchronization, and `frame()` are shared with standard Win32. Wait for `activity_handle()` along with messages and call `dispatch_activity()` after its notification to process presentation completion. Create, render, and destroy on the creating UI thread; keep the parent and model alive until component destruction.
+
+To composite into an application-owned texture, use the Direct3D 11 renderer and manage its device, target, and frame acceptance or abort. See the [Direct3D 11 component](../d3d11-component.md) and [Direct3D 11 renderer](../d3d11-renderer.md) for the appropriate integration.
 
 ---
 

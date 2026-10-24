@@ -10,7 +10,8 @@ For getting started with an application that uses the library, see the [build gu
 
 Prepare a C99 GCC compiler, Make, Linux GUI development packages, MinGW amd64/i686, Wine, Node.js, and npm.
 GUI automation also requires the runtime appropriate to each target, such as Xvfb, Weston, and IBus.
-Building the GTK AT-SPI tests requires development packages that make `atspi-2` and `gobject-2.0` available through `pkg-config`. Running the AT-SPI and Orca tests also requires the D-Bus accessibility service, Xvfb, Orca, and `xdotool`. Check package names for the operating-system distribution in use.
+Building the GTK AT-SPI tests requires development packages that make `atspi-2` and `gobject-2.0` available through `pkg-config`. Running the AT-SPI and Orca tests also requires the D-Bus accessibility service, Xvfb, Orca, and `xdotool`.
+On Ubuntu 24.04, install `libatspi2.0-dev`, `libglib2.0-dev`, `at-spi2-core`, `dbus-daemon`, `orca`, `xvfb`, `xauth`, `xdotool`, `util-linux`, and `bsdutils`. `dbus-daemon` provides `dbus-run-session`, `util-linux` provides `setsid`, and `bsdutils` provides `script`, used to launch Orca in a terminal.
 See [Building and installing](../building.md) for build dependencies, and the [code generation package.json](../../../tools/codegen/package.json) and [Win32 P2 package.json](../../../tests/p2/win32/package.json) for npm dependencies.
 
 ```sh
