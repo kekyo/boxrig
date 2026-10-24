@@ -1606,7 +1606,7 @@ static boxrig_status project_snapshot_rows(
             return status;
         }
         if (current.start.screen != options->screen ||
-            current.start.column >= current.end.column ||
+            current.start.column > current.end.column ||
             resolved_start.line_start != resolved_end.line_start ||
             source->row_sequence >= options->row_count) {
             return BOXRIG_STATUS_INVALID_ARGUMENT;

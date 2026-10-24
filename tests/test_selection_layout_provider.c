@@ -125,6 +125,26 @@ static int run_history(size_t history_count)
     static const uint8_t expected[] = "ב\nב\nב\nב\nב\nב\nב";
     CHECK(length == sizeof(expected) - 1 && memcmp(bytes, expected, length) == 0);
     boxrig_text_snapshot_destroy(copy);
+    CHECK(boxrig_ui_view_hit_test(view, 71 * BOXRIG_UI_FIXED_ONE,
+        BOXRIG_UI_FIXED_ONE, &hit) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_update_selection(view, &hit) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_create_selection_snapshot(view, &copy) == BOXRIG_UI_OK);
+    bytes = boxrig_text_snapshot_data(copy, &length);
+    static const uint8_t trimmed[] = "אבB\nאבB\nאבB\nאבB\nאבB\nאבB\nאבB";
+    CHECK(length == sizeof(trimmed) - 1 && memcmp(bytes, trimmed, length) == 0);
+    boxrig_text_snapshot_destroy(copy);
+    CHECK(boxrig_ui_view_set_rectangular_copy_policy(view,
+        BOXRIG_UI_RECTANGULAR_COPY_PRESERVE_SPACES) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_create_selection_snapshot(view, &copy) == BOXRIG_UI_OK);
+    bytes = boxrig_text_snapshot_data(copy, &length);
+    static const uint8_t preserved[] = "אבB   \nאבB   \nאבB   \nאבB   \nאבB   \nאבB   \nאבB   ";
+    CHECK(length == sizeof(preserved) - 1 && memcmp(bytes, preserved, length) == 0);
+    boxrig_text_snapshot_destroy(copy);
+    CHECK(boxrig_ui_view_set_rectangular_copy_policy(view,
+        BOXRIG_UI_RECTANGULAR_COPY_TRIM_TRAILING_SPACES) == BOXRIG_UI_OK);
+    context.fail_index = boxrig_terminal_text_fragment_count(terminal, BOXRIG_TEXT_SCREEN_PRIMARY) - 6;
+    CHECK(boxrig_ui_view_create_selection_snapshot(view, &copy) == BOXRIG_UI_OUT_OF_MEMORY && copy == NULL);
+    context.fail_index = SIZE_MAX;
     printf("history=%zu selected=7 layouts=%zu peak-row-bytes=%zu\n",
         history_count, context.calls, context.layout_bytes);
     CHECK(boxrig_ui_view_hit_test(view, 21 * BOXRIG_UI_FIXED_ONE,

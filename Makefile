@@ -2447,8 +2447,17 @@ $(SELECTION_TEST_BINARY): tests/test_selection.c src/ui/word_break.h \
 		$(PROJECT_CFLAGS) $(SANITIZERS) tests/test_selection.c \
 		$(UI_LIBRARY) $(LIBRARY) $(SANITIZERS) -o $@
 
-.PHONY: test-selection-history
-test: test-selection-history test-selection-layout-provider
+.PHONY: test-selection-history test-rectangular-copy
+test: test-selection-history test-selection-layout-provider test-rectangular-copy
+test-rectangular-copy: $(BUILD_DIR)/tests/test_rectangular_copy
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
+
+$(BUILD_DIR)/tests/test_rectangular_copy: tests/test_rectangular_copy.c \
+		$(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) \
+		$(SANITIZERS) $< $(UI_LIBRARY) $(LIBRARY) $(SANITIZERS) \
+		-Wl,--wrap=malloc -Wl,--wrap=realloc -o $@
+
 test-selection-history: $(BUILD_DIR)/tests/test_selection_history
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
 
@@ -4508,7 +4517,8 @@ test: test-native-copy-policy
 test-native-copy-policy: $(EXAMPLE_BINARY) $(GTK3_EXAMPLE_BINARY) $(GTK4_EXAMPLE_BINARY) $(WAYLAND_EXAMPLE_BINARY) $(PTY_HELPER_BINARY) $(GTK3_CLIPBOARD_PEER_BINARY)
 	$(XVFB_RUN) -a -s '-screen 0 1920x1200x24' env  node tests/run_native_copy_policy.mjs $(EXAMPLE_BINARY) $(PTY_HELPER_BINARY) $(GTK3_CLIPBOARD_PEER_BINARY) $(BUILD_DIR)/test-results/step23-copy/x11 x11
 	$(XVFB_RUN) -a -s '-screen 0 1920x1200x24' env LIBGL_ALWAYS_SOFTWARE=1 node tests/run_native_copy_policy.mjs $(EXAMPLE_BINARY) $(PTY_HELPER_BINARY) $(GTK3_CLIPBOARD_PEER_BINARY) $(BUILD_DIR)/test-results/step23-copy/x11-opengl opengl
-	$(XVFB_RUN) -a -s '-screen 0 1920x1200x24' env GDK_BACKEND=x11 node tests/run_native_copy_policy.mjs $(GTK3_EXAMPLE_BINARY) $(PTY_HELPER_BINARY) $(GTK3_CLIPBOARD_PEER_BINARY) $(BUILD_DIR)/test-results/step23-copy/gtk3-x11
+	$(XVFB_RUN) -a -s '-screen 0 1920x1200x24' env GDK_BACKEND=x11 node tests/run_native_copy_policy.mjs $(GTK3_EXAMPLE_BINARY) $(PTY_HELPER_BINARY) $(GTK3_CLIPBOARD_PEER_BINARY) $(BUILD_DIR)/test-results/step23-copy/gtk3-x11 cairo
+	$(XVFB_RUN) -a -s '-screen 0 1920x1200x24' env GDK_BACKEND=x11 LIBGL_ALWAYS_SOFTWARE=1 node tests/run_native_copy_policy.mjs $(GTK3_EXAMPLE_BINARY) $(PTY_HELPER_BINARY) $(GTK3_CLIPBOARD_PEER_BINARY) $(BUILD_DIR)/test-results/step23-copy/gtk3-x11-opengl opengl
 	$(XVFB_RUN) -a -s '-screen 0 1920x1200x24' env $(GTK4_TEST_IM_ENV) GDK_BACKEND=x11 GSK_RENDERER=cairo node tests/run_native_copy_policy.mjs $(GTK4_EXAMPLE_BINARY) $(PTY_HELPER_BINARY) $(GTK3_CLIPBOARD_PEER_BINARY) $(BUILD_DIR)/test-results/step23-copy/gtk4-x11
 	$(XVFB_RUN) -a -s '-screen 0 1920x1200x24' env BOXRIG_TEST_COPY_WAYLAND=1 GDK_BACKEND=wayland node tests/run_native_copy_policy.mjs $(GTK3_EXAMPLE_BINARY) $(PTY_HELPER_BINARY) $(GTK3_CLIPBOARD_PEER_BINARY) $(BUILD_DIR)/test-results/step23-copy/gtk3-wayland
 	$(XVFB_RUN) -a -s '-screen 0 1920x1200x24' env $(GTK4_TEST_IM_ENV) BOXRIG_TEST_COPY_WAYLAND=1 GDK_BACKEND=wayland GSK_RENDERER=cairo node tests/run_native_copy_policy.mjs $(GTK4_EXAMPLE_BINARY) $(PTY_HELPER_BINARY) $(GTK3_CLIPBOARD_PEER_BINARY) $(BUILD_DIR)/test-results/step23-copy/gtk4-wayland
