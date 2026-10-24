@@ -147,7 +147,7 @@ This follows [Windows clipboard operations](https://learn.microsoft.com/en-us/wi
 
 GTK 3 sets `ATK_ROLE_TERMINAL`; GTK 4 sets `GTK_ACCESSIBLE_ROLE_TERMINAL`.
 When terminal-text publication is enabled, GTK 3's `AtkText` and GTK 4's `GtkAccessibleText` expose visible text, the caret, selections, character attributes, and change notifications. Text publication is disabled by default.
-GTK 4 does not provide text-coordinate retrieval or assistive-technology requests to change the caret or selection. The role alone does not publish text; see [GTK](../platforms/gtk.md#retrieve-text-through-assistive-technologies) for setup and scope.
+GTK 4 does not provide text-coordinate retrieval or assistive-technology requests to change the caret or selection. The role alone does not publish text; see [GTK](../platforms/gtk.md#read-terminal-text-through-assistive-technology) for setup and scope.
 
 ## Verification methods and deployment checks
 
