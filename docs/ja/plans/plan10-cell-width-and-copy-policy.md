@@ -226,6 +226,14 @@ X11のソフトウェア描画には独立した実装があるため、同じ�
 
 boxrigでの文字配置修正を今回の成果とする。elder-termsの設定追加や依存参照の更新は行っていない。既定の1列設定では丸数字も1セルへ収めるため、丸数字自体を全角で使うにはアプリから既存の2列設定を指定する必要がある。
 
+### 段階5：動画と全体の回帰
+
+`make test-native-wide-cursor-videos`を追加し、GTK 3のCairoとX11ホストのOpenGLで、全角文字の先頭・継続セル、フォーカスを外した輪郭、再フォーカス、半角への移動、全角へ戻った後の半角による上書きを録画した。各4秒の点滅映像には7回の位相変化があり、表示中の幅、非表示時の本文復元、周囲の画素が維持されることを確認した。輪郭の映像は2秒間を通して表示された。
+
+記録は`build/test-results/plan10-wide-cursor/gtk3/`と`build/test-results/plan10-wide-cursor/opengl/`にある。比較範囲は端末の表示領域とし、操作の応答として変わるGTKのタイトルバーは含めない。上書きした半角文字のアンチエイリアスが隣の空白へ届く境界だけ、RGB各成分で最大3の差を許容する。カーソル幅と表示範囲の判定はこの許容値を使わない。
+
+丸数字を行末へ置くコア試験も追加した。1列ではその行の最終セルに収まり、2列では次の行へ送られ、後続の`Z`とカーソルが設定どおりの列にあることを確認した。既存のコア試験とともに成功している。
+
 [elder-190-runtime]: https://github.com/kekyo/elder-terms/blob/b62860d358be7209750eb58c67a9d5f66ea7ac58/elder-terms-terminal/src/terminal-runtime.cpp
 [elder-190-boxrig]: https://github.com/kekyo/elder-terms/tree/b62860d358be7209750eb58c67a9d5f66ea7ac58/deps/boxrig
 [elder-settings]: https://github.com/kekyo/elder-terms/blob/f289bde0fb1104219fc2dfb5493a64edc2f19a02/shared/src/settings/terminal-settings.cpp

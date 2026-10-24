@@ -5801,6 +5801,33 @@ static bool test_ambiguous_width_and_wide_cell_operations(void)
     return true;
 }
 
+static bool test_circled_digit_wraps_at_configured_width(void)
+{
+    for (unsigned wide = 0; wide < 2; wide++) {
+        boxrig_terminal_config config = boxrig_terminal_config_default();
+        config.rows = 2;
+        config.columns = 4;
+        config.ambiguous_width = wide ? BOXRIG_AMBIGUOUS_WIDTH_WIDE : BOXRIG_AMBIGUOUS_WIDTH_NARROW;
+        boxrig_terminal *terminal = NULL;
+        CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+        const char text[] = "abc①Z";
+        size_t consumed;
+        CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)text, sizeof(text)-1,
+            &consumed) == BOXRIG_STATUS_OK);
+        boxrig_cell_view cell;
+        CHECK(boxrig_terminal_get_cell(terminal, wide ? 1 : 0, wide ? 0 : 3, &cell) == BOXRIG_STATUS_OK);
+        CHECK(cell.column_width == wide + 1 && cell.text_length == strlen("①") &&
+            memcmp(cell.text, "①", cell.text_length) == 0);
+        CHECK(boxrig_terminal_get_cell(terminal, 1, wide ? 2 : 0, &cell) == BOXRIG_STATUS_OK);
+        CHECK(cell.text_length == 1 && cell.text[0] == 'Z');
+        boxrig_cursor_view cursor;
+        boxrig_terminal_get_cursor(terminal, &cursor);
+        CHECK(cursor.row == 1 && cursor.column == (wide ? 3 : 1));
+        boxrig_terminal_destroy(terminal);
+    }
+    return true;
+}
+
 static bool test_utf16_cursor_columns_preserve_wide_redraws(void)
 {
     static const uint8_t input[] =
@@ -10032,6 +10059,7 @@ int main(void)
          test_text_cluster_measurement_validation_and_limit},
         {"ambiguous width and wide cell operations",
          test_ambiguous_width_and_wide_cell_operations},
+        {"circled digit wraps at configured width", test_circled_digit_wraps_at_configured_width},
         {"UTF-16 cursor columns preserve wide redraws",
          test_utf16_cursor_columns_preserve_wide_redraws},
         {"UTF-16 cursor columns apply to backspace",
