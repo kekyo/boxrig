@@ -50,7 +50,7 @@ In-terminal images using Kitty graphics:
 
 Transparent background:
 
-TODO: Transparent background screenshot
+![Transparent background example](./images/transparent-background.png)
 
 ## Implementation examples
 
