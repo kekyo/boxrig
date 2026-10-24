@@ -1902,6 +1902,23 @@ static int draw_atlas_glyph(
         page->texture, false);
 }
 
+static boxrig_gl_clip glyph_span_clip(const boxrig_ogl_renderer *renderer,
+    size_t row, size_t column, size_t columns, const boxrig_gl_clip *clip)
+{
+    uint32_t left = (uint32_t)(column * renderer->cell_width);
+    uint32_t top = (uint32_t)(row * renderer->cell_height);
+    uint32_t right = left + (uint32_t)(columns * renderer->cell_width);
+    uint32_t bottom = top + renderer->cell_height;
+    if (clip != NULL) {
+        if (clip->x > left) left = clip->x;
+        if (clip->y > top) top = clip->y;
+        if (clip->x + clip->width < right) right = clip->x + clip->width;
+        if (clip->y + clip->height < bottom) bottom = clip->y + clip->height;
+    }
+    return (boxrig_gl_clip){left, top, right > left ? right-left : 0,
+        bottom > top ? bottom-top : 0};
+}
+
 static int draw_glyph_items(
     boxrig_ogl_renderer *renderer,
     const boxrig_terminal *terminal,
@@ -1921,73 +1938,80 @@ static int draw_glyph_items(
 
     for (item_index = 0; item_index < shape->item_count; item_index++) {
         boxrig_ogl_shaped_item *item = &shape->items[item_index];
-        int64_t natural_width = item->natural_width;
-        float allocated_width =
-            (float)(item->visual_column_count * renderer->cell_width);
-        float horizontal_scale = natural_width > 0
-                                     ? allocated_width * BOXRIG_OGL_GLYPH_SCALE /
-                                           natural_width
-                                     : 1.0f;
-        int64_t pen = 0;
-        size_t glyph_index;
+        for (size_t s = 0; s < item->span_count; s++) {
+            const boxrig_ui_glyph_span *span = &item->spans[s];
+            double natural_width = span->natural_width;
+            float allocated_width =
+                (float)(span->column_count * renderer->cell_width);
+            float horizontal_scale = natural_width > 0
+                                         ? allocated_width * BOXRIG_OGL_GLYPH_SCALE /
+                                               natural_width
+                                         : 1.0f;
+            int64_t pen = 0;
+            size_t glyph_index;
+            boxrig_gl_clip bounded = glyph_span_clip(renderer, row, span->visual_column,
+                span->column_count, clip);
+            if (bounded.width == 0 || bounded.height == 0) continue;
 
-        for (glyph_index = 0; glyph_index < item->glyph_count; glyph_index++) {
-            const boxrig_ogl_glyph *glyph = &item->glyphs[glyph_index];
-            size_t text_offset = glyph->text_offset;
-            size_t cluster_index = cluster_for_text_offset(renderer, shape, text_offset);
-            size_t logical_column;
-            size_t visual_column;
-            size_t cluster_visual_begin = SIZE_MAX;
-            size_t cluster_visual_end = 0;
-            size_t cluster_offset;
-            boxrig_cell_view cell;
-            resolved_colors colors;
+            for (glyph_index = span->first_glyph;
+                 glyph_index < span->first_glyph + span->glyph_count; glyph_index++) {
+                const boxrig_ogl_glyph *glyph = &item->glyphs[glyph_index];
+                size_t text_offset = glyph->text_offset;
+                size_t cluster_index = cluster_for_text_offset(renderer, shape, text_offset);
+                size_t logical_column;
+                size_t visual_column;
+                size_t cluster_visual_begin = SIZE_MAX;
+                size_t cluster_visual_end = 0;
+                size_t cluster_offset;
+                boxrig_cell_view cell;
+                resolved_colors colors;
 
-            if (cluster_index >= shape->cluster_count) {
-                return -1;
-            }
-            logical_column = shape->clusters[cluster_index].logical_column;
-            for (cluster_offset = 0;
-                 cluster_offset < shape->clusters[cluster_index].column_count;
-                 cluster_offset++) {
-                size_t mapped;
-
-                if (boxrig_text_layout_logical_to_visual(
-                        shape->layout,
-                        logical_column + cluster_offset,
-                        &mapped) != BOXRIG_TEXT_LAYOUT_OK) {
+                if (cluster_index >= shape->cluster_count) {
                     return -1;
                 }
-                if (mapped < cluster_visual_begin) {
-                    cluster_visual_begin = mapped;
+                logical_column = shape->clusters[cluster_index].logical_column;
+                for (cluster_offset = 0;
+                     cluster_offset < shape->clusters[cluster_index].column_count;
+                     cluster_offset++) {
+                    size_t mapped;
+
+                    if (boxrig_text_layout_logical_to_visual(
+                            shape->layout,
+                            logical_column + cluster_offset,
+                            &mapped) != BOXRIG_TEXT_LAYOUT_OK) {
+                        return -1;
+                    }
+                    if (mapped < cluster_visual_begin) {
+                        cluster_visual_begin = mapped;
+                    }
+                    if (mapped + 1 > cluster_visual_end) {
+                        cluster_visual_end = mapped + 1;
+                    }
                 }
-                if (mapped + 1 > cluster_visual_end) {
-                    cluster_visual_end = mapped + 1;
+                if (cluster_visual_begin >= dirty_end ||
+                    cluster_visual_end <= dirty_begin) {
+                    pen += glyph->width;
+                    continue;
                 }
-            }
-            if (cluster_visual_begin >= dirty_end ||
-                cluster_visual_end <= dirty_begin) {
+                visual_column = cluster_visual_begin;
+                if (boxrig_terminal_get_cell(
+                        terminal,
+                        row,
+                        logical_column,
+                        &cell) != BOXRIG_STATUS_OK) {
+                    return -1;
+                }
+                colors = renderer->row_colors[visual_column];
+                if ((cell.attributes & BOXRIG_CELL_CONCEALED) == 0 &&
+                    boxrig_ui_view_text_blink_visible(renderer->color_view, cell.attributes) &&
+                    draw_atlas_glyph(renderer, item, glyph_index,
+                        span->visual_column * (float)renderer->cell_width +
+                            horizontal_scale * pen / BOXRIG_OGL_GLYPH_SCALE,
+                        row * (float)renderer->cell_height + renderer->baseline,
+                        horizontal_scale, foreground != NULL ? *foreground : colors.foreground,
+                        &bounded) == -1) return -1;
                 pen += glyph->width;
-                continue;
             }
-            visual_column = cluster_visual_begin;
-            if (boxrig_terminal_get_cell(
-                    terminal,
-                    row,
-                    logical_column,
-                    &cell) != BOXRIG_STATUS_OK) {
-                return -1;
-            }
-            colors = renderer->row_colors[visual_column];
-            if ((cell.attributes & BOXRIG_CELL_CONCEALED) == 0 &&
-                boxrig_ui_view_text_blink_visible(renderer->color_view, cell.attributes) &&
-                draw_atlas_glyph(renderer, item, glyph_index,
-                    item->visual_column * (float)renderer->cell_width +
-                        horizontal_scale * pen / BOXRIG_OGL_GLYPH_SCALE,
-                    row * (float)renderer->cell_height + renderer->baseline,
-                    horizontal_scale, foreground != NULL ? *foreground : colors.foreground,
-                    clip) == -1) return -1;
-            pen += glyph->width;
         }
     }
     return 0;
@@ -2324,18 +2348,24 @@ static int draw_composition_shape(boxrig_ogl_renderer *renderer,
     size_t i;
     for (i = 0; i < shape->item_count; i++) {
         const boxrig_ogl_shaped_item *item = &shape->items[i];
-        float scale = item->natural_width > 0
-            ? (float)(item->visual_column_count * renderer->cell_width) *
-                BOXRIG_OGL_GLYPH_SCALE / item->natural_width : 1.0f;
-        int64_t pen = 0;
-        size_t g;
-        for (g = 0; g < item->glyph_count; g++) {
-            if (draw_atlas_glyph(renderer, item, g,
-                    (column + item->visual_column) * (float)renderer->cell_width +
-                        scale * (pen / (float)BOXRIG_OGL_GLYPH_SCALE),
-                    row * (float)renderer->cell_height + renderer->baseline,
-                    scale, foreground, clip) == -1) return -1;
-            pen += item->glyphs[g].width;
+        for (size_t s = 0; s < item->span_count; s++) {
+            const boxrig_ui_glyph_span *span = &item->spans[s];
+            float scale = span->natural_width > 0
+                ? (float)(span->column_count * renderer->cell_width) *
+                    BOXRIG_OGL_GLYPH_SCALE / span->natural_width : 1.0f;
+            int64_t pen = 0;
+            size_t g;
+            boxrig_gl_clip bounded = glyph_span_clip(renderer, row, column + span->visual_column,
+                span->column_count, clip);
+            if (bounded.width == 0 || bounded.height == 0) continue;
+            for (g = span->first_glyph; g < span->first_glyph + span->glyph_count; g++) {
+                if (draw_atlas_glyph(renderer, item, g,
+                        (column + span->visual_column) * (float)renderer->cell_width +
+                            scale * (pen / (float)BOXRIG_OGL_GLYPH_SCALE),
+                        row * (float)renderer->cell_height + renderer->baseline,
+                        scale, foreground, &bounded) == -1) return -1;
+                pen += item->glyphs[g].width;
+            }
         }
     }
     return 0;

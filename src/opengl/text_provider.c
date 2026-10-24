@@ -5,6 +5,7 @@
  */
 
 #include "text_provider.h"
+#include "../pangocairo/glyph_fit.h"
 #include "../pangocairo/candidates.h"
 
 #include <pango/pangocairo.h>
@@ -572,6 +573,7 @@ void boxrig_ogl_row_shape_destroy(boxrig_ogl_row_shape *shape)
             free(native);
         }
         free(shape->items[index].glyphs);
+        free(shape->items[index].spans);
     }
     free(shape->items);
     free(shape->clusters);
@@ -1031,7 +1033,6 @@ static int shape_items(boxrig_ogl_row_shape *shape)
         {
             PangoGlyphString *glyphs = ((PangoGlyphItem *)shaped->native_item)->glyphs;
             shaped->glyph_count = (size_t)glyphs->num_glyphs;
-            shaped->natural_width = pango_glyph_string_get_width(glyphs);
             shaped->glyphs = calloc(shaped->glyph_count, sizeof(*shaped->glyphs));
             if (shaped->glyph_count != 0 && shaped->glyphs == NULL) return -1;
             for (glyph_index = 0; glyph_index < glyphs->num_glyphs; glyph_index++) {
@@ -1044,6 +1045,9 @@ static int shape_items(boxrig_ogl_row_shape *shape)
                 glyph->text_offset = (size_t)item->offset + (size_t)glyphs->log_clusters[glyph_index];
             }
         }
+        shaped->spans = boxrig_pango_glyph_spans(shaped->native_item, shape->text,
+            shape->layout, &shaped->span_count);
+        if (shaped->spans == NULL) return -1;
         shape->glyph_count += shaped->glyph_count;
         for (glyph_index = 0;
              glyph_index < ((PangoGlyphItem *)shaped->native_item)->glyphs->num_glyphs;

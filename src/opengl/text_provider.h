@@ -8,6 +8,7 @@
 #define BOXRIG_OPENGL_TEXT_PROVIDER_H
 
 #include "boxrig/ui.h"
+#include "../ui/glyph_fit.h"
 
 /* Fixed-point glyph geometry shared by native text providers. */
 #define BOXRIG_OGL_GLYPH_SCALE 1024
@@ -35,7 +36,8 @@ typedef struct boxrig_ogl_shaped_item {
     void *native_item;
     boxrig_ogl_glyph *glyphs;
     size_t glyph_count;
-    int64_t natural_width;
+    boxrig_ui_glyph_span *spans;
+    size_t span_count;
     uint64_t font_key;
     size_t logical_column;
     size_t logical_column_count;

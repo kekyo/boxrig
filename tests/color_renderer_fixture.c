@@ -696,10 +696,120 @@ static bool renders_bidi_annotation_dirty(
     return equal;
 }
 
+/* Changing only the preceding character's color must not move or stretch
+ * the following text, even when one font mixes cell advance ratios. */
+bool boxrig_test_renderer_cell_positions(
+    bool (*create)(boxrig_test_color_renderer *renderer))
+{
+    const char *const texts[] = {"①のフォントサイズ", "A①B", "①①", "①界"};
+    const char *const recolors[] = {"\033[31m①\033[39mのフォントサイズ",
+        "A\033[31m①\033[39mB", "\033[31m①\033[39m①", "\033[31m①\033[39m界"};
+    const char *const following[] = {"の", "B", "①", "界"};
+    const unsigned narrow_lengths[] = {17, 3, 2, 3};
+    for (unsigned sample = 0; sample < 4; sample++) for (unsigned wide = 0; wide < 2; wide++) {
+        boxrig_terminal_config config = boxrig_terminal_config_default();
+        config.rows = 2;
+        config.columns = 30;
+        config.ambiguous_width = wide ? BOXRIG_AMBIGUOUS_WIDTH_WIDE : BOXRIG_AMBIGUOUS_WIDTH_NARROW;
+        boxrig_ui_view_config view_config = boxrig_ui_view_config_default();
+        boxrig_terminal *terminal = NULL;
+        boxrig_ui_model *model = NULL;
+        boxrig_ui_view *view = NULL;
+        boxrig_test_color_renderer renderer = {0};
+        CHECK(create(&renderer));
+        CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+        CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
+        CHECK(boxrig_ui_view_create(model, &view_config, &view) == BOXRIG_UI_OK);
+        char text[256];
+        boxrig_ui_allocation_input allocation = {0};
+        allocation.allocation_width = 30 * renderer.cell_width * BOXRIG_UI_FIXED_ONE;
+        allocation.allocation_height = 2 * renderer.cell_height * BOXRIG_UI_FIXED_ONE;
+        allocation.cell_width = renderer.cell_width * BOXRIG_UI_FIXED_ONE;
+        allocation.cell_height = renderer.cell_height * BOXRIG_UI_FIXED_ONE;
+        allocation.cell_metrics_revision = 1;
+        boxrig_ui_layout_result layout;
+        CHECK(boxrig_ui_view_acquire_layout_authority(view) == BOXRIG_UI_OK);
+        CHECK(boxrig_ui_view_accept_allocation(view, &allocation, &layout) == BOXRIG_UI_OK);
+        int length = snprintf(text, sizeof(text), "\033[?25l%s", texts[sample]);
+        CHECK(length > 0 && (size_t)length < sizeof(text));
+        size_t consumed;
+        CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)text, (size_t)length,
+            &consumed) == BOXRIG_STATUS_OK);
+        CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+        CHECK(renderer.draw(renderer.context, view, NULL) == 0);
+        uint32_t *before = renderer.capture(renderer.context);
+        CHECK(before != NULL);
+        length = snprintf(text, sizeof(text), "\033[1;1H%s", recolors[sample]);
+        CHECK(length > 0 && (size_t)length < sizeof(text));
+        CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)text, (size_t)length,
+            &consumed) == BOXRIG_STATUS_OK);
+        CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+        CHECK(renderer.draw(renderer.context, view, NULL) == 0);
+        uint32_t *after = renderer.capture(renderer.context);
+        CHECK(after != NULL);
+        unsigned prefix = sample == 1 ? 1 : 0;
+        unsigned columns = prefix + (wide ? 2 : 1);
+        boxrig_cell_view cell;
+        CHECK(boxrig_terminal_get_cell(terminal, 0, prefix, &cell) == BOXRIG_STATUS_OK);
+        CHECK(cell.column_width == columns - prefix);
+        CHECK(boxrig_terminal_get_cell(terminal, 0, columns, &cell) == BOXRIG_STATUS_OK);
+        CHECK(cell.text_length == strlen(following[sample]) &&
+            memcmp(cell.text, following[sample], cell.text_length) == 0);
+        boxrig_cursor_view cursor;
+        boxrig_terminal_get_cursor(terminal, &cursor);
+        CHECK(cursor.row == 0 && cursor.column == narrow_lengths[sample] + wide * (sample == 2 ? 2 : 1));
+        boxrig_ui_hit_test_result first_hit, last_hit, following_hit;
+        CHECK(boxrig_ui_view_hit_test(view, (prefix * renderer.cell_width + 1) * BOXRIG_UI_FIXED_ONE,
+            BOXRIG_UI_FIXED_ONE, &first_hit) == BOXRIG_UI_OK);
+        CHECK(boxrig_ui_view_hit_test(view, (columns * renderer.cell_width - 1) * BOXRIG_UI_FIXED_ONE,
+            BOXRIG_UI_FIXED_ONE, &last_hit) == BOXRIG_UI_OK);
+        CHECK(boxrig_ui_view_hit_test(view, (columns * renderer.cell_width + 1) * BOXRIG_UI_FIXED_ONE,
+            BOXRIG_UI_FIXED_ONE, &following_hit) == BOXRIG_UI_OK);
+        CHECK(following_hit.text_position_valid && following_hit.logical_column == columns);
+        CHECK(boxrig_ui_view_begin_selection(view, BOXRIG_UI_SELECTION_CHARACTER, &first_hit) == BOXRIG_UI_OK);
+        CHECK(boxrig_ui_view_update_selection(view, &last_hit) == BOXRIG_UI_OK);
+        boxrig_text_snapshot *snapshot = NULL;
+        CHECK(boxrig_ui_view_create_selection_snapshot(view, &snapshot) == BOXRIG_UI_OK);
+        size_t copied_length;
+        const uint8_t *copied = boxrig_text_snapshot_data(snapshot, &copied_length);
+        CHECK(copied_length == strlen("①") && memcmp(copied, "①", copied_length) == 0);
+        boxrig_text_snapshot_destroy(snapshot);
+        size_t differences = 0, ink = 0;
+        CHECK(30 * renderer.cell_width <= BOXRIG_TEST_COLOR_WIDTH);
+        for (unsigned y = 0; y < renderer.cell_height; y++) {
+            /* The boundary pixel may contain antialiased overhang from the
+             * recolored predecessor. Compare the following glyph's interior
+             * and every later cell, where its origin and scale must agree. */
+            for (unsigned x = columns * renderer.cell_width + 1; x < 19 * renderer.cell_width; x++) {
+                uint32_t first = get_pixel(before, (int)x, (int)y);
+                uint32_t second = get_pixel(after, (int)x, (int)y);
+                if (first != second) {
+                    if (differences < 8) fprintf(stderr, "cell placement pixel %u,%u: %06x != %06x\n",
+                        x, y, first, second);
+                    differences++;
+                }
+                if (first != get_pixel(before, 29 * (int)renderer.cell_width, (int)y)) ink++;
+            }
+        }
+        free(before);
+        free(after);
+        renderer.destroy(renderer.context);
+        boxrig_ui_view_destroy(view);
+        boxrig_ui_model_destroy(model);
+        boxrig_terminal_destroy(terminal);
+        if (differences != 0) fprintf(stderr, "cell placement: text=%s, ambiguous=%s, changed pixels=%zu\n",
+            texts[sample], wide ? "wide" : "narrow", differences);
+        CHECK(differences == 0 && ink > 0);
+    }
+    puts("PASS ambiguous-width text retains following glyph positions across color boundaries");
+    return true;
+}
+
 bool boxrig_test_renderer_colors(
     bool (*create)(boxrig_test_color_renderer *renderer))
 {
-    return renders_filtered_cells_and_surface(create) &&
+    return boxrig_test_renderer_cell_positions(create) &&
+        renders_filtered_cells_and_surface(create) &&
         renders_state_colors_and_markers(create) && renders_ime_colors(create) &&
         retains_colors_after_cache_eviction(create) &&
         renders_bidi_annotation_dirty(create);

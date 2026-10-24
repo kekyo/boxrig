@@ -6,6 +6,7 @@
 
 #include "renderer.h"
 #include "candidates.h"
+#include "glyph_fit.h"
 #include "boxrig/ui/image.h"
 #include "boxrig/ui/scrollbar.h"
 #include "renderer_private.h"
@@ -41,6 +42,10 @@ typedef struct boxrig_pango_cairo_logical_cluster {
 
 typedef struct boxrig_pango_cairo_shaped_item {
     PangoGlyphItem glyph_item;
+    boxrig_ui_glyph_span *spans;
+    size_t span_count;
+    /* Split prefixes own their Pango items; glyph_item retains the last part. */
+    PangoGlyphItem **prefixes;
     size_t logical_column;
     size_t logical_column_count;
     size_t visual_column;
@@ -2535,6 +2540,11 @@ static void row_shape_destroy(boxrig_pango_cairo_row_shape *shape)
     size_t index;
 
     for (index = 0; index < shape->item_count; index++) {
+        for (size_t i = 0; i + 1 < shape->items[index].span_count; i++)
+            if (shape->items[index].prefixes[i] != NULL)
+                pango_glyph_item_free(shape->items[index].prefixes[i]);
+        free(shape->items[index].prefixes);
+        free(shape->items[index].spans);
         if (shape->items[index].glyph_item.glyphs != NULL) {
             pango_glyph_string_free(shape->items[index].glyph_item.glyphs);
         }
@@ -3357,6 +3367,18 @@ static int shape_items(boxrig_pango_cairo_row_shape *shape, GList *items)
                 shape->statistics.missing_glyph_count++;
             }
         }
+        shaped->spans = boxrig_pango_glyph_spans(&shaped->glyph_item, shape->text,
+            shape->layout, &shaped->span_count);
+        if (shaped->spans == NULL) return -1;
+        if (shaped->span_count > 1) {
+            shaped->prefixes = calloc(shaped->span_count - 1, sizeof(*shaped->prefixes));
+            if (shaped->prefixes == NULL) { shaped->span_count = 0; return -1; }
+            for (size_t i = 0; i + 1 < shaped->span_count; i++) {
+                shaped->prefixes[i] = pango_glyph_item_split(&shaped->glyph_item,
+                    shape->text, (int)shaped->spans[i].text_length);
+                if (shaped->prefixes[i] == NULL) return -1;
+            }
+        }
         item_index++;
     }
     shape->statistics.font_run_count = allocated_count;
@@ -3936,7 +3958,7 @@ static int draw_visual_backgrounds(
     return cairo_status(renderer->cairo) == CAIRO_STATUS_SUCCESS ? 0 : -1;
 }
 
-static int draw_shaped_item_segment(
+static int draw_fitted_item_segment(
     boxrig_pango_cairo_renderer *renderer,
     const boxrig_pango_cairo_row_shape *shape,
     const boxrig_pango_cairo_shaped_item *item,
@@ -3994,6 +4016,29 @@ static int draw_shaped_item_segment(
     cairo_restore(renderer->cairo);
     cairo_pattern_destroy(raster);
     return cairo_status(renderer->cairo) == CAIRO_STATUS_SUCCESS ? 0 : -1;
+}
+
+static int draw_shaped_item_segment(
+    boxrig_pango_cairo_renderer *renderer,
+    const boxrig_pango_cairo_row_shape *shape,
+    const boxrig_pango_cairo_shaped_item *item,
+    size_t row, size_t clip_column, size_t clip_column_count,
+    unsigned long foreground)
+{
+    for (size_t i = 0; i < item->span_count; i++) {
+        const boxrig_ui_glyph_span *span = &item->spans[i];
+        size_t first = span->visual_column > clip_column ? span->visual_column : clip_column;
+        size_t end = span->visual_column + span->column_count;
+        if (end > clip_column + clip_column_count) end = clip_column + clip_column_count;
+        if (first >= end) continue;
+        boxrig_pango_cairo_shaped_item part = *item;
+        if (i + 1 < item->span_count) part.glyph_item = *item->prefixes[i];
+        part.visual_column = span->visual_column;
+        part.visual_column_count = span->column_count;
+        if (draw_fitted_item_segment(renderer, shape, &part, row, first,
+                end - first, foreground) == -1) return -1;
+    }
+    return 0;
 }
 
 static int draw_shaped_item(

@@ -208,6 +208,24 @@ boxrigの実装完了時は`make test`、elder-termsの変更を行った場合�
 
 `test-cursor-style`、`test-animation-integration`、`test-decoration-backends`も成功した。この段階の完了条件である対象試験、描画系のビルド、半角と全角の切り替え・復元を満たす。ネイティブ画面の動画と全体試験は段階5で確認する。
 
+X11のソフトウェア描画には独立した実装があるため、同じ修正を追加した。`test_x11_text_blink`でも全角カーソルの試験が修正前に失敗し、修正後に成功することを確認した。
+
+### 段階3：丸数字の描画
+
+`①のフォントサイズ`の先頭だけ色を変えると、1列設定では後続文字の位置も変わることを再現した。CairoとOpenGLの再現試験が修正前に失敗したため、計画の「列数は正しいが描画位置が崩れる」場合として対応した。フォントの実測幅によって端末内の列数を変える処理は追加していない。
+
+文字配置の結果に含まれる字形のまとまりを、端末の列へ対応付ける処理を共通化した。1セル当たりの実測幅が異なるまとまりは別々に補正し、同じ比率で続く部分はまとめて描画する。合字は分割せず、一つの書記素が複数の字形に分かれた場合もまとめて扱う。PangoCairo、X11、OpenGL、DirectWriteで適用した。
+
+新しく使ったPangoの[字形の走査](https://docs.gtk.org/Pango/struct.GlyphItemIter.html)と[配置済み字形の分割](https://docs.gtk.org/Pango/method.GlyphItem.split.html)は、公式資料とローカルのヘッダーコメントを確認した。DirectWriteの[字形クラスタの先頭情報](https://learn.microsoft.com/en-us/windows/win32/api/dwrite/ns-dwrite-dwrite_shaping_glyph_properties)は、公式資料と[SDKヘッダーのコメント](https://github.com/microsoft/win32metadata/blob/main/generation/WinSDK/RecompiledIdlHeaders/um/dwrite.h)を確認した。
+
+共通の回帰試験は`①のフォントサイズ`、`A①B`、`①①`、`①界`を1列と2列で確認する。同じ行の色変更前後で後続文字の画素を比較し、格納列、カーソル位置、ヒットテスト、丸数字を選択したコピー結果も照合した。色を変えた字形のアンチエイリアスが届く境界の1ピクセルは、後続字形の位置比較から除外する。修正前のCairoにこの最終形の試験を適用しても、126画素の不一致で失敗する。
+
+`make test-colors`はX11、Cairo、OpenGL、Wine上のWin32の64ビット・32ビットで成功した。Cairoでは既定フォントに加え、monospace、Noto Sans Mono、Noto Sans Mono CJK JPの20 DIPと、1.5倍の表示も確認した。`test-pangocairo-partial`も成功し、狭い更新範囲の描画量を維持している。
+
+描画を確認するドライバーは`build/tests/test_pangocairo_colors`を使う。任意の出力先接頭辞を一つ渡すと、丸数字の1列／2列と色変更前後をPNGへ保存する。`build/tests/test_pangocairo_colors build/test-results/plan10-cell-width/placement`で保存し、丸数字と後続文字が列幅に従って並ぶことを画像でも確認した。保存先ディレクトリは先に作成する。
+
+boxrigでの文字配置修正を今回の成果とする。elder-termsの設定追加や依存参照の更新は行っていない。既定の1列設定では丸数字も1セルへ収めるため、丸数字自体を全角で使うにはアプリから既存の2列設定を指定する必要がある。
+
 [elder-190-runtime]: https://github.com/kekyo/elder-terms/blob/b62860d358be7209750eb58c67a9d5f66ea7ac58/elder-terms-terminal/src/terminal-runtime.cpp
 [elder-190-boxrig]: https://github.com/kekyo/elder-terms/tree/b62860d358be7209750eb58c67a9d5f66ea7ac58/deps/boxrig
 [elder-settings]: https://github.com/kekyo/elder-terms/blob/f289bde0fb1104219fc2dfb5493a64edc2f19a02/shared/src/settings/terminal-settings.cpp

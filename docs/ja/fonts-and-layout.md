@@ -39,6 +39,15 @@ GTK、Wayland、Win32にも対応するsetterがあります。
 coreはUnicodeの文字とセル幅を保持し、UIの文字描画系が利用可能なフォントへ割り当てます。
 受信文字コードがShift_JISでも、フォントへ渡す文字列はUnicodeです。
 
+「①」のように、Unicodeで1列と2列のどちらにも扱える文字を曖昧幅文字と呼びます。
+端末生成時の`boxrig_terminal_config.ambiguous_width`で幅を選び、既定値は`BOXRIG_AMBIGUOUS_WIDTH_NARROW`の1列です。
+2列で使う場合は`BOXRIG_AMBIGUOUS_WIDTH_WIDE`を指定してください。
+この幅は描画、カーソル、折り返し、選択に共通で使われます。接続先のアプリが想定する幅と合わせて指定します。
+分類の根拠は[UnicodeのEast Asian Width](https://www.unicode.org/reports/tr11/tr11-44.html)と[文字データ](https://raw.githubusercontent.com/unicode-org/unicodetools/main/unicodetools/data/ucd/17.0.0/EastAsianWidth.txt)を参照してください。
+
+フォントの字形は、端末が割り当てた列幅に合わせて表示します。
+幅の異なる文字が続いても、後続文字の位置は割り当てた列に対応します。フォントを変更しても、本文を保存する列数は変わりません。
+
 代替候補はシステム全体、登録済み資源だけ、指定familyだけに制限できます。
 フォントファイルとメモリーの登録APIを使うと、アプリが同梱するフォントを指定できます。
 ファイルの寿命とメモリーのコピー条件は各登録APIで確認してください。

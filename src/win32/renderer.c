@@ -3125,7 +3125,21 @@ cleanup:
 }
 
 
-static int draw_shaped_run_segment(
+/* Borrow the native glyph arrays without reshaping or splitting ligatures. */
+static boxrig_win32_shaped_run fitted_run(const boxrig_win32_shaped_run *run,
+    const boxrig_ui_glyph_span *span)
+{
+    boxrig_win32_shaped_run part = *run;
+    part.glyph_count = (UINT32)span->glyph_count;
+    part.glyph_indices += span->first_glyph;
+    part.glyph_advances += span->first_glyph;
+    part.glyph_offsets += span->first_glyph;
+    part.visual_column = span->visual_column;
+    part.visual_column_count = span->column_count;
+    return part;
+}
+
+static int draw_fitted_run_segment(
     boxrig_win32_renderer *renderer,
     HDC memory_context,
     size_t row,
@@ -3282,6 +3296,24 @@ static int draw_shaped_run_segment(
     return SUCCEEDED(result) ? 0 : -1;
 }
 
+static int draw_shaped_run_segment(
+    boxrig_win32_renderer *renderer, HDC memory_context, size_t row,
+    const boxrig_win32_shaped_run *run, size_t clip_column,
+    size_t clip_column_count, COLORREF foreground, bool clip_opaque)
+{
+    for (size_t i = 0; i < run->span_count; i++) {
+        const boxrig_ui_glyph_span *span = &run->spans[i];
+        size_t first = span->visual_column > clip_column ? span->visual_column : clip_column;
+        size_t end = span->visual_column + span->column_count;
+        if (end > clip_column + clip_column_count) end = clip_column + clip_column_count;
+        if (first >= end) continue;
+        boxrig_win32_shaped_run part = fitted_run(run, span);
+        if (draw_fitted_run_segment(renderer, memory_context, row, &part, first,
+                end - first, foreground, clip_opaque) == -1) return -1;
+    }
+    return 0;
+}
+
 static int draw_shaped_run(
     boxrig_win32_renderer *renderer,
     HDC memory_context,
@@ -3369,7 +3401,7 @@ static int draw_shaped_run(
 }
 
 
-static int draw_composition_shaped_run(
+static int draw_composition_fitted_run(
     boxrig_win32_renderer *renderer,
     HDC memory_context,
     size_t row,
@@ -3442,6 +3474,19 @@ static int draw_composition_shaped_run(
     if (FAILED(IDWriteBitmapRenderTarget_SetCurrentTransform(renderer->bitmap_target,
             &previous_transform))) result = E_FAIL;
     return SUCCEEDED(result) ? 0 : -1;
+}
+
+static int draw_composition_shaped_run(
+    boxrig_win32_renderer *renderer, HDC memory_context, size_t row,
+    size_t column_offset, const boxrig_win32_shaped_run *run,
+    COLORREF foreground, const RECT *clip)
+{
+    for (size_t i = 0; i < run->span_count; i++) {
+        boxrig_win32_shaped_run part = fitted_run(run, &run->spans[i]);
+        if (draw_composition_fitted_run(renderer, memory_context, row, column_offset,
+                &part, foreground, clip) == -1) return -1;
+    }
+    return 0;
 }
 
 static int draw_decorations(

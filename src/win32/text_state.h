@@ -67,6 +67,8 @@ typedef struct boxrig_win32_shaped_run {
     FLOAT *glyph_advances;
     DWRITE_GLYPH_OFFSET *glyph_offsets;
     UINT32 glyph_count;
+    boxrig_ui_glyph_span *spans;
+    size_t span_count;
     size_t logical_column;
     size_t logical_column_count;
     size_t visual_column;

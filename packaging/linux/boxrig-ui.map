@@ -251,6 +251,7 @@ BOXRIG_PRIVATE_0 {
         boxrig_ui_candidates_place;
         boxrig_ui_cursor_contrast_color;
         boxrig_ui_cursor_visual_range;
+        boxrig_ui_fit_glyph_spans;
         boxrig_ui_input_control_accepts;
         boxrig_ui_input_control_initialize;
         boxrig_ui_input_control_request;
