@@ -43,6 +43,13 @@ boxrig_ui_status scroll_to_output(boxrig_ui_view *view, bool *changed_out)
 同じモデルの表示先はスクロール位置とrevisionを共有します。
 revisionの比較は同じモデルが生存している間だけ有効です。
 
+## 履歴容量を変更する
+
+primary画面に保存する履歴の上限は物理行単位です。`boxrig_terminal_set_scrollback_capacity()`で実行中に変更でき、現在の値は`boxrig_terminal_scrollback_capacity()`で取得します。
+増やす場合は既存の履歴を保持し、減らす場合は最古の行から直ちに破棄します。0を指定すると履歴を消去します。
+指定できる最大値は`BOXRIG_SCROLLBACK_CAPACITY_MAX`です。上限超過やメモリー不足で失敗した場合、容量、履歴、表示位置などは変更されません。
+coreを直接変更した場合は、利用中のUIモデルを同期してからフレーム処理を進めてください。
+
 ## 標準バーを設定する
 
 表示方針はALWAYS、AUTO、NEVERです。

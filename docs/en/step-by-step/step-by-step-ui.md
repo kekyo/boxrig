@@ -1481,7 +1481,7 @@ Changing only the rendering policy preserves the terminal model, view, history p
 GL rendering requires OpenGL ES 3.0 or later, or desktop OpenGL 3.3 core or later.
 GTK 3 requests ES first and tries desktop GL if necessary.
 The effective API also depends on [GDK's shared context](https://gitlab.gnome.org/GNOME/gtk/-/blob/3.24.41/gdk/x11/gdkglcontext-x11.c).
-The target must have 8 bits per RGBA channel and no multisampling.
+The target may use RGBA8, sRGB8 alpha8, or opaque RGB8 storage and must not use multisampling. GTK 3's opaque path uses RGB8 without alpha.
 The [shared GTK rendering settings](../../../include/boxrig/gtk/rendering.h) distinguish the requested policy from the active path.
 GTK 4 [allows both APIs on GtkGLArea](https://docs.gtk.org/gtk4/method.GLArea.set_allowed_apis.html), and GTK selects one for the environment.
 The rendering state's `is_gles` identifies the last validated GL context API; the sample reports `OpenGL` or `OpenGL ES` in `graphics-api`.

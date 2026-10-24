@@ -43,6 +43,13 @@ The first five fields are in `state.model`.
 Views of the same model share scroll position and revision.
 Revision comparisons are valid only during the lifetime of that same model.
 
+## Change scrollback capacity
+
+The primary-screen history limit is measured in physical rows. Change it while running with `boxrig_terminal_set_scrollback_capacity()` and read the current value with `boxrig_terminal_scrollback_capacity()`.
+Increasing capacity retains existing history; decreasing it immediately evicts the oldest rows. Passing zero clears history.
+`BOXRIG_SCROLLBACK_CAPACITY_MAX` is the maximum accepted value. A limit or allocation failure leaves capacity, history, viewport position, and other state unchanged.
+After changing core directly, synchronize each UI model in use before advancing frame processing.
+
 ## Configure the built-in scrollbar
 
 Visibility policies are ALWAYS, AUTO, and NEVER.
