@@ -140,6 +140,7 @@ struct boxrig_ui_view {
     size_t column_count;
     size_t maximum_retained_layout_bytes;
     size_t maximum_copy_bytes;
+    boxrig_ui_rectangular_copy_policy rectangular_copy_policy;
     size_t maximum_annotation_count;
     size_t maximum_selection_rows;
     size_t maximum_selection_ranges;
@@ -2029,6 +2030,7 @@ boxrig_ui_view_config boxrig_ui_view_config_default(void)
     config.maximum_retained_color_bytes = BOXRIG_UI_COLOR_PAINT_BYTES_DEFAULT;
     config.maximum_background_image_bytes = 64u * 1024u * 1024u;
     config.maximum_copy_bytes = BOXRIG_UI_COPY_CAPACITY_DEFAULT;
+    config.rectangular_copy_policy = BOXRIG_UI_RECTANGULAR_COPY_TRIM_TRAILING_SPACES;
     config.maximum_annotation_count =
         BOXRIG_UI_ANNOTATION_CAPACITY_DEFAULT;
     config.maximum_selection_rows =
@@ -2517,6 +2519,8 @@ boxrig_ui_status boxrig_ui_view_create(
         config->maximum_retained_color_bytes > BOXRIG_UI_COLOR_PAINT_BYTES_MAX ||
         config->maximum_background_image_bytes > 256u * 1024u * 1024u ||
         config->maximum_copy_bytes > BOXRIG_UI_COPY_CAPACITY_MAX ||
+        (config->rectangular_copy_policy != BOXRIG_UI_RECTANGULAR_COPY_PRESERVE_SPACES &&
+         config->rectangular_copy_policy != BOXRIG_UI_RECTANGULAR_COPY_TRIM_TRAILING_SPACES) ||
         config->maximum_annotation_count >
             BOXRIG_UI_ANNOTATION_CAPACITY_MAX ||
         config->maximum_selection_rows == 0 ||
@@ -2559,6 +2563,7 @@ boxrig_ui_status boxrig_ui_view_create(
     view->maximum_retained_color_bytes = config->maximum_retained_color_bytes;
     view->maximum_background_image_bytes = config->maximum_background_image_bytes;
     view->maximum_copy_bytes = config->maximum_copy_bytes;
+    view->rectangular_copy_policy = config->rectangular_copy_policy;
     view->maximum_annotation_count = config->maximum_annotation_count;
     view->maximum_selection_rows = config->maximum_selection_rows;
     view->maximum_selection_ranges = config->maximum_selection_ranges;
@@ -4393,6 +4398,7 @@ static boxrig_ui_status describe_rectangular_row(
     const boxrig_text_layout *layout, size_t row_sequence,
     size_t requested_start,
     size_t requested_end,
+    bool trim_trailing_spaces,
     boxrig_ui_selection_row_slice *row_out,
     boxrig_ui_selection_row_range *ranges_out,
     size_t range_offset,
@@ -4451,6 +4457,25 @@ static boxrig_ui_status describe_rectangular_row(
         }
     } while (expanded);
 
+    if (trim_trailing_spaces) {
+        /* Use the complete physical row's visual suffix, not the selected
+         * text's logical suffix. Bidi can put a logical prefix on the right. */
+        size_t trailing_start = view->column_count;
+        while (trailing_start != 0) {
+            boxrig_viewport_cell_resolution resolution;
+            size_t start, end;
+            if (!rectangular_visual_to_resolution(view, screen, fragment_index,
+                    layout, trailing_start - 1, &resolution) ||
+                !rectangular_resolution_visual_bounds(view, layout, &resolution,
+                    &start, &end)) return BOXRIG_UI_STALE;
+            if (!resolution.blank &&
+                !(resolution.cell.text_length == 1 && resolution.cell.text[0] == ' ')) break;
+            trailing_start = start;
+        }
+        if (effective_end > trailing_start) effective_end = trailing_start;
+        if (effective_end < effective_start) effective_end = effective_start;
+    }
+
     while (logical_column < view->column_count) {
         boxrig_viewport_cell_resolution resolution;
         size_t grapheme_start;
@@ -4476,7 +4501,7 @@ static boxrig_ui_status describe_rectangular_row(
                 &grapheme_end)) {
             return BOXRIG_UI_STALE;
         }
-        selected = grapheme_start < effective_end &&
+        selected = effective_start < effective_end && grapheme_start < effective_end &&
                    grapheme_end > effective_start;
         if (selected) {
             bool joins_previous =
@@ -4514,6 +4539,18 @@ static boxrig_ui_status describe_rectangular_row(
             return BOXRIG_UI_STALE;
         }
         logical_column += resolution.column_span;
+    }
+    if (range_count == 0 && trim_trailing_spaces) {
+        /* Keep an empty row's identity and its LF without selecting a cell. */
+        boxrig_viewport_cell_resolution resolution;
+        if (!rectangular_visual_to_resolution(view, screen, fragment_index,
+                layout, effective_start, &resolution)) return BOXRIG_UI_STALE;
+        if (ranges_out != NULL) {
+            ranges_out[range_offset].row_sequence = row_sequence;
+            ranges_out[range_offset].range.start = resolution.range.start;
+            ranges_out[range_offset].range.end = resolution.range.start;
+        }
+        range_count = 1;
     }
     memset(row_out, 0, sizeof(*row_out));
     row_out->screen = fragment.screen;
@@ -4591,6 +4628,7 @@ static boxrig_ui_status selection_fragment_layout(boxrig_ui_view *view,
 static boxrig_ui_status materialize_rectangular_rows(
     boxrig_ui_view *view,
     boxrig_ui_selection *selection,
+    bool trim_trailing_spaces,
     boxrig_ui_selection_row_slice **rows_out,
     boxrig_ui_selection_row_range **ranges_out)
 {
@@ -4660,6 +4698,7 @@ static boxrig_ui_status materialize_rectangular_rows(
             row_sequence,
             first_column,
             last_column,
+            trim_trailing_spaces,
             &rows[row_sequence],
             NULL,
             range_count,
@@ -4695,6 +4734,7 @@ static boxrig_ui_status materialize_rectangular_rows(
             row_sequence,
             first_column,
             last_column,
+            trim_trailing_spaces,
             &rows[row_sequence],
             ranges,
             range_count,
@@ -5031,6 +5071,7 @@ boxrig_ui_status boxrig_ui_view_begin_selection_with_options(
         status = materialize_rectangular_rows(
             view,
             &replacement,
+            false,
             &replacement_rows,
             &replacement_ranges);
         if (status != BOXRIG_UI_OK) {
@@ -5101,6 +5142,7 @@ boxrig_ui_status boxrig_ui_view_update_selection(
         status = materialize_rectangular_rows(
             view,
             &replacement,
+            false,
             &replacement_rows,
             &replacement_ranges);
         if (status != BOXRIG_UI_OK) {
@@ -5703,6 +5745,26 @@ size_t boxrig_ui_view_hyperlink_hover_visual_ranges(
     return count;
 }
 
+boxrig_ui_status boxrig_ui_view_set_rectangular_copy_policy(
+    boxrig_ui_view *view, boxrig_ui_rectangular_copy_policy policy)
+{
+    if (view == NULL ||
+        (policy != BOXRIG_UI_RECTANGULAR_COPY_PRESERVE_SPACES &&
+         policy != BOXRIG_UI_RECTANGULAR_COPY_TRIM_TRAILING_SPACES))
+        return BOXRIG_UI_INVALID_ARGUMENT;
+    if (view->resolving_fragment_layout || view->resolving_colors) return BOXRIG_UI_BUSY;
+    view->rectangular_copy_policy = policy;
+    return BOXRIG_UI_OK;
+}
+
+boxrig_ui_status boxrig_ui_view_get_rectangular_copy_policy(
+    const boxrig_ui_view *view, boxrig_ui_rectangular_copy_policy *policy_out)
+{
+    if (view == NULL || policy_out == NULL) return BOXRIG_UI_INVALID_ARGUMENT;
+    *policy_out = view->rectangular_copy_policy;
+    return BOXRIG_UI_OK;
+}
+
 boxrig_ui_status boxrig_ui_view_create_selection_snapshot(
     boxrig_ui_view *view,
     boxrig_text_snapshot **snapshot_out)
@@ -5715,6 +5777,7 @@ boxrig_ui_status boxrig_ui_view_create_selection_snapshot(
         return BOXRIG_UI_INVALID_ARGUMENT;
     }
     *snapshot_out = NULL;
+    if (view->resolving_fragment_layout) return BOXRIG_UI_BUSY;
     if (!view->selection_active) {
         return BOXRIG_UI_UNAVAILABLE;
     }
@@ -5726,15 +5789,32 @@ boxrig_ui_status boxrig_ui_view_create_selection_snapshot(
         if (view->selection.row_count == 0) {
             return BOXRIG_UI_UNAVAILABLE;
         }
+        boxrig_ui_selection_row_slice *copy_rows = NULL;
+        boxrig_ui_selection_row_range *copy_ranges = NULL;
+        boxrig_ui_selection copy_selection = view->selection;
+        if (view->rectangular_copy_policy == BOXRIG_UI_RECTANGULAR_COPY_TRIM_TRAILING_SPACES) {
+            if (!rectangular_selection_rows_are_current(view)) {
+                mark_rectangular_selection_stale(view);
+                return BOXRIG_UI_STALE;
+            }
+            boxrig_ui_status copy_status = materialize_rectangular_rows(
+                view, &copy_selection, true, &copy_rows, &copy_ranges);
+            if (copy_status != BOXRIG_UI_OK) {
+                if (copy_status == BOXRIG_UI_STALE) mark_rectangular_selection_stale(view);
+                return copy_status;
+            }
+        }
         rows_options.screen = view->selection.screen;
-        rows_options.ranges = view->selection_ranges;
-        rows_options.range_count = view->selection.range_count;
+        rows_options.ranges = copy_ranges == NULL ? view->selection_ranges : copy_ranges;
+        rows_options.range_count = copy_selection.range_count;
         rows_options.row_count = view->selection.row_count;
         rows_options.byte_capacity = view->maximum_copy_bytes;
         status = boxrig_terminal_create_text_snapshot_rows(
             view->model->terminal,
             &rows_options,
             snapshot_out);
+        free(copy_ranges);
+        free(copy_rows);
         if (status == BOXRIG_STATUS_STALE) {
             mark_rectangular_selection_stale(view);
         }

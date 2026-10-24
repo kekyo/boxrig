@@ -60,6 +60,22 @@ Retrieve copied text with `boxrig_ui_view_create_selection_snapshot()`.
 Rectangular selections are projected per display row, without duplicating wide characters, and with LF between rows.
 Changing selection appearance does not change the extracted text.
 
+By default, rectangular copying removes selected empty cells and lone ASCII spaces (U+0020) in the contiguous whitespace suffix at the visual right edge of each physical row.
+If text exists to the right of the selection, spaces before that text are retained.
+Full-width spaces, NBSP, and spaces with combining characters are retained.
+The decision uses visual columns, while retained graphemes are emitted in logical order; this is not a simple string-suffix trim for bidirectional text.
+
+To preserve spaces, set `boxrig_ui_view_config.rectangular_copy_policy` to `BOXRIG_UI_RECTANGULAR_COPY_PRESERVE_SPACES`.
+The default is `BOXRIG_UI_RECTANGULAR_COPY_TRIM_TRAILING_SPACES`.
+After creation, change it with `boxrig_ui_view_set_rectangular_copy_policy()` and read it with `boxrig_ui_view_get_rectangular_copy_policy()`.
+Changing the policy preserves selection appearance and geometry, so the same selection can be copied again. Linear selection is unaffected.
+Copies to PRIMARY and CLIPBOARD share this per-view policy.
+
+Rows that become empty are retained, with one LF between rows.
+For example, an empty second row produces `abc\n`, and three empty rows produce `\n\n`. No extra final LF is added.
+A positive-width selection that becomes an empty string succeeds and can replace the clipboard with empty text.
+The copy byte limit is checked after trimming. Capacity overflow, allocation failure, and stale selections return no partial text; callers should preserve the previous clipboard on failure.
+
 Updating a rectangle to equal column boundaries retains its anchor as an empty selection.
 The update succeeds, and moving left or right extends from the same anchor again.
 Row and range queries return zero items, and there are no visual ranges.

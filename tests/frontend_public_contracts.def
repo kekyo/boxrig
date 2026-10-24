@@ -594,6 +594,8 @@ BOXRIG_PUBLIC_CONTRACT(
     "boxrig_ui_view_set_selection_style "
     "boxrig_ui_view_get_selection_style "
     "boxrig_ui_view_reset_selection_style "
+    "boxrig_ui_view_set_rectangular_copy_policy "
+    "boxrig_ui_view_get_rectangular_copy_policy "
     "boxrig_ui_view_notify_local_input "
     "boxrig_ui_view_set_composition_active "
     "boxrig_ui_view_config_default "

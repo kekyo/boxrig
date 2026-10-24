@@ -139,6 +139,14 @@ typedef enum boxrig_ui_dirty_layer {
     BOXRIG_UI_DIRTY_LAYER_COUNT
 } boxrig_ui_dirty_layer;
 
+/** Copy policy for rectangular selections; linear selections are unaffected. */
+typedef enum boxrig_ui_rectangular_copy_policy {
+    /** Retain every selected padding cell and ASCII space. */
+    BOXRIG_UI_RECTANGULAR_COPY_PRESERVE_SPACES = 0,
+    /** Omit selected empty cells and lone U+0020 at the visual physical row end. */
+    BOXRIG_UI_RECTANGULAR_COPY_TRIM_TRAILING_SPACES
+} boxrig_ui_rectangular_copy_policy;
+
 /**
  * A rectangular interval in terminal row and column coordinates.
  * Columns are logical for MODEL and IMAGE, and visual for the other layers.
@@ -166,6 +174,8 @@ typedef struct boxrig_ui_view_config {
      * BOXRIG_UI_COPY_CAPACITY_MAX are rejected.
      */
     size_t maximum_copy_bytes;
+    /** Rectangular copy policy; defaults to TRIM_TRAILING_SPACES. */
+    boxrig_ui_rectangular_copy_policy rectangular_copy_policy;
     /**
      * Maximum application text annotations retained by this view.
      * The default is BOXRIG_UI_ANNOTATION_CAPACITY_DEFAULT and values above
@@ -1904,6 +1914,24 @@ size_t boxrig_ui_view_hyperlink_hover_visual_ranges(
     size_t range_capacity);
 
 /**
+ * Changes the rectangular copy policy without changing selection geometry.
+ * @param view View to update.
+ * @param policy Policy applied to subsequent copies, including an existing selection.
+ * @return BOXRIG_UI_OK, BOXRIG_UI_INVALID_ARGUMENT, or BOXRIG_UI_BUSY during callbacks.
+ */
+boxrig_ui_status boxrig_ui_view_set_rectangular_copy_policy(
+    boxrig_ui_view *view, boxrig_ui_rectangular_copy_policy policy);
+
+/**
+ * Reads the rectangular copy policy.
+ * @param view View to inspect.
+ * @param policy_out Receives the current policy.
+ * @return BOXRIG_UI_OK or BOXRIG_UI_INVALID_ARGUMENT.
+ */
+boxrig_ui_status boxrig_ui_view_get_rectangular_copy_policy(
+    const boxrig_ui_view *view, boxrig_ui_rectangular_copy_policy *policy_out);
+
+/**
  * Creates an immutable logical-order UTF-8 copy of this view's selection.
  *
  * @param view View whose selection is copied.
@@ -1914,9 +1942,14 @@ size_t boxrig_ui_view_hyperlink_hover_visual_ranges(
  * exceeded, BOXRIG_UI_STALE when retained text changed, or another portable
  * UI status.
  *
- * @remarks Rectangular selections preserve empty and trailing padding columns
- * as spaces and insert one LF between every materialized visual row, including
- * soft-wrap rows, but no final LF. Each row emits complete graphemes in logical
+ * @remarks Rectangular selections apply the view's copy policy. Trimming omits
+ * selected empty cells and lone U+0020 only in the contiguous whitespace suffix
+ * at the visual right edge of each physical row, including offscreen history.
+ * Spaces before unselected text, NBSP, full-width spaces and combining sequences
+ * are preserved. One LF separates every selected row, including empty and
+ * soft-wrap rows, with no extra final LF. A positive-width selection trimmed to
+ * zero bytes succeeds; zero-width or stale selections do not. The byte cap is
+ * checked after trimming. Each row emits complete graphemes in logical
  * document order, so a wide grapheme appears once and bidi shaping never
  * reverses its UTF-8 bytes.
  */

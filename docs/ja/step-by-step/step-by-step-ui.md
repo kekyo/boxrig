@@ -109,6 +109,20 @@ boxrig_x11_terminal_component_frame(component, &frame);
 
 まず、80桁x25行のウインドウに、固定文字列 `"Hello boxrig UI!"` を表示します。
 
+この例では、端末のセル寸法から親ウィンドウの初期サイズを決め、親の割り当てをコンポーネントへ渡し、その結果の行数と桁数を端末へ反映します。この順序により、親ウィンドウ、コンポーネント、端末が同じグリッドを使います。
+
+フォントはboxrig UIが準備するため、X11のフォントを自分で読み込む必要はありません。`boxrig_x11_terminal_component_get_effective_metrics()`は実際に使用される一セルの幅と高さを返し、この例では80桁25行に対応する親ウィンドウの大きさを決めます。
+
+`boxrig_x11_terminal_component_allocate()` は、親ウインドウ内でのコンポーネントの位置と大きさを指定します。
+ここでは親の全領域に配置するため、原点は `0, 0` です。
+`BOXRIG_UI_WINDOW_EMBEDDED` は、コンポーネントの大きさを親の割り当てに従わせることを示します。
+
+この例では、初期サイズの計算を簡単にするため、スクロールバーを表示しません。
+`scrollbar_presentation` の指定を省略すると、既定ではコンポーネント専用のスクロールバーが追加されます。
+
+`apply_grid_resize()` は、コンポーネントが決定した行数・桁数をターミナルに反映する処理です。
+描画を始める前に、この処理を済ませる必要があります。サイズ変更の章で詳しく解説します。
+
 以下のコードを `hello_ui_term.c` として保存して下さい。
 
 <!-- ui-guide-source: hello_ui_term.c -->
@@ -284,22 +298,6 @@ cleanup:
     return result;
 }
 ```
-
-TODO: boxrig_x11_terminal_component_get_effective_metrics()のように、説明されていない関数が唐突に解説に出ている。これではガイドにならないので、きちんと説明を追加する必要がある
-
-フォントはboxrig UIが準備するため、X11のフォントを自分で読み込む必要はありません。
-`boxrig_x11_terminal_component_get_effective_metrics()` から、実際に使用される一セルの幅と高さを取得し、
-80桁x25行に対応する親ウインドウの大きさを決めています。
-
-`boxrig_x11_terminal_component_allocate()` は、親ウインドウ内でのコンポーネントの位置と大きさを指定します。
-ここでは親の全領域に配置するため、原点は `0, 0` です。
-`BOXRIG_UI_WINDOW_EMBEDDED` は、コンポーネントの大きさを親の割り当てに従わせることを示します。
-
-この例では、初期サイズの計算を簡単にするため、スクロールバーを表示しません。
-`scrollbar_presentation` の指定を省略すると、既定ではコンポーネント専用のスクロールバーが追加されます。
-
-`apply_grid_resize()` は、コンポーネントが決定した行数・桁数をターミナルに反映する処理です。
-描画を始める前に、この処理を済ませる必要があります。サイズ変更の章で詳しく解説します。
 
 ### ビルドして実行する
 
@@ -1404,11 +1402,19 @@ boxrig UI向けの完成版 `simple_ui_term` の両方をビルドします。
 
 ## Appendix: 他のプラットフォームへの対応
 
-TODO: Wayland,OpenGL,Win32 (GDI),Direct 2D/3Dについて、X11との差となる部分を記載する
-
 ### Wayland
 
+native Waylandでは、アプリケーションが接続の`wl_display`、専用イベントキュー、親surfaceを管理します。`boxrig_wayland_context_create()`で作る接続管理用contextがREADYになったら、`boxrig_wayland_terminal_component_create()`で親の下に子surfaceを作ります。
+
+専用キューをdispatchしてから`boxrig_wayland_context_dispatch()`を呼び、モデルを同期してコンポーネントの`frame()`を進めます。サイズはsurfaceの論理座標で`allocate()`へ渡し、表示倍率に対応する描画先はコンポーネントが準備します。親commitが必要な配置変更は`take_host_action()`で受け取り、親のcommit後に`complete_parent_commit()`で完了を伝えます。描画先の解放やframe callbackを待つ間は、イベント待機へ戻ります。
+
+終了時は待機登録とコールバックを止め、コンポーネント、contextの順に破棄してから、親surface、キュー、displayを解放します。端末とモデルの処理は本文と共通です。生成例と待機の接続は[native Wayland](../platforms/wayland.md)を参照してください。
+
 ### OpenGL
+
+X11の生成関数を`boxrig_x11_opengl_terminal_component_create_child()`に替えると、OpenGLで表示する子ウィンドウを作れます。親ウィンドウ、`allocate()`、イベントの転送、モデル同期と`frame()`はX11の例と共通です。コンポーネントが描画contextと表示資源を管理し、描画完了待ちが必要な間はイベント待機へ戻ります。終了時はコンポーネントを親ウィンドウとdisplayより先に破棄します。
+
+Waylandには`boxrig_wayland_opengl_terminal_component_create()`、Win32には`boxrig_win32_opengl_terminal_component_create_child()`があります。それぞれの環境の親、配置、イベント処理と破棄順を使います。アプリケーションが所有するフレームバッファー（FBO）やtextureへ描く用途は、下のレンダラー単体の説明と[描画方式](../renderers.md#openglの描画先を用意する)を参照してください。
 
 ### GTK 3／4のOpenGL接続を確認する
 
@@ -1480,7 +1486,7 @@ GLからCairoへの切り替えでも同じ扱いです。
 
 GL描画にはOpenGL ES 3.0以上、またはデスクトップOpenGL 3.3 core以上が必要です。
 GTK 3ではESを優先して要求し、利用できなければデスクトップGLを試します。実際のAPIは[GDKの共有コンテキスト](https://gitlab.gnome.org/GNOME/gtk/-/blob/3.24.41/gdk/x11/gdkglcontext-x11.c)にも依存します。
-描画先の条件は、RGBA各8ビット、マルチサンプルなしです。
+描画先はRGBA各8ビット、sRGB8 alpha8、または不透明なRGB8を使え、マルチサンプルは使えません。GTK 3の不透明経路はalphaを持たないRGB8です。透過表示にはalpha付きの描画先が必要です。
 要求方針と実効経路は[GTK共通の描画設定](../../../include/boxrig/gtk/rendering.h)で区別します。
 GTK 4では[GtkGLAreaで両APIを許可](https://docs.gtk.org/gtk4/method.GLArea.set_allowed_apis.html)し、GTKが実行環境に応じてAPIを選びます。
 最後に検証したGLコンテキストのAPIは描画状態の`is_gles`で判別でき、サンプルの`graphics-api`には`OpenGL`または`OpenGL ES`を表示します。
@@ -1499,10 +1505,22 @@ OpenGL対応構成では静的リンク時にlibepoxyが必要です。実行時
 
 ### Win32 (GDI)
 
-### Direct 2D/3D
+`boxrig_win32_terminal_component_create_child()`は既存の親ウィンドウの`HWND`の下に子ウィンドウを作ります。アプリケーションは親とメッセージループを用意し、`pretranslate_message()`、モデル同期、`frame()`を進めます。クライアント領域を`allocate()`へ渡し、確定したグリッドを端末とPTYへ反映します。
+
+追加処理がなければメッセージや通信の通知を待ちます。待機登録と入力を止めた後、作成したUIスレッドでコンポーネントを破棄し、モデル、端末、親の資源を解放します。生成例と描画完了の扱いは[Win32](../platforms/win32.md)を参照してください。
+
+### Direct3D 11
+
+`boxrig_win32_d3d11_terminal_component_create_child()`は、標準Win32と共通のコンポーネントを返し、子ウィンドウのGPU表示を管理します。入力、`allocate()`、モデル同期と`frame()`は標準Win32と同じです。`activity_handle()`をメッセージと一緒に待ち、通知後に`dispatch_activity()`で描画完了を処理します。生成、描画、破棄は作成したUIスレッドで行い、親とモデルはコンポーネントの破棄まで維持します。
+
+アプリケーションが所有するtextureへ合成する場合はDirect3D 11レンダラーを使い、device、描画先、描画結果の受理または取消を管理します。用途ごとの接続は[Direct3D 11コンポーネント](../d3d11-component.md)と[Direct3D 11レンダラー](../d3d11-renderer.md)を参照してください。
 
 ---
 
 ## Appendix: レンダラーの使用
 
-TODO: boxrig rendererの概要と、使用する方法について、簡潔に示す。
+コンポーネントは、ウィンドウへの配置、入力、フォント、描画先、表示完了をまとめて扱います。アプリケーションが所有するFBOやtextureへ端末を合成する場合は、レンダラー単体を使います。
+
+レンダラー単体では、表示先の作成、UI表示先の配置と同期、フレームの準備、描画結果の受理または取消、資源の寿命をアプリケーションが管理します。レンダラーはウィンドウへの表示、swap、画素の読み戻し、完了待機を行いません。
+
+OpenGLのFBOへ描く例、Direct3D 11のtextureへ描く例、共通のフレーム処理は[描画方式](../renderers.md)を参照してください。

@@ -712,7 +712,7 @@ boxrig_ui_status boxrig_wayland_context_dispatch_ime_poll(
  * Do not add decorations outside that surface, such as libdecor's title bar.
  * Update after moving a nested parent. The component adds its allocation and
  * converts its physical caret by the scale.
- * This affects direct IBus only; standard Wayland uses its focused surface.
+ * This affects direct IBus or fcitx; standard Wayland uses its focused surface.
  */
 boxrig_ui_status boxrig_wayland_terminal_component_set_ime_window_offset(
     boxrig_wayland_terminal_component *component, int32_t x, int32_t y);

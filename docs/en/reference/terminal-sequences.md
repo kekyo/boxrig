@@ -110,6 +110,8 @@ Setting it again or resizing does not extend the deadline.
 Clock supply and frame processing use the same animation infrastructure as [Blinking](../blinking.md).
 
 Primary-screen history and alternate-screen contents are independent.
+Only a full-width upward scroll from the primary screen's top row saves a row to history. The same applies when the scroll region ends above a fixed footer.
+Scrolling a region that does not include the top row, a partial-width region, or the alternate screen does not add history.
 Resizing rearranges text using wrapping information.
 See [Retrieving, selecting, and searching text](../text.md) for APIs involving history, selection, and logical-line positions.
 

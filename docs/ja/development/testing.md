@@ -10,6 +10,8 @@ coreの機能、UIの表示や操作、ターミナル実装例への接続を�
 
 C99のGCC、Make、LinuxのGUI開発パッケージ、MinGWのamd64／i686、Wine、Node.jsとnpmを用意します。
 GUIの自動試験にはXvfb、Weston、IBusなど、対象に応じた実行環境も必要です。
+GTKのAT-SPI試験をビルドするには、`pkg-config`で`atspi-2`と`gobject-2.0`を取得できる開発パッケージを用意します。AT-SPI・Orca試験を実行するには、D-Busのアクセシビリティサービス、Xvfb、Orca、`xdotool`も必要です。
+Ubuntu 24.04では、`libatspi2.0-dev`、`libglib2.0-dev`、`at-spi2-core`、`dbus-daemon`、`orca`、`xvfb`、`xauth`、`xdotool`、`util-linux`、`bsdutils`を用意してください。`dbus-run-session`は`dbus-daemon`、`setsid`は`util-linux`、Orcaを端末内で起動する`script`は`bsdutils`に含まれます。
 具体的なビルド依存は[ビルドとインストール](../building.md)、npm依存は[生成ツールのpackage.json](../../../tools/codegen/package.json)と[Win32 P2のpackage.json](../../../tests/p2/win32/package.json)で確認できます。
 
 ```sh
@@ -34,8 +36,15 @@ GUIやWineの共有状態を避けるため、まず逐次実行を使ってく�
 
 Windows実機のP2試験は、[実機の準備](#windows実機を準備する)を済ませてから`make test-p2-win32`で別途実行します。
 
-アクセシビリティバスを持たない隔離環境では、既存の検証と同じく`NO_AT_BRIDGE=1 GTK_A11Y=none`を指定できます。
-その実行を支援技術との接続確認とは扱いません。
+アクセシビリティバスを持たない隔離環境では、支援技術への接続を必要としないGTK試験に限り、`NO_AT_BRIDGE=1 GTK_A11Y=none`を指定できます。
+`test-gtk3-atspi`、`test-gtk4-atspi`、`test-gtk3-orca`、`test-gtk4-orca`は起動時にこれらの変数を解除し、D-Busのアクセシビリティサービスへ接続します。
+
+AT-SPIだけを確認するには、次を実行します。Orca試験は、AT-SPIに加えてスクリーンリーダーが端末本文を読み上げることを確認します。
+
+```sh
+make test-gtk3-atspi test-gtk4-atspi
+make test-gtk3-orca test-gtk4-orca
+```
 
 ## 機能別に実行する
 

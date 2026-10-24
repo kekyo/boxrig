@@ -147,11 +147,11 @@ typedef struct boxrig_text_snapshot_row_range {
 typedef struct boxrig_text_snapshot_rows_options {
     /** Primary or alternate source document. */
     boxrig_text_screen screen;
-    /** Nonempty ranges ordered by row sequence and logical position. */
+    /** Ranges ordered by row sequence and logical position; empty ranges are allowed. */
     const boxrig_text_snapshot_row_range *ranges;
     /** Number of entries in ranges. */
     size_t range_count;
-    /** Number of nonempty output rows represented by ranges. */
+    /** Number of output rows represented by ranges, including empty rows. */
     size_t row_count;
     /** Maximum projected UTF-8 bytes owned by the snapshot. */
     size_t byte_capacity;
@@ -1587,7 +1587,8 @@ boxrig_status boxrig_terminal_create_text_snapshot(
  *         BOXRIG_STATUS_STALE, BOXRIG_STATUS_LIMIT_EXCEEDED without
  *         truncation, or BOXRIG_STATUS_OUT_OF_MEMORY.
  *
- * @remarks Every output row must contain at least one range. Ranges within a
+ * @remarks Every output row must contain at least one range; a zero-length
+ * range represents an empty output row at a current grapheme boundary. Ranges within a
  * row must name one current logical line in document order. Empty terminal
  * cells project as ASCII spaces, wide graphemes project once, one LF is
  * inserted between output rows, and no final LF is appended. The complete

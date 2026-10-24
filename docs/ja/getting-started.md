@@ -40,7 +40,7 @@ make build/libboxrig.a
 
 SDKをインストール済みの場合は、そのSDKの公開ヘッダーとライブラリを使えます。
 現在提供するインストール先とpkg-config名は、[インストールの一覧](./building.md#必要なモジュールをインストールする)を参照してください。
-ソースツリーを使わずにSDKから試す場合は、[SDK向けREADMEの利用例](../../README_pack.md#Your first example)へ進んでください。
+ソースツリーを使わずにSDKから試す場合は、[SDK向けREADMEの利用例](../../README_pack.md#your-first-example)へ進んでください。
 以下では、ソースツリーで用意したライブラリと実行例を使います。
 
 ## 最小の利用例を実行する

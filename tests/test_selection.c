@@ -957,6 +957,7 @@ static bool rectangular_selection_distinguishes_soft_and_hard_rows(void)
     boxrig_text_cluster_input clusters[4];
     boxrig_terminal_config terminal_config = boxrig_terminal_config_default();
     boxrig_ui_view_config view_config = boxrig_ui_view_config_default();
+    view_config.rectangular_copy_policy = BOXRIG_UI_RECTANGULAR_COPY_PRESERVE_SPACES;
     boxrig_ui_allocation_input allocation;
     boxrig_ui_layout_result layout_result;
     boxrig_ui_hit_test_result anchor_hit;

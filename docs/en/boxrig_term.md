@@ -77,8 +77,12 @@ wine ./build/boxrig_term/win32/amd64/boxrig_term.exe
 
 Multiple clicks with Ctrl also select rectangular characters.
 The destination chosen at selection start remains until completion, preventing duplicate PTY delivery even if modifiers change midway.
-Rectangular copying separates display rows with LF and preserves empty cells as spaces.
-It adds no trailing LF.
+Rectangular copying separates display rows with LF and, by default, removes empty cells and ASCII spaces that continue to the visual right edge of the row.
+If text exists to the right of the selection, spaces before it are retained.
+Set `BOXRIG_BLOCK_COPY_TRIM_TRAILING_SPACES=0` to preserve spaces or `1` to trim them.
+When this variable is set, Ctrl+Shift+F5 toggles the policy at runtime; copy the same selection again to observe the change.
+Empty rows and their separating LF are retained. No extra final LF is added.
+See [Selection and copying](./text.md#selection-and-copying) for full-width spaces, combining characters, and other details.
 Linux also updates PRIMARY when selection ends.
 Win32 does not change the system clipboard merely because selection ends.
 

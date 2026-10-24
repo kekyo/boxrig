@@ -84,6 +84,7 @@ try {
       env: {
         ...process.env,
         BOXRIG_TEST_SAMPLE_COPY_POLICY: '1',
+        BOXRIG_BLOCK_COPY_TRIM_TRAILING_SPACES: '1',
         NO_AT_BRIDGE: '1',
       },
       stdio: ['ignore', 'ignore', 'pipe'],
@@ -261,6 +262,39 @@ try {
     );
     return bytes;
   };
+  // Read actual OS offers for both policies and the same retained rectangle.
+  await select(0, 0, 1, 6, ['Control_L']);
+  const trimmedBlock = 'A界e\u0301B\nC界o\u0308D';
+  const preservedBlock = 'A界e\u0301B  \nC界o\u0308D  ';
+  if (!wayland) assert.equal(await readClipboard('primary'), trimmedBlock);
+  await right();
+  assert.equal(await readClipboard(), trimmedBlock);
+  command('xdotool', ['key', '--clearmodifiers', 'ctrl+shift+F5']);
+  await send('z');
+  command('xdotool', ['key', '--clearmodifiers', 'ctrl+shift+c']);
+  await send('z');
+  assert.equal(await readClipboard(), preservedBlock);
+  await right();
+  assert.equal(await readClipboard(), preservedBlock);
+  await select(0, 0, 1, 6, ['Control_L']);
+  if (!wayland) assert.equal(await readClipboard('primary'), preservedBlock);
+  command('xdotool', ['key', '--clearmodifiers', 'ctrl+shift+F5']);
+  await send('z');
+  await right();
+  assert.equal(await readClipboard(), trimmedBlock);
+  results.push({ name: 'block-copy-policy-toggle', trimmedBlock, preservedBlock });
+  await select(4, 1, 6, 3, ['Control_L']);
+  if (!wayland) assert.equal(await readClipboard('primary'), '\n\n');
+  await right();
+  assert.equal(await readClipboard(), '\n\n');
+  await select(4, 1, 4, 3, ['Control_L']);
+  if (!wayland) assert.equal(await readClipboard('primary'), '');
+  command('xdotool', ['key', '--clearmodifiers', 'ctrl+shift+c']);
+  await send('z');
+  assert.equal(await readClipboard(), '');
+  await right();
+  assert.equal(await readClipboard(), '');
+  results.push({ name: 'empty-block-lines-and-valid-empty-copy' });
   await select(2, 0, 2, 10);
   command('xdotool', ['key', '--clearmodifiers', 'ctrl+shift+c']);
   await send('z');
