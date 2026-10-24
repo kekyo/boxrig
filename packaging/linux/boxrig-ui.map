@@ -178,6 +178,7 @@ BOXRIG_0 {
         boxrig_ui_view_get_hyperlink_hover;
         boxrig_ui_view_get_layout;
         boxrig_ui_view_get_preferred_grid;
+        boxrig_ui_view_get_rectangular_copy_policy;
         boxrig_ui_view_get_render_target;
         boxrig_ui_view_get_row_dirty;
         boxrig_ui_view_get_scrollbar_state;
@@ -224,6 +225,7 @@ BOXRIG_0 {
         boxrig_ui_view_set_frame_request_callback;
         boxrig_ui_view_set_geometry_capabilities;
         boxrig_ui_view_set_preferred_grid;
+        boxrig_ui_view_set_rectangular_copy_policy;
         boxrig_ui_view_set_selection_style;
         boxrig_ui_view_set_transparency_config;
         boxrig_ui_view_set_visible;

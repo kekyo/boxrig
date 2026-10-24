@@ -39,6 +39,15 @@ int main(void)
     assert(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
     assert(boxrig_ui_view_create(model, &view_config, &view) == BOXRIG_UI_OK);
     assert(boxrig_ui_model_terminal(model) == terminal);
+    boxrig_ui_rectangular_copy_policy copy_policy;
+    assert(boxrig_ui_view_get_rectangular_copy_policy(view, &copy_policy) ==
+           BOXRIG_UI_OK);
+    assert(copy_policy == BOXRIG_UI_RECTANGULAR_COPY_TRIM_TRAILING_SPACES);
+    assert(boxrig_ui_view_set_rectangular_copy_policy(
+               view, BOXRIG_UI_RECTANGULAR_COPY_PRESERVE_SPACES) == BOXRIG_UI_OK);
+    assert(boxrig_ui_view_get_rectangular_copy_policy(view, &copy_policy) ==
+           BOXRIG_UI_OK);
+    assert(copy_policy == BOXRIG_UI_RECTANGULAR_COPY_PRESERVE_SPACES);
 
     char shell[] = "/bin/sh", option[] = "-c", command[] = "exit 127";
     char *arguments[] = {shell, option, command, NULL};
