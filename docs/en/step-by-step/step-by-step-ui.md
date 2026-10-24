@@ -285,10 +285,9 @@ cleanup:
 }
 ```
 
-TODO: Functions such as boxrig_x11_terminal_component_get_effective_metrics() appear before they are introduced. Add explanations so that the example works as a guide.
+This example derives the parent window's initial size from terminal cell metrics, passes the parent allocation to the component, then applies the resulting row and column count to the terminal. This order keeps the parent window, component, and terminal on the same grid.
 
-boxrig UI prepares the font, so the application does not need to load an X11 font itself.
-`boxrig_x11_terminal_component_get_effective_metrics()` returns the effective width and height of a cell, which the example uses to size the parent window for 80 columns and 25 rows.
+boxrig UI prepares the font, so the application does not need to load an X11 font itself. `boxrig_x11_terminal_component_get_effective_metrics()` returns the effective width and height of a cell, which the example uses to size the parent window for 80 columns and 25 rows.
 
 `boxrig_x11_terminal_component_allocate()` specifies the component's position and size inside its parent.
 The component fills the parent here, so its origin is `0, 0`.
@@ -1402,11 +1401,13 @@ The [Makefile](../../ja/step-by-step/Makefile) in the shared source directory bu
 
 ## Appendix: support for other platforms
 
-TODO: Describe the differences from X11 for Wayland, OpenGL, Win32 (GDI), and Direct2D/3D.
-
 ### Wayland
 
+With native Wayland, the application owns the `wl_display`, dedicated event queue, and parent surface, then creates a child-surface component from a context that has reached READY. Instead of forwarding parent-window events as on X11, dispatch the dedicated queue; complete placement changes that require a parent commit through `take_host_action()` and `complete_parent_commit()`. Pass surface logical coordinates to `allocate()`; the component prepares a render target for the display scale. See [native Wayland](../platforms/wayland.md) for details and a creation example.
+
 ### OpenGL
+
+OpenGL components for X11, Wayland, and Win32 attach to their respective parent and event loop. For drawing into an application-owned FBO or texture, use the OpenGL renderer rather than a component and supply the current context, function resolver, target, and generation. The application manages context creation and swapping. See [Rendering](../renderers.md#prepare-an-opengl-target) for target requirements and a runnable example.
 
 ### Checking GTK 3/4 OpenGL integration
 
@@ -1501,12 +1502,20 @@ Runtime fallback to Cairo does not guarantee startup when a linked library is mi
 
 ### Win32 (GDI)
 
+The standard Win32 component creates a child window inside an existing `HWND`. The application supplies the parent window and message loop, advances `pretranslate_message()`, model synchronization, and `frame()`, then passes the client area to `allocate()`. Apply the confirmed grid to the terminal and PTY. See [Win32](../platforms/win32.md) for creation, input, allocation, and shutdown details.
+
 ### Direct2D/3D
+
+The Direct3D 11 component manages GPU display in a child window through the same input, allocation, and frame operations as the standard Win32 component. To composite into an application-owned texture, use the Direct3D 11 renderer and manage its device, target, and frame acceptance or abort. See the [Direct3D 11 component](../d3d11-component.md) and [Direct3D 11 renderer](../d3d11-renderer.md) for the appropriate integration.
 
 ---
 
 ## Appendix: using renderers
 
-TODO: Briefly introduce boxrig renderers and explain how to use them.
+A component combines window placement, input, fonts, a render target, and presentation completion. Use a standalone renderer when compositing terminal output into an application-owned FBO or texture.
+
+With a standalone renderer, the application manages target creation, UI-view allocation and synchronization, frame preparation, acceptance or abort of the result, and resource lifetimes. A renderer does not present a window, swap, read pixels back, or wait for completion.
+
+See [Rendering](../renderers.md) for OpenGL FBO and Direct3D 11 texture examples, together with the common frame protocol.
 
 [Documentation index](../index.md)

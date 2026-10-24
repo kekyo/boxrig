@@ -285,11 +285,9 @@ cleanup:
 }
 ```
 
-TODO: boxrig_x11_terminal_component_get_effective_metrics()のように、説明されていない関数が唐突に解説に出ている。これではガイドにならないので、きちんと説明を追加する必要がある
+この例では、端末のセル寸法から親ウィンドウの初期サイズを決め、親の割り当てをコンポーネントへ渡し、その結果の行数と桁数を端末へ反映します。この順序により、親ウィンドウ、コンポーネント、端末が同じグリッドを使います。
 
-フォントはboxrig UIが準備するため、X11のフォントを自分で読み込む必要はありません。
-`boxrig_x11_terminal_component_get_effective_metrics()` から、実際に使用される一セルの幅と高さを取得し、
-80桁x25行に対応する親ウインドウの大きさを決めています。
+フォントはboxrig UIが準備するため、X11のフォントを自分で読み込む必要はありません。`boxrig_x11_terminal_component_get_effective_metrics()`は実際に使用される一セルの幅と高さを返し、この例では80桁25行に対応する親ウィンドウの大きさを決めます。
 
 `boxrig_x11_terminal_component_allocate()` は、親ウインドウ内でのコンポーネントの位置と大きさを指定します。
 ここでは親の全領域に配置するため、原点は `0, 0` です。
@@ -1404,11 +1402,13 @@ boxrig UI向けの完成版 `simple_ui_term` の両方をビルドします。
 
 ## Appendix: 他のプラットフォームへの対応
 
-TODO: Wayland,OpenGL,Win32 (GDI),Direct 2D/3Dについて、X11との差となる部分を記載する
-
 ### Wayland
 
+native Waylandでは、アプリケーションが`wl_display`、専用イベントキュー、親surfaceを管理し、READYになったcontextから子surfaceのコンポーネントを作成します。X11のように親ウィンドウへイベントを渡す代わりに、専用キューをdispatchし、親commitが必要な配置変更は`take_host_action()`と`complete_parent_commit()`で完了します。サイズはsurfaceの論理座標で`allocate()`へ渡し、表示倍率に対応する描画先はコンポーネントが準備します。詳細と生成例は[native Wayland](../platforms/wayland.md)を参照してください。
+
 ### OpenGL
+
+X11、Wayland、Win32のOpenGLコンポーネントは、対応する親とイベントループへ接続します。アプリケーションが所有するFBOやtextureへ描く場合はコンポーネントではなくOpenGLレンダラーを使い、current context、関数resolver、描画先、世代を渡します。コンテキスト生成やswapはアプリケーションが管理します。描画先の条件と実行例は[描画方式](../renderers.md#openglの描画先を用意する)を参照してください。
 
 ### GTK 3／4のOpenGL接続を確認する
 
@@ -1499,10 +1499,18 @@ OpenGL対応構成では静的リンク時にlibepoxyが必要です。実行時
 
 ### Win32 (GDI)
 
+標準Win32コンポーネントは既存の`HWND`に子ウィンドウを作ります。アプリケーションは親ウィンドウとメッセージループを用意し、`pretranslate_message()`、モデル同期、`frame()`を進めます。クライアント領域を`allocate()`へ渡し、確定したグリッドを端末とPTYへ反映します。生成、入力、配置、破棄の詳細は[Win32](../platforms/win32.md)を参照してください。
+
 ### Direct 2D/3D
+
+Direct3D 11コンポーネントは、標準Win32コンポーネントと同じ入力・配置・フレーム操作で、子ウィンドウのGPU表示を管理します。アプリケーションが所有するtextureへ合成する場合はDirect3D 11レンダラーを使い、device、描画先、描画結果の受理または取消を管理します。用途ごとの接続は[Direct3D 11コンポーネント](../d3d11-component.md)と[Direct3D 11レンダラー](../d3d11-renderer.md)を参照してください。
 
 ---
 
 ## Appendix: レンダラーの使用
 
-TODO: boxrig rendererの概要と、使用する方法について、簡潔に示す。
+コンポーネントは、ウィンドウへの配置、入力、フォント、描画先、表示完了をまとめて扱います。アプリケーションが所有するFBOやtextureへ端末を合成する場合は、レンダラー単体を使います。
+
+レンダラー単体では、表示先の作成、UI表示先の配置と同期、フレームの準備、描画結果の受理または取消、資源の寿命をアプリケーションが管理します。レンダラーはウィンドウへの表示、swap、画素の読み戻し、完了待機を行いません。
+
+OpenGLのFBOへ描く例、Direct3D 11のtextureへ描く例、共通のフレーム処理は[描画方式](../renderers.md)を参照してください。
