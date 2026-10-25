@@ -42,11 +42,19 @@ Even with Shift_JIS input, text passed to fonts is Unicode.
 Ambiguous-width characters, such as `①`, can occupy either one or two terminal columns.
 Choose the width with `boxrig_terminal_config.ambiguous_width` when creating the terminal.
 The default, `BOXRIG_AMBIGUOUS_WIDTH_NARROW`, uses one column; `BOXRIG_AMBIGUOUS_WIDTH_WIDE` uses two.
+`BOXRIG_AMBIGUOUS_WIDTH_FONT` derives columns from the actual font advance, the distance to the next character. Measurements include fallback fonts, bold, and italic styling.
 Rendering, cursors, wrapping, and selection share this width. Match it to the applications running in the terminal.
 See [Unicode East Asian Width](https://www.unicode.org/reports/tr11/tr11-44.html) and its [character data](https://raw.githubusercontent.com/unicode-org/unicodetools/main/unicodetools/data/ucd/17.0.0/EastAsianWidth.txt) for the classification.
 
-Glyphs fit the columns allocated by the terminal. Following characters stay aligned with their assigned columns even when glyph widths vary.
-Changing the font does not change the number of columns used to store text.
+With narrow or wide policy, glyphs fit the allocated columns. Changing the font does not change stored column counts.
+
+Font-dependent policy divides the advance by the cell width and rounds up to an integer. A 2.1-cell advance occupies three columns, with the original glyph centered and 0.45 cells of padding on each side. Copying does not add padding spaces. This policy does not change the columns of ordinary Latin characters, wide characters, or emoji.
+
+GTK, X11, Wayland, and Win32 terminal components connect font measurements before accepting input. Changing fonts or scale in a font-dependent terminal remeasures and reflows existing text, including history, while preserving the terminal connection.
+For standalone X11, Win32, and OpenGL renderers, call `boxrig_*_renderer_bind_view()` before input and after font changes. Preparing a frame through the common renderer lifecycle also connects measurements. Core-only applications can register a synchronous callback with `boxrig_terminal_set_font_width_resolver()`; return the advance divided by the cell width.
+
+Without a resolver, or when measurement is unavailable or invalid, new characters use one column. Detaching a resolver preserves existing text and widths. A character can occupy up to 255 columns; larger measurements return `LIMIT_EXCEEDED`. Characters wider than the entire viewport temporarily occupy one column and are remeasured when a wider viewport can accommodate them.
+Font measurements do not reveal the column widths expected by remote applications; select narrow or wide when needed.
 
 Fallback candidates can be restricted to the whole system, registered resources, or specified families.
 File and memory font registration APIs let you supply fonts bundled with your application.

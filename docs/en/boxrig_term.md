@@ -112,8 +112,10 @@ The space immediately before `q` is required.
 | `BOXRIG_CURSOR_STYLE_DEMO=2` | Three focus-sensitive cursor boxes | Ctrl+Shift+F11 |
 | `BOXRIG_COLOR_GLYPHS=0/1` | Monochrome/color glyphs such as emoji on Linux | Ctrl+Shift+F11 |
 | `BOXRIG_COLOR_FILTER_DEMO=1` | Display color filters | Ctrl+Shift+F12 |
+| `BOXRIG_AMBIGUOUS_WIDTH=narrow/wide/font` | One, two, or font-dependent columns for ambiguous characters | Set at startup |
 
 When unset, the scrollbar is always shown and color fonts are enabled.
+Ambiguous characters default to one column. With `font`, advances round up to whole columns and glyphs retain their natural width at the center. For example, a 2.1-cell advance occupies three columns.
 Demo toggle keys are active only when their corresponding environment variables are set.
 Try the two F11 demos separately.
 
