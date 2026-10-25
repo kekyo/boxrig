@@ -7,6 +7,7 @@
 #include "boxrig/terminal.h"
 #include "terminal_internal.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -9914,6 +9915,225 @@ static bool test_text_monitor_matches_full_scan_differential(void)
     return true;
 }
 
+static double resolve_test_font_width(void *context, const uint8_t *text,
+    size_t text_length, uint32_t attributes)
+{
+    (void)text;
+    (void)attributes;
+    return *(const double *)context + (text_length > 3 ? 1.0 : 0.0);
+}
+
+static bool test_font_dependent_width_policy(void)
+{
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    const double advances[] = {1.0, 1.2, 2.0, 2.1, 4.5};
+    const uint8_t columns[] = {1, 2, 2, 3, 5};
+    config.rows = 3;
+    config.columns = 12;
+    config.ambiguous_width = BOXRIG_AMBIGUOUS_WIDTH_FONT;
+    for (size_t index = 0; index < sizeof(columns); index++) {
+        boxrig_terminal *terminal = NULL;
+        double advance = advances[index];
+        boxrig_cell_view cell;
+        boxrig_cursor_view cursor;
+        boxrig_text_cluster_measurement measurement;
+        size_t consumed;
+        CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+        CHECK(boxrig_terminal_set_font_width_resolver(terminal,
+            resolve_test_font_width, &advance) == BOXRIG_STATUS_OK);
+        CHECK(boxrig_terminal_measure_text_cluster(terminal,
+            (const uint8_t *)"①Z", strlen("①Z"), &measurement) == BOXRIG_STATUS_OK);
+        CHECK(measurement.text_length == strlen("①"));
+        CHECK(measurement.column_width == columns[index]);
+        CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)"A①B界",
+            strlen("A①B界"), &consumed) == BOXRIG_STATUS_OK);
+        CHECK(boxrig_terminal_get_cell(terminal, 0, 1, &cell) == BOXRIG_STATUS_OK);
+        CHECK(cell.column_width == columns[index] && cell.font_dependent);
+        for (size_t offset = 1; offset < columns[index]; offset++) {
+            boxrig_viewport_cell_resolution resolution;
+            CHECK(boxrig_terminal_get_cell(terminal, 0, 1 + offset, &cell) == BOXRIG_STATUS_OK);
+            CHECK(cell.continuation);
+            CHECK(boxrig_terminal_resolve_viewport_cell(terminal, 0, 1 + offset,
+                &resolution) == BOXRIG_STATUS_OK);
+            CHECK(resolution.canonical_storage_column == 1 && resolution.column_span == columns[index]);
+        }
+        CHECK(boxrig_terminal_get_cell(terminal, 0, 1 + columns[index], &cell) == BOXRIG_STATUS_OK);
+        CHECK(cell.text_length == 1 && cell.text[0] == 'B' && !cell.font_dependent);
+        boxrig_terminal_get_cursor(terminal, &cursor);
+        CHECK(cursor.column == (size_t)columns[index] + 4);
+        printf("font advance %.2f: %u columns, following cursor %zu\n",
+            advance, (unsigned int)columns[index], cursor.column);
+        boxrig_terminal_destroy(terminal);
+    }
+    return true;
+}
+
+static bool test_font_width_reflow_and_editing(void)
+{
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    config.rows = 3;
+    config.columns = 6;
+    config.ambiguous_width = BOXRIG_AMBIGUOUS_WIDTH_FONT;
+    boxrig_terminal *terminal = NULL;
+    boxrig_cell_view cell;
+    boxrig_cursor_view cursor;
+    size_t consumed;
+    double advance = 1;
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_set_font_width_resolver(terminal,
+        resolve_test_font_width, &advance) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)"A①B", strlen("A①B"), &consumed) == BOXRIG_STATUS_OK);
+    advance = 2.1;
+    CHECK(boxrig_terminal_set_font_width_resolver(terminal,
+        resolve_test_font_width, &advance) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_get_cell(terminal, 0, 1, &cell) == BOXRIG_STATUS_OK);
+    CHECK(cell.column_width == 3);
+    CHECK(boxrig_terminal_get_cell(terminal, 0, 4, &cell) == BOXRIG_STATUS_OK);
+    CHECK(cell.text_length == 1 && cell.text[0] == 'B');
+    boxrig_terminal_get_cursor(terminal, &cursor);
+    CHECK(cursor.row == 0 && cursor.column == 5);
+    /* Detaching a renderer preserves text and its last measured columns. */
+    CHECK(boxrig_terminal_set_font_width_resolver(terminal, NULL, NULL) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_get_cell(terminal, 0, 1, &cell) == BOXRIG_STATUS_OK);
+    CHECK(cell.column_width == 3);
+    CHECK(boxrig_terminal_set_font_width_resolver(terminal,
+        resolve_test_font_width, &advance) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)"\033[1;3H\033[X",
+        strlen("\033[1;3H\033[X"), &consumed) == BOXRIG_STATUS_OK);
+    for (size_t column = 1; column < 4; column++) {
+        CHECK(boxrig_terminal_get_cell(terminal, 0, column, &cell) == BOXRIG_STATUS_OK);
+        CHECK(!cell.continuation && cell.column_width == 1 && cell.text[0] == ' ');
+    }
+    CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)"\033[H①\xcc\x81", strlen("\033[H①\xcc\x81"), &consumed) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_get_cell(terminal, 0, 0, &cell) == BOXRIG_STATUS_OK);
+    CHECK(cell.column_width == 4 && cell.text_length == 5);
+    boxrig_terminal_get_cursor(terminal, &cursor);
+    CHECK(cursor.column == 4);
+    CHECK(boxrig_terminal_resize(terminal, 3, 5) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_get_cell(terminal, 0, 0, &cell) == BOXRIG_STATUS_OK);
+    CHECK(cell.column_width == 4 && cell.text_length == 5);
+    boxrig_terminal_destroy(terminal);
+    return true;
+}
+
+static bool test_font_width_history_and_alternate_screen(void)
+{
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    config.rows = 2;
+    config.columns = 6;
+    config.ambiguous_width = BOXRIG_AMBIGUOUS_WIDTH_FONT;
+    boxrig_terminal *terminal = NULL;
+    boxrig_cell_view cell;
+    boxrig_cursor_view cursor;
+    size_t consumed;
+    double advance = 1;
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_set_font_width_resolver(terminal,
+        resolve_test_font_width, &advance) == BOXRIG_STATUS_OK);
+    const char *text = "①A\r\n①B\r\n①C";
+    CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)text, strlen(text), &consumed) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_scrollback_rows(terminal) == 1);
+    CHECK(boxrig_terminal_set_viewport_offset(terminal, 1) == BOXRIG_STATUS_OK);
+    advance = 2.1;
+    CHECK(boxrig_terminal_set_font_width_resolver(terminal,
+        resolve_test_font_width, &advance) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_viewport_offset(terminal) == 1);
+    CHECK(boxrig_terminal_get_cell(terminal, 0, 0, &cell) == BOXRIG_STATUS_OK);
+    CHECK(cell.column_width == 3);
+    CHECK(boxrig_terminal_get_cell(terminal, 0, 3, &cell) == BOXRIG_STATUS_OK);
+    CHECK(cell.text[0] == 'A');
+    text = "\033[?1049h①D";
+    CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)text, strlen(text), &consumed) == BOXRIG_STATUS_OK);
+    advance = 1.2;
+    CHECK(boxrig_terminal_set_font_width_resolver(terminal,
+        resolve_test_font_width, &advance) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_get_cell(terminal, 0, 0, &cell) == BOXRIG_STATUS_OK);
+    CHECK(cell.column_width == 2);
+    CHECK(boxrig_terminal_get_cell(terminal, 0, 2, &cell) == BOXRIG_STATUS_OK);
+    CHECK(cell.text[0] == 'D');
+    boxrig_terminal_get_cursor(terminal, &cursor);
+    CHECK(cursor.row == 0 && cursor.column == 3);
+    text = "\033[?1049l";
+    CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)text, strlen(text), &consumed) == BOXRIG_STATUS_OK);
+    boxrig_terminal_get_cursor(terminal, &cursor);
+    CHECK(cursor.column == 3);
+    boxrig_terminal_destroy(terminal);
+    return true;
+}
+
+static bool test_font_width_repeat_and_narrow_resize(void)
+{
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    config.rows = 8;
+    config.columns = 6;
+    config.ambiguous_width = BOXRIG_AMBIGUOUS_WIDTH_FONT;
+    boxrig_terminal *terminal = NULL;
+    boxrig_cell_view cell;
+    boxrig_cursor_view cursor;
+    size_t consumed;
+    double advance = 2.1;
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_set_font_width_resolver(terminal,
+        resolve_test_font_width, &advance) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)"①", strlen("①"), &consumed) == BOXRIG_STATUS_OK);
+    advance = 1.2;
+    CHECK(boxrig_terminal_set_font_width_resolver(terminal,
+        resolve_test_font_width, &advance) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)"\033[2b", 4, &consumed) == BOXRIG_STATUS_OK);
+    for (size_t column = 0; column < 6; column += 2) {
+        CHECK(boxrig_terminal_get_cell(terminal, 0, column, &cell) == BOXRIG_STATUS_OK);
+        CHECK(cell.column_width == 2 && cell.text_length == strlen("①"));
+    }
+    boxrig_terminal_get_cursor(terminal, &cursor);
+    CHECK(cursor.row == 0 && cursor.column == 5);
+    CHECK(boxrig_terminal_resize(terminal, 8, 1) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_resize(terminal, 8, 6) == BOXRIG_STATUS_OK);
+    for (size_t column = 0; column < 6; column += 2) {
+        CHECK(boxrig_terminal_get_cell(terminal, 0, column, &cell) == BOXRIG_STATUS_OK);
+        CHECK(cell.column_width == 2 && cell.text_length == strlen("①"));
+    }
+    boxrig_terminal_destroy(terminal);
+    return true;
+}
+
+static bool test_font_width_fallback_and_limit(void)
+{
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    config.ambiguous_width = BOXRIG_AMBIGUOUS_WIDTH_FONT;
+    boxrig_terminal *terminal = NULL;
+    boxrig_text_cluster_measurement measurement;
+    double advance = 1;
+    const double fallback[] = {0, -1, NAN, INFINITY};
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    for (size_t index = 0; index < sizeof(fallback) / sizeof(fallback[0]); index++) {
+        advance = fallback[index];
+        CHECK(boxrig_terminal_set_font_width_resolver(terminal,
+            resolve_test_font_width, &advance) == BOXRIG_STATUS_OK);
+        CHECK(boxrig_terminal_measure_text_cluster(terminal,
+            (const uint8_t *)"①", strlen("①"), &measurement) == BOXRIG_STATUS_OK);
+        CHECK(measurement.column_width == 1);
+    }
+    advance = 256;
+    measurement.column_width = 29;
+    CHECK(boxrig_terminal_measure_text_cluster(terminal,
+        (const uint8_t *)"①", strlen("①"), &measurement) == BOXRIG_STATUS_LIMIT_EXCEEDED);
+    CHECK(measurement.column_width == 29);
+    advance = 1;
+    size_t consumed;
+    CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)"①", strlen("①"), &consumed) == BOXRIG_STATUS_OK);
+    double excessive = 256;
+    CHECK(boxrig_terminal_set_font_width_resolver(terminal,
+        resolve_test_font_width, &excessive) == BOXRIG_STATUS_LIMIT_EXCEEDED);
+    boxrig_cell_view cell;
+    CHECK(boxrig_terminal_get_cell(terminal, 0, 0, &cell) == BOXRIG_STATUS_OK);
+    CHECK(cell.column_width == 1 && cell.text_length == strlen("①"));
+    CHECK(boxrig_terminal_measure_text_cluster(terminal,
+        (const uint8_t *)"①", strlen("①"), &measurement) == BOXRIG_STATUS_OK);
+    CHECK(measurement.column_width == 1);
+    boxrig_terminal_destroy(terminal);
+    return true;
+}
+
 int main(void)
 {
     static const struct {
@@ -10057,6 +10277,11 @@ int main(void)
          test_public_text_cluster_measurement},
         {"text cluster measurement validation and limit",
          test_text_cluster_measurement_validation_and_limit},
+        {"font-dependent width policy", test_font_dependent_width_policy},
+        {"font width reflow and editing", test_font_width_reflow_and_editing},
+        {"font width history and alternate screen", test_font_width_history_and_alternate_screen},
+        {"font width repeat and narrow resize", test_font_width_repeat_and_narrow_resize},
+        {"font width fallback and limit", test_font_width_fallback_and_limit},
         {"ambiguous width and wide cell operations",
          test_ambiguous_width_and_wide_cell_operations},
         {"circled digit wraps at configured width", test_circled_digit_wraps_at_configured_width},

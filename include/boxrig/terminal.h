@@ -380,8 +380,24 @@ typedef enum boxrig_ambiguous_width {
     /** Treat ambiguous characters as one terminal column. */
     BOXRIG_AMBIGUOUS_WIDTH_NARROW = 0,
     /** Treat ambiguous characters as two terminal columns. */
-    BOXRIG_AMBIGUOUS_WIDTH_WIDE
+    BOXRIG_AMBIGUOUS_WIDTH_WIDE,
+    /** Round the resolved font advance up to whole terminal columns. */
+    BOXRIG_AMBIGUOUS_WIDTH_FONT
 } boxrig_ambiguous_width;
+
+/**
+ * Measures an ambiguous grapheme using the resolved font.
+ * @param context Borrowed application context.
+ * @param text Length-delimited UTF-8 grapheme, including combining marks.
+ * @param text_length Number of UTF-8 bytes.
+ * @param attributes Cell rendition flags, including bold and italic.
+ * @return Natural advance divided by the cell width. Nonpositive or nonfinite
+ * values request the Unicode narrow fallback. Values above 255 exceed the
+ * supported cell-span limit.
+ * @remarks Called synchronously. Do not mutate the terminal from this callback.
+ */
+typedef double (*boxrig_font_width_resolver)(void *context,
+    const uint8_t *text, size_t text_length, uint32_t attributes);
 
 /** Unit used by horizontal cursor positions received from the client. */
 typedef enum boxrig_cursor_column_mode {
@@ -660,6 +676,8 @@ typedef struct boxrig_cell_view {
     uint8_t column_width;
     /** True when this cell continues a preceding wide cell. */
     bool continuation;
+    /** Preserve the font advance and center it in the allocated columns. */
+    bool font_dependent;
     /** Nonzero terminal-lifetime identity of the OSC 8 hyperlink. */
     uint32_t hyperlink_handle;
     /** Untrusted length-delimited UTF-8 hyperlink URI, or NULL when absent. */
@@ -1377,19 +1395,42 @@ boxrig_status boxrig_terminal_create(
 void boxrig_terminal_destroy(boxrig_terminal *terminal);
 
 /**
+ * Returns the immutable ambiguous-width policy.
+ * @param terminal Terminal to inspect, or NULL for the narrow default.
+ * @return The configured ambiguous-width policy.
+ */
+boxrig_ambiguous_width boxrig_terminal_ambiguous_width(const boxrig_terminal *terminal);
+
+/**
+ * Installs a font measurement callback and reflows existing text in font mode.
+ * @param terminal Terminal to update.
+ * @param resolver Callback, or NULL to detach without changing existing text.
+ * @param context Borrowed context, valid until the callback is replaced or
+ * detached. Must be NULL when resolver is NULL.
+ * @return OK, INVALID_ARGUMENT, OUT_OF_MEMORY, or LIMIT_EXCEEDED.
+ * @remarks Reinstall after font metrics change. Detach before destroying the
+ * context. Without a callback, new ambiguous text uses one column. Explicit
+ * narrow/wide policies do not invoke the callback.
+ */
+boxrig_status boxrig_terminal_set_font_width_resolver(boxrig_terminal *terminal,
+    boxrig_font_width_resolver resolver, void *context);
+
+/**
  * Measures the first terminal text cluster in a UTF-8 buffer.
  *
- * @param terminal Terminal whose immutable text-width policy is used.
+ * @param terminal Terminal whose text-width policy and font resolver are used.
  * @param text Nonempty length-delimited UTF-8 input.
  * @param text_length Number of bytes available in text.
  * @param measurement_out Receives one complete measurement on success.
- * @return BOXRIG_STATUS_OK or BOXRIG_STATUS_INVALID_ARGUMENT.
+ * @return BOXRIG_STATUS_OK, BOXRIG_STATUS_INVALID_ARGUMENT, or
+ * BOXRIG_STATUS_LIMIT_EXCEEDED when the font advance exceeds 255 columns.
  *
  * @remarks The returned byte length is always nonzero and the intrinsic
- * column width is one or two. A Unicode cluster longer than
+ * column width is one or two, or up to 255 in font-dependent mode. A cluster longer than
  * BOXRIG_TEXT_CLUSTER_CAPACITY_MAX is split at a scalar boundary and reported
  * through split_by_limit. Malformed or truncated UTF-8 leaves measurement_out
- * unchanged. This operation does not allocate or mutate terminal state.
+ * unchanged. The core does not allocate or mutate terminal state; a registered
+ * font resolver may allocate temporary font-engine resources.
  */
 boxrig_status boxrig_terminal_measure_text_cluster(
     const boxrig_terminal *terminal,

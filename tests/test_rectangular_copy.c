@@ -10,6 +10,13 @@
     return EXIT_FAILURE; } } while (0)
 
 static int allocation_budget = -1;
+
+static double font_width(void *context, const uint8_t *text,
+    size_t text_length, uint32_t attributes)
+{
+    (void)context; (void)text; (void)text_length; (void)attributes;
+    return 2.1;
+}
 void *__real_malloc(size_t size);
 void *__real_realloc(void *pointer, size_t size);
 void *__wrap_malloc(size_t size)
@@ -140,7 +147,7 @@ static int trailing_spaces(void)
     return EXIT_SUCCESS;
 }
 
-static int empty_unicode_and_capacity(void)
+static int empty_unicode_and_capacity(boxrig_ambiguous_width width)
 {
     static const struct {
         const char *input;
@@ -158,10 +165,13 @@ static int empty_unicode_and_capacity(void)
         /* All columns have RTL level 1: visual trailing spaces are a logical prefix. */
         {"  אב    ", 1, "אב    ", 8, true},
         {"abcd    ef", 2, "abcd\nef", 7, false},
+        {"A①B", 1, "A①B", 5, false},
+        {"①①", 1, "①①", 6, false},
     };
     for (size_t index = 0; index < sizeof(cases) / sizeof(cases[0]); index++) {
         boxrig_terminal_config tc = boxrig_terminal_config_default();
         tc.rows = cases[index].rows; tc.columns = 8;
+        tc.ambiguous_width = width;
         boxrig_ui_view_config vc = boxrig_ui_view_config_default();
         CHECK(vc.rectangular_copy_policy == BOXRIG_UI_RECTANGULAR_COPY_TRIM_TRAILING_SPACES);
         vc.maximum_copy_bytes = cases[index].capacity;
@@ -169,6 +179,7 @@ static int empty_unicode_and_capacity(void)
         boxrig_ui_model *model = NULL;
         boxrig_ui_view *view = NULL;
         CHECK(boxrig_terminal_create(&tc, &terminal) == BOXRIG_STATUS_OK);
+        CHECK(boxrig_terminal_set_font_width_resolver(terminal, font_width, NULL) == BOXRIG_STATUS_OK);
         size_t consumed;
         CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)cases[index].input,
             strlen(cases[index].input), &consumed) == BOXRIG_STATUS_OK);
@@ -229,7 +240,8 @@ static int empty_unicode_and_capacity(void)
 int main(void)
 {
     CHECK(trailing_spaces() == EXIT_SUCCESS);
-    CHECK(empty_unicode_and_capacity() == EXIT_SUCCESS);
+    CHECK(empty_unicode_and_capacity(BOXRIG_AMBIGUOUS_WIDTH_NARROW) == EXIT_SUCCESS);
+    CHECK(empty_unicode_and_capacity(BOXRIG_AMBIGUOUS_WIDTH_FONT) == EXIT_SUCCESS);
     puts("PASS rectangular copy policy");
     return EXIT_SUCCESS;
 }

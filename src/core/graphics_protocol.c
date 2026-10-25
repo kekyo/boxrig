@@ -7340,7 +7340,8 @@ boxrig_status boxrig_kitty_graphics_protocol_resize(
     if (!protocol->enabled) {
         return boxrig_screen_resize(&terminal->screen, rows, columns);
     }
-    if (rows == terminal->screen.rows && columns == terminal->screen.columns) {
+    if (!terminal->screen.remeasure_widths &&
+        rows == terminal->screen.rows && columns == terminal->screen.columns) {
         return boxrig_screen_resize(&terminal->screen, rows, columns);
     }
     preserve_viewport = terminal->screen.viewport_offset != 0;

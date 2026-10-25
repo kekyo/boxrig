@@ -6,11 +6,39 @@
 
 #include "terminal_internal.h"
 
+#include <float.h>
+#include <math.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
 #define BOXRIG_MAX_SCREEN_CELLS ((size_t)16 * 1024u * 1024u)
+
+boxrig_status boxrig_screen_measure_text_cluster(const boxrig_screen *screen,
+    const uint8_t *text, size_t text_length, uint32_t attributes,
+    boxrig_text_cluster_measurement *measurement_out)
+{
+    boxrig_text_cluster_measurement measurement;
+    if (measurement_out == NULL) return BOXRIG_STATUS_INVALID_ARGUMENT;
+    boxrig_status status = boxrig_unicode_measure_text_cluster(text, text_length,
+        screen->ambiguous_width == BOXRIG_AMBIGUOUS_WIDTH_WIDE, &measurement);
+    if (status != BOXRIG_STATUS_OK) return status;
+    if (screen->ambiguous_width == BOXRIG_AMBIGUOUS_WIDTH_FONT &&
+        screen->font_width_resolver != NULL &&
+        boxrig_unicode_text_is_ambiguous(text, measurement.text_length)) {
+        double ratio = screen->font_width_resolver(screen->font_width_context,
+            text, measurement.text_length, attributes);
+        if (isfinite(ratio) && ratio > 0) {
+            double tolerance = DBL_EPSILON * 8 * (ratio > 1 ? ratio : 1);
+            if (ratio > UINT8_MAX + tolerance) return BOXRIG_STATUS_LIMIT_EXCEEDED;
+            unsigned int width = (unsigned int)ratio;
+            if (ratio - width > tolerance) width++;
+            measurement.column_width = (uint8_t)(width == 0 ? 1 : width);
+        }
+    }
+    *measurement_out = measurement;
+    return BOXRIG_STATUS_OK;
+}
 
 /* Active-buffer aliases keep screen operations independent of buffer choice. */
 #define cells active->cell_storage
@@ -919,13 +947,23 @@ static void locate_primary_position_logically(
 static boxrig_status copy_cell_to_reflow(
     boxrig_reflow_rows *reflow,
     size_t *destination_column,
-    const boxrig_cell *source)
+    const boxrig_cell *source,
+    const boxrig_screen *screen,
+    size_t *width_out)
 {
     size_t width = source->column_width == 0 ? 1 : source->column_width;
     boxrig_reflow_row *row;
     boxrig_status status;
     size_t continuation;
 
+    if (screen->remeasure_widths && source->text_length != 0) {
+        boxrig_text_cluster_measurement measurement;
+        status = boxrig_screen_measure_text_cluster(screen,
+            (const uint8_t *)boxrig_cell_text(source), source->text_length,
+            source->style.attributes, &measurement);
+        if (status != BOXRIG_STATUS_OK) return status;
+        width = measurement.column_width;
+    }
     if (width > reflow->columns) {
         width = 1;
     }
@@ -959,6 +997,7 @@ static boxrig_status copy_cell_to_reflow(
         row->initialized_columns++;
     }
     *destination_column += width;
+    *width_out = width;
     return BOXRIG_STATUS_OK;
 }
 
@@ -986,6 +1025,8 @@ static boxrig_status build_reflowed_primary(
     size_t marker_index = 0;
     size_t physical_row;
     boxrig_status status;
+    size_t mapped_cursor_offsets[2] = {SIZE_MAX, SIZE_MAX};
+    size_t last_source_end = 0, last_destination_end = 0;
 
     memset(reflow, 0, sizeof(*reflow));
     reflow->columns = columns;
@@ -1027,6 +1068,7 @@ static boxrig_status build_reflowed_primary(
             markers[marker_index].logical_offset = logical_offset +
                                                    markers[marker_index]
                                                        .source_column;
+            markers[marker_index].width_mapped = false;
             if (minimum_limit < marker_limit) {
                 minimum_limit = marker_limit;
             }
@@ -1052,13 +1094,37 @@ static boxrig_status build_reflowed_primary(
             if (cell->continuation) {
                 continue;
             }
+            size_t width;
             status = copy_cell_to_reflow(
                 reflow,
                 &destination_column,
-                cell);
+                cell, source, &width);
             if (status != BOXRIG_STATUS_OK) {
                 destroy_reflow_rows(reflow);
                 return status;
+            }
+            if (source->remeasure_widths) {
+                size_t old_begin = logical_offset + column;
+                size_t old_width = cell->column_width == 0 ? 1 : cell->column_width;
+                size_t new_end = (reflow->count - 1 - logical_start) * columns + destination_column;
+                size_t new_begin = new_end - width;
+                for (size_t index = 0; index < 2; index++) {
+                    size_t offset = logical_cursors[index].column;
+                    if (logical_cursors[index].row == logical_line &&
+                        offset >= old_begin && offset < old_begin + old_width)
+                        mapped_cursor_offsets[index] = new_begin +
+                            (offset - old_begin < width ? offset - old_begin : width - 1);
+                }
+                for (size_t index = line_marker_start; index < marker_index; index++) {
+                    size_t offset = markers[index].logical_offset;
+                    if (!markers[index].width_mapped && offset >= old_begin && offset < old_begin + old_width) {
+                        markers[index].logical_offset = new_begin +
+                            (offset - old_begin < width ? offset - old_begin : width - 1);
+                        markers[index].width_mapped = true;
+                    }
+                }
+                last_source_end = old_begin + old_width;
+                last_destination_end = new_end;
             }
         }
         if (soft_wrapped) {
@@ -1070,6 +1136,22 @@ static boxrig_status build_reflowed_primary(
             size_t destination_row;
             size_t cursor_index;
 
+            if (source->remeasure_widths) {
+                for (size_t index = 0; index < 2; index++) {
+                    if (logical_cursors[index].row != logical_line) continue;
+                    size_t old = logical_cursors[index].column;
+                    logical_cursors[index].column = mapped_cursor_offsets[index] != SIZE_MAX
+                        ? mapped_cursor_offsets[index]
+                        : last_destination_end + (old > last_source_end ? old - last_source_end : 0);
+                }
+                for (size_t index = line_marker_start; index < marker_index; index++) {
+                    if (!markers[index].width_mapped) {
+                        size_t old = markers[index].logical_offset;
+                        markers[index].logical_offset = last_destination_end +
+                            (old > last_source_end ? old - last_source_end : 0);
+                    }
+                }
+            }
             for (cursor_index = 0; cursor_index < 2; cursor_index++) {
                 if (logical_line == logical_cursors[cursor_index].row) {
                     size_t offset = logical_cursors[cursor_index].column;
@@ -1131,6 +1213,8 @@ static boxrig_status build_reflowed_primary(
             reflow->rows[reflow->count - 1].soft_wrapped = false;
             logical_line++;
             logical_offset = 0;
+            mapped_cursor_offsets[0] = mapped_cursor_offsets[1] = SIZE_MAX;
+            last_source_end = last_destination_end = 0;
             source_logical_start = physical_row + 1;
             line_marker_start = marker_index;
             if (physical_row + 1 < source_count) {
@@ -1388,7 +1472,7 @@ static boxrig_status reflow_primary_for_resize(
     bool used = false;
     boxrig_status status;
 
-    if (destination->columns == source->columns &&
+    if (!source->remeasure_widths && destination->columns == source->columns &&
         source->history_count != 0) {
         status = reuse_history_prefix_for_resize(destination, source,
             markers, marker_count, &used);
@@ -1435,6 +1519,35 @@ static boxrig_status reflow_primary_for_resize(
     return BOXRIG_STATUS_OK;
 }
 
+/* Reuse grapheme reflow for the alternate grid without borrowing primary
+ * history ownership. Overflow follows alternate-screen resize clipping. */
+static boxrig_status remeasure_alternate(boxrig_screen *destination,
+    const boxrig_screen *source)
+{
+    boxrig_screen alternate_source = *source;
+    alternate_source.primary = source->alternate;
+    alternate_source.history = NULL;
+    alternate_source.history_count = alternate_source.history_capacity = 0;
+    alternate_source.history_start = 0;
+    boxrig_reflow_rows reflow;
+    boxrig_cell_position cursors[2];
+    bool pending[2];
+    boxrig_status status = build_reflowed_primary(&alternate_source,
+        destination->columns, &reflow, cursors, pending, NULL, 0);
+    if (status != BOXRIG_STATUS_OK) return status;
+    boxrig_screen alternate_destination = *destination;
+    alternate_destination.primary = destination->alternate;
+    alternate_destination.history = NULL;
+    alternate_destination.history_count = alternate_destination.history_capacity = 0;
+    alternate_destination.history_start = 0;
+    copy_buffer_state_for_resize(&alternate_destination.primary, &source->alternate,
+        source->rows, source->columns, destination->rows, destination->columns);
+    transfer_reflowed_primary(&alternate_destination, &reflow, cursors, pending);
+    destination->alternate = alternate_destination.primary;
+    destroy_reflow_rows(&reflow);
+    return BOXRIG_STATUS_OK;
+}
+
 static int compare_reflow_markers(
     const void *left_pointer,
     const void *right_pointer)
@@ -1465,7 +1578,7 @@ boxrig_status boxrig_screen_resize_with_markers(
     size_t copy_columns;
     size_t column;
 
-    if (rows == screen->rows && columns == screen->columns) {
+    if (!screen->remeasure_widths && rows == screen->rows && columns == screen->columns) {
         boxrig_screen_mark_all(screen);
         return BOXRIG_STATUS_OK;
     }
@@ -1488,6 +1601,8 @@ boxrig_status boxrig_screen_resize_with_markers(
         return status;
     }
     replacement.text_epoch = screen->text_epoch;
+    replacement.font_width_resolver = screen->font_width_resolver;
+    replacement.font_width_context = screen->font_width_context;
     replacement.next_text_line_serial = screen->next_text_line_serial;
     replacement.text_revision = screen->text_revision;
     replacement.text_layout_revision = screen->text_layout_revision + 1;
@@ -1520,7 +1635,7 @@ boxrig_status boxrig_screen_resize_with_markers(
             screen->primary.text_fragments[row];
         replacement.primary.text_fragments[row].needs_sync = true;
     }
-    status = copy_buffer_for_resize(
+    status = screen->remeasure_widths ? remeasure_alternate(&replacement, screen) : copy_buffer_for_resize(
         &replacement.alternate,
         &screen->alternate,
         screen->rows,
@@ -1628,7 +1743,7 @@ boxrig_status boxrig_screen_resize(
     bool preserve_viewport;
     boxrig_status status;
 
-    if (rows == screen->rows && columns == screen->columns) {
+    if (!screen->remeasure_widths && rows == screen->rows && columns == screen->columns) {
         return boxrig_screen_resize_with_markers(
             screen,
             rows,
@@ -2385,7 +2500,7 @@ static boxrig_status put_cluster(
     size_t left = effective_left_margin(screen);
     boxrig_status status;
 
-    if (column_width == 0 || column_width > 2) {
+    if (column_width == 0) {
         column_width = 1;
     }
     if ((size_t)column_width > right - left + 1) {
@@ -2450,63 +2565,50 @@ boxrig_status boxrig_screen_put_codepoint(
             breaks = true;
         }
         if (!breaks) {
+            uint8_t new_width = candidate.column_width;
+            if (screen->ambiguous_width == BOXRIG_AMBIGUOUS_WIDTH_FONT) {
+                uint8_t joined[BOXRIG_TEXT_CLUSTER_CAPACITY_MAX];
+                boxrig_text_cluster_measurement measurement;
+                memcpy(joined, boxrig_cell_text(cell), cell->text_length);
+                memcpy(joined + cell->text_length, encoded, encoded_length);
+                boxrig_status status = boxrig_screen_measure_text_cluster(screen,
+                    joined, cell->text_length + encoded_length,
+                    cell->style.attributes, &measurement);
+                if (status != BOXRIG_STATUS_OK) return status;
+                new_width = measurement.column_width;
+            }
+            if (new_width > effective_right_margin(screen) - effective_left_margin(screen) + 1)
+                new_width = 1;
             boxrig_status status = append_cell_text(
                 cell,
                 encoded,
                 encoded_length);
-            uint8_t new_width = candidate.column_width;
 
             if (status != BOXRIG_STATUS_OK) {
                 return status;
             }
-            if (new_width > cell->column_width && screen->auto_wrap &&
-                screen->grapheme_column == effective_right_margin(screen) &&
-                effective_left_margin(screen) < effective_right_margin(screen)) {
+            if (new_width != cell->column_width) {
                 boxrig_cell prepared;
-
-                /* A selector can widen an already placed last-column glyph.
-                 * Detach its text before scrolling invalidates the old cell. */
+                size_t old_width = cell->column_width;
+                size_t old_row = screen->grapheme_row;
+                size_t old_column = screen->grapheme_column;
+                bool insert_mode = screen->insert_mode;
+                /* Detach the whole grapheme before wrapping can scroll its
+                 * row. Replacing a growing cluster must not insert it twice. */
                 memset(&prepared, 0, sizeof(prepared));
                 move_cell(&prepared, cell);
                 prepared.column_width = new_width;
-                set_blank(cell, screen->style);
-                mark_interval(
-                    screen,
-                    screen->grapheme_row,
-                    screen->grapheme_column,
-                    screen->grapheme_column + 1);
+                for (size_t offset = 0; offset < old_width; offset++)
+                    set_blank(cell_at(screen, old_row, old_column + offset), screen->style);
+                mark_interval(screen, old_row, old_column, old_column + old_width);
+                screen->cursor_row = old_row;
+                screen->cursor_column = old_column;
+                screen->wrap_pending = false;
+                screen->insert_mode = false;
                 place_cluster(screen, &prepared, false);
+                screen->insert_mode = insert_mode;
                 cell = cell_at(
                     screen, screen->grapheme_row, screen->grapheme_column);
-            } else if (new_width > cell->column_width &&
-                screen->grapheme_column + 1 < screen->columns &&
-                screen->grapheme_column + 1 <=
-                    effective_right_margin(screen)) {
-                boxrig_cell *continuation;
-
-                boxrig_screen_erase_cells(
-                    screen,
-                    screen->grapheme_row,
-                    screen->grapheme_column + 1,
-                    screen->grapheme_column + 2);
-                continuation = &screen->grapheme_buffer->row_cells[
-                    screen->grapheme_row][screen->grapheme_column + 1];
-                set_blank(continuation, cell->style);
-                continuation->column_width = 0;
-                continuation->continuation = true;
-                continuation->hyperlink_handle = cell->hyperlink_handle;
-                continuation->style = cell->style;
-                cell->column_width = 2;
-                mark_cursor(screen);
-                if (screen->grapheme_column + 1 <
-                    effective_right_margin(screen)) {
-                    screen->cursor_column = screen->grapheme_column + 2;
-                    screen->wrap_pending = false;
-                } else {
-                    screen->cursor_column = effective_right_margin(screen);
-                    screen->wrap_pending = screen->auto_wrap;
-                }
-                mark_cursor(screen);
             }
             screen->grapheme_analyzer = candidate;
             update_last_printed(
@@ -2532,6 +2634,14 @@ boxrig_status boxrig_screen_put_codepoint(
         codepoint,
         ambiguous_is_wide);
     {
+        uint8_t width = screen->grapheme_analyzer.column_width;
+        if (screen->ambiguous_width == BOXRIG_AMBIGUOUS_WIDTH_FONT) {
+            boxrig_text_cluster_measurement measurement;
+            boxrig_status status = boxrig_screen_measure_text_cluster(screen,
+                encoded, encoded_length, screen->style.attributes, &measurement);
+            if (status != BOXRIG_STATUS_OK) return status;
+            width = measurement.column_width;
+        }
         if (screen->owner != NULL) {
             boxrig_text_monitor_begin_mutation(screen->owner);
         }
@@ -2539,7 +2649,7 @@ boxrig_status boxrig_screen_put_codepoint(
             screen,
             encoded,
             encoded_length,
-            screen->grapheme_analyzer.column_width,
+            width,
             true);
 
         if (status != BOXRIG_STATUS_OK) {
@@ -3667,6 +3777,14 @@ static void repeat_last_character(boxrig_screen *screen, size_t amount)
 
     if (screen->last_printed_length == 0) {
         return;
+    }
+    if (screen->ambiguous_width == BOXRIG_AMBIGUOUS_WIDTH_FONT) {
+        boxrig_text_cluster_measurement measurement;
+        if (boxrig_screen_measure_text_cluster(screen,
+                (const uint8_t *)screen->last_printed_text,
+                screen->last_printed_length, screen->style.attributes,
+                &measurement) != BOXRIG_STATUS_OK) return;
+        screen->last_printed_width = measurement.column_width;
     }
     width = effective_right_margin(screen) - effective_left_margin(screen) + 1;
     settling_count = (screen->rows + 1) * screen->columns;
