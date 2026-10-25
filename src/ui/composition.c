@@ -324,6 +324,7 @@ static boxrig_composition_status build_clusters(
                        : map_terminal_status(core_status);
         }
         clusters[cluster_count].text_offset = offset;
+        clusters[cluster_count].font_dependent = measurement.font_dependent;
         finish_cluster(
             &clusters[cluster_count],
             text,

@@ -34,7 +34,7 @@ Sources are [xterm control sequences](https://invisible-island.net/xterm/ctlseqs
 UTF-8 is interpreted incrementally by default.
 Characters split across input calls are retained for the next call; invalid sequences become replacement characters.
 Combining characters and emoji are retained as character clusters, with a limit of 4,096 bytes per cluster.
-Ambiguous-width characters can occupy one or two columns.
+Ambiguous-width characters can occupy one, two, or font-dependent columns. See [Fonts and layout](../fonts-and-layout.md) for configuration and centering.
 See [Terminal I/O settings](../terminal-io.md) for Shift_JIS conversion and compatibility settings, and [Fonts and layout](../fonts-and-layout.md) for shaping.
 
 | Input | Behavior and conditions |

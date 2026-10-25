@@ -13,6 +13,7 @@ typedef struct boxrig_ui_glyph_span {
     double natural_width;
     size_t visual_column;
     size_t column_count;
+    bool preserve_advance;
 } boxrig_ui_glyph_span;
 
 /* Input spans are native shaping clusters in logical text order. Merge any

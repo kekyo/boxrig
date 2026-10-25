@@ -192,6 +192,7 @@ typedef struct boxrig_screen_reflow_marker {
     size_t source_row;
     size_t source_column;
     size_t logical_offset;
+    bool width_mapped;
     int64_t anchor_delta;
     int64_t destination_row;
     size_t destination_column;
@@ -254,6 +255,9 @@ typedef struct boxrig_screen {
     size_t viewport_offset;
     size_t viewport_anchor_column;
     boxrig_ambiguous_width ambiguous_width;
+    boxrig_font_width_resolver font_width_resolver;
+    void *font_width_context;
+    bool remeasure_widths;
     boxrig_cursor_column_mode cursor_column_mode;
     char *last_printed_text;
     size_t last_printed_length;
@@ -338,6 +342,9 @@ boxrig_status boxrig_screen_initialize_configured(
     boxrig_ambiguous_width ambiguous_width,
     boxrig_cursor_column_mode cursor_column_mode);
 void boxrig_screen_destroy(boxrig_screen *screen);
+boxrig_status boxrig_screen_measure_text_cluster(const boxrig_screen *screen,
+    const uint8_t *text, size_t text_length, uint32_t attributes,
+    boxrig_text_cluster_measurement *measurement_out);
 boxrig_status boxrig_screen_resize(
     boxrig_screen *screen,
     size_t rows,

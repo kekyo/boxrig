@@ -22,12 +22,25 @@ mkdirSync(output, { recursive: true });
 const command = (name, args) =>
   execFileSync(name, args, { encoding: "utf8", timeout: 30000 }).trim();
 const wayland = process.env.BOXRIG_TEST_BLINK_WAYLAND === "1";
-const wide = process.env.BOXRIG_TEST_WIDE_CURSOR === "1";
+const fontWidth = process.env.BOXRIG_TEST_FONT_CURSOR === "1";
+const wide = fontWidth || process.env.BOXRIG_TEST_WIDE_CURSOR === "1";
+const wideColumns = fontWidth ? 3 : 2;
 const boxes = wide || process.env.BOXRIG_TEST_CURSOR_BOX === "1";
 let weston, runtime, child;
 let diagnostics = "";
 const results = [];
 try {
+  if (fontWidth) {
+    const xmlPath = resolve(output, "fonts.conf");
+    const directory = resolve("tests/fixtures").replaceAll("&", "&amp;");
+    writeFileSync(xmlPath, `<?xml version="1.0"?><!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+<fontconfig><include>/etc/fonts/fonts.conf</include><dir>${directory}</dir>
+<match target="pattern"><test name="family"><string>monospace</string></test>
+<edit name="family" mode="prepend" binding="strong"><string>Boxrig Width Fixture</string></edit>
+</match></fontconfig>`);
+    process.env.FONTCONFIG_FILE = xmlPath;
+    process.env.BOXRIG_AMBIGUOUS_WIDTH = "font";
+  }
   if (wayland) {
     runtime = mkdtempSync(resolve(tmpdir(), "boxrig-blink-wayland-"));
     process.env.XDG_RUNTIME_DIR = runtime;
@@ -412,7 +425,7 @@ try {
       }
     };
     await send("z");
-    await send("w");
+    await send(fontWidth ? "f" : "w");
     await send("h");
     let underlay = recordPixels("wide-hidden", false).raw.subarray(
       15 * frameBytes,
@@ -507,32 +520,36 @@ try {
       console.log(JSON.stringify(result));
     };
     await send("v");
-    recordWide("wide-leading", 7, 2, true);
+    recordWide("wide-leading", 7, wideColumns, true);
     await send("j");
-    recordWide("wide-continuation", 7, 2, true);
+    recordWide("wide-continuation", 7, wideColumns, true);
+    if (fontWidth) {
+      await send("k");
+      recordWide("wide-second-continuation", 7, wideColumns, true);
+    }
     command("xdotool", ["windowfocus", "--sync", "1"]);
-    recordWide("wide-unfocused", 7, 2, false, true);
+    recordWide("wide-unfocused", 7, wideColumns, false, true);
     command("xdotool", ["windowfocus", "--sync", id]);
-    recordWide("wide-refocused", 7, 2, true);
-    await send("n");
-    recordWide("wide-to-narrow", 9, 1, true);
+    recordWide("wide-refocused", 7, wideColumns, true);
+    await send(fontWidth ? "l" : "n");
+    recordWide("wide-to-narrow", 7 + wideColumns, 1, true);
     await send("j");
-    recordWide("wide-return", 7, 2, true);
-    await send("o");
+    recordWide("wide-return", 7, wideColumns, true);
+    await send(fontWidth ? "p" : "o");
     await send("h");
     underlay = recordPixels("overwritten-hidden", false).raw.subarray(
       15 * frameBytes,
       16 * frameBytes,
     );
     for (let y = 0; y < cellHeight; y++)
-      for (let x = 0; x < cellWidth; x++) {
+      for (let x = 0; x < (wideColumns - 1) * cellWidth; x++) {
         const at =
           ((origin.y + cellHeight + y) * width + origin.x + 8 * cellWidth + x) *
           3;
         const blank =
           ((origin.y + cellHeight + y) * width +
             origin.x +
-            11 * cellWidth +
+            15 * cellWidth +
             x) *
           3;
         // The new X can contribute a faint antialiased edge to the space.

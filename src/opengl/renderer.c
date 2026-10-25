@@ -1943,10 +1943,12 @@ static int draw_glyph_items(
             double natural_width = span->natural_width;
             float allocated_width =
                 (float)(span->column_count * renderer->cell_width);
-            float horizontal_scale = natural_width > 0
+            float horizontal_scale = !span->preserve_advance && natural_width > 0
                                          ? allocated_width * BOXRIG_OGL_GLYPH_SCALE /
                                                natural_width
                                          : 1.0f;
+            float inset = span->preserve_advance
+                ? (allocated_width - natural_width / BOXRIG_OGL_GLYPH_SCALE) / 2 : 0;
             int64_t pen = 0;
             size_t glyph_index;
             boxrig_gl_clip bounded = glyph_span_clip(renderer, row, span->visual_column,
@@ -2005,7 +2007,7 @@ static int draw_glyph_items(
                 if ((cell.attributes & BOXRIG_CELL_CONCEALED) == 0 &&
                     boxrig_ui_view_text_blink_visible(renderer->color_view, cell.attributes) &&
                     draw_atlas_glyph(renderer, item, glyph_index,
-                        span->visual_column * (float)renderer->cell_width +
+                        span->visual_column * (float)renderer->cell_width + inset +
                             horizontal_scale * pen / BOXRIG_OGL_GLYPH_SCALE,
                         row * (float)renderer->cell_height + renderer->baseline,
                         horizontal_scale, foreground != NULL ? *foreground : colors.foreground,
@@ -2350,9 +2352,11 @@ static int draw_composition_shape(boxrig_ogl_renderer *renderer,
         const boxrig_ogl_shaped_item *item = &shape->items[i];
         for (size_t s = 0; s < item->span_count; s++) {
             const boxrig_ui_glyph_span *span = &item->spans[s];
-            float scale = span->natural_width > 0
+            float scale = !span->preserve_advance && span->natural_width > 0
                 ? (float)(span->column_count * renderer->cell_width) *
                     BOXRIG_OGL_GLYPH_SCALE / span->natural_width : 1.0f;
+            float inset = span->preserve_advance
+                ? (span->column_count * renderer->cell_width - span->natural_width / BOXRIG_OGL_GLYPH_SCALE) / 2 : 0;
             int64_t pen = 0;
             size_t g;
             boxrig_gl_clip bounded = glyph_span_clip(renderer, row, column + span->visual_column,
@@ -2360,7 +2364,7 @@ static int draw_composition_shape(boxrig_ogl_renderer *renderer,
             if (bounded.width == 0 || bounded.height == 0) continue;
             for (g = span->first_glyph; g < span->first_glyph + span->glyph_count; g++) {
                 if (draw_atlas_glyph(renderer, item, g,
-                        (column + span->visual_column) * (float)renderer->cell_width +
+                        (column + span->visual_column) * (float)renderer->cell_width + inset +
                             scale * (pen / (float)BOXRIG_OGL_GLYPH_SCALE),
                         row * (float)renderer->cell_height + renderer->baseline,
                         scale, foreground, &bounded) == -1) return -1;
@@ -3941,6 +3945,13 @@ static boxrig_ui_status resolve_fragment_layout(void *context,
         terminal, screen, fragment_index, maximum_bytes, layout_out);
 }
 
+static double resolve_font_width(void *context, const uint8_t *text,
+    size_t length, uint32_t attributes)
+{
+    boxrig_ogl_renderer *renderer = context;
+    return boxrig_ogl_text_provider_font_width(renderer->text_provider, text, length, attributes);
+}
+
 static boxrig_ui_status fragment_layout_provider(void *context,
     boxrig_ui_fragment_layout_provider **provider_out)
 {
@@ -3949,9 +3960,21 @@ static boxrig_ui_status fragment_layout_provider(void *context,
         boxrig_ui_status status = boxrig_ui_fragment_layout_provider_create(
             resolve_fragment_layout, fragment_layout_revision, renderer, &renderer->fragment_layout_provider);
         if (status != BOXRIG_UI_OK) return status;
+        status = boxrig_ui_fragment_layout_provider_set_font_width_resolver(
+            renderer->fragment_layout_provider, resolve_font_width);
+        if (status != BOXRIG_UI_OK) return status;
     }
     *provider_out = renderer->fragment_layout_provider;
     return BOXRIG_UI_OK;
+}
+
+boxrig_ui_status boxrig_ogl_renderer_bind_view(boxrig_ogl_renderer *renderer,
+    boxrig_ui_view *view)
+{
+    if (renderer == NULL || view == NULL) return BOXRIG_UI_INVALID_ARGUMENT;
+    boxrig_ui_fragment_layout_provider *provider = NULL;
+    boxrig_ui_status status = fragment_layout_provider(renderer, &provider);
+    return status == BOXRIG_UI_OK ? boxrig_ui_view_set_fragment_layout_provider(view, provider) : status;
 }
 
 boxrig_renderer_status boxrig_ogl_renderer_lifecycle_create(

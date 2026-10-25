@@ -73,6 +73,7 @@ typedef struct boxrig_win32_shaped_run {
     size_t logical_column_count;
     size_t visual_column;
     size_t visual_column_count;
+    bool preserve_advance;
 } boxrig_win32_shaped_run;
 
 typedef struct boxrig_win32_row_shape {

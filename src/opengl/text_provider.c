@@ -649,6 +649,7 @@ static int collect_clusters(
         shape->text_length += source_length;
         cluster->text_length = source_length;
         cluster->attributes = cell.attributes;
+        cluster->font_dependent = cell.font_dependent;
         cluster->style_key = cell_shape_style_key(&cell);
         cluster->render_style_key = cell_render_style_key(&cell);
         cluster->hyperlink_key = cell_hyperlink_key(&cell);
@@ -732,6 +733,27 @@ static PangoAttrList *create_attributes(
         begin = end;
     }
     return attributes;
+}
+
+double boxrig_ogl_text_provider_font_width(boxrig_ogl_text_provider *provider,
+    const uint8_t *text, size_t length, uint32_t attributes)
+{
+    if (provider == NULL || length > INT_MAX || provider->cell_width == 0) return 0;
+    boxrig_ogl_logical_cluster cluster = {0};
+    cluster.attributes = attributes; cluster.text_length = length;
+    boxrig_ogl_row_shape shape = {0};
+    shape.text_length = length; shape.cluster_count = 1; shape.clusters = &cluster;
+    PangoAttrList *list = create_attributes(provider, &shape);
+    if (list == NULL) return 0;
+    PangoLayout *layout = pango_layout_new(provider->context);
+    pango_layout_set_font_description(layout, provider->description);
+    pango_layout_set_text(layout, (const char *)text, (int)length);
+    pango_layout_set_attributes(layout, list);
+    pango_attr_list_unref(list);
+    int width = 0;
+    pango_layout_get_size(layout, &width, NULL);
+    g_object_unref(layout);
+    return width / ((double)PANGO_SCALE * provider->cell_width);
 }
 
 static bool new_render_style(
@@ -929,6 +951,7 @@ static int build_layout(
         inputs[cluster_index].column_count = cluster->column_count;
         inputs[cluster_index].text_offset = cluster->text_offset;
         inputs[cluster_index].text_length = cluster->text_length;
+        inputs[cluster_index].preserve_advance = cluster->font_dependent;
         inputs[cluster_index].style_key = cluster->style_key;
         inputs[cluster_index].hyperlink_key = cluster->hyperlink_key;
         for (item_index = 0; item_index < shape->item_count; item_index++) {
@@ -1154,6 +1177,7 @@ int boxrig_ogl_text_provider_refresh_row_metadata(
             old_layout_keys[cluster_index * 2 + 1] = cluster->hyperlink_key;
         }
         cluster->attributes = cell.attributes;
+        cluster->font_dependent = cell.font_dependent;
         cluster->style_key = cell_shape_style_key(&cell);
         cluster->render_style_key = cell_render_style_key(&cell);
         cluster->hyperlink_key = cell_hyperlink_key(&cell);
@@ -1313,6 +1337,7 @@ int boxrig_ogl_text_provider_shape_composition(
             source.column_count > SIZE_MAX - column) goto failure;
         cluster->logical_column = column;
         cluster->column_count = source.column_count;
+        cluster->font_dependent = source.font_dependent;
         cluster->text_offset = capacity;
         cluster->text_length = source.text_length;
         column += source.column_count;

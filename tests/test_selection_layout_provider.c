@@ -221,8 +221,81 @@ static int run_history(size_t history_count)
     return EXIT_SUCCESS;
 }
 
+static double font_advance(void *context, const uint8_t *text, size_t length,
+    uint32_t attributes)
+{
+    (void)text; (void)length; (void)attributes;
+    layout_context *state = context;
+    state->calls++;
+    return state->revision == 1 ? 2.1 : 1.2;
+}
+
+static double replacement_font_advance(void *context, const uint8_t *text,
+    size_t length, uint32_t attributes)
+{
+    (void)text; (void)length; (void)attributes;
+    ((layout_context *)context)->calls++;
+    return 4.5;
+}
+
+static int font_provider_lifetime(void)
+{
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    config.rows = 2; config.columns = 8;
+    config.ambiguous_width = BOXRIG_AMBIGUOUS_WIDTH_FONT;
+    boxrig_terminal *terminal = NULL;
+    boxrig_ui_model *model = NULL;
+    boxrig_ui_view *view = NULL;
+    boxrig_ui_view_config vc = boxrig_ui_view_config_default();
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_create(model, &vc, &view) == BOXRIG_UI_OK);
+    layout_context context = {view, model, 1, 0, SIZE_MAX, true, false, 0};
+    boxrig_ui_fragment_layout_provider *provider = NULL;
+    CHECK(boxrig_ui_fragment_layout_provider_create(resolve_layout, read_revision,
+        &context, &provider) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_fragment_layout_provider_set_font_width_resolver(provider,
+        font_advance) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_set_fragment_layout_provider(view, provider) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_acquire_layout_authority(view) == BOXRIG_UI_OK);
+    size_t consumed;
+    CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)"①B", 4, &consumed) == BOXRIG_STATUS_OK);
+    boxrig_cell_view cell;
+    CHECK(boxrig_terminal_get_cell(terminal, 0, 0, &cell) == BOXRIG_STATUS_OK);
+    CHECK(cell.column_width == 3);
+    size_t cached_calls = context.calls;
+    boxrig_text_cluster_measurement measurement;
+    CHECK(boxrig_terminal_measure_text_cluster(terminal, (const uint8_t *)"①", 3,
+        &measurement) == BOXRIG_STATUS_OK && measurement.column_width == 3);
+    CHECK(context.calls == cached_calls);
+    context.revision++;
+    CHECK(boxrig_ui_view_set_fragment_layout_provider(view, provider) == BOXRIG_UI_OK);
+    CHECK(boxrig_terminal_get_cell(terminal, 0, 0, &cell) == BOXRIG_STATUS_OK);
+    CHECK(cell.column_width == 2);
+    size_t calls = context.calls;
+    CHECK(boxrig_ui_view_set_fragment_layout_provider(view, provider) == BOXRIG_UI_OK);
+    CHECK(context.calls == calls);
+    CHECK(boxrig_ui_view_set_fragment_layout_provider(view, NULL) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_fragment_layout_provider_set_font_width_resolver(provider,
+        replacement_font_advance) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_set_fragment_layout_provider(view, provider) == BOXRIG_UI_OK);
+    CHECK(boxrig_terminal_get_cell(terminal, 0, 0, &cell) == BOXRIG_STATUS_OK);
+    CHECK(cell.column_width == 5);
+    calls = context.calls;
+    boxrig_ui_fragment_layout_provider_destroy(provider);
+    CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)"①", 3, &consumed) == BOXRIG_STATUS_OK);
+    CHECK(context.calls == calls);
+    boxrig_ui_model_destroy(model);
+    boxrig_ui_view_destroy(view);
+    CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)"①", 3, &consumed) == BOXRIG_STATUS_OK);
+    boxrig_terminal_destroy(terminal);
+    puts("PASS font provider revision and lifetime");
+    return EXIT_SUCCESS;
+}
+
 int main(void)
 {
+    CHECK(font_provider_lifetime() == EXIT_SUCCESS);
     CHECK(run_history(7) == EXIT_SUCCESS);
     CHECK(run_history(70) == EXIT_SUCCESS);
     CHECK(run_history(700) == EXIT_SUCCESS);

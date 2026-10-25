@@ -139,6 +139,8 @@ bool boxrig_unicode_grapheme_break(
 
 int boxrig_unicode_column_width(int32_t codepoint, bool ambiguous_is_wide)
 {
+    /* Kitty image placeholders encode exactly one grid cell, not a glyph. */
+    if (codepoint == 0x10eeee) return 1;
     int width = utf8proc_charwidth((utf8proc_int32_t)codepoint);
 
     if (ambiguous_is_wide && width == 1 &&
@@ -154,6 +156,27 @@ bool boxrig_unicode_is_regional_indicator(int32_t codepoint)
         (utf8proc_int32_t)codepoint);
 
     return property->boundclass == UTF8PROC_BOUNDCLASS_REGIONAL_INDICATOR;
+}
+
+bool boxrig_unicode_text_is_ambiguous(const uint8_t *text, size_t text_length)
+{
+    bool ambiguous = false;
+    for (size_t offset = 0; offset < text_length;) {
+        utf8proc_int32_t codepoint;
+        size_t available = text_length - offset;
+        utf8proc_ssize_t decoded = utf8proc_iterate(text + offset,
+            (utf8proc_ssize_t)(available > 4 ? 4 : available), &codepoint);
+        if (decoded <= 0) return false;
+        /* A font's missing-glyph advance must not resize an image cell. */
+        if (codepoint == 0x10eeee) return false;
+        /* Explicit emoji presentation and intrinsically wide bases retain
+         * their Unicode width even if a combining mark is ambiguous. */
+        int width = utf8proc_charwidth(codepoint);
+        if (width == 2 || codepoint == 0xfe0f || codepoint == 0x20e3) return false;
+        if (width == 1 && utf8proc_charwidth_ambiguous(codepoint)) ambiguous = true;
+        offset += (size_t)decoded;
+    }
+    return ambiguous;
 }
 
 void boxrig_unicode_cluster_analyzer_initialize(
@@ -203,7 +226,7 @@ boxrig_status boxrig_unicode_measure_text_cluster(
     boxrig_text_cluster_measurement *measurement_out)
 {
     boxrig_unicode_cluster_analyzer analyzer;
-    boxrig_text_cluster_measurement measurement;
+    boxrig_text_cluster_measurement measurement = {0};
     size_t offset = 0;
 
     if (text == NULL || text_length == 0 || measurement_out == NULL) {

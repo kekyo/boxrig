@@ -38,7 +38,18 @@ struct boxrig_ui_fragment_layout_provider {
     size_t references;
     boxrig_ui_fragment_layout_resolver resolve;
     boxrig_ui_fragment_layout_revision_reader read_revision;
+    boxrig_font_width_resolver font_width;
     void *context;
+    /* Short graphemes dominate terminal traffic. Longer clusters remain valid
+     * but bypass this fixed-size cache, keeping provider memory bounded. */
+    struct {
+        uint8_t text[64];
+        size_t length;
+        uint32_t attributes;
+        double advance;
+    } widths[64];
+    uint64_t width_revision;
+    size_t next_width;
 };
 
 typedef struct boxrig_ui_retained_text_annotation {
@@ -116,6 +127,8 @@ struct boxrig_ui_host_item_consumer {
 
 struct boxrig_ui_view {
     boxrig_ui_fragment_layout_provider *fragment_layout_provider;
+    uint64_t font_width_revision;
+    bool font_width_installed;
     uint64_t selection_layout_revision;
     bool resolving_fragment_layout;
     boxrig_ui_rgba background_color;
@@ -198,6 +211,7 @@ struct boxrig_ui_view {
 };
 
 static void mark_rectangular_selection_stale(boxrig_ui_view *view);
+static boxrig_ui_status ui_status_from_terminal(boxrig_status status);
 static boxrig_ui_status animation_model_changed(boxrig_ui_model *model);
 static boxrig_ui_status animation_model_update_time(boxrig_ui_model *model);
 static boxrig_ui_status animation_prepare_change(
@@ -229,11 +243,12 @@ boxrig_ui_status boxrig_ui_fragment_layout_provider_create(
 {
     if (resolver == NULL || read_revision == NULL || provider_out == NULL) return BOXRIG_UI_INVALID_ARGUMENT;
     *provider_out = NULL;
-    boxrig_ui_fragment_layout_provider *provider = malloc(sizeof(*provider));
+    boxrig_ui_fragment_layout_provider *provider = calloc(1, sizeof(*provider));
     if (provider == NULL) return BOXRIG_UI_OUT_OF_MEMORY;
     provider->references = 1;
     provider->resolve = resolver;
     provider->read_revision = read_revision;
+    provider->font_width = NULL;
     provider->context = context;
     *provider_out = provider;
     return BOXRIG_UI_OK;
@@ -244,6 +259,7 @@ void boxrig_ui_fragment_layout_provider_destroy(boxrig_ui_fragment_layout_provid
     if (provider == NULL) return;
     provider->resolve = NULL;
     provider->read_revision = NULL;
+    provider->font_width = NULL;
     provider->context = NULL;
     release_fragment_layout_provider(provider);
 }
@@ -253,6 +269,72 @@ static uint64_t fragment_layout_revision(const boxrig_ui_view *view)
     boxrig_ui_fragment_layout_provider *provider = view->fragment_layout_provider;
     return provider != NULL && provider->read_revision != NULL
         ? provider->read_revision(provider->context) : 0;
+}
+
+boxrig_ui_status boxrig_ui_fragment_layout_provider_set_font_width_resolver(
+    boxrig_ui_fragment_layout_provider *provider, boxrig_font_width_resolver resolver)
+{
+    if (provider == NULL || provider->resolve == NULL || provider->references != 1)
+        return BOXRIG_UI_INVALID_ARGUMENT;
+    provider->font_width = resolver;
+    memset(provider->widths, 0, sizeof(provider->widths));
+    provider->next_width = 0;
+    return BOXRIG_UI_OK;
+}
+
+static double resolve_font_width(void *context, const uint8_t *text,
+    size_t length, uint32_t attributes)
+{
+    boxrig_ui_view *view = context;
+    boxrig_ui_fragment_layout_provider *provider = view->fragment_layout_provider;
+    if (provider == NULL || provider->font_width == NULL) return 0;
+    uint64_t revision = fragment_layout_revision(view);
+    if (provider->width_revision != revision) {
+        memset(provider->widths, 0, sizeof(provider->widths));
+        provider->width_revision = revision;
+        provider->next_width = 0;
+    }
+    if (length <= sizeof(provider->widths[0].text)) {
+        for (size_t i = 0; i < 64; i++) {
+            if (provider->widths[i].length == length &&
+                provider->widths[i].attributes == attributes &&
+                memcmp(provider->widths[i].text, text, length) == 0)
+                return provider->widths[i].advance;
+        }
+    }
+    double advance = provider->font_width(provider->context, text, length, attributes);
+    if (length > 0 && length <= sizeof(provider->widths[0].text) &&
+        isfinite(advance) && advance > 0) {
+        size_t i = provider->next_width++ % 64;
+        memcpy(provider->widths[i].text, text, length);
+        provider->widths[i].length = length;
+        provider->widths[i].attributes = attributes;
+        provider->widths[i].advance = advance;
+    }
+    return advance;
+}
+
+static boxrig_ui_status synchronize_font_width(boxrig_ui_view *view, bool changed)
+{
+    if (!boxrig_ui_view_is_layout_authority(view) ||
+        boxrig_terminal_ambiguous_width(view->model->terminal) != BOXRIG_AMBIGUOUS_WIDTH_FONT)
+        return BOXRIG_UI_OK;
+    boxrig_ui_fragment_layout_provider *provider = view->fragment_layout_provider;
+    bool available = provider != NULL && provider->font_width != NULL;
+    uint64_t revision = available ? fragment_layout_revision(view) : 0;
+    if (available && (changed || !view->font_width_installed ||
+            view->font_width_revision != revision)) {
+        boxrig_ui_status status = ui_status_from_terminal(boxrig_terminal_set_font_width_resolver(
+            view->model->terminal, resolve_font_width, view));
+        if (status != BOXRIG_UI_OK) return status;
+        view->font_width_installed = true;
+        view->font_width_revision = revision;
+    } else if (!available && view->font_width_installed) {
+        (void)boxrig_terminal_set_font_width_resolver(view->model->terminal, NULL, NULL);
+        view->font_width_installed = false;
+        view->font_width_revision = 0;
+    }
+    return BOXRIG_UI_OK;
 }
 
 static bool selection_layout_is_current(const boxrig_ui_view *view)
@@ -267,8 +349,16 @@ boxrig_ui_status boxrig_ui_view_set_fragment_layout_provider(
 {
     if (view == NULL || (provider != NULL && provider->resolve == NULL)) return BOXRIG_UI_INVALID_ARGUMENT;
     if (view->resolving_fragment_layout || view->resolving_colors) return BOXRIG_UI_BUSY;
-    if (view->fragment_layout_provider == provider) return BOXRIG_UI_OK;
+    if (view->fragment_layout_provider == provider) return synchronize_font_width(view, false);
     if (provider != NULL && provider->references == SIZE_MAX) return BOXRIG_UI_LIMIT_EXCEEDED;
+    boxrig_ui_fragment_layout_provider *previous = view->fragment_layout_provider;
+    view->fragment_layout_provider = provider;
+    boxrig_ui_status status = synchronize_font_width(view, true);
+    if (status != BOXRIG_UI_OK) {
+        view->fragment_layout_provider = previous;
+        return status;
+    }
+    view->fragment_layout_provider = previous;
     if (view->fragment_layout_provider != NULL) {
         mark_rectangular_selection_stale(view);
         /* Published geometry still describes the displayed frame. Keep it for
@@ -2166,6 +2256,7 @@ void boxrig_ui_model_destroy(boxrig_ui_model *model)
     }
     for (view = model->first_view; view != NULL; view = view->next_view) {
         boxrig_ui_animation_runtime_detach(view);
+        boxrig_ui_view_release_layout_authority(view);
         view->model = NULL;
     }
     if (model->host_item_consumer != NULL) {
@@ -2703,13 +2794,20 @@ boxrig_ui_status boxrig_ui_view_acquire_layout_authority(
         return BOXRIG_UI_UNAVAILABLE;
     }
     view->model->layout_authority = view;
-    return BOXRIG_UI_OK;
+    boxrig_ui_status status = synchronize_font_width(view, false);
+    if (status != BOXRIG_UI_OK) view->model->layout_authority = NULL;
+    return status;
 }
 
 void boxrig_ui_view_release_layout_authority(boxrig_ui_view *view)
 {
     if (view != NULL && view->model != NULL &&
         view->model->layout_authority == view) {
+        if (view->font_width_installed) {
+            (void)boxrig_terminal_set_font_width_resolver(view->model->terminal, NULL, NULL);
+            view->font_width_installed = false;
+            view->font_width_revision = 0;
+        }
         view->model->layout_authority = NULL;
         view->size_command_state = BOXRIG_UI_SIZE_COMMAND_IDLE;
         view->grid_resize_pending = false;

@@ -100,6 +100,12 @@ unsigned int boxrig_ogl_text_provider_baseline(const boxrig_ogl_text_provider *p
 {
     return provider == NULL ? 0 : (unsigned int)provider->metrics.baseline;
 }
+double boxrig_ogl_text_provider_font_width(boxrig_ogl_text_provider *provider,
+    const uint8_t *text, size_t length, uint32_t attributes)
+{
+    return provider == NULL ? 0 : boxrig_win32_text_font_width(provider->renderer, text, length, attributes);
+}
+
 uint64_t boxrig_ogl_text_provider_revision(const boxrig_ogl_text_provider *provider)
 {
     return provider == NULL ? 0 : provider->metrics.layout_revision;

@@ -12,6 +12,12 @@
 #include <dlfcn.h>
 #endif
 
+static double font_width(void *context, const uint8_t *text, size_t length, uint32_t attributes)
+{
+    (void)context; (void)text; (void)length; (void)attributes;
+    return 2.1;
+}
+
 int main(void)
 {
     const uint8_t pattern[] = "(?<path>a)?b";
@@ -31,8 +37,15 @@ int main(void)
     boxrig_regex_program_destroy(program);
 
     boxrig_terminal_config config = boxrig_terminal_config_default();
+    config.ambiguous_width = BOXRIG_AMBIGUOUS_WIDTH_FONT;
     boxrig_terminal *terminal = NULL;
     assert(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    assert(boxrig_terminal_ambiguous_width(terminal) == BOXRIG_AMBIGUOUS_WIDTH_FONT);
+    assert(boxrig_terminal_set_font_width_resolver(terminal, font_width, NULL) == BOXRIG_STATUS_OK);
+    size_t consumed = 0;
+    assert(boxrig_terminal_feed(terminal, (const uint8_t *)"①", 3, &consumed) == BOXRIG_STATUS_OK);
+    boxrig_cell_view cell;
+    assert(boxrig_terminal_get_cell(terminal, 0, 0, &cell) == BOXRIG_STATUS_OK && cell.column_width == 3);
     boxrig_ui_model *model = NULL;
     boxrig_ui_view *view = NULL;
     boxrig_ui_view_config view_config = boxrig_ui_view_config_default();

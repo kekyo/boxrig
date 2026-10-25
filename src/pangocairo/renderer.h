@@ -16,6 +16,9 @@
 
 typedef struct boxrig_pango_cairo_renderer boxrig_pango_cairo_renderer;
 
+/* Bind before feeding terminal bytes; repeat after committing a font change. */
+boxrig_ui_status boxrig_pango_cairo_renderer_bind_view(boxrig_pango_cairo_renderer *renderer, boxrig_ui_view *view);
+
 typedef struct boxrig_pango_cairo_shape_statistics {
     size_t cluster_count;
     size_t glyph_count;

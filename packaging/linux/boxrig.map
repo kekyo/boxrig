@@ -26,6 +26,8 @@ BOXRIG_0 {
         boxrig_terminal_color_revision;
         boxrig_terminal_complete_host_request;
         boxrig_terminal_config_default;
+        boxrig_terminal_ambiguous_width;
+        boxrig_terminal_set_font_width_resolver;
         boxrig_terminal_create;
         boxrig_terminal_create_text_search;
         boxrig_terminal_create_text_snapshot;

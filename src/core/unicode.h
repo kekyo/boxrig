@@ -44,6 +44,7 @@ bool boxrig_unicode_grapheme_break(
     int32_t current,
     int32_t *state);
 int boxrig_unicode_column_width(int32_t codepoint, bool ambiguous_is_wide);
+bool boxrig_unicode_text_is_ambiguous(const uint8_t *text, size_t text_length);
 bool boxrig_unicode_is_regional_indicator(int32_t codepoint);
 void boxrig_unicode_cluster_analyzer_initialize(
     boxrig_unicode_cluster_analyzer *analyzer);

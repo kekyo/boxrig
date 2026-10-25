@@ -123,6 +123,17 @@ boxrig_ui_status boxrig_ui_fragment_layout_provider_create(
  */
 void boxrig_ui_fragment_layout_provider_destroy(boxrig_ui_fragment_layout_provider *provider);
 
+/**
+ * Supplies natural font advances for font-dependent ambiguous characters.
+ * @param provider Open owner handle, before attaching it to a view.
+ * @param resolver Synchronous callback using the provider's context, or NULL.
+ * @return OK or INVALID_ARGUMENT.
+ * @remarks Attached layout authorities resolve widths through this handle.
+ * Closing the owner disables callbacks even when views still retain it.
+ */
+boxrig_ui_status boxrig_ui_fragment_layout_provider_set_font_width_resolver(
+    boxrig_ui_fragment_layout_provider *provider, boxrig_font_width_resolver resolver);
+
 /** Distinct retained dirty planes owned by one terminal view. */
 typedef enum boxrig_ui_dirty_layer {
     /** Terminal cells, cursor, colors, and row layouts in logical columns. */
@@ -1520,6 +1531,9 @@ boxrig_ui_status boxrig_ui_view_store_row_layout(
  * the host must use the same display policy that produced that geometry.
  * Published row geometry remains available for the displayed frame, but a new
  * provider must analyze selection rows until its own layouts are published.
+ * In font-dependent width mode, the layout authority also installs font
+ * measurements. Reattaching the same provider after its revision changes
+ * remeasures existing text; an unchanged revision does not reflow it.
  */
 boxrig_ui_status boxrig_ui_view_set_fragment_layout_provider(
     boxrig_ui_view *view, boxrig_ui_fragment_layout_provider *provider);

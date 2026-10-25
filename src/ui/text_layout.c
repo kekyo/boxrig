@@ -38,6 +38,7 @@ static void merge_glyph_span(boxrig_ui_glyph_span *left,
     left->glyph_count += right->glyph_count;
     left->text_length = right->text_offset + right->text_length - left->text_offset;
     left->natural_width += right->natural_width;
+    left->preserve_advance = left->preserve_advance || right->preserve_advance;
 }
 
 size_t boxrig_ui_fit_glyph_spans(const boxrig_text_layout *layout,
@@ -56,9 +57,11 @@ size_t boxrig_ui_fit_glyph_spans(const boxrig_text_layout *layout,
             layout->clusters[cluster_index].text_offset +
                 layout->clusters[cluster_index].text_length <= span.text_offset) cluster_index++;
         size_t first = SIZE_MAX, end = 0;
+        span.preserve_advance = false;
         for (size_t j = cluster_index; j < layout->cluster_count &&
                 layout->clusters[j].text_offset < text_end; j++) {
             size_t column = layout->cluster_visual_columns[j];
+            span.preserve_advance = span.preserve_advance || layout->clusters[j].preserve_advance;
             if (column < first) first = column;
             if (column + layout->clusters[j].column_count > end)
                 end = column + layout->clusters[j].column_count;
@@ -75,7 +78,8 @@ size_t boxrig_ui_fit_glyph_spans(const boxrig_text_layout *layout,
     for (size_t i = 0; i < combined; i++) {
         boxrig_ui_glyph_span span = spans[i];
         boxrig_ui_glyph_span *previous = fitted == 0 ? NULL : &spans[fitted-1];
-        if (previous != NULL && previous->natural_width > 0 && span.natural_width > 0 &&
+        if (previous != NULL && !previous->preserve_advance && !span.preserve_advance &&
+            previous->natural_width > 0 && span.natural_width > 0 &&
             (previous->visual_column + previous->column_count == span.visual_column ||
              span.visual_column + span.column_count == previous->visual_column) &&
             fabs(previous->natural_width * span.column_count -

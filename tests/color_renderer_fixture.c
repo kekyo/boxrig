@@ -805,6 +805,118 @@ bool boxrig_test_renderer_cell_positions(
     return true;
 }
 
+bool boxrig_test_renderer_font_positions(
+    bool (*create)(boxrig_test_color_renderer *renderer))
+{
+    boxrig_test_color_renderer renderer = {0};
+    CHECK(create(&renderer));
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    config.rows = 3; config.columns = 20;
+    config.ambiguous_width = BOXRIG_AMBIGUOUS_WIDTH_FONT;
+    boxrig_terminal *terminal = NULL;
+    boxrig_ui_model *model = NULL;
+    boxrig_ui_view *view = NULL;
+    boxrig_ui_view_config vc = boxrig_ui_view_config_default();
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_create(model, &vc, &view) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_acquire_layout_authority(view) == BOXRIG_UI_OK);
+    boxrig_ui_allocation_input allocation = {0};
+    allocation.allocation_width = 20 * renderer.cell_width * BOXRIG_UI_FIXED_ONE;
+    allocation.allocation_height = 3 * renderer.cell_height * BOXRIG_UI_FIXED_ONE;
+    allocation.cell_width = renderer.cell_width * BOXRIG_UI_FIXED_ONE;
+    allocation.cell_height = renderer.cell_height * BOXRIG_UI_FIXED_ONE;
+    allocation.cell_metrics_revision = 1;
+    boxrig_ui_layout_result layout;
+    CHECK(boxrig_ui_view_accept_allocation(view, &allocation, &layout) == BOXRIG_UI_OK);
+    CHECK(renderer.draw(renderer.context, view, NULL) == 0);
+    const char *samples[] = {"④", "②", "③", "①", "⑤"};
+    const unsigned columns[] = {1, 2, 2, 3, 5};
+    for (size_t i = 0; i < 5; i++) {
+        boxrig_text_cluster_measurement measured;
+        CHECK(boxrig_terminal_measure_text_cluster(terminal, (const uint8_t *)samples[i], 3,
+            &measured) == BOXRIG_STATUS_OK);
+        if (measured.column_width != columns[i]) fprintf(stderr, "font %s: columns=%u expected=%u\n",
+            samples[i], measured.column_width, columns[i]);
+        CHECK(measured.column_width == columns[i]);
+    }
+    const char text[] = "\033[?25l\033[38;2;255;255;255;48;2;0;0;0m①①X";
+    size_t consumed;
+    CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)text, sizeof(text)-1,
+        &consumed) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+    CHECK(renderer.draw(renderer.context, view, NULL) == 0);
+    uint32_t *before = renderer.capture(renderer.context);
+    CHECK(before != NULL);
+    unsigned width = renderer.cell_width;
+    for (unsigned column = 0; column < 6; column += 3) {
+        unsigned first = 3 * width, last = 0;
+        for (unsigned x = 0; x < 3 * width; x++) {
+            for (unsigned y = 0; y < renderer.cell_height; y++) {
+                if (get_pixel(before, (int)(column * width + x), (int)y) != 0) {
+                    if (first > x) first = x;
+                    if (last < x) last = x;
+                }
+            }
+        }
+        printf("font columns=3 cell=%u ink=[%u,%u]\n", width, first, last);
+        CHECK(first + last + 1 >= 3 * width - 2 && first + last + 1 <= 3 * width + 2);
+        CHECK(last + 1 - first >= 2.1 * width - 2 && last + 1 - first <= 2.1 * width + 4);
+        CHECK(first > 0 && last < 3 * width - 1);
+    }
+    const char recolor[] = "\033[1;1H\033[31m①";
+    CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)recolor, sizeof(recolor)-1,
+        &consumed) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+    CHECK(renderer.draw(renderer.context, view, NULL) == 0);
+    uint32_t *after = renderer.capture(renderer.context);
+    CHECK(after != NULL);
+    for (unsigned y = 0; y < renderer.cell_height; y++)
+        for (unsigned x = 3 * width; x < 10 * width; x++)
+            CHECK(get_pixel(before, (int)x, (int)y) == get_pixel(after, (int)x, (int)y));
+    for (unsigned column = 0; column < 3; column++) {
+        boxrig_ui_hit_test_result hit;
+        CHECK(boxrig_ui_view_hit_test(view, (column * width + width/2) * BOXRIG_UI_FIXED_ONE,
+            BOXRIG_UI_FIXED_ONE, &hit) == BOXRIG_UI_OK);
+        CHECK(boxrig_ui_view_begin_selection(view, BOXRIG_UI_SELECTION_CHARACTER, &hit) == BOXRIG_UI_OK);
+        boxrig_text_snapshot *snapshot = NULL;
+        CHECK(boxrig_ui_view_create_selection_snapshot(view, &snapshot) == BOXRIG_UI_OK);
+        size_t length;
+        const uint8_t *copy = boxrig_text_snapshot_data(snapshot, &length);
+        CHECK(length == 3 && memcmp(copy, "①", 3) == 0);
+        boxrig_text_snapshot_destroy(snapshot);
+        CHECK(boxrig_ui_view_clear_selection(view) == BOXRIG_UI_OK);
+    }
+    free(before); free(after);
+    const char preedit_origin[] = "\033[2;1H\033[0m";
+    CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)preedit_origin,
+        sizeof(preedit_origin)-1, &consumed) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+    boxrig_composition *composition = NULL;
+    CHECK(boxrig_composition_create(terminal, boxrig_composition_limits_default(),
+        &composition) == BOXRIG_COMPOSITION_OK);
+    boxrig_composition_event event = {0};
+    event.type = BOXRIG_COMPOSITION_PREEDIT_UPDATE;
+    event.text = "①①X"; event.text_length = 7;
+    CHECK(boxrig_composition_apply_event(composition, &event) == BOXRIG_COMPOSITION_OK);
+    CHECK(renderer.draw(renderer.context, view, composition) == 0);
+    uint32_t *preedit = renderer.capture(renderer.context);
+    CHECK(preedit != NULL);
+    size_t margin_ink = 0;
+    for (unsigned y = renderer.cell_height; y < 2 * renderer.cell_height; y++)
+        for (unsigned x = 0; x < 2; x++)
+            if (get_pixel(preedit, (int)x, (int)y) != get_pixel(preedit, 19 * (int)width, (int)y)) margin_ink++;
+    CHECK(margin_ink == 0);
+    free(preedit);
+    boxrig_composition_destroy(composition);
+    renderer.destroy(renderer.context);
+    boxrig_ui_view_destroy(view);
+    boxrig_ui_model_destroy(model);
+    boxrig_terminal_destroy(terminal);
+    puts("PASS font-dependent columns, individual centering, recoloring and copy");
+    return true;
+}
+
 bool boxrig_test_renderer_colors(
     bool (*create)(boxrig_test_color_renderer *renderer))
 {

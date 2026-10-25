@@ -51,6 +51,7 @@ typedef struct boxrig_x11_shaped_item {
     size_t logical_column_count;
     size_t visual_column;
     size_t visual_column_count;
+    bool preserve_advance;
 } boxrig_x11_shaped_item;
 
 typedef struct boxrig_x11_row_shape {
@@ -3693,6 +3694,7 @@ static int build_portable_layout(
         inputs[cluster_index].column_count = cluster->column_count;
         inputs[cluster_index].text_offset = cluster->text_offset;
         inputs[cluster_index].text_length = cluster->text_length;
+        inputs[cluster_index].preserve_advance = cluster->cell.font_dependent;
         inputs[cluster_index].style_key = cluster->style_key;
         inputs[cluster_index].hyperlink_key = cluster->hyperlink_key;
         for (node = items; node != NULL; node = node->next) {
@@ -3992,6 +3994,29 @@ static boxrig_ui_status resolve_fragment_layout(void *context,
     return status;
 }
 
+static double resolve_font_width(void *context, const uint8_t *text,
+    size_t length, uint32_t attributes)
+{
+    boxrig_x11_renderer *renderer = context;
+    if (length > INT_MAX || renderer->cell_width == 0) return 0;
+    boxrig_x11_logical_cluster cluster = {0};
+    cluster.cell.attributes = attributes;
+    cluster.text_length = length;
+    boxrig_x11_row_shape shape = {0};
+    shape.text_length = length; shape.cluster_count = 1; shape.clusters = &cluster;
+    PangoAttrList *list = create_shaping_attributes(renderer, &shape);
+    if (list == NULL) return 0;
+    PangoLayout *layout = pango_layout_new(renderer->pango_context);
+    pango_layout_set_font_description(layout, renderer->font_description);
+    pango_layout_set_text(layout, (const char *)text, (int)length);
+    pango_layout_set_attributes(layout, list);
+    pango_attr_list_unref(list);
+    int width = 0;
+    pango_layout_get_size(layout, &width, NULL);
+    g_object_unref(layout);
+    return width / ((double)PANGO_SCALE * renderer->cell_width);
+}
+
 static boxrig_ui_status fragment_layout_provider(void *context,
     boxrig_ui_fragment_layout_provider **provider_out)
 {
@@ -4000,9 +4025,21 @@ static boxrig_ui_status fragment_layout_provider(void *context,
         boxrig_ui_status status = boxrig_ui_fragment_layout_provider_create(
             resolve_fragment_layout, fragment_layout_revision, renderer, &renderer->fragment_layout_provider);
         if (status != BOXRIG_UI_OK) return status;
+        status = boxrig_ui_fragment_layout_provider_set_font_width_resolver(
+            renderer->fragment_layout_provider, resolve_font_width);
+        if (status != BOXRIG_UI_OK) return status;
     }
     *provider_out = renderer->fragment_layout_provider;
     return BOXRIG_UI_OK;
+}
+
+boxrig_ui_status boxrig_x11_renderer_bind_view(boxrig_x11_renderer *renderer,
+    boxrig_ui_view *view)
+{
+    if (renderer == NULL || view == NULL) return BOXRIG_UI_INVALID_ARGUMENT;
+    boxrig_ui_fragment_layout_provider *provider = NULL;
+    boxrig_ui_status status = fragment_layout_provider(renderer, &provider);
+    return status == BOXRIG_UI_OK ? boxrig_ui_view_set_fragment_layout_provider(view, provider) : status;
 }
 
 static int update_model_row(
@@ -4497,7 +4534,7 @@ static int draw_fitted_item_segment(
         return -1;
     }
     natural_units = pango_glyph_string_get_width(item->glyph_item.glyphs);
-    if (natural_units > 0) {
+    if (natural_units > 0 && !item->preserve_advance) {
         horizontal_scale =
             allocated_width * PANGO_SCALE / (double)natural_units;
     }
@@ -4518,7 +4555,9 @@ static int draw_fitted_item_segment(
     cairo_set_operator(renderer->cairo, CAIRO_OPERATOR_OVER);
     cairo_set_source(renderer->cairo, ink);
     cairo_pattern_destroy(ink);
-    cairo_translate(renderer->cairo, x, y + renderer->ascent);
+    double inset = item->preserve_advance
+        ? (allocated_width - natural_units / (double)PANGO_SCALE) / 2 : 0;
+    cairo_translate(renderer->cairo, x + inset, y + renderer->ascent);
     cairo_scale(renderer->cairo, horizontal_scale, 1.0);
     cairo_move_to(renderer->cairo, 0.0, 0.0);
     pango_cairo_show_glyph_item(renderer->cairo, shape->text,
@@ -4554,6 +4593,7 @@ static int draw_shaped_item_segment(
         if (i + 1 < item->span_count) part.glyph_item = *item->prefixes[i];
         part.visual_column = span->visual_column;
         part.visual_column_count = span->column_count;
+        part.preserve_advance = span->preserve_advance;
         if (draw_fitted_item_segment(renderer, shape, &part, row, first,
                 end - first, foreground) == -1) return -1;
     }
@@ -5431,7 +5471,7 @@ static int draw_composition_layout(
     size_t row,
     size_t column,
     size_t column_count,
-    unsigned long foreground)
+    unsigned long foreground, bool preserve_advance)
 {
     int natural_width;
     int layout_baseline;
@@ -5443,7 +5483,7 @@ static int draw_composition_layout(
     pango_layout_get_size(layout, &natural_width, NULL);
     layout_baseline = pango_layout_get_baseline(layout);
     allocated_width = column_count * renderer->cell_width;
-    if (natural_width > 0) {
+    if (natural_width > 0 && !preserve_advance) {
         horizontal_scale =
             allocated_width * PANGO_SCALE / (double)natural_width;
     }
@@ -5458,9 +5498,10 @@ static int draw_composition_layout(
         allocated_width,
         renderer->cell_height);
     cairo_clip(renderer->cairo);
+    double inset = preserve_advance ? (allocated_width - natural_width / (double)PANGO_SCALE) / 2 : 0;
     cairo_translate(
         renderer->cairo,
-        x,
+        x + inset,
         y + renderer->ascent - layout_baseline / (double)PANGO_SCALE);
     cairo_scale(renderer->cairo, horizontal_scale, 1.0);
     pango_cairo_show_layout(renderer->cairo, layout);
@@ -5597,7 +5638,7 @@ static int draw_composition_group(
         }
     }
     if (draw_composition_layout(renderer, layout, first.row, minimum_column,
-            maximum_column - minimum_column, base_foreground) == -1) goto cleanup;
+            maximum_column - minimum_column, base_foreground, first.font_dependent) == -1) goto cleanup;
     for (index = first_cluster;
          index < first_cluster + cluster_count;
          index++) {
@@ -5645,7 +5686,7 @@ static int draw_composition_group(
                     first.row,
                     minimum_column,
                     maximum_column - minimum_column,
-                    foreground) == -1) {
+                    foreground, first.font_dependent) == -1) {
                 cairo_restore(renderer->cairo);
                 goto cleanup;
             }
@@ -5715,7 +5756,7 @@ static int draw_composition_overlay(
                     &next) != BOXRIG_COMPOSITION_OK) {
                 return -1;
             }
-            if (!next.visible || next.row != first.row) {
+            if (!next.visible || next.row != first.row || first.font_dependent || next.font_dependent) {
                 break;
             }
             cluster_count++;
