@@ -368,6 +368,10 @@ boxrigの全体試験は`make -k test`で開始し、`/tmp/boxrig-font-full-test
 
 計測器を一度ビューから外し、コールバックを差し替えて再接続すると、旧コールバックのキャッシュが残るケースも確認した。`/tmp/boxrig-font-replacement-red.log`でREDを確認し、コールバック設定時にキャッシュを破棄する修正後、`/tmp/boxrig-font-replacement-green.log`でGREENを確認した。フォント世代の変更による再計測とは別に、計測器の差し替えも反映される。
 
+D3D11はagent-roverで実Windowsの32・64ビット、WARP・ハードウェア処理を確認した。転送先に検証用フォントがなく描画器の生成に失敗したため、試験用の一時ディレクトリにフォントも転送し、そのディレクトリを作業場所として起動するよう修正した。4条件すべてで3列の計測・中央寄せ・色変更・選択・コピーが成功し、既存の表示部品のトランザクションとフォント変更を含む12件が成功した。実PCは各試験の終了時に解放している。REDは`/tmp/boxrig-font-d3d11-remote-red.log`、GREENは`/tmp/boxrig-font-d3d11-remote-green.log`、詳細は`build/test-results/step20-12/`にある。[agent-roverの公式説明](https://github.com/kekyo/agent-rover#files-event-logs-and-diagnostics)とインストール済みAPIのコメントで転送・起動方法を確認した。
+
+全体試験では`test_terminal_io_views.c`の既存初期化子3件に、新しい`preserve_advance`の指定が足りず、警告をエラーとして検出した。通常の幅合わせを表す`false`を追加し、`test-terminal-io-integration`の両試験が成功した。再実行のログは`/tmp/boxrig-font-io-green.log`にある。
+
 [elder-190-runtime]: https://github.com/kekyo/elder-terms/blob/b62860d358be7209750eb58c67a9d5f66ea7ac58/elder-terms-terminal/src/terminal-runtime.cpp
 [elder-190-boxrig]: https://github.com/kekyo/elder-terms/tree/b62860d358be7209750eb58c67a9d5f66ea7ac58/deps/boxrig
 [elder-settings]: https://github.com/kekyo/elder-terms/blob/f289bde0fb1104219fc2dfb5493a64edc2f19a02/shared/src/settings/terminal-settings.cpp

@@ -56,9 +56,9 @@ int main(void)
             assert(boxrig_ui_view_accept_allocation(view, &allocation,
                 &layout_result) == BOXRIG_UI_OK);
             const boxrig_text_cluster_input clusters[] = {
-                {0, 2, 0, 3, 0, 1, 0, 1, 1, 1},
-                {2, 2, 3, 3, 0, 1, 0, 1, 1, 1},
-                {4, 2, 6, 3, 0, 1, 0, 1, 1, 1}};
+                {0, 2, 0, 3, 0, 1, 0, 1, 1, 1, false},
+                {2, 2, 3, 3, 0, 1, 0, 1, 1, 1, false},
+                {4, 2, 6, 3, 0, 1, 0, 1, 1, 1, false}};
             boxrig_text_layout *layout = NULL;
             assert(boxrig_text_layout_create(clusters, 3, 6,
                 BOXRIG_TEXT_DIRECTION_LTR, &layout) == BOXRIG_TEXT_LAYOUT_OK);
