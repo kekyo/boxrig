@@ -172,7 +172,7 @@ boxrig_terminal_config boxrig_terminal_config_default(void)
     config.graphics_transport_name_capacity = 4u * 1024u;
     config.graphics_animation_storage_capacity = 640u * 1024u * 1024u;
     config.graphics_frame_capacity = 16384;
-    config.ambiguous_width = BOXRIG_AMBIGUOUS_WIDTH_NARROW;
+    config.ambiguous_width = BOXRIG_AMBIGUOUS_WIDTH_FONT;
     config.cursor_column_mode = BOXRIG_CURSOR_COLUMN_MODE_TERMINAL;
     config.input = boxrig_input_config_default();
     config.paste_newline = BOXRIG_NEWLINE_LF;
@@ -352,7 +352,7 @@ void boxrig_terminal_destroy(boxrig_terminal *terminal)
 
 boxrig_ambiguous_width boxrig_terminal_ambiguous_width(const boxrig_terminal *terminal)
 {
-    return terminal == NULL ? BOXRIG_AMBIGUOUS_WIDTH_NARROW : terminal->screen.ambiguous_width;
+    return terminal == NULL ? BOXRIG_AMBIGUOUS_WIDTH_FONT : terminal->screen.ambiguous_width;
 }
 
 boxrig_status boxrig_terminal_set_font_width_resolver(boxrig_terminal *terminal,

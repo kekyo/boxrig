@@ -139,7 +139,8 @@ boxrig_term_win32_config boxrig_term_win32_config_default(
     if (width_policy != NULL) {
         if (strcmp(width_policy, "wide") == 0) config.terminal.ambiguous_width = BOXRIG_AMBIGUOUS_WIDTH_WIDE;
         else if (strcmp(width_policy, "font") == 0) config.terminal.ambiguous_width = BOXRIG_AMBIGUOUS_WIDTH_FONT;
-        else if (strcmp(width_policy, "narrow") != 0) config.terminal.ambiguous_width = (boxrig_ambiguous_width)-1;
+        else if (strcmp(width_policy, "narrow") == 0) config.terminal.ambiguous_width = BOXRIG_AMBIGUOUS_WIDTH_NARROW;
+        else config.terminal.ambiguous_width = (boxrig_ambiguous_width)-1;
     }
     config.host = boxrig_win32_host_policy_default();
     config.transparency = boxrig_ui_transparency_config_default();

@@ -364,9 +364,12 @@ static bool font_width_environment(void)
     CHECK(setenv("BOXRIG_AMBIGUOUS_WIDTH", "wide", 1) == 0);
     config = boxrig_term_posix_config_default(arguments);
     CHECK(config.terminal.ambiguous_width == BOXRIG_AMBIGUOUS_WIDTH_WIDE);
-    CHECK(unsetenv("BOXRIG_AMBIGUOUS_WIDTH") == 0);
+    CHECK(setenv("BOXRIG_AMBIGUOUS_WIDTH", "narrow", 1) == 0);
     config = boxrig_term_posix_config_default(arguments);
     CHECK(config.terminal.ambiguous_width == BOXRIG_AMBIGUOUS_WIDTH_NARROW);
+    CHECK(unsetenv("BOXRIG_AMBIGUOUS_WIDTH") == 0);
+    config = boxrig_term_posix_config_default(arguments);
+    CHECK(config.terminal.ambiguous_width == BOXRIG_AMBIGUOUS_WIDTH_FONT);
     return true;
 }
 

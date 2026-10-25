@@ -84,7 +84,8 @@ boxrig_term_posix_config boxrig_term_posix_config_default(
     if (width_policy != NULL) {
         if (strcmp(width_policy, "wide") == 0) config.terminal.ambiguous_width = BOXRIG_AMBIGUOUS_WIDTH_WIDE;
         else if (strcmp(width_policy, "font") == 0) config.terminal.ambiguous_width = BOXRIG_AMBIGUOUS_WIDTH_FONT;
-        else if (strcmp(width_policy, "narrow") != 0) config.terminal.ambiguous_width = (boxrig_ambiguous_width)-1;
+        else if (strcmp(width_policy, "narrow") == 0) config.terminal.ambiguous_width = BOXRIG_AMBIGUOUS_WIDTH_NARROW;
+        else config.terminal.ambiguous_width = (boxrig_ambiguous_width)-1;
     }
     config.host.allow_title_change = true;
     config.host.allow_clipboard_write = true;

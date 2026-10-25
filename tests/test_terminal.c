@@ -50,7 +50,8 @@ static bool test_defaults_and_initial_screen(void)
     CHECK(config.text_recognizer_capacity == 32);
     CHECK(config.text_recognizer_pattern_capacity == 256 * 1024);
     CHECK(config.text_recognizer_event_capacity == 4096);
-    CHECK(config.ambiguous_width == BOXRIG_AMBIGUOUS_WIDTH_NARROW);
+    CHECK(config.ambiguous_width == BOXRIG_AMBIGUOUS_WIDTH_FONT);
+    CHECK(boxrig_terminal_ambiguous_width(NULL) == BOXRIG_AMBIGUOUS_WIDTH_FONT);
     CHECK(config.cursor_column_mode == BOXRIG_CURSOR_COLUMN_MODE_TERMINAL);
     config.rows = 3;
     config.columns = 5;
@@ -9930,7 +9931,6 @@ static bool test_font_dependent_width_policy(void)
     const uint8_t columns[] = {1, 2, 2, 3, 5};
     config.rows = 3;
     config.columns = 12;
-    config.ambiguous_width = BOXRIG_AMBIGUOUS_WIDTH_FONT;
     for (size_t index = 0; index < sizeof(columns); index++) {
         boxrig_terminal *terminal = NULL;
         double advance = advances[index];

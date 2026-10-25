@@ -418,6 +418,19 @@ elder-termsの全体試験は、共有ライブラリ146件、ランチャー114
 | elder-terms：日本語・英語の公開説明 | `1a75cc0a` |
 | elder-terms：最終参照と画像・動画の検証 | `438b3334` |
 
+## 追補：フォント依存を既定値にする
+
+追加の指示により、boxrigとelder-termsの曖昧幅文字の既定値をフォント依存へ変更する。本節は、前の実装で1列を既定として維持した仕様に優先する。明示した1列／2列の設定は保ち、フォント計測がない場合の1列へのフォールバックも維持する。
+
+1. コアとサンプルの既定値を変更する。既定値と、明示指定をしない端末での列数を検証してREDを確認し、修正後にGREENを確認する。サンプルの`narrow`指定は、既定値に頼らず1列を明示する。公開説明とAPIコメントを合わせて更新し、コミットする。
+2. elder-termsへ上流コミットを取り込み、設定の既定値、未指定・不正値からのフォールバック、継承表示を変更する。設定と実アプリでRED／GREENを確認し、明示設定の保持、日本語・英語の説明、全体試験までを完了する。サブモジュールのソースは直接変更しない。
+
+完了条件は、設定なしでフォントの送り幅を整数列へ切り上げること、明示した1列／2列と継承を保つこと、両プロジェクトの全体試験を実行して結果を記録することとする。
+
+変更前のコアとPOSIXサンプルの2試験は、新しい既定値の期待に対して失敗した。ログは`/tmp/boxrig-font-default-red.log`にある。追加の機能は設けず、既存のフォント依存の試験を明示指定なしでも実行する。
+
+コア、サンプル、文字配置、IME未確定文字、フォント計測器、矩形コピーの6実行ファイルは、修正後にすべて成功した。既定値の変更前に追加した列数の検証も、明示指定なしで成功している。ログは`/tmp/boxrig-font-default-green.log`にある。
+
 [elder-190-runtime]: https://github.com/kekyo/elder-terms/blob/b62860d358be7209750eb58c67a9d5f66ea7ac58/elder-terms-terminal/src/terminal-runtime.cpp
 [elder-190-boxrig]: https://github.com/kekyo/elder-terms/tree/b62860d358be7209750eb58c67a9d5f66ea7ac58/deps/boxrig
 [elder-settings]: https://github.com/kekyo/elder-terms/blob/f289bde0fb1104219fc2dfb5493a64edc2f19a02/shared/src/settings/terminal-settings.cpp
