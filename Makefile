@@ -1181,7 +1181,7 @@ $(BUILD_DIR)/tests/test_x11_colors: tests/x11/test_x11_colors.c \
 $(BUILD_DIR)/tests/test_pangocairo_colors: tests/pangocairo/test_pangocairo_colors.c \
 		tests/color_renderer_fixture.c tests/color_renderer_fixture.h \
 		src/pangocairo/renderer.c $(PANGO_CANDIDATE_OBJECT) src/pangocairo/renderer.h \
-		src/pangocairo/renderer_private.h src/ui/view_private.h src/ui/color_private.h \
+		src/pangocairo/renderer_private.h src/pangocairo/glyph_fit.h src/ui/glyph_fit.h src/ui/view_private.h src/ui/color_private.h \
 		$(UI_HEADERS) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) -Isrc $(POSIX_CPPFLAGS) \
 		$(PANGO_CAIRO_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) \
@@ -1208,7 +1208,7 @@ $(BUILD_DIR)/tests/measure_pangocairo_partial_unwrapped: PARTIAL_MEASUREMENT_FLA
 $(BUILD_DIR)/tests/measure_pangocairo_partial \
 $(BUILD_DIR)/tests/measure_pangocairo_partial_unwrapped: tests/pangocairo/measure_partial.c \
 		tests/pangocairo/measure_backgrounds.c src/pangocairo/renderer.c \
-		src/pangocairo/renderer.h src/pangocairo/renderer_private.h \
+		src/pangocairo/renderer.h src/pangocairo/renderer_private.h src/pangocairo/glyph_fit.h src/ui/glyph_fit.h \
 		src/ui/view_private.h src/ui/color_private.h $(PANGO_CANDIDATE_OBJECT) \
 		$(UI_HEADERS) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) -Isrc $(POSIX_CPPFLAGS) \
@@ -1225,7 +1225,7 @@ $(BUILD_DIR)/tests/measure_pangocairo_backgrounds_unwrapped: BACKGROUND_MEASUREM
 $(BUILD_DIR)/tests/measure_pangocairo_backgrounds \
 $(BUILD_DIR)/tests/measure_pangocairo_backgrounds_unwrapped: tests/pangocairo/measure_backgrounds.c \
 		src/pangocairo/renderer.c src/pangocairo/renderer.h \
-		src/pangocairo/renderer_private.h src/ui/view_private.h src/ui/color_private.h \
+		src/pangocairo/renderer_private.h src/pangocairo/glyph_fit.h src/ui/glyph_fit.h src/ui/view_private.h src/ui/color_private.h \
 		$(PANGO_CANDIDATE_OBJECT) $(UI_HEADERS) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) -Isrc $(POSIX_CPPFLAGS) \
 		$(PANGO_CAIRO_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) \
@@ -2033,7 +2033,7 @@ $(BUILD_DIR)/gtk4/gl_%.o: src/gtk/gl_%.c src/gtk/gl_area.h src/gtk/gl_surface.h 
 		$(GTK4_CPPFLAGS) $(CFLAGS) $(GTK4_PROJECT_CFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/gtk4/pangocairo_renderer.o: src/pangocairo/renderer.c $(PANGO_CANDIDATE_OBJECT) \
-		src/pangocairo/renderer.h src/pangocairo/renderer_private.h \
+		src/pangocairo/renderer.h src/pangocairo/renderer_private.h src/pangocairo/glyph_fit.h src/ui/glyph_fit.h \
 		src/ui/view_private.h src/ui/color_private.h | \
 		$(BUILD_DIR)/gtk4
 	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(POSIX_CPPFLAGS) \
@@ -2058,7 +2058,7 @@ $(BUILD_DIR)/gtk3/gl_%.o: src/gtk/gl_%.c src/gtk/gl_area.h src/gtk/gl_surface.h 
 		$(GTK3_CPPFLAGS) $(CFLAGS) $(GTK3_PROJECT_CFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/gtk3/pangocairo_renderer.o: src/pangocairo/renderer.c $(PANGO_CANDIDATE_OBJECT) \
-		src/pangocairo/renderer.h src/pangocairo/renderer_private.h \
+		src/pangocairo/renderer.h src/pangocairo/renderer_private.h src/pangocairo/glyph_fit.h src/ui/glyph_fit.h \
 		src/ui/view_private.h src/ui/color_private.h | \
 		$(BUILD_DIR)/gtk3
 	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(POSIX_CPPFLAGS) \
@@ -2071,7 +2071,7 @@ $(BUILD_DIR)/wayland/%.o: src/wayland/%.c $(WAYLAND_PRIVATE_HEADERS) \
 		$(PROJECT_CFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/wayland/pangocairo_renderer.o: src/pangocairo/renderer.c $(PANGO_CANDIDATE_OBJECT) \
-		src/pangocairo/renderer.h src/pangocairo/renderer_private.h \
+		src/pangocairo/renderer.h src/pangocairo/renderer_private.h src/pangocairo/glyph_fit.h src/ui/glyph_fit.h \
 		src/ui/view_private.h src/ui/color_private.h | \
 		$(BUILD_DIR)/wayland
 	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(POSIX_CPPFLAGS) \
@@ -2276,7 +2276,7 @@ $(UI_OBJECTS) $(MINGW_AMD64_UI_OBJECTS) $(MINGW_I686_UI_OBJECTS): \
 	src/ui/color_private.h src/ui/renderer_lifecycle.h src/ui/utf8.h \
 	src/ui/view_private.h src/ui/blink_private.h $(UI_HEADERS) Makefile
 
-$(UI_OBJECTS) $(MINGW_AMD64_UI_OBJECTS) $(MINGW_I686_UI_OBJECTS): src/ui/accessible.h
+$(UI_OBJECTS) $(MINGW_AMD64_UI_OBJECTS) $(MINGW_I686_UI_OBJECTS): src/ui/accessible.h src/ui/glyph_fit.h
 
 $(SESSION_OBJECTS) $(MINGW_AMD64_SESSION_OBJECTS) \
 $(MINGW_I686_SESSION_OBJECTS): include/boxrig/session.h \
@@ -2293,10 +2293,10 @@ $(MINGW_AMD64_INPUT_TEST) $(MINGW_I686_INPUT_TEST): src/ui/input_control.h
 $(X11_OBJECTS): $(X11_HEADERS) $(UI_HEADERS) include/boxrig/terminal.h \
 	src/ui/view_private.h src/ui/color_private.h \
 	include/boxrig/posix.h src/ui/renderer_lifecycle.h src/ui/utf8.h \
-	src/x11/component_private.h src/x11/renderer_private.h Makefile
+	src/x11/component_private.h src/x11/renderer_private.h src/pangocairo/glyph_fit.h src/ui/glyph_fit.h Makefile
 
 $(OPENGL_RENDERER_OBJECTS): $(OPENGL_RENDERER_HEADERS) $(UI_HEADERS) \
-	src/ui/view_private.h src/ui/color_private.h src/opengl/renderer.h src/opengl/runtime.h src/opengl/text_provider.h Makefile
+	src/ui/view_private.h src/ui/color_private.h src/ui/glyph_fit.h src/pangocairo/glyph_fit.h src/opengl/renderer.h src/opengl/runtime.h src/opengl/text_provider.h Makefile
 
 $(X11_OPENGL_OBJECTS): $(X11_HEADERS) $(UI_HEADERS) $(OPENGL_RENDERER_HEADERS) \
 	src/x11/component_private.h src/opengl/renderer.h src/opengl/runtime.h \
@@ -2307,11 +2307,11 @@ $(WAYLAND_OPENGL_OBJECTS): $(WAYLAND_HEADERS) $(WAYLAND_OPENGL_HEADERS) \
 	$(UI_HEADERS) $(OPENGL_RENDERER_HEADERS) $(CORE_PUBLIC_HEADERS) Makefile
 
 $(GTK4_OBJECTS): $(GTK4_HEADERS) $(UI_HEADERS) include/boxrig/terminal.h \
-	src/pangocairo/renderer.h src/pangocairo/renderer_private.h \
+	src/pangocairo/renderer.h src/pangocairo/renderer_private.h src/pangocairo/glyph_fit.h src/ui/glyph_fit.h \
 	src/ui/renderer_lifecycle.h Makefile
 
 $(GTK3_OBJECTS): $(GTK3_HEADERS) $(UI_HEADERS) include/boxrig/terminal.h \
-	src/pangocairo/renderer.h src/pangocairo/renderer_private.h \
+	src/pangocairo/renderer.h src/pangocairo/renderer_private.h src/pangocairo/glyph_fit.h src/ui/glyph_fit.h \
 	src/ui/renderer_lifecycle.h Makefile
 
 $(filter $(BUILD_DIR)/gtk3/% $(BUILD_DIR)/gtk4/%,$(GTK3_OBJECTS) $(GTK4_OBJECTS)): $(GTK_RENDER_CONFIG)
@@ -2324,7 +2324,7 @@ $(GTK_RENDER_CONFIG): $(GTK_RENDER_CONFIG_PREREQUISITE) | $(BUILD_DIR)
 
 $(WAYLAND_OBJECTS): $(WAYLAND_HEADERS) $(UI_HEADERS) \
 	include/boxrig/terminal.h src/pangocairo/renderer.h \
-	src/pangocairo/renderer_private.h src/ui/renderer_lifecycle.h \
+	src/pangocairo/renderer_private.h src/pangocairo/glyph_fit.h src/ui/glyph_fit.h src/ui/renderer_lifecycle.h \
 	src/ui/utf8.h Makefile
 
 $(MINGW_AMD64_WIN32_OBJECTS) $(MINGW_I686_WIN32_OBJECTS): \
@@ -2447,8 +2447,17 @@ $(SELECTION_TEST_BINARY): tests/test_selection.c src/ui/word_break.h \
 		$(PROJECT_CFLAGS) $(SANITIZERS) tests/test_selection.c \
 		$(UI_LIBRARY) $(LIBRARY) $(SANITIZERS) -o $@
 
-.PHONY: test-selection-history
-test: test-selection-history test-selection-layout-provider
+.PHONY: test-selection-history test-rectangular-copy
+test: test-selection-history test-selection-layout-provider test-rectangular-copy
+test-rectangular-copy: $(BUILD_DIR)/tests/test_rectangular_copy
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
+
+$(BUILD_DIR)/tests/test_rectangular_copy: tests/test_rectangular_copy.c \
+		$(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) \
+		$(SANITIZERS) $< $(UI_LIBRARY) $(LIBRARY) $(SANITIZERS) \
+		-Wl,--wrap=malloc -Wl,--wrap=realloc -o $@
+
 test-selection-history: $(BUILD_DIR)/tests/test_selection_history
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
 
@@ -2627,7 +2636,7 @@ $(FRONTEND_SAMPLE_X11_TEST_BINARY): \
 		$(X11_LIBS) $(XTEST_LIBS) $(XEXT_LIBS) $(SANITIZERS) -o $@
 
 $(UI_PLATFORM_FIXTURE_TEST_BINARY): tests/test_ui_platform_fixture.c \
-		src/ui/renderer_lifecycle.h src/x11/renderer_private.h \
+		src/ui/renderer_lifecycle.h src/x11/renderer_private.h src/pangocairo/glyph_fit.h src/ui/glyph_fit.h \
 		$(X11_LIBRARY) $(POSIX_LIBRARY) $(SESSION_LIBRARY) $(UI_LIBRARY) \
 		$(LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) -Isrc $(POSIX_CPPFLAGS) \
@@ -2640,7 +2649,7 @@ $(UI_PLATFORM_FIXTURE_TEST_BINARY): tests/test_ui_platform_fixture.c \
 $(PANGO_CAIRO_FIXTURE_TEST_BINARY): tests/test_ui_platform_fixture.c \
 		src/ui/view_private.h src/ui/color_private.h \
 		src/pangocairo/renderer.c $(PANGO_CANDIDATE_OBJECT) src/pangocairo/renderer.h \
-		src/pangocairo/renderer_private.h src/ui/renderer_lifecycle.h \
+		src/pangocairo/renderer_private.h src/pangocairo/glyph_fit.h src/ui/glyph_fit.h src/ui/renderer_lifecycle.h \
 		$(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) -Isrc $(POSIX_CPPFLAGS) \
 		$(PANGO_CAIRO_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) \
@@ -4248,7 +4257,7 @@ $(BUILD_DIR)/tests/test_gtk3_initial_font: tests/gtk/test_widget_initial_font.c 
 $(BUILD_DIR)/tests/test_gtk4_initial_font: tests/gtk/test_widget_initial_font.c $(GTK4_HEADERS) $(GTK4_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(GTK4_CPPFLAGS) $(CFLAGS) $(GTK4_PROJECT_CFLAGS) $(SANITIZERS) $< $(GTK4_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK4_LIBS) -lm -o $@
 
-$(BUILD_DIR)/tests/test_pangocairo_blink: tests/pangocairo/test_pangocairo_blink.c tests/blink_renderer_fixture.c tests/selection_renderer_fixture.c tests/blink_renderer_fixture.h tests/selection_renderer_fixture.h tests/color_renderer_fixture.h src/pangocairo/renderer.c $(PANGO_CANDIDATE_OBJECT) src/pangocairo/renderer.h src/pangocairo/renderer_private.h src/ui/view_private.h $(UI_HEADERS) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+$(BUILD_DIR)/tests/test_pangocairo_blink: tests/pangocairo/test_pangocairo_blink.c tests/blink_renderer_fixture.c tests/selection_renderer_fixture.c tests/blink_renderer_fixture.h tests/selection_renderer_fixture.h tests/color_renderer_fixture.h src/pangocairo/renderer.c $(PANGO_CANDIDATE_OBJECT) src/pangocairo/renderer.h src/pangocairo/renderer_private.h src/pangocairo/glyph_fit.h src/ui/glyph_fit.h src/ui/view_private.h $(UI_HEADERS) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) -Isrc -Itests $(POSIX_CPPFLAGS) $(PANGO_CAIRO_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< tests/blink_renderer_fixture.c tests/selection_renderer_fixture.c src/pangocairo/renderer.c $(PANGO_CANDIDATE_OBJECT) $(UI_LIBRARY) $(LIBRARY) $(PANGO_CAIRO_LIBS) -o $@
 
 $(BUILD_DIR)/tests/test_opengl_blink: tests/test_opengl_blink.c tests/blink_renderer_fixture.c tests/selection_renderer_fixture.c tests/blink_renderer_fixture.h tests/selection_renderer_fixture.h tests/color_renderer_fixture.h tests/opengl_host.c tests/opengl_host.h $(OPENGL_RENDERER_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
@@ -4437,6 +4446,20 @@ test-native-cursor-box-videos: $(EXAMPLE_BINARY) $(GTK3_EXAMPLE_BINARY) $(GTK4_E
 
 test: test-native-cursor-box-videos
 
+.PHONY: test-native-wide-cursor-videos
+test-native-wide-cursor-videos: $(EXAMPLE_BINARY) $(GTK3_EXAMPLE_BINARY) $(PTY_HELPER_BINARY)
+	$(XVFB_RUN) -a -s '-screen 0 1280x1024x24' env BOXRIG_TEST_WIDE_CURSOR=1 GDK_BACKEND=x11 node tests/run_native_cursor_style_video.mjs $(GTK3_EXAMPLE_BINARY) $(PTY_HELPER_BINARY) $(BUILD_DIR)/test-results/plan10-wide-cursor/gtk3
+	$(XVFB_RUN) -a -s '-screen 0 1280x1024x24' env BOXRIG_TEST_WIDE_CURSOR=1 LIBGL_ALWAYS_SOFTWARE=1 node tests/run_native_cursor_style_video.mjs $(EXAMPLE_BINARY) $(PTY_HELPER_BINARY) $(BUILD_DIR)/test-results/plan10-wide-cursor/opengl opengl
+
+test: test-native-wide-cursor-videos
+
+.PHONY: test-native-font-cursor-videos
+test-native-font-cursor-videos: $(EXAMPLE_BINARY) $(GTK3_EXAMPLE_BINARY) $(PTY_HELPER_BINARY)
+	$(XVFB_RUN) -a -s '-screen 0 1280x1024x24' env BOXRIG_TEST_FONT_CURSOR=1 GDK_BACKEND=x11 node tests/run_native_cursor_style_video.mjs $(GTK3_EXAMPLE_BINARY) $(PTY_HELPER_BINARY) $(BUILD_DIR)/test-results/plan10-font-cursor/gtk3
+	$(XVFB_RUN) -a -s '-screen 0 1280x1024x24' env BOXRIG_TEST_FONT_CURSOR=1 LIBGL_ALWAYS_SOFTWARE=1 node tests/run_native_cursor_style_video.mjs $(EXAMPLE_BINARY) $(PTY_HELPER_BINARY) $(BUILD_DIR)/test-results/plan10-font-cursor/opengl opengl
+
+test: test-native-font-cursor-videos
+
 .PHONY: test-animation-integration
 test-animation-integration: $(BUILD_DIR)/tests/test_cursor_animation_dirty $(BUILD_DIR)/tests/test_animation_integration $(BUILD_DIR)/tests/animation-scheduler-example $(BUILD_DIR)/tests/animation-manual-example
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(BUILD_DIR)/tests/test_cursor_animation_dirty
@@ -4508,7 +4531,8 @@ test: test-native-copy-policy
 test-native-copy-policy: $(EXAMPLE_BINARY) $(GTK3_EXAMPLE_BINARY) $(GTK4_EXAMPLE_BINARY) $(WAYLAND_EXAMPLE_BINARY) $(PTY_HELPER_BINARY) $(GTK3_CLIPBOARD_PEER_BINARY)
 	$(XVFB_RUN) -a -s '-screen 0 1920x1200x24' env  node tests/run_native_copy_policy.mjs $(EXAMPLE_BINARY) $(PTY_HELPER_BINARY) $(GTK3_CLIPBOARD_PEER_BINARY) $(BUILD_DIR)/test-results/step23-copy/x11 x11
 	$(XVFB_RUN) -a -s '-screen 0 1920x1200x24' env LIBGL_ALWAYS_SOFTWARE=1 node tests/run_native_copy_policy.mjs $(EXAMPLE_BINARY) $(PTY_HELPER_BINARY) $(GTK3_CLIPBOARD_PEER_BINARY) $(BUILD_DIR)/test-results/step23-copy/x11-opengl opengl
-	$(XVFB_RUN) -a -s '-screen 0 1920x1200x24' env GDK_BACKEND=x11 node tests/run_native_copy_policy.mjs $(GTK3_EXAMPLE_BINARY) $(PTY_HELPER_BINARY) $(GTK3_CLIPBOARD_PEER_BINARY) $(BUILD_DIR)/test-results/step23-copy/gtk3-x11
+	$(XVFB_RUN) -a -s '-screen 0 1920x1200x24' env GDK_BACKEND=x11 node tests/run_native_copy_policy.mjs $(GTK3_EXAMPLE_BINARY) $(PTY_HELPER_BINARY) $(GTK3_CLIPBOARD_PEER_BINARY) $(BUILD_DIR)/test-results/step23-copy/gtk3-x11 cairo
+	$(XVFB_RUN) -a -s '-screen 0 1920x1200x24' env GDK_BACKEND=x11 LIBGL_ALWAYS_SOFTWARE=1 node tests/run_native_copy_policy.mjs $(GTK3_EXAMPLE_BINARY) $(PTY_HELPER_BINARY) $(GTK3_CLIPBOARD_PEER_BINARY) $(BUILD_DIR)/test-results/step23-copy/gtk3-x11-opengl opengl
 	$(XVFB_RUN) -a -s '-screen 0 1920x1200x24' env $(GTK4_TEST_IM_ENV) GDK_BACKEND=x11 GSK_RENDERER=cairo node tests/run_native_copy_policy.mjs $(GTK4_EXAMPLE_BINARY) $(PTY_HELPER_BINARY) $(GTK3_CLIPBOARD_PEER_BINARY) $(BUILD_DIR)/test-results/step23-copy/gtk4-x11
 	$(XVFB_RUN) -a -s '-screen 0 1920x1200x24' env BOXRIG_TEST_COPY_WAYLAND=1 GDK_BACKEND=wayland node tests/run_native_copy_policy.mjs $(GTK3_EXAMPLE_BINARY) $(PTY_HELPER_BINARY) $(GTK3_CLIPBOARD_PEER_BINARY) $(BUILD_DIR)/test-results/step23-copy/gtk3-wayland
 	$(XVFB_RUN) -a -s '-screen 0 1920x1200x24' env $(GTK4_TEST_IM_ENV) BOXRIG_TEST_COPY_WAYLAND=1 GDK_BACKEND=wayland GSK_RENDERER=cairo node tests/run_native_copy_policy.mjs $(GTK4_EXAMPLE_BINARY) $(PTY_HELPER_BINARY) $(GTK3_CLIPBOARD_PEER_BINARY) $(BUILD_DIR)/test-results/step23-copy/gtk4-wayland

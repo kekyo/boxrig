@@ -779,6 +779,8 @@ static boxrig_ui_status initialize_component_resources(
     if (status != BOXRIG_UI_OK) {
         return status;
     }
+    status = boxrig_win32_renderer_bind_view(component->renderer, component->view);
+    if (status != BOXRIG_UI_OK) return status;
     status = boxrig_ui_view_set_geometry_capabilities(
         component->view,
         BOXRIG_UI_GEOMETRY_SIZE_COMMAND |
@@ -1640,6 +1642,8 @@ static boxrig_ui_status reconfigure_layout_for_font(
     const boxrig_font_effective_metrics *metrics,
     boxrig_ui_layout_change_kind kind)
 {
+    boxrig_ui_status font_binding = boxrig_win32_renderer_bind_view(component->renderer, component->view);
+    if (font_binding != BOXRIG_UI_OK) return font_binding;
     boxrig_ui_layout_change_input input;
     boxrig_ui_layout_result layout;
 

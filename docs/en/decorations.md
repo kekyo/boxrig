@@ -58,6 +58,12 @@ Terminal hiding and IME suppression take precedence for every shape.
 A filled full cell redraws readable glyphs without revealing concealed or
 blink-hidden text.
 
+Block cursors cover the terminal columns occupied by the character at their
+position. A wide character occupies two cells, and a cursor on its continuation
+cell covers the same complete character. Combining sequences and joined emoji
+use the complete grapheme retained by the terminal. Narrow characters and empty
+cells use one cell. Outlined and filled blocks share the same outer bounds.
+
 ## Follow terminal cursor settings
 
 The default style follows the terminal's shape, color, and blinking settings.

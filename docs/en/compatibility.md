@@ -71,8 +71,9 @@ See [Control sequences](./reference/terminal-sequences.md#osc-99-notifications) 
 
 ## Unsupported features
 
-sixel and iTerm2 images, printer output, and GTK interfaces for reading terminal text aloud are unsupported.
-GTK accessibility currently sets the terminal role only.
+sixel and iTerm2 images and printer output are unsupported.
+In addition to the terminal role, GTK 3/4 provides terminal-text publication, disabled by default. When enabled, assistive technologies can retrieve visible text, the caret, selections, character attributes, and change notifications.
+GTK 4 does not provide text-coordinate retrieval or assistive-technology requests to change the caret or selection. See [GTK](./platforms/gtk.md#read-terminal-text-through-assistive-technology) for setup and scope.
 
 Regular-expression recognition has syntax and work limits, and exact search has no Unicode case-folding or normalization options.
 The earlier [search transformation prototype](./search-capability-prototype.md) is not a public feature.

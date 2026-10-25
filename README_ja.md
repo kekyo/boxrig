@@ -47,7 +47,9 @@ Kitty graphicsによるターミナル内の画像表示:
 
 透過背景:
 
-TODO: 透過背景画像
+OpenGLで、透明な端末背景の下に半透明の赤と内蔵背景画像を重ねた例です。
+
+![透過背景の表示例](./images/transparent-background.png)
 
 ## 実装例
 

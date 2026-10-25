@@ -194,6 +194,17 @@ typedef enum boxrig_ogl_failure_point {
 typedef struct boxrig_ogl_renderer boxrig_ogl_renderer;
 
 /**
+ * Installs font measurements and row analysis before terminal input arrives.
+ * @param renderer Live renderer supplying its font policy.
+ * @param view View whose layout authority controls terminal column widths.
+ * @return A UI status, including reflow failures.
+ * @remarks Call before feeding input and after replacing font resources.
+ * The view and renderer may be destroyed in either order.
+ */
+boxrig_ui_status boxrig_ogl_renderer_bind_view(boxrig_ogl_renderer *renderer,
+    boxrig_ui_view *view);
+
+/**
  * Returns conservative bounded defaults for an OpenGL renderer.
  *
  * @return A configuration requiring the caller to supply runtime and target.

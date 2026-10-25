@@ -5,6 +5,7 @@
  */
 
 #include "boxrig/ui/text_layout.h"
+#include "../src/ui/glyph_fit.h"
 
 #include <math.h>
 #include <stdbool.h>
@@ -24,14 +25,14 @@ static bool test_bidi_cell_mapping_and_runs(void)
 {
     const char logical_text[] = "ab\327\251\327\234\327\225\327\235\347\225\214!";
     const boxrig_text_cluster_input clusters[] = {
-        {0, 1, 0, 1, 0, 1, 0, 10, 20, 30},
-        {1, 1, 1, 1, 0, 1, 0, 10, 20, 30},
-        {2, 1, 2, 2, 1, 2, 11, 21, 31, 41},
-        {3, 1, 4, 2, 1, 2, 11, 21, 31, 41},
-        {4, 1, 6, 2, 1, 2, 11, 21, 31, 41},
-        {5, 1, 8, 2, 1, 2, 11, 21, 31, 41},
-        {6, 2, 10, 3, 0, 3, 12, 22, 32, 42},
-        {8, 1, 13, 1, 0, 1, 0, 10, 20, 30},
+        {0, 1, 0, 1, 0, 1, 0, 10, 20, 30, false},
+        {1, 1, 1, 1, 0, 1, 0, 10, 20, 30, false},
+        {2, 1, 2, 2, 1, 2, 11, 21, 31, 41, false},
+        {3, 1, 4, 2, 1, 2, 11, 21, 31, 41, false},
+        {4, 1, 6, 2, 1, 2, 11, 21, 31, 41, false},
+        {5, 1, 8, 2, 1, 2, 11, 21, 31, 41, false},
+        {6, 2, 10, 3, 0, 3, 12, 22, 32, 42, false},
+        {8, 1, 13, 1, 0, 1, 0, 10, 20, 30, false},
     };
     const size_t expected_logical_to_visual[] = {0, 1, 5, 4, 3, 2, 6, 7, 8};
     boxrig_text_layout *layout = NULL;
@@ -89,12 +90,12 @@ static bool test_bidi_cell_mapping_and_runs(void)
 static bool test_dirty_uses_shaping_context(void)
 {
     const boxrig_text_cluster_input clusters[] = {
-        {0, 1, 0, 2, 1, 1, 0, 7, 8, 9},
-        {1, 1, 2, 2, 1, 1, 0, 7, 8, 9},
-        {2, 1, 4, 2, 1, 1, 0, 7, 8, 9},
-        {3, 1, 6, 2, 1, 2, 0, 7, 8, 9},
-        {4, 2, 8, 3, 2, 3, 0, 7, 8, 9},
-        {6, 1, 11, 1, 2, 3, 0, 7, 8, 9},
+        {0, 1, 0, 2, 1, 1, 0, 7, 8, 9, false},
+        {1, 1, 2, 2, 1, 1, 0, 7, 8, 9, false},
+        {2, 1, 4, 2, 1, 1, 0, 7, 8, 9, false},
+        {3, 1, 6, 2, 1, 2, 0, 7, 8, 9, false},
+        {4, 2, 8, 3, 2, 3, 0, 7, 8, 9, false},
+        {6, 1, 11, 1, 2, 3, 0, 7, 8, 9, false},
     };
     boxrig_text_layout *layout = NULL;
     boxrig_text_layout_range ranges[3];
@@ -128,12 +129,12 @@ static bool test_dirty_uses_shaping_context(void)
 static bool test_visual_ranges_follow_exact_bidi_cells(void)
 {
     const boxrig_text_cluster_input clusters[] = {
-        {0, 1, 0, 1, 0, 1, 0, 1, 1, 1},
-        {1, 1, 1, 1, 0, 1, 0, 1, 1, 1},
-        {2, 1, 2, 2, 1, 1, 0, 1, 1, 1},
-        {3, 1, 4, 2, 1, 1, 0, 1, 1, 1},
-        {4, 1, 6, 2, 1, 1, 0, 1, 1, 1},
-        {5, 1, 8, 1, 0, 1, 0, 1, 1, 1},
+        {0, 1, 0, 1, 0, 1, 0, 1, 1, 1, false},
+        {1, 1, 1, 1, 0, 1, 0, 1, 1, 1, false},
+        {2, 1, 2, 2, 1, 1, 0, 1, 1, 1, false},
+        {3, 1, 4, 2, 1, 1, 0, 1, 1, 1, false},
+        {4, 1, 6, 2, 1, 1, 0, 1, 1, 1, false},
+        {5, 1, 8, 1, 0, 1, 0, 1, 1, 1, false},
     };
     boxrig_text_layout_range ranges[3];
     boxrig_text_layout *layout = NULL;
@@ -160,11 +161,11 @@ static bool test_visual_ranges_follow_exact_bidi_cells(void)
 static bool test_invalid_layout_is_rejected(void)
 {
     const boxrig_text_cluster_input gap[] = {
-        {0, 1, 0, 1, 0, 1, 0, 1, 1, 1},
-        {2, 1, 1, 1, 0, 1, 0, 1, 1, 1},
+        {0, 1, 0, 1, 0, 1, 0, 1, 1, 1, false},
+        {2, 1, 1, 1, 0, 1, 0, 1, 1, 1, false},
     };
     const boxrig_text_cluster_input zero_width[] = {
-        {0, 0, 0, 1, 0, 1, 0, 1, 1, 1},
+        {0, 0, 0, 1, 0, 1, 0, 1, 1, 1, false},
     };
     boxrig_text_layout *layout = NULL;
     size_t mapped = 0;
@@ -614,9 +615,33 @@ static bool test_font_configuration_validation(void)
     return true;
 }
 
+static bool test_individual_natural_advances(void)
+{
+    const boxrig_text_cluster_input clusters[] = {
+        {.logical_column = 0, .column_count = 3, .text_offset = 0,
+            .text_length = 3, .preserve_advance = true},
+        {.logical_column = 3, .column_count = 3, .text_offset = 3,
+            .text_length = 3, .preserve_advance = true},
+    };
+    boxrig_text_layout *layout = NULL;
+    CHECK(boxrig_text_layout_create(clusters, 2, 6, BOXRIG_TEXT_DIRECTION_LTR,
+        &layout) == BOXRIG_TEXT_LAYOUT_OK);
+    boxrig_ui_glyph_span spans[] = {
+        {.text_offset = 0, .text_length = 3, .glyph_count = 1, .natural_width = 21},
+        {.text_offset = 3, .text_length = 3, .first_glyph = 1, .glyph_count = 1,
+            .natural_width = 21},
+    };
+    CHECK(boxrig_ui_fit_glyph_spans(layout, spans, 2) == 2);
+    CHECK(spans[0].preserve_advance && spans[1].preserve_advance);
+    CHECK(spans[0].column_count == 3 && spans[1].visual_column == 3);
+    CHECK(spans[0].natural_width == 21 && spans[1].natural_width == 21);
+    boxrig_text_layout_destroy(layout);
+    return true;
+}
+
 int main(void)
 {
-    if (!test_bidi_cell_mapping_and_runs() ||
+    if (!test_individual_natural_advances() || !test_bidi_cell_mapping_and_runs() ||
         !test_dirty_uses_shaping_context() ||
         !test_visual_ranges_follow_exact_bidi_cells() ||
         !test_invalid_layout_is_rejected() ||

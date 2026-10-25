@@ -5,9 +5,11 @@
  */
 
 #include "boxrig/ui/text_layout.h"
+#include "glyph_fit.h"
 
 #include <float.h>
 #include <limits.h>
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -23,6 +25,70 @@ struct boxrig_text_layout {
     size_t *visual_to_logical;
     boxrig_text_layout_run *runs;
 };
+
+static void merge_glyph_span(boxrig_ui_glyph_span *left,
+    const boxrig_ui_glyph_span *right)
+{
+    size_t end = left->visual_column + left->column_count;
+    size_t right_end = right->visual_column + right->column_count;
+    if (right->visual_column < left->visual_column) left->visual_column = right->visual_column;
+    if (right_end > end) end = right_end;
+    left->column_count = end - left->visual_column;
+    if (right->first_glyph < left->first_glyph) left->first_glyph = right->first_glyph;
+    left->glyph_count += right->glyph_count;
+    left->text_length = right->text_offset + right->text_length - left->text_offset;
+    left->natural_width += right->natural_width;
+    left->preserve_advance = left->preserve_advance || right->preserve_advance;
+}
+
+size_t boxrig_ui_fit_glyph_spans(const boxrig_text_layout *layout,
+    boxrig_ui_glyph_span *spans, size_t count)
+{
+    if (layout == NULL || spans == NULL || count == 0) return 0;
+    size_t cluster_index = 0, combined = 0;
+    /* Native font fallback may split one terminal grapheme into several
+     * clusters. Keep those together before comparing advance ratios. */
+    for (size_t i = 0; i < count; i++) {
+        boxrig_ui_glyph_span span = spans[i];
+        if (span.text_length == 0 || span.text_length > SIZE_MAX - span.text_offset ||
+            span.glyph_count == 0 || !isfinite(span.natural_width)) return 0;
+        size_t text_end = span.text_offset + span.text_length;
+        while (cluster_index < layout->cluster_count &&
+            layout->clusters[cluster_index].text_offset +
+                layout->clusters[cluster_index].text_length <= span.text_offset) cluster_index++;
+        size_t first = SIZE_MAX, end = 0;
+        span.preserve_advance = false;
+        for (size_t j = cluster_index; j < layout->cluster_count &&
+                layout->clusters[j].text_offset < text_end; j++) {
+            size_t column = layout->cluster_visual_columns[j];
+            span.preserve_advance = span.preserve_advance || layout->clusters[j].preserve_advance;
+            if (column < first) first = column;
+            if (column + layout->clusters[j].column_count > end)
+                end = column + layout->clusters[j].column_count;
+        }
+        if (first >= end) return 0;
+        span.visual_column = first;
+        span.column_count = end - first;
+        boxrig_ui_glyph_span *previous = combined == 0 ? NULL : &spans[combined-1];
+        if (previous != NULL && first < previous->visual_column + previous->column_count &&
+            previous->visual_column < end) merge_glyph_span(previous, &span);
+        else spans[combined++] = span;
+    }
+    size_t fitted = 0;
+    for (size_t i = 0; i < combined; i++) {
+        boxrig_ui_glyph_span span = spans[i];
+        boxrig_ui_glyph_span *previous = fitted == 0 ? NULL : &spans[fitted-1];
+        if (previous != NULL && !previous->preserve_advance && !span.preserve_advance &&
+            previous->natural_width > 0 && span.natural_width > 0 &&
+            (previous->visual_column + previous->column_count == span.visual_column ||
+             span.visual_column + span.column_count == previous->visual_column) &&
+            fabs(previous->natural_width * span.column_count -
+                span.natural_width * previous->column_count) < 0.000001)
+            merge_glyph_span(previous, &span);
+        else spans[fitted++] = span;
+    }
+    return fitted;
+}
 
 typedef struct boxrig_font_catalog_entry {
     boxrig_font_resource resource;

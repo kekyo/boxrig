@@ -31,15 +31,15 @@ static bool text_hit_resolves_grapheme_edges_and_bidi_direction(void)
 {
     static const uint8_t text[] = "A\xe7\x95\x8c" "B\r\nA\xd7\x90\xd7\x91" "B";
     const boxrig_text_cluster_input first_row[] = {
-        {0, 1, 0, 1, 0, 1, 0, 1, 1, 1},
-        {1, 2, 1, 3, 0, 1, 0, 1, 1, 1},
-        {3, 1, 4, 1, 0, 1, 0, 1, 1, 1},
+        {0, 1, 0, 1, 0, 1, 0, 1, 1, 1, false},
+        {1, 2, 1, 3, 0, 1, 0, 1, 1, 1, false},
+        {3, 1, 4, 1, 0, 1, 0, 1, 1, 1, false},
     };
     const boxrig_text_cluster_input second_row[] = {
-        {0, 1, 0, 1, 0, 1, 0, 1, 1, 1},
-        {1, 1, 1, 2, 1, 1, 0, 1, 1, 1},
-        {2, 1, 3, 2, 1, 1, 0, 1, 1, 1},
-        {3, 1, 5, 1, 0, 1, 0, 1, 1, 1},
+        {0, 1, 0, 1, 0, 1, 0, 1, 1, 1, false},
+        {1, 1, 1, 2, 1, 1, 0, 1, 1, 1, false},
+        {2, 1, 3, 2, 1, 1, 0, 1, 1, 1, false},
+        {3, 1, 5, 1, 0, 1, 0, 1, 1, 1, false},
     };
     boxrig_terminal_config terminal_config = boxrig_terminal_config_default();
     boxrig_ui_view_config view_config = boxrig_ui_view_config_default();
@@ -144,12 +144,12 @@ static bool character_selection_copy_is_owned_bounded_and_view_local(void)
 {
     static const uint8_t text[] = "hello world";
     const boxrig_text_cluster_input row_layout[] = {
-        {0, 1, 0, 1, 0, 1, 0, 1, 1, 1},
-        {1, 1, 1, 1, 0, 1, 0, 1, 1, 1},
-        {2, 1, 2, 1, 0, 1, 0, 1, 1, 1},
-        {3, 1, 3, 1, 0, 1, 0, 1, 1, 1},
-        {4, 1, 4, 1, 0, 1, 0, 1, 1, 1},
-        {5, 1, 5, 1, 0, 1, 0, 1, 1, 1},
+        {0, 1, 0, 1, 0, 1, 0, 1, 1, 1, false},
+        {1, 1, 1, 1, 0, 1, 0, 1, 1, 1, false},
+        {2, 1, 2, 1, 0, 1, 0, 1, 1, 1, false},
+        {3, 1, 3, 1, 0, 1, 0, 1, 1, 1, false},
+        {4, 1, 4, 1, 0, 1, 0, 1, 1, 1, false},
+        {5, 1, 5, 1, 0, 1, 0, 1, 1, 1, false},
     };
     boxrig_terminal_config terminal_config = boxrig_terminal_config_default();
     boxrig_ui_view_config view_config = boxrig_ui_view_config_default();
@@ -719,23 +719,23 @@ static bool rectangular_selection_preserves_graphemes_and_bidi_order(void)
         "\xf0\x9f\x91\xa9\xe2\x80\x8d\xf0\x9f\x92\xbb" "Z\r\n"
         "ab\xd7\xa9\xd7\x9c\xd7\x95\xd7\x9d\xe7\x95\x8c";
     const boxrig_text_cluster_input first_layout[] = {
-        {0, 1, 0, 1, 0, 1, 0, 1, 1, 1},
-        {1, 2, 1, 3, 0, 1, 0, 1, 1, 1},
-        {3, 1, 4, 3, 0, 1, 0, 1, 1, 1},
-        {4, 2, 7, 11, 0, 1, 0, 1, 1, 1},
-        {6, 1, 18, 1, 0, 1, 0, 1, 1, 1},
-        {7, 1, 19, 1, 0, 1, 0, 1, 1, 1},
-        {8, 1, 20, 1, 0, 1, 0, 1, 1, 1},
+        {0, 1, 0, 1, 0, 1, 0, 1, 1, 1, false},
+        {1, 2, 1, 3, 0, 1, 0, 1, 1, 1, false},
+        {3, 1, 4, 3, 0, 1, 0, 1, 1, 1, false},
+        {4, 2, 7, 11, 0, 1, 0, 1, 1, 1, false},
+        {6, 1, 18, 1, 0, 1, 0, 1, 1, 1, false},
+        {7, 1, 19, 1, 0, 1, 0, 1, 1, 1, false},
+        {8, 1, 20, 1, 0, 1, 0, 1, 1, 1, false},
     };
     const boxrig_text_cluster_input bidi_layout[] = {
-        {0, 1, 0, 1, 0, 1, 0, 1, 1, 1},
-        {1, 1, 1, 1, 0, 1, 0, 1, 1, 1},
-        {2, 1, 2, 2, 1, 1, 0, 1, 1, 1},
-        {3, 1, 4, 2, 1, 1, 0, 1, 1, 1},
-        {4, 1, 6, 2, 1, 1, 0, 1, 1, 1},
-        {5, 1, 8, 2, 1, 1, 0, 1, 1, 1},
-        {6, 2, 10, 3, 0, 1, 0, 1, 1, 1},
-        {8, 1, 13, 1, 0, 1, 0, 1, 1, 1},
+        {0, 1, 0, 1, 0, 1, 0, 1, 1, 1, false},
+        {1, 1, 1, 1, 0, 1, 0, 1, 1, 1, false},
+        {2, 1, 2, 2, 1, 1, 0, 1, 1, 1, false},
+        {3, 1, 4, 2, 1, 1, 0, 1, 1, 1, false},
+        {4, 1, 6, 2, 1, 1, 0, 1, 1, 1, false},
+        {5, 1, 8, 2, 1, 1, 0, 1, 1, 1, false},
+        {6, 2, 10, 3, 0, 1, 0, 1, 1, 1, false},
+        {8, 1, 13, 1, 0, 1, 0, 1, 1, 1, false},
     };
     boxrig_terminal_config terminal_config = boxrig_terminal_config_default();
     boxrig_ui_view_config view_config = boxrig_ui_view_config_default();
@@ -957,6 +957,7 @@ static bool rectangular_selection_distinguishes_soft_and_hard_rows(void)
     boxrig_text_cluster_input clusters[4];
     boxrig_terminal_config terminal_config = boxrig_terminal_config_default();
     boxrig_ui_view_config view_config = boxrig_ui_view_config_default();
+    view_config.rectangular_copy_policy = BOXRIG_UI_RECTANGULAR_COPY_PRESERVE_SPACES;
     boxrig_ui_allocation_input allocation;
     boxrig_ui_layout_result layout_result;
     boxrig_ui_hit_test_result anchor_hit;

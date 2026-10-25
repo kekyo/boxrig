@@ -234,10 +234,10 @@ static boxrig_ui_fixed pixels(int64_t value)
 static bool fixed_grid_layout_hit_test_and_retained_mapping(void)
 {
     const boxrig_text_cluster_input clusters[] = {
-        {0, 1, 0, 1, 0, 1, 0, 1, 1, 1},
-        {1, 1, 1, 1, 1, 1, 0, 1, 1, 1},
-        {2, 1, 2, 1, 1, 1, 0, 1, 1, 1},
-        {3, 1, 3, 1, 0, 1, 0, 1, 1, 1},
+        {0, 1, 0, 1, 0, 1, 0, 1, 1, 1, false},
+        {1, 1, 1, 1, 1, 1, 0, 1, 1, 1, false},
+        {2, 1, 2, 1, 1, 1, 0, 1, 1, 1, false},
+        {3, 1, 3, 1, 0, 1, 0, 1, 1, 1, false},
     };
     boxrig_terminal_config terminal_config = boxrig_terminal_config_default();
     boxrig_ui_view_config view_config = boxrig_ui_view_config_default();
@@ -1299,12 +1299,12 @@ static bool editable_replacement_is_transactional_and_retryable(void)
 static bool text_annotations_are_atomic_revisioned_and_bidi_exact(void)
 {
     const boxrig_text_cluster_input clusters[] = {
-        {0, 1, 0, 1, 0, 1, 0, 1, 1, 1},
-        {1, 1, 1, 1, 0, 1, 0, 1, 1, 1},
-        {2, 1, 2, 1, 1, 1, 0, 1, 1, 1},
-        {3, 1, 3, 1, 1, 1, 0, 1, 1, 1},
-        {4, 1, 4, 1, 1, 1, 0, 1, 1, 1},
-        {5, 1, 5, 1, 0, 1, 0, 1, 1, 1},
+        {0, 1, 0, 1, 0, 1, 0, 1, 1, 1, false},
+        {1, 1, 1, 1, 0, 1, 0, 1, 1, 1, false},
+        {2, 1, 2, 1, 1, 1, 0, 1, 1, 1, false},
+        {3, 1, 3, 1, 1, 1, 0, 1, 1, 1, false},
+        {4, 1, 4, 1, 1, 1, 0, 1, 1, 1, false},
+        {5, 1, 5, 1, 0, 1, 0, 1, 1, 1, false},
     };
     boxrig_terminal_config terminal_config = boxrig_terminal_config_default();
     boxrig_ui_view_config view_config = boxrig_ui_view_config_default();

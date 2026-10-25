@@ -99,6 +99,7 @@ static void destroy_colors(void *context)
 }
 
 static bool cursor_style_scaled;
+static bool font_fixture;
 
 static bool create_colors(boxrig_test_color_renderer *renderer)
 {
@@ -130,6 +131,17 @@ static bool create_colors(boxrig_test_color_renderer *renderer)
         boxrig_d3d11_renderer_get_metrics(host->renderer, &metrics) == -1) {
         destroy_colors(host);
         return false;
+    }
+    if (font_fixture) {
+        const char path[] = "tests/fixtures/width-fractional.otf";
+        boxrig_font_resource_id resource;
+        if (boxrig_d3d11_renderer_register_font_file(host->renderer, path, strlen(path), 0,
+                &resource) != BOXRIG_FONT_CATALOG_OK) return false;
+        boxrig_font_family family = {"Boxrig Width Fixture", 20, resource};
+        boxrig_font_specification spec = boxrig_font_specification_default();
+        spec.families = &family; spec.family_count = 1; spec.size_dip = 20;
+        if (boxrig_d3d11_renderer_set_font(host->renderer, &spec, &config.rendering_policy) != BOXRIG_FONT_CATALOG_OK ||
+            boxrig_d3d11_renderer_get_metrics(host->renderer, &metrics) == -1) return false;
     }
     *renderer = (boxrig_test_color_renderer){host,
         metrics.cell_width, metrics.cell_height, draw_colors, capture_colors,
@@ -620,6 +632,9 @@ int main(int argc, char **argv)
         const char *const names[] = {"GDI", "D3D11", "GDI restored"};
         CHECK(boxrig_test_renderer_decoration_views(factories, names, 3));
         CHECK(boxrig_test_renderer_colors(create_colors));
+        font_fixture = true;
+        CHECK(boxrig_test_renderer_font_positions(create_colors));
+        font_fixture = false;
         puts("PASS D3D11 display color fixture");
         CHECK(boxrig_test_renderer_filled_cursor(create_colors, 1));
         CHECK(boxrig_test_renderer_selection_style(create_colors, 3, 3));

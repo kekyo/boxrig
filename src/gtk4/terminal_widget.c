@@ -977,6 +977,8 @@ static boxrig_ui_status apply_layout_change_for_metrics(
     const boxrig_font_effective_metrics *metrics,
     boxrig_ui_layout_change_kind kind)
 {
+    boxrig_ui_status font_binding = boxrig_pango_cairo_renderer_bind_view(widget->renderer, widget->view);
+    if (font_binding != BOXRIG_UI_OK) return font_binding;
     boxrig_ui_layout_change_input input;
     boxrig_ui_layout_result layout;
 
@@ -2056,6 +2058,8 @@ static boxrig_ui_status initialize_widget_resources(
     if (status != BOXRIG_UI_OK) {
         return status;
     }
+    status = boxrig_pango_cairo_renderer_bind_view(widget->renderer, widget->view);
+    if (status != BOXRIG_UI_OK) return status;
     status = boxrig_ui_view_set_geometry_capabilities(
         widget->view,
         BOXRIG_UI_GEOMETRY_SIZE_COMMAND);

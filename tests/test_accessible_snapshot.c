@@ -179,16 +179,16 @@ int main(void)
     feed(terminal, "\033[2J\033[HAאבB");
     CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
     const boxrig_text_cluster_input bidi_clusters[] = {
-        {0, 1, 0, 1, 0, 1, 0, 1, 1, 1},
-        {1, 1, 1, 2, 1, 1, 0, 1, 1, 1},
-        {2, 1, 3, 2, 1, 1, 0, 1, 1, 1},
-        {3, 1, 5, 1, 0, 1, 0, 1, 1, 1},
-        {4, 1, 6, 1, 0, 1, 0, 1, 1, 1},
-        {5, 1, 7, 1, 0, 1, 0, 1, 1, 1},
-        {6, 1, 8, 1, 0, 1, 0, 1, 1, 1},
-        {7, 1, 9, 1, 0, 1, 0, 1, 1, 1},
-        {8, 1, 10, 1, 0, 1, 0, 1, 1, 1},
-        {9, 1, 11, 1, 0, 1, 0, 1, 1, 1}
+        {0, 1, 0, 1, 0, 1, 0, 1, 1, 1, false},
+        {1, 1, 1, 2, 1, 1, 0, 1, 1, 1, false},
+        {2, 1, 3, 2, 1, 1, 0, 1, 1, 1, false},
+        {3, 1, 5, 1, 0, 1, 0, 1, 1, 1, false},
+        {4, 1, 6, 1, 0, 1, 0, 1, 1, 1, false},
+        {5, 1, 7, 1, 0, 1, 0, 1, 1, 1, false},
+        {6, 1, 8, 1, 0, 1, 0, 1, 1, 1, false},
+        {7, 1, 9, 1, 0, 1, 0, 1, 1, 1, false},
+        {8, 1, 10, 1, 0, 1, 0, 1, 1, 1, false},
+        {9, 1, 11, 1, 0, 1, 0, 1, 1, 1, false}
     };
     boxrig_text_layout *bidi_layout = NULL;
     CHECK(boxrig_text_layout_create(bidi_clusters, 10, 10, BOXRIG_TEXT_DIRECTION_LTR,

@@ -38,7 +38,18 @@ struct boxrig_ui_fragment_layout_provider {
     size_t references;
     boxrig_ui_fragment_layout_resolver resolve;
     boxrig_ui_fragment_layout_revision_reader read_revision;
+    boxrig_font_width_resolver font_width;
     void *context;
+    /* Short graphemes dominate terminal traffic. Longer clusters remain valid
+     * but bypass this fixed-size cache, keeping provider memory bounded. */
+    struct {
+        uint8_t text[64];
+        size_t length;
+        uint32_t attributes;
+        double advance;
+    } widths[64];
+    uint64_t width_revision;
+    size_t next_width;
 };
 
 typedef struct boxrig_ui_retained_text_annotation {
@@ -116,6 +127,8 @@ struct boxrig_ui_host_item_consumer {
 
 struct boxrig_ui_view {
     boxrig_ui_fragment_layout_provider *fragment_layout_provider;
+    uint64_t font_width_revision;
+    bool font_width_installed;
     uint64_t selection_layout_revision;
     bool resolving_fragment_layout;
     boxrig_ui_rgba background_color;
@@ -140,6 +153,7 @@ struct boxrig_ui_view {
     size_t column_count;
     size_t maximum_retained_layout_bytes;
     size_t maximum_copy_bytes;
+    boxrig_ui_rectangular_copy_policy rectangular_copy_policy;
     size_t maximum_annotation_count;
     size_t maximum_selection_rows;
     size_t maximum_selection_ranges;
@@ -197,6 +211,7 @@ struct boxrig_ui_view {
 };
 
 static void mark_rectangular_selection_stale(boxrig_ui_view *view);
+static boxrig_ui_status ui_status_from_terminal(boxrig_status status);
 static boxrig_ui_status animation_model_changed(boxrig_ui_model *model);
 static boxrig_ui_status animation_model_update_time(boxrig_ui_model *model);
 static boxrig_ui_status animation_prepare_change(
@@ -228,11 +243,12 @@ boxrig_ui_status boxrig_ui_fragment_layout_provider_create(
 {
     if (resolver == NULL || read_revision == NULL || provider_out == NULL) return BOXRIG_UI_INVALID_ARGUMENT;
     *provider_out = NULL;
-    boxrig_ui_fragment_layout_provider *provider = malloc(sizeof(*provider));
+    boxrig_ui_fragment_layout_provider *provider = calloc(1, sizeof(*provider));
     if (provider == NULL) return BOXRIG_UI_OUT_OF_MEMORY;
     provider->references = 1;
     provider->resolve = resolver;
     provider->read_revision = read_revision;
+    provider->font_width = NULL;
     provider->context = context;
     *provider_out = provider;
     return BOXRIG_UI_OK;
@@ -243,6 +259,7 @@ void boxrig_ui_fragment_layout_provider_destroy(boxrig_ui_fragment_layout_provid
     if (provider == NULL) return;
     provider->resolve = NULL;
     provider->read_revision = NULL;
+    provider->font_width = NULL;
     provider->context = NULL;
     release_fragment_layout_provider(provider);
 }
@@ -252,6 +269,72 @@ static uint64_t fragment_layout_revision(const boxrig_ui_view *view)
     boxrig_ui_fragment_layout_provider *provider = view->fragment_layout_provider;
     return provider != NULL && provider->read_revision != NULL
         ? provider->read_revision(provider->context) : 0;
+}
+
+boxrig_ui_status boxrig_ui_fragment_layout_provider_set_font_width_resolver(
+    boxrig_ui_fragment_layout_provider *provider, boxrig_font_width_resolver resolver)
+{
+    if (provider == NULL || provider->resolve == NULL || provider->references != 1)
+        return BOXRIG_UI_INVALID_ARGUMENT;
+    provider->font_width = resolver;
+    memset(provider->widths, 0, sizeof(provider->widths));
+    provider->next_width = 0;
+    return BOXRIG_UI_OK;
+}
+
+static double resolve_font_width(void *context, const uint8_t *text,
+    size_t length, uint32_t attributes)
+{
+    boxrig_ui_view *view = context;
+    boxrig_ui_fragment_layout_provider *provider = view->fragment_layout_provider;
+    if (provider == NULL || provider->font_width == NULL) return 0;
+    uint64_t revision = fragment_layout_revision(view);
+    if (provider->width_revision != revision) {
+        memset(provider->widths, 0, sizeof(provider->widths));
+        provider->width_revision = revision;
+        provider->next_width = 0;
+    }
+    if (length <= sizeof(provider->widths[0].text)) {
+        for (size_t i = 0; i < 64; i++) {
+            if (provider->widths[i].length == length &&
+                provider->widths[i].attributes == attributes &&
+                memcmp(provider->widths[i].text, text, length) == 0)
+                return provider->widths[i].advance;
+        }
+    }
+    double advance = provider->font_width(provider->context, text, length, attributes);
+    if (length > 0 && length <= sizeof(provider->widths[0].text) &&
+        isfinite(advance) && advance > 0) {
+        size_t i = provider->next_width++ % 64;
+        memcpy(provider->widths[i].text, text, length);
+        provider->widths[i].length = length;
+        provider->widths[i].attributes = attributes;
+        provider->widths[i].advance = advance;
+    }
+    return advance;
+}
+
+static boxrig_ui_status synchronize_font_width(boxrig_ui_view *view, bool changed)
+{
+    if (!boxrig_ui_view_is_layout_authority(view) ||
+        boxrig_terminal_ambiguous_width(view->model->terminal) != BOXRIG_AMBIGUOUS_WIDTH_FONT)
+        return BOXRIG_UI_OK;
+    boxrig_ui_fragment_layout_provider *provider = view->fragment_layout_provider;
+    bool available = provider != NULL && provider->font_width != NULL;
+    uint64_t revision = available ? fragment_layout_revision(view) : 0;
+    if (available && (changed || !view->font_width_installed ||
+            view->font_width_revision != revision)) {
+        boxrig_ui_status status = ui_status_from_terminal(boxrig_terminal_set_font_width_resolver(
+            view->model->terminal, resolve_font_width, view));
+        if (status != BOXRIG_UI_OK) return status;
+        view->font_width_installed = true;
+        view->font_width_revision = revision;
+    } else if (!available && view->font_width_installed) {
+        (void)boxrig_terminal_set_font_width_resolver(view->model->terminal, NULL, NULL);
+        view->font_width_installed = false;
+        view->font_width_revision = 0;
+    }
+    return BOXRIG_UI_OK;
 }
 
 static bool selection_layout_is_current(const boxrig_ui_view *view)
@@ -266,8 +349,16 @@ boxrig_ui_status boxrig_ui_view_set_fragment_layout_provider(
 {
     if (view == NULL || (provider != NULL && provider->resolve == NULL)) return BOXRIG_UI_INVALID_ARGUMENT;
     if (view->resolving_fragment_layout || view->resolving_colors) return BOXRIG_UI_BUSY;
-    if (view->fragment_layout_provider == provider) return BOXRIG_UI_OK;
+    if (view->fragment_layout_provider == provider) return synchronize_font_width(view, false);
     if (provider != NULL && provider->references == SIZE_MAX) return BOXRIG_UI_LIMIT_EXCEEDED;
+    boxrig_ui_fragment_layout_provider *previous = view->fragment_layout_provider;
+    view->fragment_layout_provider = provider;
+    boxrig_ui_status status = synchronize_font_width(view, true);
+    if (status != BOXRIG_UI_OK) {
+        view->fragment_layout_provider = previous;
+        return status;
+    }
+    view->fragment_layout_provider = previous;
     if (view->fragment_layout_provider != NULL) {
         mark_rectangular_selection_stale(view);
         /* Published geometry still describes the displayed frame. Keep it for
@@ -2029,6 +2120,7 @@ boxrig_ui_view_config boxrig_ui_view_config_default(void)
     config.maximum_retained_color_bytes = BOXRIG_UI_COLOR_PAINT_BYTES_DEFAULT;
     config.maximum_background_image_bytes = 64u * 1024u * 1024u;
     config.maximum_copy_bytes = BOXRIG_UI_COPY_CAPACITY_DEFAULT;
+    config.rectangular_copy_policy = BOXRIG_UI_RECTANGULAR_COPY_TRIM_TRAILING_SPACES;
     config.maximum_annotation_count =
         BOXRIG_UI_ANNOTATION_CAPACITY_DEFAULT;
     config.maximum_selection_rows =
@@ -2164,6 +2256,7 @@ void boxrig_ui_model_destroy(boxrig_ui_model *model)
     }
     for (view = model->first_view; view != NULL; view = view->next_view) {
         boxrig_ui_animation_runtime_detach(view);
+        boxrig_ui_view_release_layout_authority(view);
         view->model = NULL;
     }
     if (model->host_item_consumer != NULL) {
@@ -2517,6 +2610,8 @@ boxrig_ui_status boxrig_ui_view_create(
         config->maximum_retained_color_bytes > BOXRIG_UI_COLOR_PAINT_BYTES_MAX ||
         config->maximum_background_image_bytes > 256u * 1024u * 1024u ||
         config->maximum_copy_bytes > BOXRIG_UI_COPY_CAPACITY_MAX ||
+        (config->rectangular_copy_policy != BOXRIG_UI_RECTANGULAR_COPY_PRESERVE_SPACES &&
+         config->rectangular_copy_policy != BOXRIG_UI_RECTANGULAR_COPY_TRIM_TRAILING_SPACES) ||
         config->maximum_annotation_count >
             BOXRIG_UI_ANNOTATION_CAPACITY_MAX ||
         config->maximum_selection_rows == 0 ||
@@ -2559,6 +2654,7 @@ boxrig_ui_status boxrig_ui_view_create(
     view->maximum_retained_color_bytes = config->maximum_retained_color_bytes;
     view->maximum_background_image_bytes = config->maximum_background_image_bytes;
     view->maximum_copy_bytes = config->maximum_copy_bytes;
+    view->rectangular_copy_policy = config->rectangular_copy_policy;
     view->maximum_annotation_count = config->maximum_annotation_count;
     view->maximum_selection_rows = config->maximum_selection_rows;
     view->maximum_selection_ranges = config->maximum_selection_ranges;
@@ -2698,13 +2794,20 @@ boxrig_ui_status boxrig_ui_view_acquire_layout_authority(
         return BOXRIG_UI_UNAVAILABLE;
     }
     view->model->layout_authority = view;
-    return BOXRIG_UI_OK;
+    boxrig_ui_status status = synchronize_font_width(view, false);
+    if (status != BOXRIG_UI_OK) view->model->layout_authority = NULL;
+    return status;
 }
 
 void boxrig_ui_view_release_layout_authority(boxrig_ui_view *view)
 {
     if (view != NULL && view->model != NULL &&
         view->model->layout_authority == view) {
+        if (view->font_width_installed) {
+            (void)boxrig_terminal_set_font_width_resolver(view->model->terminal, NULL, NULL);
+            view->font_width_installed = false;
+            view->font_width_revision = 0;
+        }
         view->model->layout_authority = NULL;
         view->size_command_state = BOXRIG_UI_SIZE_COMMAND_IDLE;
         view->grid_resize_pending = false;
@@ -4393,6 +4496,7 @@ static boxrig_ui_status describe_rectangular_row(
     const boxrig_text_layout *layout, size_t row_sequence,
     size_t requested_start,
     size_t requested_end,
+    bool trim_trailing_spaces,
     boxrig_ui_selection_row_slice *row_out,
     boxrig_ui_selection_row_range *ranges_out,
     size_t range_offset,
@@ -4451,6 +4555,25 @@ static boxrig_ui_status describe_rectangular_row(
         }
     } while (expanded);
 
+    if (trim_trailing_spaces) {
+        /* Use the complete physical row's visual suffix, not the selected
+         * text's logical suffix. Bidi can put a logical prefix on the right. */
+        size_t trailing_start = view->column_count;
+        while (trailing_start != 0) {
+            boxrig_viewport_cell_resolution resolution;
+            size_t start, end;
+            if (!rectangular_visual_to_resolution(view, screen, fragment_index,
+                    layout, trailing_start - 1, &resolution) ||
+                !rectangular_resolution_visual_bounds(view, layout, &resolution,
+                    &start, &end)) return BOXRIG_UI_STALE;
+            if (!resolution.blank &&
+                !(resolution.cell.text_length == 1 && resolution.cell.text[0] == ' ')) break;
+            trailing_start = start;
+        }
+        if (effective_end > trailing_start) effective_end = trailing_start;
+        if (effective_end < effective_start) effective_end = effective_start;
+    }
+
     while (logical_column < view->column_count) {
         boxrig_viewport_cell_resolution resolution;
         size_t grapheme_start;
@@ -4476,7 +4599,7 @@ static boxrig_ui_status describe_rectangular_row(
                 &grapheme_end)) {
             return BOXRIG_UI_STALE;
         }
-        selected = grapheme_start < effective_end &&
+        selected = effective_start < effective_end && grapheme_start < effective_end &&
                    grapheme_end > effective_start;
         if (selected) {
             bool joins_previous =
@@ -4514,6 +4637,18 @@ static boxrig_ui_status describe_rectangular_row(
             return BOXRIG_UI_STALE;
         }
         logical_column += resolution.column_span;
+    }
+    if (range_count == 0 && trim_trailing_spaces) {
+        /* Keep an empty row's identity and its LF without selecting a cell. */
+        boxrig_viewport_cell_resolution resolution;
+        if (!rectangular_visual_to_resolution(view, screen, fragment_index,
+                layout, effective_start, &resolution)) return BOXRIG_UI_STALE;
+        if (ranges_out != NULL) {
+            ranges_out[range_offset].row_sequence = row_sequence;
+            ranges_out[range_offset].range.start = resolution.range.start;
+            ranges_out[range_offset].range.end = resolution.range.start;
+        }
+        range_count = 1;
     }
     memset(row_out, 0, sizeof(*row_out));
     row_out->screen = fragment.screen;
@@ -4591,6 +4726,7 @@ static boxrig_ui_status selection_fragment_layout(boxrig_ui_view *view,
 static boxrig_ui_status materialize_rectangular_rows(
     boxrig_ui_view *view,
     boxrig_ui_selection *selection,
+    bool trim_trailing_spaces,
     boxrig_ui_selection_row_slice **rows_out,
     boxrig_ui_selection_row_range **ranges_out)
 {
@@ -4660,6 +4796,7 @@ static boxrig_ui_status materialize_rectangular_rows(
             row_sequence,
             first_column,
             last_column,
+            trim_trailing_spaces,
             &rows[row_sequence],
             NULL,
             range_count,
@@ -4695,6 +4832,7 @@ static boxrig_ui_status materialize_rectangular_rows(
             row_sequence,
             first_column,
             last_column,
+            trim_trailing_spaces,
             &rows[row_sequence],
             ranges,
             range_count,
@@ -5031,6 +5169,7 @@ boxrig_ui_status boxrig_ui_view_begin_selection_with_options(
         status = materialize_rectangular_rows(
             view,
             &replacement,
+            false,
             &replacement_rows,
             &replacement_ranges);
         if (status != BOXRIG_UI_OK) {
@@ -5101,6 +5240,7 @@ boxrig_ui_status boxrig_ui_view_update_selection(
         status = materialize_rectangular_rows(
             view,
             &replacement,
+            false,
             &replacement_rows,
             &replacement_ranges);
         if (status != BOXRIG_UI_OK) {
@@ -5703,6 +5843,26 @@ size_t boxrig_ui_view_hyperlink_hover_visual_ranges(
     return count;
 }
 
+boxrig_ui_status boxrig_ui_view_set_rectangular_copy_policy(
+    boxrig_ui_view *view, boxrig_ui_rectangular_copy_policy policy)
+{
+    if (view == NULL ||
+        (policy != BOXRIG_UI_RECTANGULAR_COPY_PRESERVE_SPACES &&
+         policy != BOXRIG_UI_RECTANGULAR_COPY_TRIM_TRAILING_SPACES))
+        return BOXRIG_UI_INVALID_ARGUMENT;
+    if (view->resolving_fragment_layout || view->resolving_colors) return BOXRIG_UI_BUSY;
+    view->rectangular_copy_policy = policy;
+    return BOXRIG_UI_OK;
+}
+
+boxrig_ui_status boxrig_ui_view_get_rectangular_copy_policy(
+    const boxrig_ui_view *view, boxrig_ui_rectangular_copy_policy *policy_out)
+{
+    if (view == NULL || policy_out == NULL) return BOXRIG_UI_INVALID_ARGUMENT;
+    *policy_out = view->rectangular_copy_policy;
+    return BOXRIG_UI_OK;
+}
+
 boxrig_ui_status boxrig_ui_view_create_selection_snapshot(
     boxrig_ui_view *view,
     boxrig_text_snapshot **snapshot_out)
@@ -5715,6 +5875,7 @@ boxrig_ui_status boxrig_ui_view_create_selection_snapshot(
         return BOXRIG_UI_INVALID_ARGUMENT;
     }
     *snapshot_out = NULL;
+    if (view->resolving_fragment_layout) return BOXRIG_UI_BUSY;
     if (!view->selection_active) {
         return BOXRIG_UI_UNAVAILABLE;
     }
@@ -5726,15 +5887,32 @@ boxrig_ui_status boxrig_ui_view_create_selection_snapshot(
         if (view->selection.row_count == 0) {
             return BOXRIG_UI_UNAVAILABLE;
         }
+        boxrig_ui_selection_row_slice *copy_rows = NULL;
+        boxrig_ui_selection_row_range *copy_ranges = NULL;
+        boxrig_ui_selection copy_selection = view->selection;
+        if (view->rectangular_copy_policy == BOXRIG_UI_RECTANGULAR_COPY_TRIM_TRAILING_SPACES) {
+            if (!rectangular_selection_rows_are_current(view)) {
+                mark_rectangular_selection_stale(view);
+                return BOXRIG_UI_STALE;
+            }
+            boxrig_ui_status copy_status = materialize_rectangular_rows(
+                view, &copy_selection, true, &copy_rows, &copy_ranges);
+            if (copy_status != BOXRIG_UI_OK) {
+                if (copy_status == BOXRIG_UI_STALE) mark_rectangular_selection_stale(view);
+                return copy_status;
+            }
+        }
         rows_options.screen = view->selection.screen;
-        rows_options.ranges = view->selection_ranges;
-        rows_options.range_count = view->selection.range_count;
+        rows_options.ranges = copy_ranges == NULL ? view->selection_ranges : copy_ranges;
+        rows_options.range_count = copy_selection.range_count;
         rows_options.row_count = view->selection.row_count;
         rows_options.byte_capacity = view->maximum_copy_bytes;
         status = boxrig_terminal_create_text_snapshot_rows(
             view->model->terminal,
             &rows_options,
             snapshot_out);
+        free(copy_ranges);
+        free(copy_rows);
         if (status == BOXRIG_STATUS_STALE) {
             mark_rectangular_selection_stale(view);
         }
@@ -6127,6 +6305,31 @@ boxrig_rgb boxrig_ui_cursor_contrast_color(boxrig_rgb fill, boxrig_rgb underlay)
     return (boxrig_rgb){channel, channel, channel};
 }
 
+bool boxrig_ui_cursor_visual_range(const boxrig_terminal *terminal,
+    const boxrig_cursor_view *cursor, const boxrig_text_layout *layout,
+    boxrig_text_layout_range *range_out)
+{
+    size_t start = cursor->column, span = 1;
+    if (cursor->shape == BOXRIG_CURSOR_BLOCK) {
+        boxrig_viewport_cell_resolution resolution;
+        if (boxrig_terminal_resolve_viewport_cell(terminal, cursor->row,
+                cursor->column, &resolution) != BOXRIG_STATUS_OK) return false;
+        start = resolution.canonical_storage_column;
+        span = resolution.column_span;
+    }
+    size_t first = SIZE_MAX, end = 0;
+    for (size_t offset = 0; offset < span; offset++) {
+        size_t visual;
+        if (boxrig_text_layout_logical_to_visual(layout, start + offset,
+                &visual) != BOXRIG_TEXT_LAYOUT_OK) return false;
+        if (visual < first) first = visual;
+        if (visual + 1 > end) end = visual + 1;
+    }
+    if (first >= end) return false;
+    *range_out = (boxrig_text_layout_range){first, end - first};
+    return true;
+}
+
 static unsigned int cursor_pixels(float width, float dpi,
     float output_scale, unsigned int limit)
 {
@@ -6328,11 +6531,13 @@ static void mark_cursor_animation_dirty(boxrig_ui_view *view,
 {
     if (cursor->row >= view->row_count || cursor->column >= view->column_count) return;
     const boxrig_text_layout *layout = view->row_layouts[cursor->row].layout;
-    size_t visual_column;
-    if (layout != NULL && boxrig_text_layout_logical_to_visual(layout,
-            cursor->column, &visual_column) == BOXRIG_TEXT_LAYOUT_OK) {
+    boxrig_cursor_view styled = *cursor;
+    boxrig_ui_view_apply_cursor_style(view, &styled);
+    boxrig_text_layout_range range;
+    if (layout != NULL && boxrig_ui_cursor_visual_range(view->model->terminal,
+            &styled, layout, &range)) {
         mark_dirty(view, BOXRIG_UI_DIRTY_ANIMATION, cursor->row, 1,
-            visual_column, 1);
+            range.column, range.column_count);
     } else {
         /* A missing/evicted map cannot safely assume an LTR cursor position.
          * Preserve correctness without forcing a new shape during the tick. */
@@ -6352,7 +6557,7 @@ static void animation_commit(
     view->blink = *state;
     if (changed && state->cursor_known) {
         /* Visual animation dirty preserves shaping and resolved colors while
-         * avoiding a whole-row repaint for a one-cell cursor phase change. */
+         * avoiding a whole-row repaint for a cursor phase change. */
         mark_cursor_animation_dirty(view, &state->cursor);
     }
     if (text_changed[0] || text_changed[1]) {
@@ -6807,6 +7012,7 @@ boxrig_ui_status boxrig_ui_view_set_cursor_style(boxrig_ui_view *view,
     boxrig_ui_status status = animation_prepare_change(view, &state,
         view->focused, view->visible, old->blink != style->blink, false);
     if (status != BOXRIG_UI_OK) return status;
+    if (state.cursor_known) mark_cursor_animation_dirty(view, &state.cursor);
     animation_commit(view, &state);
     /* Recompose the old stroke from its underlay, preserving row shaping and
      * cached colors whose canonical inputs have not changed. */

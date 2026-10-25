@@ -1740,6 +1740,7 @@ void boxrig_win32_text_row_shape_destroy(boxrig_win32_row_shape *shape)
         free(run->glyph_properties);
         free(run->glyph_advances);
         free(run->glyph_offsets);
+        free(run->spans);
     }
     free(shape->runs);
     free(shape->clusters);
@@ -1913,6 +1914,7 @@ int boxrig_win32_text_collect_composition_clusters(
         }
         cluster->logical_column = logical_column;
         cluster->column_count = source.column_count;
+        cluster->cell.font_dependent = source.font_dependent;
         cluster->text_offset = shape->text_length;
         written = MultiByteToWideChar(
             CP_UTF8,
@@ -2222,6 +2224,7 @@ static int build_portable_layout(
         inputs[cluster_index].column_count = cluster->column_count;
         inputs[cluster_index].text_offset = cluster->text_offset;
         inputs[cluster_index].text_length = cluster->text_length;
+        inputs[cluster_index].preserve_advance = cluster->cell.font_dependent;
         inputs[cluster_index].style_key = cluster->style_key;
         inputs[cluster_index].hyperlink_key = cluster->hyperlink_key;
         for (run_index = 0; run_index < shape->run_count; run_index++) {
@@ -2708,6 +2711,26 @@ static int shape_run(
     }
     run->visual_column = visual_begin;
     run->visual_column_count = visual_end - visual_begin;
+    run->spans = calloc(run->glyph_count, sizeof(*run->spans));
+    if (run->spans == NULL) return -1;
+    for (UINT32 t = 0; t < run->text_length;) {
+        UINT32 end = t + 1;
+        while (end < run->text_length && run->cluster_map[end] == run->cluster_map[t]) end++;
+        if (run->span_count >= run->glyph_count) return -1;
+        boxrig_ui_glyph_span *span = &run->spans[run->span_count++];
+        span->text_offset = run->text_offset + t;
+        span->text_length = end - t;
+        span->first_glyph = run->cluster_map[t];
+        size_t glyph_end = span->first_glyph + 1;
+        while (glyph_end < run->glyph_count && !run->glyph_properties[glyph_end].isClusterStart)
+            glyph_end++;
+        if (span->first_glyph >= run->glyph_count) return -1;
+        span->glyph_count = glyph_end - span->first_glyph;
+        for (size_t g = span->first_glyph; g < glyph_end; g++) span->natural_width += run->glyph_advances[g];
+        t = end;
+    }
+    run->span_count = boxrig_ui_fit_glyph_spans(shape->layout, run->spans, run->span_count);
+    if (run->span_count == 0) return -1;
     shape->statistics.glyph_count += run->glyph_count;
     for (glyph_index = 0; glyph_index < run->glyph_count; glyph_index++) {
         if (run->glyph_indices[glyph_index] == 0 &&
@@ -2805,6 +2828,36 @@ boxrig_ui_status boxrig_win32_text_fragment_layout(boxrig_win32_renderer *render
     return status;
 }
 
+double boxrig_win32_text_font_width(boxrig_win32_renderer *renderer,
+    const uint8_t *text, size_t length, uint32_t attributes)
+{
+    if (renderer == NULL || length > INT_MAX || renderer->cell_width == 0) return 0;
+    boxrig_win32_row_shape shape = {0};
+    shape.text = utf8_to_wide((const char *)text, length);
+    if (shape.text == NULL) return 0;
+    shape.text_length = (UINT32)wcslen(shape.text);
+    shape.clusters = calloc(1, sizeof(*shape.clusters));
+    if (shape.clusters == NULL) { free(shape.text); return 0; }
+    shape.cluster_count = 1;
+    shape.clusters[0].text_length = shape.text_length;
+    shape.clusters[0].column_count = 1;
+    shape.clusters[0].cell.attributes = attributes;
+    if (shape_collected_row(renderer, &shape, renderer->direction_policy, true) == -1) return 0;
+    double advance = 0;
+    for (size_t r = 0; r < shape.run_count; r++)
+        for (size_t g = 0; g < shape.runs[r].glyph_count; g++)
+            advance += shape.runs[r].glyph_advances[g];
+    boxrig_win32_text_row_shape_destroy(&shape);
+    return advance * renderer->rendering_policy.dpi_y / 96.0 *
+        renderer->rendering_policy.output_scale / renderer->cell_width;
+}
+
+static double resolve_font_width(void *context, const uint8_t *text,
+    size_t length, uint32_t attributes)
+{
+    return boxrig_win32_text_font_width(context, text, length, attributes);
+}
+
 static uint64_t fragment_layout_revision(void *context)
 {
     boxrig_win32_renderer *renderer = context;
@@ -2827,6 +2880,9 @@ boxrig_ui_status boxrig_win32_text_fragment_layout_provider(void *context,
     if (renderer->fragment_layout_provider == NULL) {
         boxrig_ui_status status = boxrig_ui_fragment_layout_provider_create(
             resolve_fragment_layout, fragment_layout_revision, renderer, &renderer->fragment_layout_provider);
+        if (status != BOXRIG_UI_OK) return status;
+        status = boxrig_ui_fragment_layout_provider_set_font_width_resolver(
+            renderer->fragment_layout_provider, resolve_font_width);
         if (status != BOXRIG_UI_OK) return status;
     }
     *provider_out = renderer->fragment_layout_provider;
@@ -2889,6 +2945,7 @@ static int export_gpu_shape(boxrig_win32_renderer *renderer,
         cluster->text_offset = source->text_offset;
         cluster->text_length = source->text_length;
         cluster->attributes = source->cell.attributes;
+        cluster->font_dependent = source->cell.font_dependent;
         cluster->style_key = source->style_key;
         cluster->hyperlink_key = source->hyperlink_key;
     }
@@ -2933,7 +2990,18 @@ static int export_gpu_shape(boxrig_win32_renderer *renderer,
                     found_cluster = true;
                 }
             }
-            item->natural_width += glyph->width;
+        }
+        item->spans = calloc(run->span_count, sizeof(*item->spans));
+        if (item->spans == NULL) goto failure;
+        item->span_count = run->span_count;
+        for (size_t s = 0; s < run->span_count; s++) {
+            boxrig_ui_glyph_span *span = &item->spans[s];
+            *span = run->spans[s];
+            if ((run->bidi_level & 1u) != 0)
+                span->first_glyph = run->glyph_count - span->first_glyph - span->glyph_count;
+            span->natural_width = 0;
+            for (size_t g = span->first_glyph; g < span->first_glyph + span->glyph_count; g++)
+                span->natural_width += item->glyphs[g].width;
         }
     }
     out->layout = shape->layout;
@@ -2991,6 +3059,7 @@ void boxrig_win32_text_shape_destroy(boxrig_ogl_row_shape *shape)
             free(face);
         }
         free(shape->items[i].glyphs);
+        free(shape->items[i].spans);
     }
     free(shape->items);
     free(shape->clusters);

@@ -11,6 +11,12 @@
     fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #condition); \
     return false; } } while (0)
 
+static const char *placement_font;
+static float placement_size = 12;
+static float placement_scale = 1;
+static const char *snapshot_prefix;
+static unsigned snapshot_variant, snapshot_frame;
+
 static int draw(void *context, boxrig_ui_view *view,
     boxrig_composition *composition)
 {
@@ -23,6 +29,13 @@ static uint32_t *capture(void *context)
 {
     cairo_surface_t *surface = boxrig_pango_cairo_renderer_surface(context);
     cairo_surface_flush(surface);
+    if (snapshot_prefix != NULL && snapshot_frame < 4) {
+        char path[4096];
+        int count = snprintf(path, sizeof(path), "%s-%u-%u.png", snapshot_prefix,
+            snapshot_variant, snapshot_frame++);
+        if (count < 0 || (size_t)count >= sizeof(path) ||
+            cairo_surface_write_to_png(surface, path) != CAIRO_STATUS_SUCCESS) return NULL;
+    }
     unsigned char *data = cairo_image_surface_get_data(surface);
     int stride = cairo_image_surface_get_stride(surface);
     if (data == NULL || cairo_image_surface_get_format(surface) != CAIRO_FORMAT_ARGB32 ||
@@ -65,6 +78,19 @@ static bool create(boxrig_test_color_renderer *renderer)
     boxrig_pango_cairo_renderer *host = NULL;
     if (boxrig_pango_cairo_renderer_create(BOXRIG_TEST_COLOR_WIDTH,
             BOXRIG_TEST_COLOR_HEIGHT, &host) == -1) return false;
+    if (placement_font != NULL) {
+        boxrig_font_family family = {placement_font, strlen(placement_font), BOXRIG_FONT_RESOURCE_NONE};
+        boxrig_font_specification specification = boxrig_font_specification_default();
+        specification.families = &family;
+        specification.family_count = 1;
+        specification.size_dip = placement_size;
+        boxrig_font_rendering_policy policy = boxrig_font_rendering_policy_default();
+        policy.output_scale = placement_scale;
+        if (boxrig_pango_cairo_renderer_set_font(host, &specification, &policy) != BOXRIG_FONT_CATALOG_OK) {
+            boxrig_pango_cairo_renderer_destroy(host);
+            return false;
+        }
+    }
     *renderer = (boxrig_test_color_renderer){host,
         boxrig_pango_cairo_renderer_cell_width(host),
         boxrig_pango_cairo_renderer_cell_height(host),
@@ -120,11 +146,114 @@ static bool bounds_color_hash_work_for_text_screen(void)
     return true;
 }
 
-int main(void)
+static bool font_dependent_centering(void)
 {
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    config.rows = 3; config.columns = 20;
+    config.ambiguous_width = BOXRIG_AMBIGUOUS_WIDTH_FONT;
+    boxrig_terminal *terminal = NULL;
+    boxrig_ui_model *model = NULL;
+    boxrig_ui_view *view = NULL;
+    boxrig_ui_view_config vc = boxrig_ui_view_config_default();
+    boxrig_pango_cairo_renderer *renderer = NULL;
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_create(model, &vc, &view) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_acquire_layout_authority(view) == BOXRIG_UI_OK);
+    CHECK(boxrig_pango_cairo_renderer_create(600, 200, &renderer) == 0);
+    const char file[] = "tests/fixtures/width-fractional.otf";
+    boxrig_font_resource_id resource;
+    CHECK(boxrig_pango_cairo_renderer_register_font_file(renderer, file, strlen(file),
+        0, &resource) == BOXRIG_FONT_CATALOG_OK);
+    boxrig_font_family family = {"Boxrig Width Fixture", 20, resource};
+    boxrig_font_specification specification = boxrig_font_specification_default();
+    specification.families = &family; specification.family_count = 1; specification.size_dip = 20;
+    boxrig_font_rendering_policy policy = boxrig_font_rendering_policy_default();
+    CHECK(boxrig_pango_cairo_renderer_set_font(renderer, &specification, &policy) == BOXRIG_FONT_CATALOG_OK);
+    CHECK(boxrig_pango_cairo_renderer_bind_view(renderer, view) == BOXRIG_UI_OK);
+    unsigned width = boxrig_pango_cairo_renderer_cell_width(renderer);
+    unsigned height = boxrig_pango_cairo_renderer_cell_height(renderer);
+    CHECK(width == 10);
+    const char text[] = "\033[?25l\033[38;2;255;255;255;48;2;0;0;0m①①X";
+    size_t consumed;
+    CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)text, sizeof(text) - 1,
+        &consumed) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+    CHECK(boxrig_pango_cairo_renderer_draw_view(renderer, view) == 0);
+    uint32_t *pixels = capture(renderer);
+    CHECK(pixels != NULL);
+    for (unsigned cell = 0; cell < 6; cell += 3) {
+        unsigned first = 3 * width, last = 0;
+        for (unsigned x = 0; x < 3 * width; x++) {
+            bool ink = false;
+            for (unsigned y = 0; y < height; y++)
+                if ((pixels[y * 600 + cell * width + x] & 0xffffffu) != 0) ink = true;
+            if (ink) { if (first > x) first = x; last = x; }
+        }
+        printf("Font advance 2.1: columns=3 ink=[%u,%u] cell=%u\n", first, last, width);
+        /* Cairo's subpixel filter spreads the 21-pixel outline by up to one
+         * pixel on either side of its fractional 4.5-pixel origin. */
+        CHECK(first >= 3 && first <= 5 && last >= 24 && last <= 26);
+        CHECK(last + 1 - first >= 21 && last + 1 - first <= 24);
+    }
+    free(pixels);
+    boxrig_cell_view cell;
+    CHECK(boxrig_terminal_get_cell(terminal, 0, 0, &cell) == BOXRIG_STATUS_OK && cell.column_width == 3);
+    CHECK(boxrig_terminal_get_cell(terminal, 0, 6, &cell) == BOXRIG_STATUS_OK && cell.text[0] == 'X');
+    if (snapshot_prefix != NULL) {
+        char path[4096];
+        CHECK(snprintf(path, sizeof(path), "%s-font.png", snapshot_prefix) > 0);
+        CHECK(cairo_surface_write_to_png(boxrig_pango_cairo_renderer_surface(renderer), path) == CAIRO_STATUS_SUCCESS);
+    }
+    const char ascii_file[] = "tests/fixtures/width-ascii.otf";
+    boxrig_font_resource_id ascii_resource;
+    CHECK(boxrig_pango_cairo_renderer_register_font_file(renderer, ascii_file, strlen(ascii_file),
+        0, &ascii_resource) == BOXRIG_FONT_CATALOG_OK);
+    boxrig_font_family fallback[] = {{"Boxrig Width ASCII", 18, ascii_resource}, family};
+    specification.families = fallback; specification.family_count = 2;
+    policy.output_scale = 1.5f;
+    CHECK(boxrig_pango_cairo_renderer_set_font(renderer, &specification, &policy) == BOXRIG_FONT_CATALOG_OK);
+    CHECK(boxrig_pango_cairo_renderer_bind_view(renderer, view) == BOXRIG_UI_OK);
+    CHECK(boxrig_terminal_get_cell(terminal, 0, 0, &cell) == BOXRIG_STATUS_OK && cell.column_width == 3);
+    CHECK(boxrig_terminal_get_cell(terminal, 0, 6, &cell) == BOXRIG_STATUS_OK && cell.text[0] == 'X');
+    const char narrow_file[] = "tests/fixtures/width-narrow.otf";
+    CHECK(boxrig_pango_cairo_renderer_register_font_file(renderer, narrow_file, strlen(narrow_file),
+        0, &resource) == BOXRIG_FONT_CATALOG_OK);
+    family = (boxrig_font_family){"Boxrig Width Narrow", 19, resource};
+    specification.families = &family; specification.family_count = 1;
+    CHECK(boxrig_pango_cairo_renderer_set_font(renderer, &specification, &policy) == BOXRIG_FONT_CATALOG_OK);
+    CHECK(boxrig_pango_cairo_renderer_bind_view(renderer, view) == BOXRIG_UI_OK);
+    CHECK(boxrig_terminal_get_cell(terminal, 0, 0, &cell) == BOXRIG_STATUS_OK && cell.column_width == 1);
+    CHECK(boxrig_terminal_get_cell(terminal, 0, 2, &cell) == BOXRIG_STATUS_OK && cell.text[0] == 'X');
+    boxrig_pango_cairo_renderer_destroy(renderer);
+    boxrig_ui_view_destroy(view);
+    boxrig_ui_model_destroy(model);
+    boxrig_terminal_destroy(terminal);
+    return true;
+}
+
+int main(int argc, char **argv)
+{
+    snapshot_prefix = argc == 2 ? argv[1] : NULL;
+    if (!font_dependent_centering()) return 1;
     bool passed = boxrig_test_renderer_colors(create);
     if (!passed) return 1;
     passed = bounds_color_hash_work_for_text_screen();
+    const char *const fonts[] = {"monospace", "Noto Sans Mono", "Noto Sans Mono CJK JP", "Noto Sans Mono CJK JP"};
+    const float sizes[] = {20, 20, 20, 20};
+    const float scales[] = {1, 1, 1, 1.5f};
+    /* An optional output prefix makes this regression driver inspectable:
+     * four PNGs per font show narrow/wide before and after recoloring. */
+    snapshot_prefix = argc == 2 ? argv[1] : NULL;
+    for (unsigned i = 0; passed && i < 4; i++) {
+        placement_font = fonts[i];
+        placement_size = sizes[i];
+        placement_scale = scales[i];
+        snapshot_variant = i;
+        snapshot_frame = 0;
+        printf("Cell placement: font=%s size=%g scale=%g\n", fonts[i], sizes[i], scales[i]);
+        passed = boxrig_test_renderer_cell_positions(create);
+    }
     cairo_debug_reset_static_data();
     FcFini();
     if (!passed) return 1;

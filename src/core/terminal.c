@@ -209,7 +209,8 @@ boxrig_status boxrig_terminal_create(
         (unsigned int)config->paste_newline > BOXRIG_NEWLINE_CRLF ||
         (unsigned int)config->receive_newline > BOXRIG_RECEIVE_NEWLINE_CRLF ||
         (config->ambiguous_width != BOXRIG_AMBIGUOUS_WIDTH_NARROW &&
-         config->ambiguous_width != BOXRIG_AMBIGUOUS_WIDTH_WIDE) ||
+         config->ambiguous_width != BOXRIG_AMBIGUOUS_WIDTH_WIDE &&
+         config->ambiguous_width != BOXRIG_AMBIGUOUS_WIDTH_FONT) ||
         (config->cursor_column_mode != BOXRIG_CURSOR_COLUMN_MODE_TERMINAL &&
          config->cursor_column_mode != BOXRIG_CURSOR_COLUMN_MODE_UTF16)) {
         return BOXRIG_STATUS_INVALID_ARGUMENT;
@@ -349,6 +350,71 @@ void boxrig_terminal_destroy(boxrig_terminal *terminal)
     free(terminal);
 }
 
+boxrig_ambiguous_width boxrig_terminal_ambiguous_width(const boxrig_terminal *terminal)
+{
+    return terminal == NULL ? BOXRIG_AMBIGUOUS_WIDTH_NARROW : terminal->screen.ambiguous_width;
+}
+
+static boxrig_status font_widths_changed(const boxrig_screen *screen, bool *changed_out)
+{
+    *changed_out = false;
+    for (size_t row = 0; row < screen->history_count + screen->rows * 2; row++) {
+        const boxrig_cell *cells;
+        if (row < screen->history_count) {
+            size_t slot = (screen->history_start + row) % screen->history_capacity;
+            cells = screen->history[slot].cell_storage;
+        } else if (row - screen->history_count < screen->rows) {
+            cells = screen->primary.row_cells[row - screen->history_count];
+        } else {
+            cells = screen->alternate.row_cells[row - screen->history_count - screen->rows];
+        }
+        for (size_t column = 0; column < screen->columns; column++) {
+            const boxrig_cell *cell = &cells[column];
+            if (cell->continuation || cell->text_length == 0) continue;
+            boxrig_text_cluster_measurement measurement;
+            boxrig_status status = boxrig_screen_measure_text_cluster(screen,
+                (const uint8_t *)boxrig_cell_text(cell), cell->text_length,
+                cell->style.attributes, &measurement);
+            if (status != BOXRIG_STATUS_OK) return status;
+            size_t width = measurement.column_width > screen->columns ? 1 : measurement.column_width;
+            if (width != cell->column_width) {
+                *changed_out = true;
+                return BOXRIG_STATUS_OK;
+            }
+        }
+    }
+    return BOXRIG_STATUS_OK;
+}
+
+boxrig_status boxrig_terminal_set_font_width_resolver(boxrig_terminal *terminal,
+    boxrig_font_width_resolver resolver, void *context)
+{
+    if (terminal == NULL || (resolver == NULL && context != NULL))
+        return BOXRIG_STATUS_INVALID_ARGUMENT;
+    boxrig_font_width_resolver previous = terminal->screen.font_width_resolver;
+    void *previous_context = terminal->screen.font_width_context;
+    terminal->screen.font_width_resolver = resolver;
+    terminal->screen.font_width_context = context;
+    if (resolver == NULL || terminal->screen.ambiguous_width != BOXRIG_AMBIGUOUS_WIDTH_FONT)
+        return BOXRIG_STATUS_OK;
+    /* Rebinding a renderer need not change any occupied columns. Avoid resize
+     * reflow in that case: trimming trailing blank rows would move the visible
+     * text, cursor, and images relative to existing scrollback. */
+    bool changed;
+    boxrig_status status = font_widths_changed(&terminal->screen, &changed);
+    if (status == BOXRIG_STATUS_OK && changed) {
+        terminal->screen.remeasure_widths = true;
+        status = boxrig_terminal_resize(terminal,
+            terminal->screen.rows, terminal->screen.columns);
+        terminal->screen.remeasure_widths = false;
+    }
+    if (status != BOXRIG_STATUS_OK) {
+        terminal->screen.font_width_resolver = previous;
+        terminal->screen.font_width_context = previous_context;
+    }
+    return status;
+}
+
 boxrig_status boxrig_terminal_measure_text_cluster(
     const boxrig_terminal *terminal,
     const uint8_t *text,
@@ -358,10 +424,10 @@ boxrig_status boxrig_terminal_measure_text_cluster(
     if (terminal == NULL) {
         return BOXRIG_STATUS_INVALID_ARGUMENT;
     }
-    return boxrig_unicode_measure_text_cluster(
+    return boxrig_screen_measure_text_cluster(&terminal->screen,
         text,
         text_length,
-        terminal->screen.ambiguous_width == BOXRIG_AMBIGUOUS_WIDTH_WIDE,
+        0,
         measurement_out);
 }
 
@@ -402,11 +468,17 @@ boxrig_status boxrig_terminal_resize(
     boxrig_screen_end_text(&terminal->screen);
     boxrig_text_monitor_begin_mutation(terminal);
     {
+        bool remeasuring = terminal->screen.remeasure_widths;
+        if (terminal->screen.ambiguous_width == BOXRIG_AMBIGUOUS_WIDTH_FONT &&
+            terminal->screen.font_width_resolver != NULL &&
+            (rows != terminal->screen.rows || columns != terminal->screen.columns))
+            terminal->screen.remeasure_widths = true;
         boxrig_status status = boxrig_kitty_graphics_protocol_resize(
             terminal,
             rows,
             columns);
 
+        terminal->screen.remeasure_widths = remeasuring;
         boxrig_text_monitor_end_mutation(terminal);
         return status;
     }
@@ -532,6 +604,9 @@ static boxrig_status describe_cell(
     }
     cell_out->column_width = cell->column_width;
     cell_out->continuation = cell->continuation;
+    cell_out->font_dependent = terminal->screen.ambiguous_width == BOXRIG_AMBIGUOUS_WIDTH_FONT &&
+        !cell->continuation && boxrig_unicode_text_is_ambiguous(
+            (const uint8_t *)boxrig_cell_text(cell), cell->text_length);
     cell_out->hyperlink_handle = 0;
     cell_out->hyperlink_uri = NULL;
     cell_out->hyperlink_uri_length = 0;

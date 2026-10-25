@@ -290,17 +290,23 @@ static bool selection_unvisited_unicode(
         CHECK(boxrig_ui_view_update_selection(view, &hit) == BOXRIG_UI_OK);
         boxrig_ui_selection selection;
         CHECK(boxrig_ui_view_get_selection(view, &selection) && !selection.stale && selection.row_count == 7);
-        boxrig_text_snapshot *copy = NULL;
-        CHECK(boxrig_ui_view_create_selection_snapshot(view, &copy) == BOXRIG_UI_OK);
-        size_t count;
-        const uint8_t *bytes = boxrig_text_snapshot_data(copy, &count);
-        size_t length = strlen(cases[test].text);
-        CHECK(count == 7*length+6);
-        for (size_t row = 0; row < 7; row++) {
-            CHECK(memcmp(bytes+row*(length+1), cases[test].text, length) == 0);
-            if (row != 6) CHECK(bytes[row*(length+1)+length] == '\n');
+        for (size_t policy = 0; policy < 2; policy++) {
+            CHECK(boxrig_ui_view_set_rectangular_copy_policy(view, policy == 0
+                ? BOXRIG_UI_RECTANGULAR_COPY_PRESERVE_SPACES
+                : BOXRIG_UI_RECTANGULAR_COPY_TRIM_TRAILING_SPACES) == BOXRIG_UI_OK);
+            boxrig_text_snapshot *copy = NULL;
+            CHECK(boxrig_ui_view_create_selection_snapshot(view, &copy) == BOXRIG_UI_OK);
+            size_t count;
+            const uint8_t *bytes = boxrig_text_snapshot_data(copy, &count);
+            const char *expected = policy != 0 && cases[test].first == 9 ? "" : cases[test].text;
+            size_t length = strlen(expected);
+            CHECK(count == 7*length+6);
+            for (size_t row = 0; row < 7; row++) {
+                CHECK(memcmp(bytes+row*(length+1), expected, length) == 0);
+                if (row != 6) CHECK(bytes[row*(length+1)+length] == '\n');
+            }
+            boxrig_text_snapshot_destroy(copy);
         }
-        boxrig_text_snapshot_destroy(copy);
         CHECK(renderer.draw(renderer.context, view, NULL) == 0);
         pixels = renderer.capture(renderer.context);
         CHECK(pixels != NULL);

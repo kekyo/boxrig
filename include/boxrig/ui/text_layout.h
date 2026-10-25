@@ -63,6 +63,8 @@ typedef struct boxrig_text_cluster_input {
     uint64_t script_key;
     /** Renderer-defined key for shaping language. */
     uint64_t language_key;
+    /** Preserve natural advance and center it within the allocated columns. */
+    bool preserve_advance;
 } boxrig_text_cluster_input;
 
 /** One shaping context in logical and visual terminal coordinates. */

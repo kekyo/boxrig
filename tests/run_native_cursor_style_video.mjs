@@ -22,11 +22,25 @@ mkdirSync(output, { recursive: true });
 const command = (name, args) =>
   execFileSync(name, args, { encoding: "utf8", timeout: 30000 }).trim();
 const wayland = process.env.BOXRIG_TEST_BLINK_WAYLAND === "1";
-const boxes = process.env.BOXRIG_TEST_CURSOR_BOX === "1";
+const fontWidth = process.env.BOXRIG_TEST_FONT_CURSOR === "1";
+const wide = fontWidth || process.env.BOXRIG_TEST_WIDE_CURSOR === "1";
+const wideColumns = fontWidth ? 3 : 2;
+const boxes = wide || process.env.BOXRIG_TEST_CURSOR_BOX === "1";
 let weston, runtime, child;
 let diagnostics = "";
 const results = [];
 try {
+  if (fontWidth) {
+    const xmlPath = resolve(output, "fonts.conf");
+    const directory = resolve("tests/fixtures").replaceAll("&", "&amp;");
+    writeFileSync(xmlPath, `<?xml version="1.0"?><!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+<fontconfig><include>/etc/fonts/fonts.conf</include><dir>${directory}</dir>
+<match target="pattern"><test name="family"><string>monospace</string></test>
+<edit name="family" mode="prepend" binding="strong"><string>Boxrig Width Fixture</string></edit>
+</match></fontconfig>`);
+    process.env.FONTCONFIG_FILE = xmlPath;
+    process.env.BOXRIG_AMBIGUOUS_WIDTH = "font";
+  }
   if (wayland) {
     runtime = mkdtempSync(resolve(tmpdir(), "boxrig-blink-wayland-"));
     process.env.XDG_RUNTIME_DIR = runtime;
@@ -201,7 +215,7 @@ try {
     assert(Date.now() < paintedDeadline, "initial opaque cursor presentation");
     await setTimeout(20);
   }
-  const record = (name, blinking, kind, shape, hollow = false) => {
+  const recordPixels = (name, blinking) => {
     const file = resolve(output, name + ".mkv");
     execFileSync(
       "ffmpeg",
@@ -247,6 +261,10 @@ try {
     assert.equal(raw.length % frameBytes, 0);
     const frames = raw.length / frameBytes;
     assert(frames >= 45);
+    return { raw, frames };
+  };
+  const record = (name, blinking, kind, shape, hollow = false) => {
+    const { raw, frames } = recordPixels(name, blinking);
     const reference = raw.subarray(15 * frameBytes, 16 * frameBytes);
     const matches = (pixels, at) => {
       const [red, green, blue] = pixels.subarray(at, at + 3);
@@ -397,7 +415,156 @@ try {
     results.push(result);
     console.log(JSON.stringify(result));
   };
-  if (boxes) {
+  if (wide) {
+    const send = async (key) => {
+      command("xdotool", ["key", "--clearmodifiers", key]);
+      const deadline = Date.now() + 15000;
+      while (readTitle() !== "boxrig-blink-" + key) {
+        assert(Date.now() < deadline, "wide cursor child acknowledgement");
+        await setTimeout(20);
+      }
+    };
+    await send("z");
+    await send(fontWidth ? "f" : "w");
+    await send("h");
+    let underlay = recordPixels("wide-hidden", false).raw.subarray(
+      15 * frameBytes,
+      16 * frameBytes,
+    );
+    const recordWide = (name, column, columns, blinking, hollow = false) => {
+      const { raw, frames } = recordPixels(name, blinking);
+      const x0 = origin.x + column * cellWidth,
+        y0 = origin.y + cellHeight;
+      const cursorWidth = columns * cellWidth;
+      const phases = [];
+      for (let f = 15; f < frames; f++) {
+        const pixels = raw.subarray(f * frameBytes, (f + 1) * frameBytes);
+        let gold = 0,
+          left = width,
+          right = -1,
+          top = height,
+          bottom = -1;
+        let outsideError = 0,
+          insideError = 0;
+        for (let y = 0; y < height; y++)
+          for (let x = 0; x < width; x++) {
+            const at = (y * width + x) * 3;
+            const inside =
+              x >= x0 && x < x0 + cursorWidth && y >= y0 && y < y0 + cellHeight;
+            const error = Math.max(
+              ...[0, 1, 2].map((c) =>
+                Math.abs(pixels[at + c] - underlay[at + c]),
+              ),
+            );
+            if (inside) insideError = Math.max(insideError, error);
+            // GTK draws the acknowledgement title in client decorations. Only
+            // terminal pixels belong to the unchanged-underlay contract.
+            else if (x >= origin.x && y >= origin.y)
+              outsideError = Math.max(outsideError, error);
+            if (
+              pixels[at] === 255 &&
+              pixels[at + 1] === 215 &&
+              pixels[at + 2] === 0
+            ) {
+              assert(inside, name + ": cursor escaped its grapheme");
+              gold++;
+              left = Math.min(left, x);
+              right = Math.max(right, x);
+              top = Math.min(top, y);
+              bottom = Math.max(bottom, y);
+            }
+          }
+        assert(
+          outsideError <= (wayland ? 1 : 0),
+          name + ": old cursor or neighbor changed",
+        );
+        if (gold) {
+          assert.equal(
+            right - left + 1,
+            cursorWidth,
+            name + ": complete character width",
+          );
+          assert.equal(
+            bottom - top + 1,
+            cellHeight,
+            name + ": character height",
+          );
+          if (hollow)
+            assert.equal(
+              gold,
+              cursorWidth * cellHeight - (cursorWidth - 2) * (cellHeight - 2),
+            );
+          else
+            assert(
+              gold > (cursorWidth * cellHeight) / 4,
+              name + ": filled character",
+            );
+        } else
+          assert(
+            insideError <= (wayland ? 1 : 0),
+            name + ": hidden phase did not restore text",
+          );
+        phases.push(gold !== 0);
+      }
+      const transitions = phases
+        .slice(1)
+        .filter((phase, i) => phase !== phases[i]).length;
+      if (blinking)
+        assert(
+          phases.includes(true) && phases.includes(false) && transitions >= 4,
+          name + ": both blink phases",
+        );
+      else assert(phases.every(Boolean), name + ": steady unfocused outline");
+      const result = { name, columns, frames, transitions, hollow };
+      results.push(result);
+      console.log(JSON.stringify(result));
+    };
+    await send("v");
+    recordWide("wide-leading", 7, wideColumns, true);
+    await send("j");
+    recordWide("wide-continuation", 7, wideColumns, true);
+    if (fontWidth) {
+      await send("k");
+      recordWide("wide-second-continuation", 7, wideColumns, true);
+    }
+    command("xdotool", ["windowfocus", "--sync", "1"]);
+    recordWide("wide-unfocused", 7, wideColumns, false, true);
+    command("xdotool", ["windowfocus", "--sync", id]);
+    recordWide("wide-refocused", 7, wideColumns, true);
+    await send(fontWidth ? "l" : "n");
+    recordWide("wide-to-narrow", 7 + wideColumns, 1, true);
+    await send("j");
+    recordWide("wide-return", 7, wideColumns, true);
+    await send(fontWidth ? "p" : "o");
+    await send("h");
+    underlay = recordPixels("overwritten-hidden", false).raw.subarray(
+      15 * frameBytes,
+      16 * frameBytes,
+    );
+    for (let y = 0; y < cellHeight; y++)
+      for (let x = 0; x < (wideColumns - 1) * cellWidth; x++) {
+        const at =
+          ((origin.y + cellHeight + y) * width + origin.x + 8 * cellWidth + x) *
+          3;
+        const blank =
+          ((origin.y + cellHeight + y) * width +
+            origin.x +
+            15 * cellWidth +
+            x) *
+          3;
+        // The new X can contribute a faint antialiased edge to the space.
+        assert(
+          [0, 1, 2].every(
+            (c) =>
+              Math.abs(underlay[at + c] - underlay[blank + c]) <=
+              (x === 0 ? 3 : 0),
+          ),
+          "overwriting a wide character restores its former continuation cell",
+        );
+      }
+    await send("v");
+    recordWide("wide-overwritten", 7, 1, true);
+  } else if (boxes) {
     for (const shape of ["fill", "underline", "bar"]) {
       record(shape + "-focused", true, "gold", shape);
       command("xdotool", ["windowfocus", "--sync", "1"]);

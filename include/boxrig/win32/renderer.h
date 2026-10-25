@@ -327,6 +327,16 @@ int boxrig_win32_renderer_set_direction_policy(
     boxrig_text_direction_policy policy);
 
 /**
+ * Installs this renderer's font measurements and row analysis on a view.
+ * @param renderer Live renderer supplying the font policy.
+ * @param view View to attach, whose layout authority decides terminal widths.
+ * @return A UI status, including reflow failures.
+ * @remarks Call before feeding input and after committing font changes.
+ * The view and renderer may be destroyed in either order.
+ */
+boxrig_ui_status boxrig_win32_renderer_bind_view(boxrig_win32_renderer *renderer, boxrig_ui_view *view);
+
+/**
  * Shapes one row and returns its platform-independent cell mapping.
  *
  * @param renderer Renderer whose DirectWrite analyzer and policy are used.

@@ -10,6 +10,8 @@ For getting started with an application that uses the library, see the [build gu
 
 Prepare a C99 GCC compiler, Make, Linux GUI development packages, MinGW amd64/i686, Wine, Node.js, and npm.
 GUI automation also requires the runtime appropriate to each target, such as Xvfb, Weston, and IBus.
+Building the GTK AT-SPI tests requires development packages that make `atspi-2` and `gobject-2.0` available through `pkg-config`. Running the AT-SPI and Orca tests also requires the D-Bus accessibility service, Xvfb, Orca, and `xdotool`.
+On Ubuntu 24.04, install `libatspi2.0-dev`, `libglib2.0-dev`, `at-spi2-core`, `dbus-daemon`, `orca`, `xvfb`, `xauth`, `xdotool`, `util-linux`, and `bsdutils`. `dbus-daemon` provides `dbus-run-session`, `util-linux` provides `setsid`, and `bsdutils` provides `script`, used to launch Orca in a terminal.
 See [Building and installing](../building.md) for build dependencies, and the [code generation package.json](../../../tools/codegen/package.json) and [Win32 P2 package.json](../../../tests/p2/win32/package.json) for npm dependencies.
 
 ```sh
@@ -34,8 +36,15 @@ Start with sequential execution to avoid shared GUI and Wine state.
 
 Run physical Windows P2 tests separately with `make test-p2-win32` after [preparing the machine](#prepare-a-physical-windows-machine).
 
-In isolated environments without an accessibility bus, use `NO_AT_BRIDGE=1 GTK_A11Y=none`, as in existing verification runs.
-Do not count such a run as verification of assistive-technology integration.
+In an isolated environment without an accessibility bus, set `NO_AT_BRIDGE=1 GTK_A11Y=none` only for GTK tests that do not require an assistive-technology connection.
+`test-gtk3-atspi`, `test-gtk4-atspi`, `test-gtk3-orca`, and `test-gtk4-orca` clear these variables before startup and connect to the D-Bus accessibility service.
+
+Run the following commands for AT-SPI alone. The Orca tests additionally verify that the screen reader generates speech from the terminal text.
+
+```sh
+make test-gtk3-atspi test-gtk4-atspi
+make test-gtk3-orca test-gtk4-orca
+```
 
 ## Run tests by feature
 

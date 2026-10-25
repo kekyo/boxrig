@@ -31,7 +31,7 @@ See the [Makefile](../../../Makefile) for dependency-source integration and [Dis
 [parser.c](../../../src/core/parser.c) implements the byte-stream state machine; [screen.c](../../../src/core/screen.c) handles screens, cursors, attributes, margins, and editing.
 Retaining partial UTF-8 and control-sequence state makes the result independent of where input is split.
 
-Capacity and character-width settings are fixed at terminal creation, and results report limit exhaustion, partial consumption, and output blocking.
+Capacity and character-width settings are specified at terminal creation, and results report limit exhaustion, partial consumption, and output blocking. Scrollback capacity can also change after creation, unlike settings such as character width that are fixed at creation.
 OSC/DCS/APC processing has limits and terminators; after consuming unknown or invalid parameters, parsing returns to normal input.
 
 Core handles character clustering and intrinsic column widths; UI and renderers handle font faces, glyphs, shaping, bidirectional display, and pixel widths.

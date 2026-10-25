@@ -388,6 +388,16 @@ static bool run_text_blink_video_scenario(
         case '2': sequence = "\033[2 q"; break;
         case '3': sequence = "\033[3 q"; break;
         case '6': sequence = "\033[6 q"; break;
+        case 'w': sequence = "\033[2;7HA界B\033[2;8H\033[1 q\033[?25h"; break;
+        case 'f': sequence = "\033[2;7HA①B\033[2;8H\033[1 q\033[?25h"; break;
+        case 'k': sequence = "\033[2;10H"; break;
+        case 'l': sequence = "\033[2;11H"; break;
+        case 'p': sequence = "\033[2;8H\033[37;40mX  \033[0m\033[2;8H"; break;
+        case 'j': sequence = "\033[2;9H"; break;
+        case 'n': sequence = "\033[2;10H"; break;
+        case 'o': sequence = "\033[2;8H\033[37;40mX \033[0m\033[2;8H"; break;
+        case 'h': sequence = "\033[?25l"; break;
+        case 'v': sequence = "\033[?25h"; break;
         case 'q': return true;
         default: return false;
         }

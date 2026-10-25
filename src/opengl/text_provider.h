@@ -8,6 +8,7 @@
 #define BOXRIG_OPENGL_TEXT_PROVIDER_H
 
 #include "boxrig/ui.h"
+#include "../ui/glyph_fit.h"
 
 /* Fixed-point glyph geometry shared by native text providers. */
 #define BOXRIG_OGL_GLYPH_SCALE 1024
@@ -26,6 +27,7 @@ typedef struct boxrig_ogl_logical_cluster {
     size_t text_offset;
     size_t text_length;
     uint32_t attributes;
+    bool font_dependent;
     uint64_t style_key;
     uint64_t render_style_key;
     uint64_t hyperlink_key;
@@ -35,7 +37,8 @@ typedef struct boxrig_ogl_shaped_item {
     void *native_item;
     boxrig_ogl_glyph *glyphs;
     size_t glyph_count;
-    int64_t natural_width;
+    boxrig_ui_glyph_span *spans;
+    size_t span_count;
     uint64_t font_key;
     size_t logical_column;
     size_t logical_column_count;
@@ -57,6 +60,10 @@ typedef struct boxrig_ogl_row_shape {
 } boxrig_ogl_row_shape;
 
 typedef struct boxrig_ogl_text_provider boxrig_ogl_text_provider;
+
+/* Natural physical advance divided by the provider's current cell width. */
+double boxrig_ogl_text_provider_font_width(boxrig_ogl_text_provider *provider,
+    const uint8_t *text, size_t length, uint32_t attributes);
 
 /* A panel-sized raster only. The caller owns rgba, including on a failed
  * presentation, and releases it with free after uploading or aborting. */

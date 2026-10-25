@@ -67,10 +67,13 @@ typedef struct boxrig_win32_shaped_run {
     FLOAT *glyph_advances;
     DWRITE_GLYPH_OFFSET *glyph_offsets;
     UINT32 glyph_count;
+    boxrig_ui_glyph_span *spans;
+    size_t span_count;
     size_t logical_column;
     size_t logical_column_count;
     size_t visual_column;
     size_t visual_column_count;
+    bool preserve_advance;
 } boxrig_win32_shaped_run;
 
 typedef struct boxrig_win32_row_shape {
@@ -243,6 +246,7 @@ struct boxrig_win32_renderer {
     bool cursor_drawn;
     size_t cursor_row;
     size_t cursor_visual_column;
+    size_t cursor_visual_column_count;
     boxrig_cursor_shape cursor_shape;
     bool cursor_blinking;
     bool composition_state_known;

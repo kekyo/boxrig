@@ -77,8 +77,12 @@ wine ./build/boxrig_term/win32/amd64/boxrig_term.exe
 
 Multiple clicks with Ctrl also select rectangular characters.
 The destination chosen at selection start remains until completion, preventing duplicate PTY delivery even if modifiers change midway.
-Rectangular copying separates display rows with LF and preserves empty cells as spaces.
-It adds no trailing LF.
+Rectangular copying separates display rows with LF and, by default, removes empty cells and ASCII spaces that continue to the visual right edge of the row.
+If text exists to the right of the selection, spaces before it are retained.
+Set `BOXRIG_BLOCK_COPY_TRIM_TRAILING_SPACES=0` to preserve spaces or `1` to trim them.
+When this variable is set, Ctrl+Shift+F5 toggles the policy at runtime; copy the same selection again to observe the change.
+Empty rows and their separating LF are retained. No extra final LF is added.
+See [Selection and copying](./text.md#selection-and-copying) for full-width spaces, combining characters, and other details.
 Linux also updates PRIMARY when selection ends.
 Win32 does not change the system clipboard merely because selection ends.
 
@@ -108,8 +112,10 @@ The space immediately before `q` is required.
 | `BOXRIG_CURSOR_STYLE_DEMO=2` | Three focus-sensitive cursor boxes | Ctrl+Shift+F11 |
 | `BOXRIG_COLOR_GLYPHS=0/1` | Monochrome/color glyphs such as emoji on Linux | Ctrl+Shift+F11 |
 | `BOXRIG_COLOR_FILTER_DEMO=1` | Display color filters | Ctrl+Shift+F12 |
+| `BOXRIG_AMBIGUOUS_WIDTH=narrow/wide/font` | One, two, or font-dependent columns for ambiguous characters | Set at startup |
 
 When unset, the scrollbar is always shown and color fonts are enabled.
+Ambiguous characters default to `narrow`, one column. Set `wide` for a fixed two-column width or `font` for font-dependent columns. In font-dependent mode, advances round up to whole columns and glyphs retain their natural width at the center. For example, a 2.1-cell advance occupies three columns.
 Demo toggle keys are active only when their corresponding environment variables are set.
 Try the two F11 demos separately.
 

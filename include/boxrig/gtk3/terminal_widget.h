@@ -68,7 +68,7 @@ typedef struct boxrig_gtk3_terminal_widget_config {
     boxrig_gtk_render_policy render_policy;
     /** Input-method route, selected independently of the renderer. */
     boxrig_gtk_ime_policy ime_policy;
-    /** Candidate display preference; AUTO uses a supported direct IBus renderer. */
+    /** Candidate display preference; AUTO uses a supported direct-IME renderer. */
     boxrig_ui_candidate_policy candidate_policy;
     /** Publish terminal text to assistive technologies; disabled by default. */
     bool accessibility_enabled;
@@ -890,7 +890,7 @@ uint64_t boxrig_gtk3_terminal_widget_presentation_generation(
  * @return BOXRIG_UI_OK or BOXRIG_UI_INVALID_ARGUMENT.
  * @remarks Before attachment, the route is PENDING and no display is queried.
  * Registry version is what the server advertises, not GTK's private binding.
- * candidate is valid only for a focused direct IBus context after notification.
+ * candidate is valid only for a focused direct-IME context after notification.
  */
 boxrig_ui_status boxrig_gtk3_terminal_widget_get_ime_state(
     const BoxrigGtk3TerminalWidget *widget, boxrig_gtk_ime_state *state_out);

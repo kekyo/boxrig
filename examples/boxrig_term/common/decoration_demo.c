@@ -37,6 +37,11 @@ int boxrig_term_decoration_demo_initialize(boxrig_ui_view *view)
 {
     const char *value = getenv("BOXRIG_CURSOR_STYLE_DEMO");
     const char *selection = getenv("BOXRIG_SELECTION_STYLE_DEMO");
+    const char *trim = getenv("BOXRIG_BLOCK_COPY_TRIM_TRAILING_SPACES");
+    if (trim != NULL && strcmp(trim, "0") != 0 && strcmp(trim, "1") != 0) {
+        fprintf(stderr, "boxrig_term: BOXRIG_BLOCK_COPY_TRIM_TRAILING_SPACES must be 0 or 1\n");
+        return -1;
+    }
     if (value != NULL && strcmp(value, "0") != 0 && strcmp(value, "1") != 0 &&
         strcmp(value, "2") != 0) {
         fprintf(stderr, "boxrig_term: BOXRIG_CURSOR_STYLE_DEMO must be 0, 1 or 2\n");
@@ -53,6 +58,10 @@ int boxrig_term_decoration_demo_initialize(boxrig_ui_view *view)
     if (boxrig_ui_view_set_cursor_style(view, &style) != BOXRIG_UI_OK) return -1;
     if (selection != NULL && strcmp(selection, "1") == 0 &&
         boxrig_ui_view_reset_selection_style(view) != BOXRIG_UI_OK) return -1;
+    if (boxrig_ui_view_set_rectangular_copy_policy(view,
+            trim != NULL && strcmp(trim, "0") == 0
+                ? BOXRIG_UI_RECTANGULAR_COPY_PRESERVE_SPACES
+                : BOXRIG_UI_RECTANGULAR_COPY_TRIM_TRAILING_SPACES) != BOXRIG_UI_OK) return -1;
     return 0;
 }
 
@@ -93,6 +102,21 @@ static boxrig_input_key_route selection_history_video_step(boxrig_ui_view *view)
 boxrig_input_key_route boxrig_term_decoration_demo_route_key(
     boxrig_ui_view *view, const boxrig_key_event *event)
 {
+    if (event->key == BOXRIG_KEY_F5 && getenv("BOXRIG_BLOCK_COPY_TRIM_TRAILING_SPACES") != NULL &&
+        (event->modifiers & ~(BOXRIG_MODIFIER_CAPS_LOCK | BOXRIG_MODIFIER_NUM_LOCK)) ==
+            (BOXRIG_MODIFIER_CONTROL | BOXRIG_MODIFIER_SHIFT)) {
+        if (event->action == BOXRIG_KEY_PRESS) {
+            boxrig_ui_rectangular_copy_policy policy;
+            if (boxrig_ui_view_get_rectangular_copy_policy(view, &policy) != BOXRIG_UI_OK)
+                return BOXRIG_INPUT_KEY_ROUTE_ERROR;
+            policy = policy == BOXRIG_UI_RECTANGULAR_COPY_PRESERVE_SPACES
+                ? BOXRIG_UI_RECTANGULAR_COPY_TRIM_TRAILING_SPACES
+                : BOXRIG_UI_RECTANGULAR_COPY_PRESERVE_SPACES;
+            if (boxrig_ui_view_set_rectangular_copy_policy(view, policy) != BOXRIG_UI_OK)
+                return BOXRIG_INPUT_KEY_ROUTE_ERROR;
+        }
+        return BOXRIG_INPUT_KEY_ROUTE_APPLICATION;
+    }
     const char *video = getenv("BOXRIG_TEST_SAMPLE_SELECTION_STYLE_VIDEO");
     if (event->key == BOXRIG_KEY_F9 && video != NULL && strcmp(video, "1") == 0 &&
         (event->modifiers & ~(BOXRIG_MODIFIER_CAPS_LOCK | BOXRIG_MODIFIER_NUM_LOCK)) ==

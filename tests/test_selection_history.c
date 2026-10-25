@@ -32,6 +32,7 @@ static int wrapped_history_and_invalidation(void)
     boxrig_terminal_config config = boxrig_terminal_config_default();
     config.rows = 3; config.columns = 4; config.scrollback_capacity = 8;
     boxrig_ui_view_config vc = boxrig_ui_view_config_default();
+    vc.rectangular_copy_policy = BOXRIG_UI_RECTANGULAR_COPY_PRESERVE_SPACES;
     boxrig_terminal *terminal = NULL;
     boxrig_ui_model *model = NULL;
     boxrig_ui_view *view = NULL;
@@ -71,6 +72,16 @@ static int wrapped_history_and_invalidation(void)
     const uint8_t *bytes = boxrig_text_snapshot_data(copy, &length);
     const char expected[] = "bc\nf \nY \n23\n6 \n  ";
     CHECK(length == sizeof(expected)-1 && memcmp(bytes, expected, length) == 0);
+    CHECK(boxrig_ui_view_set_rectangular_copy_policy(view,
+        BOXRIG_UI_RECTANGULAR_COPY_TRIM_TRAILING_SPACES) == BOXRIG_UI_OK);
+    boxrig_text_snapshot *trimmed = NULL;
+    CHECK(boxrig_ui_view_create_selection_snapshot(view, &trimmed) == BOXRIG_UI_OK);
+    size_t trimmed_length;
+    const uint8_t *trimmed_bytes = boxrig_text_snapshot_data(trimmed, &trimmed_length);
+    const char trimmed_expected[] = "bc\nf\nY\n23\n6\n";
+    CHECK(trimmed_length == sizeof(trimmed_expected) - 1 &&
+        memcmp(trimmed_bytes, trimmed_expected, trimmed_length) == 0);
+    boxrig_text_snapshot_destroy(trimmed);
     /* The retained selection belongs to its original screen while hidden. */
     const uint8_t alternate[] = "\033[?47h";
     CHECK(boxrig_terminal_feed(terminal, alternate, sizeof(alternate)-1, &consumed) == BOXRIG_STATUS_OK);

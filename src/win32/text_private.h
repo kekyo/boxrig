@@ -5,6 +5,9 @@
 #include "boxrig/ui/image.h"
 #include "../opengl/text_provider.h"
 
+double boxrig_win32_text_font_width(boxrig_win32_renderer *renderer,
+    const uint8_t *text, size_t length, uint32_t attributes);
+
 typedef struct boxrig_win32_text_face {
     IDWriteFontFace *face;
     float em_size;

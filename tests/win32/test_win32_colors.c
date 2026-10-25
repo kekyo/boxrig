@@ -4,6 +4,9 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+
+static bool font_fixture;
 
 static int draw(void *context, boxrig_ui_view *view,
     boxrig_composition *composition)
@@ -71,6 +74,16 @@ static bool create(boxrig_test_color_renderer *renderer)
         boxrig_win32_renderer_destroy(host);
         return false;
     }
+    if (font_fixture) {
+        const char file[] = "tests/fixtures/width-fractional.otf";
+        boxrig_font_resource_id resource;
+        if (boxrig_win32_renderer_register_font_file(host, file, strlen(file), 0, &resource) != BOXRIG_FONT_CATALOG_OK) return false;
+        boxrig_font_family family = {"Boxrig Width Fixture", 20, resource};
+        boxrig_font_specification spec = boxrig_font_specification_default();
+        spec.families = &family; spec.family_count = 1; spec.size_dip = 20;
+        boxrig_font_rendering_policy policy = boxrig_font_rendering_policy_default();
+        if (boxrig_win32_renderer_set_font(host, &spec, &policy) != BOXRIG_FONT_CATALOG_OK) return false;
+    }
     *renderer = (boxrig_test_color_renderer){host,
         boxrig_win32_renderer_cell_width(host),
         boxrig_win32_renderer_cell_height(host),
@@ -81,6 +94,8 @@ static bool create(boxrig_test_color_renderer *renderer)
 int main(void)
 {
     if (!boxrig_test_renderer_colors(create)) return 1;
+    font_fixture = true;
+    if (!boxrig_test_renderer_font_positions(create)) return 1;
     puts("PASS Win32 display color fixture");
     return 0;
 }

@@ -8,6 +8,7 @@
 #include "boxrig/ui/image.h"
 #include "boxrig/ui/scrollbar.h"
 #include "renderer_private.h"
+#include "../pangocairo/glyph_fit.h"
 #include "../ui/view_private.h"
 
 #include <X11/Xutil.h>
@@ -42,10 +43,15 @@ typedef struct boxrig_x11_logical_cluster {
 
 typedef struct boxrig_x11_shaped_item {
     PangoGlyphItem glyph_item;
+    boxrig_ui_glyph_span *spans;
+    size_t span_count;
+    /* Split prefixes own their Pango items; glyph_item retains the last part. */
+    PangoGlyphItem **prefixes;
     size_t logical_column;
     size_t logical_column_count;
     size_t visual_column;
     size_t visual_column_count;
+    bool preserve_advance;
 } boxrig_x11_shaped_item;
 
 typedef struct boxrig_x11_row_shape {
@@ -223,6 +229,7 @@ struct boxrig_x11_renderer {
     bool cursor_drawn;
     size_t cursor_row;
     size_t cursor_visual_column;
+    size_t cursor_visual_column_count;
     boxrig_cursor_shape cursor_shape;
     bool cursor_blinking;
     bool composition_state_known;
@@ -2998,6 +3005,11 @@ static void row_shape_destroy(boxrig_x11_row_shape *shape)
     size_t index;
 
     for (index = 0; index < shape->item_count; index++) {
+        for (size_t i = 0; i + 1 < shape->items[index].span_count; i++)
+            if (shape->items[index].prefixes[i] != NULL)
+                pango_glyph_item_free(shape->items[index].prefixes[i]);
+        free(shape->items[index].prefixes);
+        free(shape->items[index].spans);
         if (shape->items[index].glyph_item.glyphs != NULL) {
             pango_glyph_string_free(shape->items[index].glyph_item.glyphs);
         }
@@ -3682,6 +3694,7 @@ static int build_portable_layout(
         inputs[cluster_index].column_count = cluster->column_count;
         inputs[cluster_index].text_offset = cluster->text_offset;
         inputs[cluster_index].text_length = cluster->text_length;
+        inputs[cluster_index].preserve_advance = cluster->cell.font_dependent;
         inputs[cluster_index].style_key = cluster->style_key;
         inputs[cluster_index].hyperlink_key = cluster->hyperlink_key;
         for (node = items; node != NULL; node = node->next) {
@@ -3814,6 +3827,18 @@ static int shape_items(boxrig_x11_row_shape *shape, GList *items)
             if ((shaped->glyph_item.glyphs->glyphs[glyph_index].glyph &
                  PANGO_GLYPH_UNKNOWN_FLAG) != 0) {
                 shape->statistics.missing_glyph_count++;
+            }
+        }
+        shaped->spans = boxrig_pango_glyph_spans(&shaped->glyph_item, shape->text,
+            shape->layout, &shaped->span_count);
+        if (shaped->spans == NULL) return -1;
+        if (shaped->span_count > 1) {
+            shaped->prefixes = calloc(shaped->span_count - 1, sizeof(*shaped->prefixes));
+            if (shaped->prefixes == NULL) { shaped->span_count = 0; return -1; }
+            for (size_t i = 0; i + 1 < shaped->span_count; i++) {
+                shaped->prefixes[i] = pango_glyph_item_split(&shaped->glyph_item,
+                    shape->text, (int)shaped->spans[i].text_length);
+                if (shaped->prefixes[i] == NULL) return -1;
             }
         }
         item_index++;
@@ -3969,6 +3994,29 @@ static boxrig_ui_status resolve_fragment_layout(void *context,
     return status;
 }
 
+static double resolve_font_width(void *context, const uint8_t *text,
+    size_t length, uint32_t attributes)
+{
+    boxrig_x11_renderer *renderer = context;
+    if (length > INT_MAX || renderer->cell_width == 0) return 0;
+    boxrig_x11_logical_cluster cluster = {0};
+    cluster.cell.attributes = attributes;
+    cluster.text_length = length;
+    boxrig_x11_row_shape shape = {0};
+    shape.text_length = length; shape.cluster_count = 1; shape.clusters = &cluster;
+    PangoAttrList *list = create_shaping_attributes(renderer, &shape);
+    if (list == NULL) return 0;
+    PangoLayout *layout = pango_layout_new(renderer->pango_context);
+    pango_layout_set_font_description(layout, renderer->font_description);
+    pango_layout_set_text(layout, (const char *)text, (int)length);
+    pango_layout_set_attributes(layout, list);
+    pango_attr_list_unref(list);
+    int width = 0;
+    pango_layout_get_size(layout, &width, NULL);
+    g_object_unref(layout);
+    return width / ((double)PANGO_SCALE * renderer->cell_width);
+}
+
 static boxrig_ui_status fragment_layout_provider(void *context,
     boxrig_ui_fragment_layout_provider **provider_out)
 {
@@ -3977,9 +4025,21 @@ static boxrig_ui_status fragment_layout_provider(void *context,
         boxrig_ui_status status = boxrig_ui_fragment_layout_provider_create(
             resolve_fragment_layout, fragment_layout_revision, renderer, &renderer->fragment_layout_provider);
         if (status != BOXRIG_UI_OK) return status;
+        status = boxrig_ui_fragment_layout_provider_set_font_width_resolver(
+            renderer->fragment_layout_provider, resolve_font_width);
+        if (status != BOXRIG_UI_OK) return status;
     }
     *provider_out = renderer->fragment_layout_provider;
     return BOXRIG_UI_OK;
+}
+
+boxrig_ui_status boxrig_x11_renderer_bind_view(boxrig_x11_renderer *renderer,
+    boxrig_ui_view *view)
+{
+    if (renderer == NULL || view == NULL) return BOXRIG_UI_INVALID_ARGUMENT;
+    boxrig_ui_fragment_layout_provider *provider = NULL;
+    boxrig_ui_status status = fragment_layout_provider(renderer, &provider);
+    return status == BOXRIG_UI_OK ? boxrig_ui_view_set_fragment_layout_provider(view, provider) : status;
 }
 
 static int update_model_row(
@@ -4454,7 +4514,7 @@ static int draw_visual_nondefault_backgrounds(
     return cairo_status(renderer->cairo) == CAIRO_STATUS_SUCCESS ? 0 : -1;
 }
 
-static int draw_shaped_item_segment(
+static int draw_fitted_item_segment(
     boxrig_x11_renderer *renderer,
     const boxrig_x11_row_shape *shape,
     const boxrig_x11_shaped_item *item,
@@ -4474,7 +4534,7 @@ static int draw_shaped_item_segment(
         return -1;
     }
     natural_units = pango_glyph_string_get_width(item->glyph_item.glyphs);
-    if (natural_units > 0) {
+    if (natural_units > 0 && !item->preserve_advance) {
         horizontal_scale =
             allocated_width * PANGO_SCALE / (double)natural_units;
     }
@@ -4495,7 +4555,9 @@ static int draw_shaped_item_segment(
     cairo_set_operator(renderer->cairo, CAIRO_OPERATOR_OVER);
     cairo_set_source(renderer->cairo, ink);
     cairo_pattern_destroy(ink);
-    cairo_translate(renderer->cairo, x, y + renderer->ascent);
+    double inset = item->preserve_advance
+        ? (allocated_width - natural_units / (double)PANGO_SCALE) / 2 : 0;
+    cairo_translate(renderer->cairo, x + inset, y + renderer->ascent);
     cairo_scale(renderer->cairo, horizontal_scale, 1.0);
     cairo_move_to(renderer->cairo, 0.0, 0.0);
     pango_cairo_show_glyph_item(renderer->cairo, shape->text,
@@ -4512,6 +4574,30 @@ static int draw_shaped_item_segment(
     cairo_restore(renderer->cairo);
     cairo_pattern_destroy(raster);
     return cairo_status(renderer->cairo) == CAIRO_STATUS_SUCCESS ? 0 : -1;
+}
+
+static int draw_shaped_item_segment(
+    boxrig_x11_renderer *renderer,
+    const boxrig_x11_row_shape *shape,
+    const boxrig_x11_shaped_item *item,
+    size_t row, size_t clip_column, size_t clip_column_count,
+    unsigned long foreground)
+{
+    for (size_t i = 0; i < item->span_count; i++) {
+        const boxrig_ui_glyph_span *span = &item->spans[i];
+        size_t first = span->visual_column > clip_column ? span->visual_column : clip_column;
+        size_t end = span->visual_column + span->column_count;
+        if (end > clip_column + clip_column_count) end = clip_column + clip_column_count;
+        if (first >= end) continue;
+        boxrig_x11_shaped_item part = *item;
+        if (i + 1 < item->span_count) part.glyph_item = *item->prefixes[i];
+        part.visual_column = span->visual_column;
+        part.visual_column_count = span->column_count;
+        part.preserve_advance = span->preserve_advance;
+        if (draw_fitted_item_segment(renderer, shape, &part, row, first,
+                end - first, foreground) == -1) return -1;
+    }
+    return 0;
 }
 
 static int draw_shaped_item(
@@ -5236,9 +5322,10 @@ static int draw_filled_cursor(
     boxrig_cursor_view cursor, const boxrig_x11_row_shape *shape,
     size_t column, boxrig_rgb fill)
 {
-    boxrig_cell_view cell;
-    if (boxrig_terminal_get_cell(renderer->color_terminal, cursor.row, cursor.column,
-            &cell) != BOXRIG_STATUS_OK) return -1;
+    boxrig_viewport_cell_resolution resolution;
+    if (boxrig_terminal_resolve_viewport_cell(renderer->color_terminal,
+            cursor.row, cursor.column, &resolution) != BOXRIG_STATUS_OK) return -1;
+    boxrig_cell_view cell = resolution.cell;
     resolved_cell_colors saved = renderer->row_colors[column];
     unsigned long ink = color_pixel(renderer,
         boxrig_ui_cursor_contrast_color(fill, saved.display_background));
@@ -5254,8 +5341,8 @@ static int draw_filled_cursor(
             !(cell.text_length == 1 && cell.text[0] == ' '))) &&
         (cell.attributes & BOXRIG_CELL_CONCEALED) == 0 &&
         boxrig_ui_view_text_blink_visible(view, cell.attributes)) {
-        /* Reuse the shaped glyph, but clip its ink to this visual cell.
-         * This also handles a cursor on one half of a wide grapheme. */
+        /* Reuse the shaped glyph for each cell of the complete cursor span.
+         * Per-cell clipping preserves the resolved underlay colors. */
         for (size_t i = 0; i < shape->item_count; i++) {
             const boxrig_x11_shaped_item *item = &shape->items[i];
             if (column >= item->visual_column &&
@@ -5281,7 +5368,7 @@ static int draw_cursor(
     boxrig_cursor_view cursor,
     const boxrig_x11_row_shape *shape)
 {
-    size_t visual_column;
+    boxrig_text_layout_range range;
     int x;
     int y;
     boxrig_ui_view_apply_cursor_style(view, &cursor);
@@ -5289,12 +5376,11 @@ static int draw_cursor(
     if (renderer->render_statistics.cursor_raster_count != SIZE_MAX) {
         renderer->render_statistics.cursor_raster_count++;
     }
-    if (boxrig_text_layout_logical_to_visual(
-            shape->layout,
-            cursor.column,
-            &visual_column) != BOXRIG_TEXT_LAYOUT_OK) {
+    if (!boxrig_ui_cursor_visual_range(renderer->color_terminal, &cursor,
+            shape->layout, &range)) {
         return -1;
     }
+    size_t visual_column = range.column;
     x = (int)(visual_column * renderer->cell_width);
     y = (int)(cursor.row * renderer->cell_height);
     boxrig_rgb color;
@@ -5306,12 +5392,16 @@ static int draw_cursor(
         resolve_marker_color(view, &renderer->row_filter_colors[visual_column],
             BOXRIG_UI_COLOR_CURSOR, color, source, &color) == -1) return -1;
     unsigned long pixel = color_pixel(renderer, color);
-    if (boxrig_ui_view_cursor_filled(view, &cursor))
-        return draw_filled_cursor(renderer, view, cursor, shape, visual_column, color);
+    if (boxrig_ui_view_cursor_filled(view, &cursor)) {
+        for (size_t offset = 0; offset < range.column_count; offset++)
+            if (draw_filled_cursor(renderer, view, cursor, shape,
+                    visual_column + offset, color) == -1) return -1;
+        return 0;
+    }
     boxrig_ui_cursor_rectangle rectangles[4];
     size_t count = boxrig_ui_view_cursor_rectangles(view, &cursor,
         renderer->rendering_policy.dpi_x, renderer->rendering_policy.dpi_y,
-        renderer->rendering_policy.output_scale, renderer->cell_width,
+        renderer->rendering_policy.output_scale, range.column_count * renderer->cell_width,
         renderer->cell_height, rectangles);
     if (!set_cairo_source_pixel(renderer, pixel, 255)) return -1;
     for (size_t i = 0; i < count; i++)
@@ -5381,7 +5471,7 @@ static int draw_composition_layout(
     size_t row,
     size_t column,
     size_t column_count,
-    unsigned long foreground)
+    unsigned long foreground, bool preserve_advance)
 {
     int natural_width;
     int layout_baseline;
@@ -5393,7 +5483,7 @@ static int draw_composition_layout(
     pango_layout_get_size(layout, &natural_width, NULL);
     layout_baseline = pango_layout_get_baseline(layout);
     allocated_width = column_count * renderer->cell_width;
-    if (natural_width > 0) {
+    if (natural_width > 0 && !preserve_advance) {
         horizontal_scale =
             allocated_width * PANGO_SCALE / (double)natural_width;
     }
@@ -5408,9 +5498,10 @@ static int draw_composition_layout(
         allocated_width,
         renderer->cell_height);
     cairo_clip(renderer->cairo);
+    double inset = preserve_advance ? (allocated_width - natural_width / (double)PANGO_SCALE) / 2 : 0;
     cairo_translate(
         renderer->cairo,
-        x,
+        x + inset,
         y + renderer->ascent - layout_baseline / (double)PANGO_SCALE);
     cairo_scale(renderer->cairo, horizontal_scale, 1.0);
     pango_cairo_show_layout(renderer->cairo, layout);
@@ -5547,7 +5638,7 @@ static int draw_composition_group(
         }
     }
     if (draw_composition_layout(renderer, layout, first.row, minimum_column,
-            maximum_column - minimum_column, base_foreground) == -1) goto cleanup;
+            maximum_column - minimum_column, base_foreground, first.font_dependent) == -1) goto cleanup;
     for (index = first_cluster;
          index < first_cluster + cluster_count;
          index++) {
@@ -5595,7 +5686,7 @@ static int draw_composition_group(
                     first.row,
                     minimum_column,
                     maximum_column - minimum_column,
-                    foreground) == -1) {
+                    foreground, first.font_dependent) == -1) {
                 cairo_restore(renderer->cairo);
                 goto cleanup;
             }
@@ -5665,7 +5756,7 @@ static int draw_composition_overlay(
                     &next) != BOXRIG_COMPOSITION_OK) {
                 return -1;
             }
-            if (!next.visible || next.row != first.row) {
+            if (!next.visible || next.row != first.row || first.font_dependent || next.font_dependent) {
                 break;
             }
             cluster_count++;
@@ -5886,10 +5977,11 @@ static int update_composition_extent(
 static bool cursor_state_matches(
     const boxrig_x11_renderer *renderer,
     boxrig_cursor_view cursor,
-    size_t visual_column)
+    size_t visual_column, size_t visual_column_count)
 {
     return renderer->cursor_drawn && renderer->cursor_row == cursor.row &&
            renderer->cursor_visual_column == visual_column &&
+           renderer->cursor_visual_column_count == visual_column_count &&
            renderer->cursor_shape == cursor.shape &&
            renderer->cursor_blinking == cursor.blinking;
 }
@@ -6354,6 +6446,7 @@ static int draw_renderer(
     size_t columns;
     size_t row;
     size_t cursor_visual_column = 0;
+    size_t cursor_visual_column_count = 0;
     boxrig_composition_view composition_view;
     bool composition_visible = false;
     bool desired_cursor = false;
@@ -6496,25 +6589,28 @@ static int draw_renderer(
         goto cleanup;
     }
     boxrig_terminal_get_cursor(terminal, &cursor);
+    boxrig_cursor_view styled_cursor = cursor;
+    boxrig_ui_view_apply_cursor_style(view, &styled_cursor);
     desired_cursor = cursor.visible && !composition_visible &&
         boxrig_ui_view_cursor_blink_visible(view);
     if (desired_cursor) {
+        boxrig_text_layout_range range;
         if (cursor.row >= rows || cursor.column >= columns ||
             ensure_cached_row(
                 renderer,
                 terminal,
                 cursor.row,
                 &cursor_shape) == -1 ||
-            boxrig_text_layout_logical_to_visual(
-                cursor_shape->layout,
-                cursor.column,
-                &cursor_visual_column) != BOXRIG_TEXT_LAYOUT_OK) {
+            !boxrig_ui_cursor_visual_range(terminal, &styled_cursor,
+                cursor_shape->layout, &range)) {
             goto cleanup;
         }
+        cursor_visual_column = range.column;
+        cursor_visual_column_count = range.column_count;
         cursor_changed = !cursor_state_matches(
             renderer,
             cursor,
-            cursor_visual_column);
+            cursor_visual_column, cursor_visual_column_count);
     } else {
         cursor_changed = renderer->cursor_drawn;
     }
@@ -6523,16 +6619,22 @@ static int draw_renderer(
         mark_dirty_interval(
             &renderer->frame_dirty[renderer->cursor_row],
             renderer->cursor_visual_column,
-            1,
+            renderer->cursor_visual_column_count,
             columns);
     }
     if (cursor_changed && desired_cursor) {
         mark_dirty_interval(
             &renderer->frame_dirty[cursor.row],
             cursor_visual_column,
-            1,
+            cursor_visual_column_count,
             columns);
     }
+    if (desired_cursor && renderer->frame_dirty[cursor.row].dirty &&
+        cursor_visual_column < renderer->frame_dirty[cursor.row].column +
+            renderer->frame_dirty[cursor.row].column_count &&
+        renderer->frame_dirty[cursor.row].column < cursor_visual_column + cursor_visual_column_count)
+        mark_dirty_interval(&renderer->frame_dirty[cursor.row], cursor_visual_column,
+            cursor_visual_column_count, columns);
     if (renderer->full_expose && fill_full_background(renderer) == -1) {
         goto cleanup;
     }
@@ -6616,6 +6718,7 @@ static int draw_renderer(
     if (desired_cursor) {
         renderer->cursor_row = cursor.row;
         renderer->cursor_visual_column = cursor_visual_column;
+        renderer->cursor_visual_column_count = cursor_visual_column_count;
         renderer->cursor_shape = cursor.shape;
         renderer->cursor_blinking = cursor.blinking;
     }

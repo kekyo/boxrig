@@ -120,6 +120,7 @@ BOXRIG_0 {
         boxrig_ui_editable_document_set_limits;
         boxrig_ui_editable_document_take_replacement;
         boxrig_ui_editable_limits_default;
+        boxrig_ui_fragment_layout_provider_set_font_width_resolver;
         boxrig_ui_fragment_layout_provider_create;
         boxrig_ui_fragment_layout_provider_destroy;
         boxrig_ui_host_item_consumer_complete;
@@ -178,6 +179,7 @@ BOXRIG_0 {
         boxrig_ui_view_get_hyperlink_hover;
         boxrig_ui_view_get_layout;
         boxrig_ui_view_get_preferred_grid;
+        boxrig_ui_view_get_rectangular_copy_policy;
         boxrig_ui_view_get_render_target;
         boxrig_ui_view_get_row_dirty;
         boxrig_ui_view_get_scrollbar_state;
@@ -224,6 +226,7 @@ BOXRIG_0 {
         boxrig_ui_view_set_frame_request_callback;
         boxrig_ui_view_set_geometry_capabilities;
         boxrig_ui_view_set_preferred_grid;
+        boxrig_ui_view_set_rectangular_copy_policy;
         boxrig_ui_view_set_selection_style;
         boxrig_ui_view_set_transparency_config;
         boxrig_ui_view_set_visible;
@@ -248,6 +251,8 @@ BOXRIG_PRIVATE_0 {
         boxrig_ui_accessible_snapshot_is_current;
         boxrig_ui_candidates_place;
         boxrig_ui_cursor_contrast_color;
+        boxrig_ui_cursor_visual_range;
+        boxrig_ui_fit_glyph_spans;
         boxrig_ui_input_control_accepts;
         boxrig_ui_input_control_initialize;
         boxrig_ui_input_control_request;

@@ -24,6 +24,13 @@ it.each([
     try {
       await mkdir(diagnostics, { recursive: true });
       directory = await agent.files.mkdtemp('boxrig-d3d11-');
+      await agent.files.mkdir(`${directory}\\tests\\fixtures`, {
+        recursive: true,
+      });
+      await agent.files.writeFile(
+        `${directory}\\tests\\fixtures\\width-fractional.otf`,
+        await readFile(resolve(source, 'tests/fixtures/width-fractional.otf'))
+      );
       const path = `${directory}\\renderer-${architecture}.exe`;
       await agent.files.writeFile(
         path,
@@ -36,6 +43,7 @@ it.each([
       );
       const probe = await agent.processes.launchManaged({
         path,
+        workingDirectory: directory,
         arguments: [`--${driver}`, '--physical'],
         captureStdout: true,
         captureStderr: true,

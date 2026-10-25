@@ -6,6 +6,7 @@
 
 #include "boxrig/gtk3.h"
 #include "../../src/gtk3/input.h"
+#include "../../src/core/terminal_internal.h"
 #include "../composition_fixture.h"
 #include "../frontend_component_fixture.h"
 #include "../../examples/gtk3/external_scrollbar.h"
@@ -2484,6 +2485,8 @@ static bool test_clipboard_actions(void)
     widget_config.paste_chunk_size = 2;
     widget_config.maximum_clipboard_transfers = 2;
     widget_config.maximum_clipboard_bytes = 10;
+    if (getenv("BOXRIG_TEST_RENDER_OPENGL") != NULL)
+        widget_config.render_policy = BOXRIG_GTK_RENDER_OPENGL_REQUIRED;
     CHECK(boxrig_terminal_create(&terminal_config, &terminal) ==
           BOXRIG_STATUS_OK);
     CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
@@ -2570,6 +2573,51 @@ static bool test_clipboard_actions(void)
     }
     CHECK(read_result.text != NULL && strcmp(read_result.text, "copy\n") == 0);
     g_free(read_result.text);
+
+    /* Failure must preserve the complete previous native offer, for either target. */
+    boxrig_ui_view *copy_view = boxrig_gtk3_terminal_widget_view(widget);
+    const boxrig_ui_selection_options rectangle = {
+        BOXRIG_UI_SELECTION_RECTANGULAR, BOXRIG_UI_SELECTION_CHARACTER
+    };
+    CHECK(boxrig_gtk3_terminal_widget_hit_test(widget, BOXRIG_UI_FIXED_ONE,
+        BOXRIG_UI_FIXED_ONE, &hit) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_begin_selection_with_options(copy_view, &rectangle, &hit) == BOXRIG_UI_OK);
+    CHECK(boxrig_gtk3_terminal_widget_hit_test(widget,
+        ((boxrig_ui_fixed)metrics.cell_width * 8 - 1) * BOXRIG_UI_FIXED_ONE,
+        BOXRIG_UI_FIXED_ONE, &hit) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_update_selection(copy_view, &hit) == BOXRIG_UI_OK);
+    boxrig_ui_hit_test_result copy_focus = hit;
+    GtkClipboard *targets[] = {primary, clipboard};
+    const boxrig_ui_clipboard_target target_kinds[] = {
+        BOXRIG_UI_CLIPBOARD_TARGET_PRIMARY_SELECTION, BOXRIG_UI_CLIPBOARD_TARGET_CLIPBOARD
+    };
+    for (size_t target = 0; target < 2; target++) {
+        action.clipboard_target = target_kinds[target];
+        for (size_t failure = 0; failure < 2; failure++) {
+            CHECK(boxrig_ui_view_set_rectangular_copy_policy(copy_view, failure == 0
+                ? BOXRIG_UI_RECTANGULAR_COPY_PRESERVE_SPACES
+                : BOXRIG_UI_RECTANGULAR_COPY_TRIM_TRAILING_SPACES) == BOXRIG_UI_OK);
+            if (failure == 1) boxrig_terminal_test_fail_text_snapshot_allocation(terminal, 1);
+            CHECK(boxrig_gtk3_terminal_widget_apply_view_action(widget, &action) ==
+                (failure == 0 ? BOXRIG_UI_LIMIT_EXCEEDED : BOXRIG_UI_OUT_OF_MEMORY));
+            memset(&read_result, 0, sizeof(read_result));
+            gtk_clipboard_request_text(targets[target], clipboard_text_read, &read_result);
+            while (!read_result.completed) (void)g_main_context_iteration(NULL, true);
+            CHECK(read_result.text != NULL && strcmp(read_result.text, "copy\n") == 0);
+            g_free(read_result.text);
+        }
+        CHECK(boxrig_gtk3_terminal_widget_hit_test(widget, BOXRIG_UI_FIXED_ONE,
+            BOXRIG_UI_FIXED_ONE, &hit) == BOXRIG_UI_OK);
+        CHECK(boxrig_ui_view_update_selection(copy_view, &hit) == BOXRIG_UI_OK);
+        CHECK(boxrig_gtk3_terminal_widget_apply_view_action(widget, &action) == BOXRIG_UI_UNAVAILABLE);
+        memset(&read_result, 0, sizeof(read_result));
+        gtk_clipboard_request_text(targets[target], clipboard_text_read, &read_result);
+        while (!read_result.completed) (void)g_main_context_iteration(NULL, true);
+        CHECK(read_result.text != NULL && strcmp(read_result.text, "copy\n") == 0);
+        g_free(read_result.text);
+        CHECK(boxrig_ui_view_update_selection(copy_view, &copy_focus) == BOXRIG_UI_OK);
+    }
+    CHECK(boxrig_ui_view_begin_selection(copy_view, BOXRIG_UI_SELECTION_LINE, &hit) == BOXRIG_UI_OK);
 
     CHECK(boxrig_gtk3_terminal_widget_set_input_enabled(widget, true) == BOXRIG_UI_OK);
     gtk_clipboard_set_text(primary, "P\r\n", -1);
@@ -3346,7 +3394,7 @@ int main(int argc, char **argv)
     }
     bool passed = test_printable_key_router_precedes_native_ime() && (getenv("BOXRIG_TEST_RENDER_OPENGL") != NULL
         ? boxrig_test_run_frontend_component_fixture(&operations) &&
-          test_grid_resize_tracks_runtime_output_scale()
+          test_grid_resize_tracks_runtime_output_scale() && test_clipboard_actions()
         : test_standard_scrollbar_visibility() && test_scrollbar_visibility_during_scale_change() &&
                   boxrig_test_run_frontend_component_fixture(&operations) &&
                   test_preedit_clause_attributes() && test_preedit_translation() &&
