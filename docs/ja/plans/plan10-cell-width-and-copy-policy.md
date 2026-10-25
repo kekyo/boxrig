@@ -2,7 +2,7 @@
 
 作成日：2026年10月25日
 
-追記：2026年10月25日、曖昧幅文字の設定へ「フォント依存」を加える仕様を末尾の追加計画へ記載した。送り幅をセル幅の整数倍へ切り上げ、確保した列の中央に元の幅で描画する。追加分の進捗は末尾の追加実装記録に記載し、以下の初回計画にある完了報告とは区別する。
+追記：2026年10月25日、曖昧幅文字の設定へ「フォント依存」を追加し、実装と全体試験の確認を完了した。送り幅をセル幅の整数倍へ切り上げ、確保した列の中央に元の幅で描画する。追加分の結果と残る失敗は末尾に記録し、以下の初回計画にある完了報告とは区別する。
 
 ## 初回の実施範囲
 
@@ -337,12 +337,12 @@ boxrigの対応コミットをelder-termsへ取り込み、ビルドと既存試
 
 ### 追加仕様の完了条件
 
-- [ ] 1列／2列／フォント依存を選択でき、既定値と明示した1列／2列の動作を維持する。
-- [ ] 1、1.2、2、2.1セル分の送り幅がそれぞれ1、2、2、3列になり、2列を超える幅を切り捨てない。
-- [ ] 2.1セル分の字形が元の幅で3列の中央に置かれ、後続文字が3列先へ並ぶ。計測では代替フォントも考慮する。
-- [ ] カーソル、各継続セル、選択、コピー、折り返し、編集、履歴、更新範囲が同じ列数を使い、本文へ中央寄せ用の空白を加えない。
-- [ ] フォントや倍率の変更、計測失敗、型や画面幅の上限について具体化した仕様と試験が一致する。
-- [ ] 各段階で実行可能な成果物とRED／GREENの記録を残し、画像・動画と両プロジェクトの全体試験で確認する。残る失敗・未確認項目は成功と区別して記録する。
+- [x] 1列／2列／フォント依存を選択でき、既定値と明示した1列／2列の動作を維持する。
+- [x] 1、1.2、2、2.1セル分の送り幅がそれぞれ1、2、2、3列になり、2列を超える幅を切り捨てない。
+- [x] 2.1セル分の字形が元の幅で3列の中央に置かれ、後続文字が3列先へ並ぶ。計測では代替フォントも考慮する。
+- [x] カーソル、各継続セル、選択、コピー、折り返し、編集、履歴、更新範囲が同じ列数を使い、本文へ中央寄せ用の空白を加えない。
+- [x] フォントや倍率の変更、計測失敗、型や画面幅の上限について具体化した仕様と試験が一致する。
+- [x] 各段階で実行可能な成果物とRED／GREENの記録を残し、画像・動画と両プロジェクトの全体試験で確認する。残る失敗・未確認項目は成功と区別して記録する。
 
 ### 追加実装記録
 
@@ -356,7 +356,7 @@ boxrigの対応コミットをelder-termsへ取り込み、ビルドと既存試
 
 元の送り幅を保つ文字は、隣の文字と同じ比率でも別々に中央寄せする。代替フォントが一つの書記素を複数の字形へ分けた場合は、同じ書記素として扱う。本文に加え、同じ幅計測APIを使うIMEの未確定文字も対象とした。未確定文字だけが拡大されるREDを確認し、中央寄せの指定を計測結果と未確定文字へ伝える修正後にGREENを確認した。
 
-独自の矩形字形を持つ`tests/fixtures/width-*.otf`を用意した。基本セル幅に対して1、1.2、2、2.1、4.5倍の送り幅を再現し、PangoCairo、X11、OpenGL、Win32で計測、配置、色変更、選択、コピーを確認した。PangoCairoではフォントの置き換え、代替フォント、1.5倍表示による再計測も確認した。Win32の実行にはWineを使った。D3D11にも同じ検証を追加し、全体試験で実行する。
+独自の矩形字形を持つ`tests/fixtures/width-*.otf`を用意した。基本セル幅に対して1、1.2、2、2.1、4.5倍の送り幅を再現し、PangoCairo、X11、OpenGL、Win32で計測、配置、色変更、選択、コピーを確認した。PangoCairoではフォントの置き換え、代替フォント、1.5倍表示による再計測も確認した。Win32の実行にはWineを使った。D3D11にも同じ検証を追加し、後述の実Windows試験で確認した。
 
 REDは`/tmp/boxrig-font-provider-red.log`、`/tmp/boxrig-font-fit-red.log`、`/tmp/boxrig-font-native-red.log`、`/tmp/boxrig-font-cache-red.log`、`/tmp/boxrig-font-ime-red.log`にある。対象のGREENは`/tmp/boxrig-font-core-final.log`、`/tmp/boxrig-font-layout-final.log`、`/tmp/boxrig-font-composition-final.log`、`/tmp/boxrig-font-provider-final.log`、`/tmp/boxrig-font-copy-final.log`と、`/tmp/boxrig-font-ime-*-green.log`、`/tmp/boxrig-font-opengl-final.log`にある。
 
@@ -364,13 +364,59 @@ REDは`/tmp/boxrig-font-provider-red.log`、`/tmp/boxrig-font-fit-red.log`、`/t
 
 外部APIは[Pangoの計測API](https://docs.gtk.org/Pango/method.Layout.get_size.html)、[PangoのAPIコメント](https://raw.githubusercontent.com/GNOME/pango/main/pango/pango-layout.c)、[DirectWriteの送り幅](https://learn.microsoft.com/en-us/windows/win32/api/dwrite/nf-dwrite-idwritetextanalyzer-getglyphplacements)と同梱ヘッダーを確認した。検証用フォントの生成は[opentype.jsの公式説明](https://github.com/opentypejs/opentype.js#craft-a-font)とAPIコメントを確認し、一時領域の1.3.4を使用した。ライブラリの実行時依存には加えていない。
 
-boxrigの全体試験は`make -k test`で開始し、`/tmp/boxrig-font-full-test.log`へ記録している。結果の照合、段階8のアプリ反映と全体試験は引き続き実施する。
+boxrigの全体試験は`make -k test`で実行し、`/tmp/boxrig-font-full-test.log`へ記録した。結果と補足の実行は、後述の全体試験の確認記録にまとめた。
 
 計測器を一度ビューから外し、コールバックを差し替えて再接続すると、旧コールバックのキャッシュが残るケースも確認した。`/tmp/boxrig-font-replacement-red.log`でREDを確認し、コールバック設定時にキャッシュを破棄する修正後、`/tmp/boxrig-font-replacement-green.log`でGREENを確認した。フォント世代の変更による再計測とは別に、計測器の差し替えも反映される。
 
 D3D11はagent-roverで実Windowsの32・64ビット、WARP・ハードウェア処理を確認した。転送先に検証用フォントがなく描画器の生成に失敗したため、試験用の一時ディレクトリにフォントも転送し、そのディレクトリを作業場所として起動するよう修正した。4条件すべてで3列の計測・中央寄せ・色変更・選択・コピーが成功し、既存の表示部品のトランザクションとフォント変更を含む12件が成功した。実PCは各試験の終了時に解放している。REDは`/tmp/boxrig-font-d3d11-remote-red.log`、GREENは`/tmp/boxrig-font-d3d11-remote-green.log`、詳細は`build/test-results/step20-12/`にある。[agent-roverの公式説明](https://github.com/kekyo/agent-rover#files-event-logs-and-diagnostics)とインストール済みAPIのコメントで転送・起動方法を確認した。
 
 全体試験では`test_terminal_io_views.c`の既存初期化子3件に、新しい`preserve_advance`の指定が足りず、警告をエラーとして検出した。通常の幅合わせを表す`false`を追加し、`test-terminal-io-integration`の両試験が成功した。再実行のログは`/tmp/boxrig-font-io-green.log`にある。
+
+### 追加仕様の全体試験
+
+`make -k test`は最後まで実行した。途中で端末I/O試験のビルドとGTK4/X11のホイール操作試験が失敗し、終了値は2となった。ビルドの失敗は上記の初期化子を修正し、対象試験の成功を確認した。
+
+依存ターゲットの失敗で`test`本体のレシピが実行されなかったため、実行済みの依存ターゲットを`-o`で除き、残りを続けて実行した。この補足実行では`-i`を使って各コマンドの失敗後も最後まで進めたが、失敗行を別途集計し、全体の成功とは扱っていない。端末コア、公開API、描画、サンプル、SDKの検証を完了し、末尾のWine上の終了・リサイズ試験だけが32・64ビットの両方で失敗した。ログは`/tmp/boxrig-font-main-test.log`にある。
+
+GTK4/X11のホイール操作試験は、全体実行では通常倍率、対象ターゲットの再実行では2倍表示で、ズームを戻した後にウインドウが終了した。両条件とも、製品コードを変えない個別再実行で全31シナリオが成功した。途中終了で未実行だったWayland、OpenGLなど残り12条件もすべて成功した。終了箇所を調べる一時ビルドと、変更前の`fb037c1789bcabec286a21952531eb5c880328c2`では再現できず、原因は特定できなかった。既存の不具合とも今回の変更の影響とも断定しない。
+
+ホイール試験の記録は`/tmp/boxrig-font-wheel-retest.log`、`/tmp/boxrig-font-wheel-full-retest.log`、`/tmp/boxrig-font-wheel-plain-2x.log`、`/tmp/boxrig-font-wheel-remaining.log`にある。診断用の変更と、比較用の作業ツリーは残していない。
+
+Wine上の終了・リサイズ試験は、マウスボタンを押したまま拡大した画面を取得する箇所で失敗した。初回のplan10と同じ箇所である。[実Windows用の終了試験](../../../tests/p2/win32/src/win32-sample-policies.test.ts)を32・64ビットで実行し、[リサイズの動画試験](../../../tests/p2/win32/src/win32-interactive-resize.test.ts)も合わせて3件すべて成功した。ログは`/tmp/boxrig-font-native-shutdown-resize.log`、画像・動画は`build/test-results/win32-sample-policies/`と`build/test-results/p2-win32-interactive-resize/`にある。実PCは試験後に解放した。
+
+検証環境による未確認項目と診断は、次のように分けて記録する。
+
+- WineのD3D11資源生成は既存の[描画試験](../../../tests/win32/test_d3d11_renderer.c)と[表示部品の試験](../../../tests/win32/test_d3d11_component.c)の条件でスキップした。今回追加した列数と中央寄せは、前述の実Windowsの12件で確認した。
+- 追加GTKライブラリは[試験の起動条件](../../../tests/gtk/run_ime_protocol.mjs)で使う`BOXRIG_TEST_GTK_SUPPORTED_LIBS`が未指定のため未確認。WineのOpenGL ES専用ケースも、[表示部品](../../../tests/win32/test_win32_opengl_component.c)と[描画面](../../../tests/win32/wgl_surface_fixture.c)の試験で必要なコンテキストを得られずスキップした。LinuxのOpenGL ESは成功した。
+- WineのConPTYを使うCtrl-C、Kitty APC、DSR、タイトル、端末サイズの一部は、既存の[Win32サンプル試験](../../../tests/win32/test_win32_sample.c)と[PTY試験](../../../tests/win32/test_win32_pty.c)の条件でスキップした。今回これらをすべて実Windowsで確認したわけではない。
+- コンパイラが検出した初期化子不足は修正済みで、AddressSanitizer・UndefinedBehaviorSanitizerのエラーはなかった。実行時にはXvfbのDRI3、支援技術バス、ポータルのFUSEマウントに関する診断があった。ホイール操作の終了原因とは断定していない。
+
+### 段階8の追加実装
+
+elder-termsの設定へ`font`と「フォント依存」を追加し、既定の1列、明示した1列／2列、継承を維持した。設定モデルと実アプリでREDを確認した後、保存・再読込と新規端末への適用を実装した。日本語・英語の利用者向け説明と9言語のラベルも更新した。
+
+依存更新時には共有ライブラリの公開シンボル不足を検出した。boxrigのエクスポート定義と公開APIの試験を修正した`638582c6`を経て、計測器差し替えの修正を含む`b746d747`を参照している。サブモジュールのソースは直接編集していない。
+
+Cairo／OpenGL、通常倍率／2倍表示で、実フォントの1、1.2、2、2.1、4.5セル分の列数、フォント変更時の本文・履歴の再配置、再接続・表示部品交換時の端末保持を確認した。画面操作と録画の10試験では、2.1セル分の中央寄せ、後続位置、コピー、3列の先頭と各継続セルでのカーソル点滅を確認した。詳細はelder-terms側のplan10に記録した。
+
+elder-termsの全体試験は、共有ライブラリ146件、ランチャー114件、C++216件、端末UI693件が成功した。C++のSSH接続1件と、端末UIの遅延開始XMODEM受信3件が失敗したが、コードを変えない個別再実行ですべて成功した。スキップはそれぞれ6、1、2、4件で、今回追加した幅設定と描画の試験は全体実行でも成功した。全体実行と再実行の結果は、アプリ側のplan10に分けて記録した。
+
+追加仕様の完了条件を上記の試験と照合し、すべての項目を確認した。両プロジェクトの全体試験は実行済みだが、失敗のない全体実行を確認したという意味ではない。boxrigは`feat/plan10-font-width`、elder-termsは`feat/plan10-cell-width`へ段階ごとにコミットし、mainへのマージとリリースは行っていない。
+
+### 追加実装のコミット
+
+| 対象と段階 | コミット |
+| --- | --- |
+| boxrig：コアの幅計測と再配置 | `ce1c6f36` |
+| boxrig：各描画方式の中央寄せ | `a8b61812` |
+| boxrig：公開説明とAPIの使い方 | `df5a557b` |
+| boxrig：共有ライブラリの公開シンボル | `638582c6` |
+| boxrig：計測器差し替え時のキャッシュ | `b746d747` |
+| boxrig：ネイティブ試験と初期化子の修正 | `73867584` |
+| elder-terms：依存参照更新 | `df8c7d2b` |
+| elder-terms：設定・UI・端末生成 | `7bdfc690` |
+| elder-terms：日本語・英語の公開説明 | `1a75cc0a` |
+| elder-terms：最終参照と画像・動画の検証 | `438b3334` |
 
 [elder-190-runtime]: https://github.com/kekyo/elder-terms/blob/b62860d358be7209750eb58c67a9d5f66ea7ac58/elder-terms-terminal/src/terminal-runtime.cpp
 [elder-190-boxrig]: https://github.com/kekyo/elder-terms/tree/b62860d358be7209750eb58c67a9d5f66ea7ac58/deps/boxrig
