@@ -139,6 +139,8 @@ bool boxrig_unicode_grapheme_break(
 
 int boxrig_unicode_column_width(int32_t codepoint, bool ambiguous_is_wide)
 {
+    /* Kitty image placeholders encode exactly one grid cell, not a glyph. */
+    if (codepoint == 0x10eeee) return 1;
     int width = utf8proc_charwidth((utf8proc_int32_t)codepoint);
 
     if (ambiguous_is_wide && width == 1 &&
@@ -165,6 +167,8 @@ bool boxrig_unicode_text_is_ambiguous(const uint8_t *text, size_t text_length)
         utf8proc_ssize_t decoded = utf8proc_iterate(text + offset,
             (utf8proc_ssize_t)(available > 4 ? 4 : available), &codepoint);
         if (decoded <= 0) return false;
+        /* A font's missing-glyph advance must not resize an image cell. */
+        if (codepoint == 0x10eeee) return false;
         /* Explicit emoji presentation and intrinsically wide bases retain
          * their Unicode width even if a combining mark is ambiguous. */
         int width = utf8proc_charwidth(codepoint);

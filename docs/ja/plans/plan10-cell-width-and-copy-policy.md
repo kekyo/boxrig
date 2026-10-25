@@ -437,7 +437,23 @@ elder-termsの全体試験は、共有ライブラリ146件、ランチャー114
 
 コアで履歴、通常画面、代替画面の列数を比較し、変化がある場合だけ再配置するよう修正した。原因を特定する前に試した部分描画の準備処理とGTK3の描画待機処理の変更は、どちらも取り消した。試験の期待値は変えていない。
 
-修正後はコア、画像、GTK3 OpenGL、部分描画の2試験がすべて成功した。列数が変わる場合の再配置も既存試験で成功している。ログは`/tmp/boxrig-font-default-stable-width-green.log`、`/tmp/boxrig-font-default-graphics-green.log`、`/tmp/boxrig-font-default-gtk3-opengl-stable-green.log`、`/tmp/boxrig-font-default-partial-stable-green.log`にある。この修正をelder-termsへ取り込み、両プロジェクトの全体試験をやり直す。
+修正後はコア、画像、GTK3 OpenGL、部分描画の2試験がすべて成功した。列数が変わる場合の再配置も既存試験で成功している。ログは`/tmp/boxrig-font-default-stable-width-green.log`、`/tmp/boxrig-font-default-graphics-green.log`、`/tmp/boxrig-font-default-gtk3-opengl-stable-green.log`、`/tmp/boxrig-font-default-partial-stable-green.log`にある。この修正をelder-termsへ取り込み、両プロジェクトの全体試験をやり直した。
+
+### 再配置修正後の全体試験
+
+boxrigは`ac647f70`に固定して`make -k test`を実行した。部分描画、GTK3 OpenGL／OpenGL ES、ホイール操作などの依存ターゲットはすべて成功したが、本体レシピのX11サンプルで画像配置が失敗した。残りの40コマンドも続けて実行し、末尾のWine上の終了・リサイズ2件だけが失敗した。後者は前回と同じ、マウスボタンを押したまま拡大した画面を取得する箇所だった。
+
+ログは`/tmp/boxrig-font-default-final-test.log`と`/tmp/boxrig-font-default-final-remaining-test.log`にある。実Windowsでは同じコミットのD3D11計12件、終了・リサイズ計3件が成功した。ログは`/tmp/boxrig-font-default-final-native-d3d11.log`と`/tmp/boxrig-font-default-final-native-shutdown-resize.log`にある。実PCは試験後に解放した。
+
+elder-termsも`028bb151`に固定して全体試験を終えた。共有ライブラリ145件、ランチャー114件、C++217件、端末UI690件が成功した。設定画面のキー割り当て操作1件と、遅延開始のTELNET受信6件は失敗したが、コードを変えない個別再実行ですべて成功した。原因は未特定で、全体実行の成功とは扱わない。今回の幅設定・描画・動画試験は全体実行でも成功した。詳細とスキップ件数はelder-terms側のplan10に記録した。
+
+### 画像配置用文字の扱い
+
+参照更新後の全体試験で、X11サンプルの画像配置試験が失敗した。個別再実行でも再現し、画像の位置を指定するU+10EEEEまでフォントで計測して列数を増やしていたことが分かった。[KittyのUnicode placeholder](https://sw.kovidgoyal.net/kitty/graphics-protocol/#unicode-placeholders)は1文字を1セルに対応させるため、通常の曖昧幅文字と同じ計測対象にする設計では画像の配置を保てない。
+
+この文字はフォント計測から除外し、1列／2列の指定でも1セルを維持する。既存の画像配置試験を3通りの設定と計測器の差し替えで実行し、位置、セル幅、後続カーソルを確認する。RED／GREENの確認後にコアとサンプルを検証し、elder-termsへ取り込んで両プロジェクトの全体試験を実行する。
+
+変更前は4個のplaceholderを入力した後のカーソルが4列先にならず、回帰試験でREDを確認した。修正後は、3通りの設定で画像の配置と1セル幅を保ち、コア、文字配置、X11サンプルの試験も成功した。通常の曖昧幅文字の切り上げと中央寄せは既存試験で確認した。ログは`/tmp/boxrig-font-default-placeholder-red.log`と`/tmp/boxrig-font-default-placeholder-green.log`にあり、修正後のビルドに警告はなかった。
 
 [elder-190-runtime]: https://github.com/kekyo/elder-terms/blob/b62860d358be7209750eb58c67a9d5f66ea7ac58/elder-terms-terminal/src/terminal-runtime.cpp
 [elder-190-boxrig]: https://github.com/kekyo/elder-terms/tree/b62860d358be7209750eb58c67a9d5f66ea7ac58/deps/boxrig

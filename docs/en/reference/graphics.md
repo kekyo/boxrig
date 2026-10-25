@@ -43,6 +43,7 @@ Placement returns `ENOTSUP` unless the host has set positive cell dimensions wit
 After font changes, pixel positions are resolved again while preserving logical placement parameters.
 
 For virtual placements with `U=1`, the U+10EEEE placeholder's foreground encodes the image ID, its underline color encodes the placement ID, and protocol-defined combining characters encode rows, columns, and upper ID bits.
+This image placeholder occupies one cell regardless of the ambiguous-width setting or font.
 `P/Q/H/V` specify placement relative to a parent placement.
 A missing parent produces `ENOPARENT`, a cycle `ECYCLE`, and a hierarchy deeper than 16 levels `ETOODEEP`.
 

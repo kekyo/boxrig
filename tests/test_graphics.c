@@ -6707,7 +6707,20 @@ static bool test_resize_reflow_and_visibility_eviction(void)
     return true;
 }
 
-static bool test_virtual_placements_and_unicode_placeholders(void)
+static double resolve_placeholder_font_width(
+    void *context,
+    const uint8_t *text,
+    size_t text_length,
+    uint32_t attributes)
+{
+    (void)text;
+    (void)text_length;
+    (void)attributes;
+    return *(const double *)context;
+}
+
+static bool check_virtual_placements_and_unicode_placeholders(
+    boxrig_ambiguous_width ambiguous_width)
 {
     static const uint8_t upload[] =
         "\x1b_Ga=t,i=33554474,f=24,s=4,v=1;AAAAAAAAAAAAAAAA\x1b\\";
@@ -6759,10 +6772,15 @@ static bool test_virtual_placements_and_unicode_placeholders(void)
     const uint8_t *output = NULL;
     size_t consumed = 0;
     size_t index;
+    double font_width = 2.1;
 
     config.rows = 3;
     config.columns = 8;
+    config.ambiguous_width = ambiguous_width;
     CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_set_font_width_resolver(
+              terminal, resolve_placeholder_font_width, &font_width) ==
+          BOXRIG_STATUS_OK);
     CHECK(boxrig_terminal_set_cell_pixel_geometry(terminal, 1, 1) ==
           BOXRIG_STATUS_OK);
     while (boxrig_terminal_take_dirty(terminal, &dirty)) {
@@ -6803,6 +6821,12 @@ static bool test_virtual_placements_and_unicode_placeholders(void)
               sizeof(placeholders) - 1,
               &consumed) == BOXRIG_STATUS_OK);
     CHECK(consumed == sizeof(placeholders) - 1);
+    boxrig_terminal_get_cursor(terminal, &cursor);
+    CHECK(cursor.row == 0 && cursor.column == 4);
+    font_width = 4.5;
+    CHECK(boxrig_terminal_set_font_width_resolver(
+              terminal, resolve_placeholder_font_width, &font_width) ==
+          BOXRIG_STATUS_OK);
     CHECK(boxrig_terminal_image_placement_count(terminal) == 4);
     for (index = 0; index < 4; index++) {
         CHECK(boxrig_terminal_get_image_placement(
@@ -6826,6 +6850,8 @@ static bool test_virtual_placements_and_unicode_placeholders(void)
         CHECK(boxrig_terminal_get_cell(terminal, 0, index, &cell) ==
               BOXRIG_STATUS_OK);
         CHECK(cell.text_length == 1 && cell.text[0] == ' ');
+        CHECK(cell.column_width == 1 && !cell.continuation &&
+              !cell.font_dependent);
         CHECK(cell.foreground.kind == BOXRIG_COLOR_RGB);
         CHECK(cell.foreground.red == 0 && cell.foreground.green == 0 &&
               cell.foreground.blue == 42);
@@ -6947,6 +6973,19 @@ static bool test_virtual_placements_and_unicode_placeholders(void)
     CHECK(cell.background.kind == BOXRIG_COLOR_INDEXED &&
           cell.background.index == 12);
     boxrig_terminal_destroy(terminal);
+    return true;
+}
+
+static bool test_virtual_placements_and_unicode_placeholders(void)
+{
+    const boxrig_ambiguous_width policies[] = {
+        BOXRIG_AMBIGUOUS_WIDTH_FONT,
+        BOXRIG_AMBIGUOUS_WIDTH_NARROW,
+        BOXRIG_AMBIGUOUS_WIDTH_WIDE,
+    };
+    for (size_t index = 0; index < sizeof(policies) / sizeof(policies[0]); index++) {
+        CHECK(check_virtual_placements_and_unicode_placeholders(policies[index]));
+    }
     return true;
 }
 
