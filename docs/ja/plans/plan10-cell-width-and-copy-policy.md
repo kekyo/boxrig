@@ -366,6 +366,8 @@ REDは`/tmp/boxrig-font-provider-red.log`、`/tmp/boxrig-font-fit-red.log`、`/t
 
 boxrigの全体試験は`make -k test`で開始し、`/tmp/boxrig-font-full-test.log`へ記録している。結果の照合、段階8のアプリ反映と全体試験は引き続き実施する。
 
+計測器を一度ビューから外し、コールバックを差し替えて再接続すると、旧コールバックのキャッシュが残るケースも確認した。`/tmp/boxrig-font-replacement-red.log`でREDを確認し、コールバック設定時にキャッシュを破棄する修正後、`/tmp/boxrig-font-replacement-green.log`でGREENを確認した。フォント世代の変更による再計測とは別に、計測器の差し替えも反映される。
+
 [elder-190-runtime]: https://github.com/kekyo/elder-terms/blob/b62860d358be7209750eb58c67a9d5f66ea7ac58/elder-terms-terminal/src/terminal-runtime.cpp
 [elder-190-boxrig]: https://github.com/kekyo/elder-terms/tree/b62860d358be7209750eb58c67a9d5f66ea7ac58/deps/boxrig
 [elder-settings]: https://github.com/kekyo/elder-terms/blob/f289bde0fb1104219fc2dfb5493a64edc2f19a02/shared/src/settings/terminal-settings.cpp

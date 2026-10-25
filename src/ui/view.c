@@ -277,6 +277,8 @@ boxrig_ui_status boxrig_ui_fragment_layout_provider_set_font_width_resolver(
     if (provider == NULL || provider->resolve == NULL || provider->references != 1)
         return BOXRIG_UI_INVALID_ARGUMENT;
     provider->font_width = resolver;
+    memset(provider->widths, 0, sizeof(provider->widths));
+    provider->next_width = 0;
     return BOXRIG_UI_OK;
 }
 
