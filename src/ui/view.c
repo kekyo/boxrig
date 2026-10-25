@@ -6207,6 +6207,31 @@ boxrig_rgb boxrig_ui_cursor_contrast_color(boxrig_rgb fill, boxrig_rgb underlay)
     return (boxrig_rgb){channel, channel, channel};
 }
 
+bool boxrig_ui_cursor_visual_range(const boxrig_terminal *terminal,
+    const boxrig_cursor_view *cursor, const boxrig_text_layout *layout,
+    boxrig_text_layout_range *range_out)
+{
+    size_t start = cursor->column, span = 1;
+    if (cursor->shape == BOXRIG_CURSOR_BLOCK) {
+        boxrig_viewport_cell_resolution resolution;
+        if (boxrig_terminal_resolve_viewport_cell(terminal, cursor->row,
+                cursor->column, &resolution) != BOXRIG_STATUS_OK) return false;
+        start = resolution.canonical_storage_column;
+        span = resolution.column_span;
+    }
+    size_t first = SIZE_MAX, end = 0;
+    for (size_t offset = 0; offset < span; offset++) {
+        size_t visual;
+        if (boxrig_text_layout_logical_to_visual(layout, start + offset,
+                &visual) != BOXRIG_TEXT_LAYOUT_OK) return false;
+        if (visual < first) first = visual;
+        if (visual + 1 > end) end = visual + 1;
+    }
+    if (first >= end) return false;
+    *range_out = (boxrig_text_layout_range){first, end - first};
+    return true;
+}
+
 static unsigned int cursor_pixels(float width, float dpi,
     float output_scale, unsigned int limit)
 {
@@ -6408,11 +6433,13 @@ static void mark_cursor_animation_dirty(boxrig_ui_view *view,
 {
     if (cursor->row >= view->row_count || cursor->column >= view->column_count) return;
     const boxrig_text_layout *layout = view->row_layouts[cursor->row].layout;
-    size_t visual_column;
-    if (layout != NULL && boxrig_text_layout_logical_to_visual(layout,
-            cursor->column, &visual_column) == BOXRIG_TEXT_LAYOUT_OK) {
+    boxrig_cursor_view styled = *cursor;
+    boxrig_ui_view_apply_cursor_style(view, &styled);
+    boxrig_text_layout_range range;
+    if (layout != NULL && boxrig_ui_cursor_visual_range(view->model->terminal,
+            &styled, layout, &range)) {
         mark_dirty(view, BOXRIG_UI_DIRTY_ANIMATION, cursor->row, 1,
-            visual_column, 1);
+            range.column, range.column_count);
     } else {
         /* A missing/evicted map cannot safely assume an LTR cursor position.
          * Preserve correctness without forcing a new shape during the tick. */
@@ -6432,7 +6459,7 @@ static void animation_commit(
     view->blink = *state;
     if (changed && state->cursor_known) {
         /* Visual animation dirty preserves shaping and resolved colors while
-         * avoiding a whole-row repaint for a one-cell cursor phase change. */
+         * avoiding a whole-row repaint for a cursor phase change. */
         mark_cursor_animation_dirty(view, &state->cursor);
     }
     if (text_changed[0] || text_changed[1]) {
@@ -6887,6 +6914,7 @@ boxrig_ui_status boxrig_ui_view_set_cursor_style(boxrig_ui_view *view,
     boxrig_ui_status status = animation_prepare_change(view, &state,
         view->focused, view->visible, old->blink != style->blink, false);
     if (status != BOXRIG_UI_OK) return status;
+    if (state.cursor_known) mark_cursor_animation_dirty(view, &state.cursor);
     animation_commit(view, &state);
     /* Recompose the old stroke from its underlay, preserving row shaping and
      * cached colors whose canonical inputs have not changed. */

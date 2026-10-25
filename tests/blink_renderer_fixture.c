@@ -544,17 +544,20 @@ bool boxrig_test_renderer_filled_cursor(
     style.color = (boxrig_rgb){240, 208, 128};
     CHECK(boxrig_ui_view_set_cursor_style(view, &style) == BOXRIG_UI_OK);
     const char *texts[] = {"L R", "LMR", "L\347\225\214R", "Le\314\201R",
-        "L\327\220\327\221R", "L\033[8mM\033[28mR", "L\347\225\214R"};
-    const unsigned columns[] = {1, 1, 1, 1, 2, 1, 2};
+        "L\327\220\327\221R", "L\033[8mM\033[28mR", "L\347\225\214R",
+        "L👩‍💻R", "          界"};
+    const unsigned columns[] = {1, 1, 1, 1, 2, 1, 1, 1, 10};
+    const unsigned spans[] = {1, 1, 2, 1, 1, 1, 2, 2, 2};
+    const unsigned positions[] = {2, 2, 2, 2, 2, 2, 3, 2, 12};
     style.shape = BOXRIG_UI_CURSOR_SHAPE_BLOCK;
     style.presentation = BOXRIG_UI_CURSOR_PRESENTATION_FOCUSED;
     CHECK(boxrig_ui_view_set_cursor_style(view, &style) == BOXRIG_UI_OK);
     CHECK(boxrig_ui_view_set_focused(view, true) == BOXRIG_UI_OK);
-    for (unsigned sample = 0; sample < 7; sample++) {
+    for (unsigned sample = 0; sample < sizeof(texts)/sizeof(*texts); sample++) {
         char text[256];
         int length = snprintf(text, sizeof(text),
             "\033[0;48;2;16;32;48;38;2;224;224;224m\033[2J\033[H%s\033[1;%uH\033[2 q\033[?25l",
-            texts[sample], sample == 6 ? 3 : 2);
+            texts[sample], positions[sample]);
         size_t consumed;
         CHECK(length > 0 && (size_t)length < sizeof(text));
         CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)text, (size_t)length,
@@ -571,26 +574,53 @@ bool boxrig_test_renderer_filled_cursor(
         uint32_t *filled = renderer.capture(renderer.context);
         CHECK(filled != NULL);
         size_t fill_count = 0, ink_count = 0;
+        size_t column_fill[2] = {0};
         unsigned darkest = 765;
         for (size_t at = 0; at < count; at++) {
             unsigned x = at % BOXRIG_TEST_COLOR_WIDTH, y = at / BOXRIG_TEST_COLOR_WIDTH;
-            bool inside = y < height && x >= columns[sample]*width && x < (columns[sample]+1)*width;
+            bool inside = y < height && x >= columns[sample]*width &&
+                x < (columns[sample]+spans[sample])*width;
             if (!inside) CHECK(filled[at] == underlay[at]);
-            else if (filled[at] == 0xf0d080u) fill_count++;
+            else if (filled[at] == 0xf0d080u) {
+                fill_count++;
+                column_fill[x / width - columns[sample]]++;
+            }
             else {
                 ink_count++;
                 unsigned sum = ((filled[at] >> 16)&255) + ((filled[at] >> 8)&255) + (filled[at]&255);
                 if (sum < darkest) darkest = sum;
             }
         }
-        if (fill_count <= width*height/4) fprintf(stderr,
+        /* Color emoji can cover nearly all of the cursor background. */
+        unsigned minimum_fill = sample == 7 ? 0 : width*height/4;
+        if (fill_count <= minimum_fill) fprintf(stderr,
             "cursor fill sample=%u fill=%zu ink=%zu area=%u\n", sample, fill_count, ink_count, width*height);
-        CHECK(fill_count > width*height/4);
-        if ((sample > 0 && sample < 5) || sample == 6) CHECK(ink_count != 0 && darkest < 400);
+        CHECK(fill_count > minimum_fill);
+        for (unsigned column = 0; column < spans[sample]; column++)
+            CHECK(column_fill[column] > minimum_fill);
+        if (sample != 0 && sample != 5) CHECK(ink_count != 0 && darkest < 400);
         else {
             if (fill_count != width*height) fprintf(stderr, "filled blank sample=%u fill=%zu area=%u\n",
                 sample, fill_count, width*height);
             CHECK(fill_count == width*height);
+        }
+        if (spans[sample] == 2) {
+            CHECK(boxrig_ui_view_set_focused(view, false) == BOXRIG_UI_OK);
+            CHECK(renderer.draw(renderer.context, view, NULL) == 0);
+            uint32_t *outlined = renderer.capture(renderer.context);
+            CHECK(outlined != NULL);
+            CHECK(outlined[(height/2)*BOXRIG_TEST_COLOR_WIDTH + columns[sample]*width] == 0xf0d080u);
+            CHECK(outlined[(height/2)*BOXRIG_TEST_COLOR_WIDTH + (columns[sample]+2)*width-1] == 0xf0d080u);
+            free(outlined);
+            CHECK(boxrig_ui_view_set_focused(view, true) == BOXRIG_UI_OK);
+        }
+        if (sample == 2) {
+            /* Restore both old columns when moving onto a one-cell cursor. */
+            const char move[] = "\033[2;6H";
+            CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)move, sizeof(move)-1,
+                &consumed) == BOXRIG_STATUS_OK);
+            CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+            CHECK(renderer.draw(renderer.context, view, NULL) == 0);
         }
         CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)"\033[?25l", 6,
             &consumed) == BOXRIG_STATUS_OK);

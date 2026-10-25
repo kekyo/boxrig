@@ -11,6 +11,12 @@
     fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #condition); \
     return false; } } while (0)
 
+static const char *placement_font;
+static float placement_size = 12;
+static float placement_scale = 1;
+static const char *snapshot_prefix;
+static unsigned snapshot_variant, snapshot_frame;
+
 static int draw(void *context, boxrig_ui_view *view,
     boxrig_composition *composition)
 {
@@ -23,6 +29,13 @@ static uint32_t *capture(void *context)
 {
     cairo_surface_t *surface = boxrig_pango_cairo_renderer_surface(context);
     cairo_surface_flush(surface);
+    if (snapshot_prefix != NULL && snapshot_frame < 4) {
+        char path[4096];
+        int count = snprintf(path, sizeof(path), "%s-%u-%u.png", snapshot_prefix,
+            snapshot_variant, snapshot_frame++);
+        if (count < 0 || (size_t)count >= sizeof(path) ||
+            cairo_surface_write_to_png(surface, path) != CAIRO_STATUS_SUCCESS) return NULL;
+    }
     unsigned char *data = cairo_image_surface_get_data(surface);
     int stride = cairo_image_surface_get_stride(surface);
     if (data == NULL || cairo_image_surface_get_format(surface) != CAIRO_FORMAT_ARGB32 ||
@@ -65,6 +78,19 @@ static bool create(boxrig_test_color_renderer *renderer)
     boxrig_pango_cairo_renderer *host = NULL;
     if (boxrig_pango_cairo_renderer_create(BOXRIG_TEST_COLOR_WIDTH,
             BOXRIG_TEST_COLOR_HEIGHT, &host) == -1) return false;
+    if (placement_font != NULL) {
+        boxrig_font_family family = {placement_font, strlen(placement_font), BOXRIG_FONT_RESOURCE_NONE};
+        boxrig_font_specification specification = boxrig_font_specification_default();
+        specification.families = &family;
+        specification.family_count = 1;
+        specification.size_dip = placement_size;
+        boxrig_font_rendering_policy policy = boxrig_font_rendering_policy_default();
+        policy.output_scale = placement_scale;
+        if (boxrig_pango_cairo_renderer_set_font(host, &specification, &policy) != BOXRIG_FONT_CATALOG_OK) {
+            boxrig_pango_cairo_renderer_destroy(host);
+            return false;
+        }
+    }
     *renderer = (boxrig_test_color_renderer){host,
         boxrig_pango_cairo_renderer_cell_width(host),
         boxrig_pango_cairo_renderer_cell_height(host),
@@ -120,11 +146,26 @@ static bool bounds_color_hash_work_for_text_screen(void)
     return true;
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
     bool passed = boxrig_test_renderer_colors(create);
     if (!passed) return 1;
     passed = bounds_color_hash_work_for_text_screen();
+    const char *const fonts[] = {"monospace", "Noto Sans Mono", "Noto Sans Mono CJK JP", "Noto Sans Mono CJK JP"};
+    const float sizes[] = {20, 20, 20, 20};
+    const float scales[] = {1, 1, 1, 1.5f};
+    /* An optional output prefix makes this regression driver inspectable:
+     * four PNGs per font show narrow/wide before and after recoloring. */
+    snapshot_prefix = argc == 2 ? argv[1] : NULL;
+    for (unsigned i = 0; passed && i < 4; i++) {
+        placement_font = fonts[i];
+        placement_size = sizes[i];
+        placement_scale = scales[i];
+        snapshot_variant = i;
+        snapshot_frame = 0;
+        printf("Cell placement: font=%s size=%g scale=%g\n", fonts[i], sizes[i], scales[i]);
+        passed = boxrig_test_renderer_cell_positions(create);
+    }
     cairo_debug_reset_static_data();
     FcFini();
     if (!passed) return 1;

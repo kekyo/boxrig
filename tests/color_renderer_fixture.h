@@ -31,4 +31,8 @@ typedef struct boxrig_test_color_renderer {
 bool boxrig_test_renderer_colors(
     bool (*create)(boxrig_test_color_renderer *renderer));
 
+/* Glyph placement follows cells for both ambiguous-width policies. */
+bool boxrig_test_renderer_cell_positions(
+    bool (*create)(boxrig_test_color_renderer *renderer));
+
 #endif
