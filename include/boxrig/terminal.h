@@ -63,6 +63,8 @@ typedef struct boxrig_text_cluster_measurement {
     uint8_t column_width;
     /** True when the storage limit, rather than Unicode, ended the cluster. */
     bool split_by_limit;
+    /** Preserve natural font advance and center within the occupied columns. */
+    bool font_dependent;
 } boxrig_text_cluster_measurement;
 
 /** Logical text document namespace. */

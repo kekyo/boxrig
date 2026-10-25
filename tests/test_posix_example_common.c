@@ -355,8 +355,24 @@ static bool gtk_ime_defaults_preserve_explicit_environment(void)
     return true;
 }
 
+static bool font_width_environment(void)
+{
+    char *arguments[] = {"sh", NULL};
+    CHECK(setenv("BOXRIG_AMBIGUOUS_WIDTH", "font", 1) == 0);
+    boxrig_term_posix_config config = boxrig_term_posix_config_default(arguments);
+    CHECK(config.terminal.ambiguous_width == BOXRIG_AMBIGUOUS_WIDTH_FONT);
+    CHECK(setenv("BOXRIG_AMBIGUOUS_WIDTH", "wide", 1) == 0);
+    config = boxrig_term_posix_config_default(arguments);
+    CHECK(config.terminal.ambiguous_width == BOXRIG_AMBIGUOUS_WIDTH_WIDE);
+    CHECK(unsetenv("BOXRIG_AMBIGUOUS_WIDTH") == 0);
+    config = boxrig_term_posix_config_default(arguments);
+    CHECK(config.terminal.ambiguous_width == BOXRIG_AMBIGUOUS_WIDTH_NARROW);
+    return true;
+}
+
 int main(void)
 {
+    if (!font_width_environment()) return 1;
     CHECK(config_defaults_and_environment_are_portable());
     CHECK(argument_and_environment_errors_are_deterministic());
     CHECK(renderer_options_are_frontend_specific_and_bounded());

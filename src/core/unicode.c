@@ -222,7 +222,7 @@ boxrig_status boxrig_unicode_measure_text_cluster(
     boxrig_text_cluster_measurement *measurement_out)
 {
     boxrig_unicode_cluster_analyzer analyzer;
-    boxrig_text_cluster_measurement measurement;
+    boxrig_text_cluster_measurement measurement = {0};
     size_t offset = 0;
 
     if (text == NULL || text_length == 0 || measurement_out == NULL) {

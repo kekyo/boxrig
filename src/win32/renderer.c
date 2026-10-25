@@ -3126,6 +3126,14 @@ cleanup:
 
 
 /* Borrow the native glyph arrays without reshaping or splitting ligatures. */
+boxrig_ui_status boxrig_win32_renderer_bind_view(boxrig_win32_renderer *renderer, boxrig_ui_view *view)
+{
+    if (renderer == NULL || view == NULL) return BOXRIG_UI_INVALID_ARGUMENT;
+    boxrig_ui_fragment_layout_provider *provider = NULL;
+    boxrig_ui_status status = boxrig_win32_text_fragment_layout_provider(renderer, &provider);
+    return status == BOXRIG_UI_OK ? boxrig_ui_view_set_fragment_layout_provider(view, provider) : status;
+}
+
 static boxrig_win32_shaped_run fitted_run(const boxrig_win32_shaped_run *run,
     const boxrig_ui_glyph_span *span)
 {
@@ -3136,6 +3144,7 @@ static boxrig_win32_shaped_run fitted_run(const boxrig_win32_shaped_run *run,
     part.glyph_offsets += span->first_glyph;
     part.visual_column = span->visual_column;
     part.visual_column_count = span->column_count;
+    part.preserve_advance = span->preserve_advance;
     return part;
 }
 
@@ -3186,6 +3195,11 @@ static int draw_fitted_run_segment(
     baseline_x = (FLOAT)run_rectangle.left;
     if ((run->bidi_level & 1u) != 0) {
         baseline_x = (FLOAT)run_rectangle.right;
+    }
+    if (run->preserve_advance) {
+        horizontal_scale = renderer->rendering_policy.dpi_y / 96.0f * renderer->rendering_policy.output_scale;
+        FLOAT inset = (allocated_width - natural_width * horizontal_scale) / 2;
+        baseline_x += (run->bidi_level & 1u) != 0 ? -inset : inset;
     }
     baseline_y = (FLOAT)(row * renderer->cell_height + renderer->ascent);
     if (renderer->sink.glyph != NULL) {
@@ -3430,6 +3444,11 @@ static int draw_composition_fitted_run(
     if (natural_width > 0.0f)
         horizontal_scale = (FLOAT)run->visual_column_count * renderer->cell_width / natural_width;
     baseline_x = (FLOAT)((run->bidi_level & 1u) != 0 ? rectangle.right : rectangle.left);
+    if (run->preserve_advance) {
+        horizontal_scale = renderer->rendering_policy.dpi_y / 96.0f * renderer->rendering_policy.output_scale;
+        FLOAT inset = (run->visual_column_count * renderer->cell_width - natural_width * horizontal_scale) / 2;
+        baseline_x += (run->bidi_level & 1u) != 0 ? -inset : inset;
+    }
     baseline_y = (FLOAT)(row * renderer->cell_height + renderer->ascent);
     glyph_run.fontFace = run->font_face;
     glyph_run.fontEmSize = run->font_em_size;

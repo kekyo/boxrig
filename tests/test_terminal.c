@@ -5483,7 +5483,7 @@ static bool test_public_text_cluster_measurement(void)
     config.rows = 1;
     config.columns = 4;
     for (index = 0; index < sizeof(cases) / sizeof(cases[0]); index++) {
-        boxrig_text_cluster_measurement measurement = {0, 0, true};
+        boxrig_text_cluster_measurement measurement = {0, 0, true, false};
         boxrig_cell_view cell;
         size_t consumed = 0;
 
@@ -5514,7 +5514,7 @@ static bool test_public_text_cluster_measurement(void)
     config.ambiguous_width = BOXRIG_AMBIGUOUS_WIDTH_WIDE;
     CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
     {
-        boxrig_text_cluster_measurement measurement = {0, 0, true};
+        boxrig_text_cluster_measurement measurement = {0, 0, true, false};
         boxrig_cell_view cell;
         size_t consumed = 0;
 
@@ -5553,7 +5553,7 @@ static bool test_text_cluster_measurement_validation_and_limit(void)
     static const size_t malformed_lengths[] = {1, 2, 3, 4, 2, 2};
     boxrig_terminal_config config = boxrig_terminal_config_default();
     boxrig_terminal *terminal = NULL;
-    boxrig_text_cluster_measurement sentinel = {37, 29, true};
+    boxrig_text_cluster_measurement sentinel = {37, 29, true, false};
     boxrig_text_cluster_measurement measurement;
     uint8_t *text;
     size_t offset;

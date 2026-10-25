@@ -118,6 +118,8 @@ typedef struct boxrig_composition_cluster_view {
     bool selected;
     /** Whether the placed cluster is inside the visible grid. */
     bool visible;
+    /** Preserve natural advance and center within the occupied columns. */
+    bool font_dependent;
 } boxrig_composition_cluster_view;
 
 /** Candidate-window anchor derived from the preedit caret. */

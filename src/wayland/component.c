@@ -1024,6 +1024,8 @@ boxrig_ui_status boxrig_wayland_terminal_component_create(
     if (status != BOXRIG_UI_OK) {
         goto failure;
     }
+    status = boxrig_pango_cairo_renderer_bind_view(component->renderer, component->view);
+    if (status != BOXRIG_UI_OK) goto failure;
     memset(&transparency, 0, sizeof(transparency));
     transparency.premultiplied_argb32_target = context->argb8888;
     transparency.supported_scopes = BOXRIG_UI_TRANSPARENCY_VIEW_SURFACE;
@@ -1786,6 +1788,8 @@ static boxrig_ui_status reconfigure_layout_for_metrics(
     const boxrig_font_effective_metrics *metrics,
     boxrig_ui_layout_change_kind kind)
 {
+    boxrig_ui_status font_binding = boxrig_pango_cairo_renderer_bind_view(component->renderer, component->view);
+    if (font_binding != BOXRIG_UI_OK) return font_binding;
     boxrig_ui_layout_change_input input;
     boxrig_ui_layout_action action;
     boxrig_ui_layout_result layout;
@@ -2381,6 +2385,8 @@ static boxrig_ui_status apply_pending_scale_opengl(
         goto failure;
     }
     font_candidate = NULL;
+    status = boxrig_pango_cairo_renderer_bind_view(component->renderer, component->view);
+    if (status != BOXRIG_UI_OK) goto failure;
     if (component_renderer_commit_font(component) == -1) {
         status = BOXRIG_UI_UNAVAILABLE;
         goto failure;
@@ -2607,6 +2613,8 @@ static boxrig_ui_status apply_pending_scale(
         goto failure;
     }
     font_candidate = NULL;
+    status = boxrig_pango_cairo_renderer_bind_view(component->renderer, component->view);
+    if (status != BOXRIG_UI_OK) goto failure;
     memset(&input, 0, sizeof(input));
     unsigned int bar_width = component->scrollbar_visibility.state.visible
         ? scrollbar_pixel_width(numerator) : 0;

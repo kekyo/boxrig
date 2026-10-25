@@ -2,7 +2,7 @@
 
 作成日：2026年10月25日
 
-追記：2026年10月25日、曖昧幅文字の設定へ「フォント依存」を加える仕様を末尾の追加計画へ記載した。送り幅をセル幅の整数倍へ切り上げ、確保した列の中央に元の幅で描画する。追加分は未実装であり、以下の初回計画と実装記録にある完了報告には含めない。
+追記：2026年10月25日、曖昧幅文字の設定へ「フォント依存」を加える仕様を末尾の追加計画へ記載した。送り幅をセル幅の整数倍へ切り上げ、確保した列の中央に元の幅で描画する。追加分の進捗は末尾の追加実装記録に記載し、以下の初回計画にある完了報告とは区別する。
 
 ## 初回の実施範囲
 
@@ -350,7 +350,21 @@ boxrigの対応コミットをelder-termsへ取り込み、ビルドと既存試
 
 フォント変更後の再配置、履歴、代替画面、継続セルの消去、結合文字、REPによる繰り返し、1列まで狭めてから広げるリサイズ、計測失敗と上限超過時の本文保持も検証した。再配置、代替画面、繰り返しの試験は修正前にREDを確認し、修正後にコア全件が成功した。ブロックコピーの試験は1列設定とフォント依存の両方で実行し、3列の文字を一度だけコピーすることを確認した。`test-selection-history`と`test-cursor-style`も成功した。
 
-ログは`/tmp/boxrig-font-width-core-red.log`、`/tmp/boxrig-font-width-measure-red.log`、`/tmp/boxrig-font-width-reflow-red.log`、`/tmp/boxrig-font-width-alternate-red.log`、`/tmp/boxrig-font-width-repeat-red.log`、`/tmp/boxrig-font-width-repeat-green.log`、`/tmp/boxrig-font-width-core-ui.log`にある。段階7の実フォント計測・中央寄せと、段階8のアプリ反映、最後の全体試験は引き続き実施する。
+ログは`/tmp/boxrig-font-width-core-red.log`、`/tmp/boxrig-font-width-measure-red.log`、`/tmp/boxrig-font-width-reflow-red.log`、`/tmp/boxrig-font-width-alternate-red.log`、`/tmp/boxrig-font-width-repeat-red.log`、`/tmp/boxrig-font-width-repeat-green.log`、`/tmp/boxrig-font-width-core-ui.log`にある。
+
+段階7では、PangoとDirectWriteの計測結果をコアへ接続した。端末コンポーネントは生成時とフォント変更時に計測器を接続し、単独の描画器には`bind_view`を追加した。計測器の所有者を先に破棄しても、ビューから解放済みのコンテキストを呼ばない。フォント設定の世代、文字列、属性で計測値を保持し、世代が変われば破棄する。短い書記素64件を上限とし、長い書記素は保存せず計測する。
+
+元の送り幅を保つ文字は、隣の文字と同じ比率でも別々に中央寄せする。代替フォントが一つの書記素を複数の字形へ分けた場合は、同じ書記素として扱う。本文に加え、同じ幅計測APIを使うIMEの未確定文字も対象とした。未確定文字だけが拡大されるREDを確認し、中央寄せの指定を計測結果と未確定文字へ伝える修正後にGREENを確認した。
+
+独自の矩形字形を持つ`tests/fixtures/width-*.otf`を用意した。基本セル幅に対して1、1.2、2、2.1、4.5倍の送り幅を再現し、PangoCairo、X11、OpenGL、Win32で計測、配置、色変更、選択、コピーを確認した。PangoCairoではフォントの置き換え、代替フォント、1.5倍表示による再計測も確認した。Win32の実行にはWineを使った。D3D11にも同じ検証を追加し、全体試験で実行する。
+
+REDは`/tmp/boxrig-font-provider-red.log`、`/tmp/boxrig-font-fit-red.log`、`/tmp/boxrig-font-native-red.log`、`/tmp/boxrig-font-cache-red.log`、`/tmp/boxrig-font-ime-red.log`にある。対象のGREENは`/tmp/boxrig-font-core-final.log`、`/tmp/boxrig-font-layout-final.log`、`/tmp/boxrig-font-composition-final.log`、`/tmp/boxrig-font-provider-final.log`、`/tmp/boxrig-font-copy-final.log`と、`/tmp/boxrig-font-ime-*-green.log`、`/tmp/boxrig-font-opengl-final.log`にある。
+
+`BOXRIG_AMBIGUOUS_WIDTH=narrow/wide/font`でサンプルの3通りを比較できる。画像は`build/test-results/plan10-font-width/placement-font.png`を保存して目視確認した。3列のカーソル動画は`build/test-results/plan10-font-cursor/{gtk3,opengl}/`にあり、先頭と両継続セル、フォーカス変更、1列文字への移動、上書き後の復元を各フレームの画素で検証した。各録画は120フレーム、点滅は7回の切り替わりを検出した。検証用の英数字が塗りつぶしに近くカーソルの色を覆ったため、英数字の送り幅を保ったまま字形を細くし、カーソル色と字形を区別できるようにした。
+
+外部APIは[Pangoの計測API](https://docs.gtk.org/Pango/method.Layout.get_size.html)、[PangoのAPIコメント](https://raw.githubusercontent.com/GNOME/pango/main/pango/pango-layout.c)、[DirectWriteの送り幅](https://learn.microsoft.com/en-us/windows/win32/api/dwrite/nf-dwrite-idwritetextanalyzer-getglyphplacements)と同梱ヘッダーを確認した。検証用フォントの生成は[opentype.jsの公式説明](https://github.com/opentypejs/opentype.js#craft-a-font)とAPIコメントを確認し、一時領域の1.3.4を使用した。ライブラリの実行時依存には加えていない。
+
+boxrigの全体試験は`make -k test`で開始し、`/tmp/boxrig-font-full-test.log`へ記録している。結果の照合、段階8のアプリ反映と全体試験は引き続き実施する。
 
 [elder-190-runtime]: https://github.com/kekyo/elder-terms/blob/b62860d358be7209750eb58c67a9d5f66ea7ac58/elder-terms-terminal/src/terminal-runtime.cpp
 [elder-190-boxrig]: https://github.com/kekyo/elder-terms/tree/b62860d358be7209750eb58c67a9d5f66ea7ac58/deps/boxrig

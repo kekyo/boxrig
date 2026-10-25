@@ -27,6 +27,7 @@ typedef struct boxrig_ogl_logical_cluster {
     size_t text_offset;
     size_t text_length;
     uint32_t attributes;
+    bool font_dependent;
     uint64_t style_key;
     uint64_t render_style_key;
     uint64_t hyperlink_key;
@@ -59,6 +60,10 @@ typedef struct boxrig_ogl_row_shape {
 } boxrig_ogl_row_shape;
 
 typedef struct boxrig_ogl_text_provider boxrig_ogl_text_provider;
+
+/* Natural physical advance divided by the provider's current cell width. */
+double boxrig_ogl_text_provider_font_width(boxrig_ogl_text_provider *provider,
+    const uint8_t *text, size_t length, uint32_t attributes);
 
 /* A panel-sized raster only. The caller owns rgba, including on a failed
  * presentation, and releases it with free after uploading or aborting. */

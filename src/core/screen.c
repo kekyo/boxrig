@@ -23,9 +23,9 @@ boxrig_status boxrig_screen_measure_text_cluster(const boxrig_screen *screen,
     boxrig_status status = boxrig_unicode_measure_text_cluster(text, text_length,
         screen->ambiguous_width == BOXRIG_AMBIGUOUS_WIDTH_WIDE, &measurement);
     if (status != BOXRIG_STATUS_OK) return status;
-    if (screen->ambiguous_width == BOXRIG_AMBIGUOUS_WIDTH_FONT &&
-        screen->font_width_resolver != NULL &&
-        boxrig_unicode_text_is_ambiguous(text, measurement.text_length)) {
+    measurement.font_dependent = screen->ambiguous_width == BOXRIG_AMBIGUOUS_WIDTH_FONT &&
+        boxrig_unicode_text_is_ambiguous(text, measurement.text_length);
+    if (measurement.font_dependent && screen->font_width_resolver != NULL) {
         double ratio = screen->font_width_resolver(screen->font_width_context,
             text, measurement.text_length, attributes);
         if (isfinite(ratio) && ratio > 0) {

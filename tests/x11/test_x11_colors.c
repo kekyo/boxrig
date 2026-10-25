@@ -7,6 +7,9 @@
 #include <fontconfig/fontconfig.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+
+static bool font_fixture;
 
 typedef struct x11_color_host {
     Display *display;
@@ -84,6 +87,16 @@ static bool create(boxrig_test_color_renderer *renderer)
         return false;
     }
     XMapWindow(host->display, host->window);
+    if (font_fixture) {
+        const char file[] = "tests/fixtures/width-fractional.otf";
+        boxrig_font_resource_id resource;
+        if (boxrig_x11_renderer_register_font_file(host->renderer, file, strlen(file), 0, &resource) != BOXRIG_FONT_CATALOG_OK) return false;
+        boxrig_font_family family = {"Boxrig Width Fixture", 20, resource};
+        boxrig_font_specification spec = boxrig_font_specification_default();
+        spec.families = &family; spec.family_count = 1; spec.size_dip = 20;
+        boxrig_font_rendering_policy policy = boxrig_font_rendering_policy_default();
+        if (boxrig_x11_renderer_set_font(host->renderer, &spec, &policy) != BOXRIG_FONT_CATALOG_OK) return false;
+    }
     *renderer = (boxrig_test_color_renderer){host,
         boxrig_x11_renderer_cell_width(host->renderer),
         boxrig_x11_renderer_cell_height(host->renderer),
@@ -94,6 +107,8 @@ static bool create(boxrig_test_color_renderer *renderer)
 int main(void)
 {
     bool passed = boxrig_test_renderer_colors(create);
+    font_fixture = true;
+    if (passed) passed = boxrig_test_renderer_font_positions(create);
     cairo_debug_reset_static_data();
     FcFini();
     if (!passed) return 1;

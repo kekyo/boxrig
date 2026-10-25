@@ -11,6 +11,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+static bool font_fixture;
+
 typedef struct color_host {
     opengl_host *context;
     boxrig_ogl_renderer *renderer;
@@ -23,6 +25,7 @@ static int draw(void *context, boxrig_ui_view *view,
     boxrig_composition *composition)
 {
     color_host *host = context;
+    if (boxrig_ogl_renderer_bind_view(host->renderer, view) != BOXRIG_UI_OK) return -1;
     return composition == NULL
         ? boxrig_ogl_renderer_draw_view(host->renderer, view)
         : boxrig_ogl_renderer_draw_view_composition(host->renderer, view, composition);
@@ -110,6 +113,14 @@ static bool create(boxrig_test_color_renderer *renderer)
         BOXRIG_GL_TARGET_RGBA8, BOXRIG_TEST_COLOR_WIDTH, BOXRIG_TEST_COLOR_HEIGHT,
         &host->texture);
     boxrig_ogl_renderer_config config = boxrig_ogl_renderer_config_default();
+    const char *font_files[] = {"tests/fixtures/width-fractional.otf"};
+    if (font_fixture) {
+        config.font_family = "Boxrig Width Fixture";
+        config.font_family_length = 20;
+        config.font_files = font_files;
+        config.font_file_count = 1;
+        config.font_size_dip = 20;
+    }
     config.runtime.resolver_context = host->context;
     config.runtime.resolve = opengl_host_resolve;
     config.runtime.current_context_query_context = host->context;
@@ -140,6 +151,8 @@ int main(void)
 {
     bool passed = boxrig_test_renderer_colors(create);
     if (!passed) return 1;
+    font_fixture = true;
+    if (!boxrig_test_renderer_font_positions(create)) return 1;
     cairo_debug_reset_static_data();
     FcFini();
     puts("PASS OpenGL display color fixture");

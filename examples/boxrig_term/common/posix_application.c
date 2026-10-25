@@ -80,6 +80,12 @@ boxrig_term_posix_config boxrig_term_posix_config_default(
     config.child_arguments = child_arguments;
     config.terminal_type = "xterm-256color";
     config.terminal = boxrig_terminal_config_default();
+    const char *width_policy = getenv("BOXRIG_AMBIGUOUS_WIDTH");
+    if (width_policy != NULL) {
+        if (strcmp(width_policy, "wide") == 0) config.terminal.ambiguous_width = BOXRIG_AMBIGUOUS_WIDTH_WIDE;
+        else if (strcmp(width_policy, "font") == 0) config.terminal.ambiguous_width = BOXRIG_AMBIGUOUS_WIDTH_FONT;
+        else if (strcmp(width_policy, "narrow") != 0) config.terminal.ambiguous_width = (boxrig_ambiguous_width)-1;
+    }
     config.host.allow_title_change = true;
     config.host.allow_clipboard_write = true;
     config.host.allow_clipboard_read = false;

@@ -35,4 +35,8 @@ bool boxrig_test_renderer_colors(
 bool boxrig_test_renderer_cell_positions(
     bool (*create)(boxrig_test_color_renderer *renderer));
 
+/* Factory uses the original width-fractional.otf at 20 DIP. */
+bool boxrig_test_renderer_font_positions(
+    bool (*create)(boxrig_test_color_renderer *renderer));
+
 #endif
