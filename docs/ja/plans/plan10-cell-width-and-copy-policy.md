@@ -431,6 +431,14 @@ elder-termsの全体試験は、共有ライブラリ146件、ランチャー114
 
 コア、サンプル、文字配置、IME未確定文字、フォント計測器、矩形コピーの6実行ファイルは、修正後にすべて成功した。既定値の変更前に追加した列数の検証も、明示指定なしで成功している。ログは`/tmp/boxrig-font-default-green.log`にある。
 
+全体試験では、部分描画の2試験とGTK3のOpenGL／OpenGL ES試験が失敗した。調査の結果、描画器を切り替えるたびに、列数が変わらなくても本文を再配置していたことが原因と分かった。不要な更新が部分描画の計測へ混ざるだけでなく、履歴と末尾の空行がある場合は、表示中の文字、カーソル、画像の位置も動いていた。再計測と再配置を常に一組で行う実装を見直し、全体試験はいったん中断した。
+
+列数が変わらない場合は配置を維持する回帰試験を追加した。文字を含まない画面と、送り幅が1.1セル分から1.9セル分に変わっても2列のままになる文字を対象に、履歴、カーソル、画像の位置を確認する。変更前は画像の位置がずれるREDとなった。ログは`/tmp/boxrig-font-default-stable-width-red.log`にある。
+
+コアで履歴、通常画面、代替画面の列数を比較し、変化がある場合だけ再配置するよう修正した。原因を特定する前に試した部分描画の準備処理とGTK3の描画待機処理の変更は、どちらも取り消した。試験の期待値は変えていない。
+
+修正後はコア、画像、GTK3 OpenGL、部分描画の2試験がすべて成功した。列数が変わる場合の再配置も既存試験で成功している。ログは`/tmp/boxrig-font-default-stable-width-green.log`、`/tmp/boxrig-font-default-graphics-green.log`、`/tmp/boxrig-font-default-gtk3-opengl-stable-green.log`、`/tmp/boxrig-font-default-partial-stable-green.log`にある。この修正をelder-termsへ取り込み、両プロジェクトの全体試験をやり直す。
+
 [elder-190-runtime]: https://github.com/kekyo/elder-terms/blob/b62860d358be7209750eb58c67a9d5f66ea7ac58/elder-terms-terminal/src/terminal-runtime.cpp
 [elder-190-boxrig]: https://github.com/kekyo/elder-terms/tree/b62860d358be7209750eb58c67a9d5f66ea7ac58/deps/boxrig
 [elder-settings]: https://github.com/kekyo/elder-terms/blob/f289bde0fb1104219fc2dfb5493a64edc2f19a02/shared/src/settings/terminal-settings.cpp

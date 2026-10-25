@@ -1404,7 +1404,7 @@ void boxrig_terminal_destroy(boxrig_terminal *terminal);
 boxrig_ambiguous_width boxrig_terminal_ambiguous_width(const boxrig_terminal *terminal);
 
 /**
- * Installs a font measurement callback and reflows existing text in font mode.
+ * Installs a font measurement callback and reflows text when column widths change.
  * @param terminal Terminal to update.
  * @param resolver Callback, or NULL to detach without changing existing text.
  * @param context Borrowed context, valid until the callback is replaced or
@@ -1412,7 +1412,8 @@ boxrig_ambiguous_width boxrig_terminal_ambiguous_width(const boxrig_terminal *te
  * @return OK, INVALID_ARGUMENT, OUT_OF_MEMORY, or LIMIT_EXCEEDED.
  * @remarks Reinstall after font metrics change. Detach before destroying the
  * context. Without a callback, new ambiguous text uses one column. Explicit
- * narrow/wide policies do not invoke the callback.
+ * narrow/wide policies do not invoke the callback. If all occupied column widths
+ * remain equal, existing viewport, cursor, and image positions are preserved.
  */
 boxrig_status boxrig_terminal_set_font_width_resolver(boxrig_terminal *terminal,
     boxrig_font_width_resolver resolver, void *context);

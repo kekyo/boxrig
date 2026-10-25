@@ -9968,6 +9968,51 @@ static bool test_font_dependent_width_policy(void)
     return true;
 }
 
+static bool test_unchanged_font_width_preserves_viewport_and_images(void)
+{
+    const char *texts[] = {"", "①"};
+    for (size_t index = 0; index < sizeof(texts) / sizeof(texts[0]); index++) {
+        boxrig_terminal_config config = boxrig_terminal_config_default();
+        config.rows = 2;
+        config.columns = 16;
+        boxrig_terminal *terminal = NULL;
+        double advance = 1.1;
+        size_t consumed;
+        CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+        CHECK(boxrig_terminal_set_font_width_resolver(terminal,
+            resolve_test_font_width, &advance) == BOXRIG_STATUS_OK);
+        CHECK(boxrig_terminal_set_cell_pixel_geometry(terminal, 7, 14) == BOXRIG_STATUS_OK);
+        const char history[] = "old1\r\nold2\r\nold3\r\nold4\r\n\033[2J\033[H";
+        CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)history,
+            sizeof(history) - 1, &consumed) == BOXRIG_STATUS_OK);
+        CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)texts[index],
+            strlen(texts[index]), &consumed) == BOXRIG_STATUS_OK);
+        const char image[] = "\033_Ga=T,f=32,s=1,v=1,c=1,r=1,C=1;/wAA/w==\033\\";
+        CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)image,
+            sizeof(image) - 1, &consumed) == BOXRIG_STATUS_OK);
+        size_t history_count = boxrig_terminal_scrollback_rows(terminal);
+        CHECK(history_count != 0);
+        boxrig_image_placement_view before, after;
+        boxrig_cursor_view cursor_before, cursor_after;
+        CHECK(boxrig_terminal_get_image_placement(terminal, 0, &before) == BOXRIG_STATUS_OK);
+        CHECK(before.anchor_row == 0 && before.anchor_column == index * 2);
+        boxrig_terminal_get_cursor(terminal, &cursor_before);
+        /* A different advance with the same rounded columns must not move the
+         * viewport, its cursor, or an image above a trailing blank row. */
+        double replacement_advance = 1.9;
+        CHECK(boxrig_terminal_set_font_width_resolver(terminal,
+            resolve_test_font_width, &replacement_advance) == BOXRIG_STATUS_OK);
+        CHECK(boxrig_terminal_get_image_placement(terminal, 0, &after) == BOXRIG_STATUS_OK);
+        CHECK(after.anchor_row == before.anchor_row && after.anchor_column == before.anchor_column);
+        CHECK(after.visual_row == before.visual_row && after.visual_column == before.visual_column);
+        boxrig_terminal_get_cursor(terminal, &cursor_after);
+        CHECK(cursor_after.row == cursor_before.row && cursor_after.column == cursor_before.column);
+        CHECK(boxrig_terminal_scrollback_rows(terminal) == history_count);
+        boxrig_terminal_destroy(terminal);
+    }
+    return true;
+}
+
 static bool test_font_width_reflow_and_editing(void)
 {
     boxrig_terminal_config config = boxrig_terminal_config_default();
@@ -10279,6 +10324,7 @@ int main(void)
          test_text_cluster_measurement_validation_and_limit},
         {"font-dependent width policy", test_font_dependent_width_policy},
         {"font width reflow and editing", test_font_width_reflow_and_editing},
+        {"unchanged font width preserves viewport and images", test_unchanged_font_width_preserves_viewport_and_images},
         {"font width history and alternate screen", test_font_width_history_and_alternate_screen},
         {"font width repeat and narrow resize", test_font_width_repeat_and_narrow_resize},
         {"font width fallback and limit", test_font_width_fallback_and_limit},

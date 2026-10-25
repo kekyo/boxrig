@@ -355,6 +355,37 @@ boxrig_ambiguous_width boxrig_terminal_ambiguous_width(const boxrig_terminal *te
     return terminal == NULL ? BOXRIG_AMBIGUOUS_WIDTH_FONT : terminal->screen.ambiguous_width;
 }
 
+static boxrig_status font_widths_changed(const boxrig_screen *screen, bool *changed_out)
+{
+    *changed_out = false;
+    for (size_t row = 0; row < screen->history_count + screen->rows * 2; row++) {
+        const boxrig_cell *cells;
+        if (row < screen->history_count) {
+            size_t slot = (screen->history_start + row) % screen->history_capacity;
+            cells = screen->history[slot].cell_storage;
+        } else if (row - screen->history_count < screen->rows) {
+            cells = screen->primary.row_cells[row - screen->history_count];
+        } else {
+            cells = screen->alternate.row_cells[row - screen->history_count - screen->rows];
+        }
+        for (size_t column = 0; column < screen->columns; column++) {
+            const boxrig_cell *cell = &cells[column];
+            if (cell->continuation || cell->text_length == 0) continue;
+            boxrig_text_cluster_measurement measurement;
+            boxrig_status status = boxrig_screen_measure_text_cluster(screen,
+                (const uint8_t *)boxrig_cell_text(cell), cell->text_length,
+                cell->style.attributes, &measurement);
+            if (status != BOXRIG_STATUS_OK) return status;
+            size_t width = measurement.column_width > screen->columns ? 1 : measurement.column_width;
+            if (width != cell->column_width) {
+                *changed_out = true;
+                return BOXRIG_STATUS_OK;
+            }
+        }
+    }
+    return BOXRIG_STATUS_OK;
+}
+
 boxrig_status boxrig_terminal_set_font_width_resolver(boxrig_terminal *terminal,
     boxrig_font_width_resolver resolver, void *context)
 {
@@ -366,10 +397,17 @@ boxrig_status boxrig_terminal_set_font_width_resolver(boxrig_terminal *terminal,
     terminal->screen.font_width_context = context;
     if (resolver == NULL || terminal->screen.ambiguous_width != BOXRIG_AMBIGUOUS_WIDTH_FONT)
         return BOXRIG_STATUS_OK;
-    terminal->screen.remeasure_widths = true;
-    boxrig_status status = boxrig_terminal_resize(terminal,
-        terminal->screen.rows, terminal->screen.columns);
-    terminal->screen.remeasure_widths = false;
+    /* Rebinding a renderer need not change any occupied columns. Avoid resize
+     * reflow in that case: trimming trailing blank rows would move the visible
+     * text, cursor, and images relative to existing scrollback. */
+    bool changed;
+    boxrig_status status = font_widths_changed(&terminal->screen, &changed);
+    if (status == BOXRIG_STATUS_OK && changed) {
+        terminal->screen.remeasure_widths = true;
+        status = boxrig_terminal_resize(terminal,
+            terminal->screen.rows, terminal->screen.columns);
+        terminal->screen.remeasure_widths = false;
+    }
     if (status != BOXRIG_STATUS_OK) {
         terminal->screen.font_width_resolver = previous;
         terminal->screen.font_width_context = previous_context;
