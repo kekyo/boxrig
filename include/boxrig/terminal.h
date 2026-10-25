@@ -582,7 +582,7 @@ typedef struct boxrig_terminal_config {
      * graphics_animation_storage_capacity is zero.
      */
     size_t graphics_frame_capacity;
-    /** Width policy for East Asian Width class Ambiguous characters. Defaults to FONT. */
+    /** Width policy for East Asian Width class Ambiguous characters. Defaults to NARROW. */
     boxrig_ambiguous_width ambiguous_width;
     /** Unit used by horizontal cursor positions received from the client. */
     boxrig_cursor_column_mode cursor_column_mode;
@@ -1398,7 +1398,7 @@ void boxrig_terminal_destroy(boxrig_terminal *terminal);
 
 /**
  * Returns the immutable ambiguous-width policy.
- * @param terminal Terminal to inspect, or NULL for the font-dependent default.
+ * @param terminal Terminal to inspect, or NULL for the narrow default.
  * @return The configured ambiguous-width policy.
  */
 boxrig_ambiguous_width boxrig_terminal_ambiguous_width(const boxrig_terminal *terminal);

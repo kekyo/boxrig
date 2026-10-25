@@ -369,7 +369,7 @@ static bool font_width_environment(void)
     CHECK(config.terminal.ambiguous_width == BOXRIG_AMBIGUOUS_WIDTH_NARROW);
     CHECK(unsetenv("BOXRIG_AMBIGUOUS_WIDTH") == 0);
     config = boxrig_term_posix_config_default(arguments);
-    CHECK(config.terminal.ambiguous_width == BOXRIG_AMBIGUOUS_WIDTH_FONT);
+    CHECK(config.terminal.ambiguous_width == BOXRIG_AMBIGUOUS_WIDTH_NARROW);
     return true;
 }
 

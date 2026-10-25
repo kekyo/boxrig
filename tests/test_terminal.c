@@ -50,8 +50,8 @@ static bool test_defaults_and_initial_screen(void)
     CHECK(config.text_recognizer_capacity == 32);
     CHECK(config.text_recognizer_pattern_capacity == 256 * 1024);
     CHECK(config.text_recognizer_event_capacity == 4096);
-    CHECK(config.ambiguous_width == BOXRIG_AMBIGUOUS_WIDTH_FONT);
-    CHECK(boxrig_terminal_ambiguous_width(NULL) == BOXRIG_AMBIGUOUS_WIDTH_FONT);
+    CHECK(config.ambiguous_width == BOXRIG_AMBIGUOUS_WIDTH_NARROW);
+    CHECK(boxrig_terminal_ambiguous_width(NULL) == BOXRIG_AMBIGUOUS_WIDTH_NARROW);
     CHECK(config.cursor_column_mode == BOXRIG_CURSOR_COLUMN_MODE_TERMINAL);
     config.rows = 3;
     config.columns = 5;
@@ -9924,6 +9924,36 @@ static double resolve_test_font_width(void *context, const uint8_t *text,
     return *(const double *)context + (text_length > 3 ? 1.0 : 0.0);
 }
 
+static bool test_default_width_preserves_tui_columns(void)
+{
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    config.rows = 2;
+    config.columns = 20;
+    boxrig_terminal *terminal = NULL;
+    double advance = 2.1;
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_set_font_width_resolver(terminal,
+        resolve_test_font_width, &advance) == BOXRIG_STATUS_OK);
+    const char text[] = "■▲▼─①A界";
+    size_t consumed;
+    CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)text,
+        sizeof(text) - 1, &consumed) == BOXRIG_STATUS_OK);
+    const char *symbols[] = {"■", "▲", "▼", "─", "①", "A", "界"};
+    for (size_t column = 0; column < sizeof(symbols) / sizeof(symbols[0]); column++) {
+        boxrig_cell_view cell;
+        CHECK(boxrig_terminal_get_cell(terminal, 0, column, &cell) == BOXRIG_STATUS_OK);
+        CHECK(cell.text_length == strlen(symbols[column]) &&
+            memcmp(cell.text, symbols[column], cell.text_length) == 0);
+        CHECK(cell.column_width == (column == 6 ? 2 : 1));
+        CHECK(!cell.font_dependent);
+    }
+    boxrig_cursor_view cursor;
+    boxrig_terminal_get_cursor(terminal, &cursor);
+    CHECK(cursor.column == 8);
+    boxrig_terminal_destroy(terminal);
+    return true;
+}
+
 static bool test_font_dependent_width_policy(void)
 {
     boxrig_terminal_config config = boxrig_terminal_config_default();
@@ -9931,6 +9961,7 @@ static bool test_font_dependent_width_policy(void)
     const uint8_t columns[] = {1, 2, 2, 3, 5};
     config.rows = 3;
     config.columns = 12;
+    config.ambiguous_width = BOXRIG_AMBIGUOUS_WIDTH_FONT;
     for (size_t index = 0; index < sizeof(columns); index++) {
         boxrig_terminal *terminal = NULL;
         double advance = advances[index];
@@ -9973,6 +10004,7 @@ static bool test_unchanged_font_width_preserves_viewport_and_images(void)
     const char *texts[] = {"", "①"};
     for (size_t index = 0; index < sizeof(texts) / sizeof(texts[0]); index++) {
         boxrig_terminal_config config = boxrig_terminal_config_default();
+        config.ambiguous_width = BOXRIG_AMBIGUOUS_WIDTH_FONT;
         config.rows = 2;
         config.columns = 16;
         boxrig_terminal *terminal = NULL;
@@ -10185,6 +10217,7 @@ int main(void)
         const char *name;
         bool (*run)(void);
     } tests[] = {
+        {"default width preserves TUI columns", test_default_width_preserves_tui_columns},
         {"defaults and initial screen", test_defaults_and_initial_screen},
         {"print controls wrap and scroll", test_print_controls_wrap_and_scroll},
         {"fragmented csi and erase", test_fragmented_csi_and_erase},

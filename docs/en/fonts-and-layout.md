@@ -41,7 +41,7 @@ Even with Shift_JIS input, text passed to fonts is Unicode.
 
 Ambiguous-width characters, such as `①`, can occupy either one or two terminal columns.
 Choose the width with `boxrig_terminal_config.ambiguous_width` when creating the terminal.
-The default is `BOXRIG_AMBIGUOUS_WIDTH_FONT`. Select `BOXRIG_AMBIGUOUS_WIDTH_NARROW` for a fixed one-column width or `BOXRIG_AMBIGUOUS_WIDTH_WIDE` for two columns.
+The default is `BOXRIG_AMBIGUOUS_WIDTH_NARROW`, one column. Select `BOXRIG_AMBIGUOUS_WIDTH_WIDE` for a fixed two-column width or `BOXRIG_AMBIGUOUS_WIDTH_FONT` for font-dependent columns.
 Font-dependent mode derives columns from the actual font advance, the distance to the next character. Measurements include fallback fonts, bold, and italic styling.
 Rendering, cursors, wrapping, and selection share this width. Match it to the applications running in the terminal.
 See [Unicode East Asian Width](https://www.unicode.org/reports/tr11/tr11-44.html) and its [character data](https://raw.githubusercontent.com/unicode-org/unicodetools/main/unicodetools/data/ucd/17.0.0/EastAsianWidth.txt) for the classification.

@@ -115,7 +115,7 @@ The space immediately before `q` is required.
 | `BOXRIG_AMBIGUOUS_WIDTH=narrow/wide/font` | One, two, or font-dependent columns for ambiguous characters | Set at startup |
 
 When unset, the scrollbar is always shown and color fonts are enabled.
-Ambiguous characters default to `font`: advances round up to whole columns and glyphs retain their natural width at the center. For example, a 2.1-cell advance occupies three columns. Set `narrow` or `wide` to use a fixed one-column or two-column width.
+Ambiguous characters default to `narrow`, one column. Set `wide` for a fixed two-column width or `font` for font-dependent columns. In font-dependent mode, advances round up to whole columns and glyphs retain their natural width at the center. For example, a 2.1-cell advance occupies three columns.
 Demo toggle keys are active only when their corresponding environment variables are set.
 Try the two F11 demos separately.
 
