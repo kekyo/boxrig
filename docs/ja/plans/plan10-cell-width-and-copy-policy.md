@@ -455,6 +455,37 @@ elder-termsも`028bb151`に固定して全体試験を終えた。共有ライ�
 
 変更前は4個のplaceholderを入力した後のカーソルが4列先にならず、回帰試験でREDを確認した。修正後は、3通りの設定で画像の配置と1セル幅を保ち、コア、文字配置、X11サンプルの試験も成功した。通常の曖昧幅文字の切り上げと中央寄せは既存試験で確認した。ログは`/tmp/boxrig-font-default-placeholder-red.log`と`/tmp/boxrig-font-default-placeholder-green.log`にあり、修正後のビルドに警告はなかった。
 
+### 既定値変更の最終確認
+
+`625e7242`に固定してビルドと`make -k test`を実行した。GTK4／Waylandのスクロールバー試験で、表示中にズームした際にアプリが終了し、1ターゲットが失敗した。同じ条件をコード変更なしで再実行すると成功し、途中で未実行になった残り4条件も成功した。終了原因は特定できていない。ログは`/tmp/boxrig-font-default-complete-test.log`と`/tmp/boxrig-font-default-complete-scrollbar-retest.log`にある。
+
+依存ターゲットの失敗により`test`本体のレシピが実行されなかったため、実行済みの依存ターゲットを`-o`で除き、本体を最後まで実行した。補完実行では`-i`で各コマンドの失敗後も続行し、失敗行を別途確認した。失敗は末尾のWine上の終了・リサイズ2件で、32・64ビットともマウスボタンを押したまま拡大した画面を取得する箇所だった。ログは`/tmp/boxrig-font-default-complete-main-test.log`にあり、全体実行が成功したとは扱わない。
+
+修正した画像配置用文字の試験は、LinuxとWineの32・64ビットで成功した。X11サンプルの画像表示、部分描画、描画器切り替え、2列・3列カーソルの動画、ホイール操作、コピーも成功している。カーソル動画は`build/test-results/plan10-font-cursor/{gtk3,opengl}/`にある。
+
+実Windowsでも同じコミットのバイナリを確認した。D3D11の32・64ビット、ソフトウェア処理（WARP）とハードウェア処理の12件に加え、終了・リサイズの3件も成功した。ログは`/tmp/boxrig-font-default-complete-native-d3d11.log`と`/tmp/boxrig-font-default-complete-native-shutdown-resize.log`にある。実PCは試験後に解放した。
+
+コンパイラ警告とAddressSanitizer・UndefinedBehaviorSanitizerのエラーはなかった。一方、成功したWine試験の終了処理の前後で`free(): corrupted unsorted chunks`という診断が出た。発生元は特定しておらず、GTK4の失敗とは区別する。WineのD3D11・OpenGL ES・ConPTYと追加GTKライブラリの未確認範囲は、前述の「追加仕様の全体試験」に記した起動条件による。今回の幅計測と中央寄せは、前述の実Windowsでも確認した。
+
+elder-termsは`3d058fb7`で本コミットを参照し、全体試験と失敗箇所の再実行を完了した。共有ライブラリ146件、ランチャー114件、C++217件、端末UI690件が成功した。転送中の画面取得1件と、遅延開始のTELNET受信5件は全体実行で失敗したが、コード変更なしの個別再実行で6件とも成功した。幅設定のC++12試験と、実アプリの設定・録画10試験は全体実行で成功している。詳細、スキップ件数、画像・動画の保存先はelder-terms側のplan10に記録した。
+
+追補の完了条件を次のとおり確認した。
+
+- [x] 設定なしでフォント依存となり、送り幅を整数列へ切り上げる。2.1セル分の文字は3列の中央へ配置する。
+- [x] 明示した1列／2列、設定の継承・保存・再読込を保ち、新しい端末へ適用する。
+- [x] 両プロジェクトの全体試験を実行し、失敗、個別再実行、実Windowsでの結果を区別して記録する。
+
+| 対象と変更 | コミット |
+| --- | --- |
+| boxrig：既定値とサンプル・公開説明 | `3b5d2b58` |
+| boxrig：列数が同じ場合の配置保持 | `ac647f70` |
+| boxrig：画像配置用文字の1セル幅 | `625e7242` |
+| elder-terms：既定値と継承表示 | `5d775fd9` |
+| elder-terms：配置保持の修正を取り込み | `028bb151` |
+| elder-terms：画像配置用文字の修正を取り込み | `3d058fb7` |
+
+変更は両プロジェクトの作業ブランチへコミットした。mainへのマージとリリースは行っていない。
+
 [elder-190-runtime]: https://github.com/kekyo/elder-terms/blob/b62860d358be7209750eb58c67a9d5f66ea7ac58/elder-terms-terminal/src/terminal-runtime.cpp
 [elder-190-boxrig]: https://github.com/kekyo/elder-terms/tree/b62860d358be7209750eb58c67a9d5f66ea7ac58/deps/boxrig
 [elder-settings]: https://github.com/kekyo/elder-terms/blob/f289bde0fb1104219fc2dfb5493a64edc2f19a02/shared/src/settings/terminal-settings.cpp
