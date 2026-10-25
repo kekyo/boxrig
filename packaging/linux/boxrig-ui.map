@@ -120,6 +120,7 @@ BOXRIG_0 {
         boxrig_ui_editable_document_set_limits;
         boxrig_ui_editable_document_take_replacement;
         boxrig_ui_editable_limits_default;
+        boxrig_ui_fragment_layout_provider_set_font_width_resolver;
         boxrig_ui_fragment_layout_provider_create;
         boxrig_ui_fragment_layout_provider_destroy;
         boxrig_ui_host_item_consumer_complete;
