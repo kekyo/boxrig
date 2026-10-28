@@ -300,7 +300,33 @@ try {
   await send('z');
   assert.equal(await readClipboard(), 'copy-target');
   results.push({ name: 'keyboard-copy-baseline', text: 'copy-target' });
-  await select(4, 1, 4, 1);
+  for (const [name, start, end, expected] of [
+    ['through-newline', 0, 11, 'copy-target\n'],
+    ['newline-only', 11, 12, '\n'],
+  ]) {
+    await select(2, start, 2, end);
+    command('xdotool', ['key', '--clearmodifiers', 'ctrl+shift+c']);
+    await send('z');
+    assert.equal(await readClipboard(), expected);
+    await until(() => {
+      const { bytes, w } = capture();
+      // The default selection style is an outline; observe its top edge.
+      const y = origin.y + state.height * 2;
+      const at = (column) =>
+        (y * w + origin.x + Math.floor(state.width * (column + 0.5))) * 3;
+      if (background(bytes, at(11))) return false;
+      assert(background(bytes, at(12)), 'padding after LF stays unselected');
+      return true;
+    }, 'selected LF presentation');
+    results.push({ name, text: expected });
+  }
+  await select(2, 0, 2, 10);
+  command('xdotool', ['key', '--clearmodifiers', 'ctrl+shift+c']);
+  await send('z');
+  assert.equal(await readClipboard(), 'copy-target');
+  // Only the last logical line has no LF. Earlier empty rows now select LF.
+  const finalRow = Math.floor((geometry.height - origin.y) / state.height) - 1;
+  await select(finalRow, 1, finalRow, 1);
   await right();
   assert.equal(await readClipboard(), 'copy-target');
   results.push({ name: 'empty-keeps-clipboard', text: 'copy-target' });
@@ -334,7 +360,7 @@ try {
   );
   assert.equal(readState().reports, 0);
   results.push({ name: 'stale-keeps-clipboard-and-input', reports: 0 });
-  await select(4, 1, 4, 1, ['Shift_L']);
+  await select(finalRow, 1, finalRow, 1, ['Shift_L']);
   await right();
   assert.equal(await readClipboard(), rectangle);
   assert.equal(readState().buttonReports, 2);

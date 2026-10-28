@@ -7,6 +7,7 @@
 #include "boxrig/ui.h"
 #include "../src/core/terminal_internal.h"
 #include "../src/ui/word_break.h"
+#include "../src/ui/view_private.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -1739,9 +1740,180 @@ static bool unicode_word_break_conformance(const char *path)
     return true;
 }
 
+static bool newline_selection_matches_copy_and_paint(void)
+{
+    const struct {
+        const char *input;
+        const char *body;
+    } lines[] = {
+        {"Ran git diff --check\r\nnext", "Ran git diff --check"},
+        {"Ran git diff --check  \r\nnext", "Ran git diff --check  "},
+        {"Ran git diff --checkXXXXX\033[5D\033[K\r\nnext", "Ran git diff --check"},
+        {"\r\nnext", ""}
+    };
+    for (size_t sample = 0; sample < sizeof(lines) / sizeof(lines[0]); sample++) {
+        boxrig_terminal_config config = boxrig_terminal_config_default();
+        config.rows = 3;
+        config.columns = 80;
+        boxrig_terminal *terminal = NULL;
+        boxrig_ui_model *model = NULL;
+        boxrig_ui_view *view = NULL;
+        boxrig_ui_view_config view_config = boxrig_ui_view_config_default();
+        CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+        size_t consumed;
+        CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)lines[sample].input,
+            strlen(lines[sample].input), &consumed) == BOXRIG_STATUS_OK);
+        CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
+        CHECK(boxrig_ui_view_create(model, &view_config, &view) == BOXRIG_UI_OK);
+        CHECK(boxrig_ui_view_acquire_layout_authority(view) == BOXRIG_UI_OK);
+        boxrig_ui_allocation_input allocation = {
+            .allocation_width = pixels(800), .allocation_height = pixels(30),
+            .cell_width = pixels(10), .cell_height = pixels(10),
+            .cell_metrics_revision = 1, .window_state = BOXRIG_UI_WINDOW_NORMAL
+        };
+        boxrig_ui_layout_result layout;
+        CHECK(boxrig_ui_view_accept_allocation(view, &allocation, &layout) == BOXRIG_UI_OK);
+        CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+        size_t body = strlen(lines[sample].body);
+        /* Visit the last glyph, LF, LF alone, next line, and far padding.
+         * Repeat in reverse to exercise the same logical range both ways. */
+        for (size_t operation = body == 0 ? 1 : 0; operation < 5; operation++) {
+            size_t first = operation == 2 ? body : 0;
+            size_t last = operation == 0 ? body - 1 :
+                operation == 3 ? 3 : operation == 4 ? 79 : body;
+            size_t last_row = operation == 3 ? 1 : 0;
+            size_t selected = operation == 0 ? body : body + 1;
+            char expected[100];
+            snprintf(expected, sizeof(expected), "%s%s%s",
+                operation == 2 ? "" : lines[sample].body,
+                operation == 0 ? "" : "\n", operation == 3 ? "next" : "");
+            for (size_t reverse = 0; reverse < 2; reverse++) {
+                boxrig_ui_hit_test_result anchor, focus;
+                CHECK(boxrig_ui_view_hit_test(view, pixels((int64_t)first * 10 + 1),
+                    pixels(1), &anchor) == BOXRIG_UI_OK);
+                CHECK(boxrig_ui_view_hit_test(view, pixels((int64_t)last * 10 + 1),
+                    pixels((int64_t)last_row * 10 + 1), &focus) == BOXRIG_UI_OK);
+                CHECK(boxrig_ui_view_begin_selection(view, BOXRIG_UI_SELECTION_CHARACTER,
+                    reverse ? &focus : &anchor) == BOXRIG_UI_OK);
+                CHECK(boxrig_ui_view_update_selection(view, reverse ? &anchor : &focus) == BOXRIG_UI_OK);
+                boxrig_text_snapshot *copy = NULL;
+                CHECK(boxrig_ui_view_create_selection_snapshot(view, &copy) == BOXRIG_UI_OK);
+                size_t length;
+                const uint8_t *bytes = boxrig_text_snapshot_data(copy, &length);
+                CHECK(length == strlen(expected));
+                CHECK(memcmp(bytes, expected, length) == 0);
+                boxrig_text_snapshot_destroy(copy);
+                boxrig_text_layout_range ranges[2];
+                CHECK(boxrig_ui_view_selection_visual_ranges(view, 0, ranges, 2) == 1);
+                CHECK(ranges[0].column == first && ranges[0].column_count == selected - first);
+                for (size_t column = 0; column < 80; column++) {
+                    bool is_selected = column >= first && column < selected;
+                    boxrig_ui_color_filter_input color = {0};
+                    boxrig_ui_view_apply_color_state(view, 0, column, 0, false, &color);
+                    CHECK(((color.state_flags & BOXRIG_UI_COLOR_SELECTED) != 0) == is_selected);
+                    boxrig_ui_hit_test_result hit;
+                    CHECK(boxrig_ui_view_hit_test(view, pixels((int64_t)column * 10 + 1),
+                        pixels(1), &hit) == BOXRIG_UI_OK);
+                    CHECK(((hit.overlay_roles & BOXRIG_UI_OVERLAY_SELECTION) != 0) == is_selected);
+                }
+                boxrig_ui_accessible_row_state accessible;
+                boxrig_ui_view_accessible_row(view, 0, &accessible);
+                CHECK(accessible.newline_selected == (operation != 0));
+                CHECK(boxrig_ui_view_clear_selection(view) == BOXRIG_UI_OK);
+                CHECK(boxrig_ui_view_selection_visual_ranges(view, 0, ranges, 2) == 0);
+            }
+        }
+        boxrig_ui_view_destroy(view);
+        boxrig_ui_model_destroy(model);
+        boxrig_terminal_destroy(terminal);
+    }
+    return true;
+}
+
+static bool newline_selection_respects_document_and_wrap_boundaries(void)
+{
+    const struct {
+        const char *input;
+        size_t anchor_row;
+        size_t focus_row;
+        size_t focus_column;
+        const char *copy;
+        size_t first_row_count;
+        size_t second_row_count;
+    } cases[] = {
+        {"\r\n\r\nabc", 2, 2, 7, "abc", 3, 0},
+        {"abcdefghij\r\nz", 0, 1, 1, "abcdefghij", 8, 2},
+        {"abcdefghij\r\nz", 0, 1, 2, "abcdefghij\n", 8, 3}
+    };
+    for (size_t sample = 0; sample < sizeof(cases) / sizeof(cases[0]); sample++) {
+        boxrig_terminal_config config = boxrig_terminal_config_default();
+        config.rows = 3;
+        config.columns = 8;
+        boxrig_terminal *terminal = NULL;
+        boxrig_ui_model *model = NULL;
+        boxrig_ui_view *view = NULL;
+        boxrig_ui_view_config view_config = boxrig_ui_view_config_default();
+        CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+        size_t consumed;
+        CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)cases[sample].input,
+            strlen(cases[sample].input), &consumed) == BOXRIG_STATUS_OK);
+        CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
+        CHECK(boxrig_ui_view_create(model, &view_config, &view) == BOXRIG_UI_OK);
+        CHECK(boxrig_ui_view_acquire_layout_authority(view) == BOXRIG_UI_OK);
+        boxrig_ui_allocation_input allocation = {
+            .allocation_width = pixels(80), .allocation_height = pixels(30),
+            .cell_width = pixels(10), .cell_height = pixels(10),
+            .cell_metrics_revision = 1, .window_state = BOXRIG_UI_WINDOW_NORMAL
+        };
+        boxrig_ui_layout_result layout;
+        CHECK(boxrig_ui_view_accept_allocation(view, &allocation, &layout) == BOXRIG_UI_OK);
+        CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+        boxrig_ui_hit_test_result anchor, focus;
+        CHECK(boxrig_ui_view_hit_test(view, pixels(1),
+            pixels((int64_t)cases[sample].anchor_row * 10 + 1),
+            &anchor) == BOXRIG_UI_OK);
+        CHECK(boxrig_ui_view_hit_test(view,
+            pixels((int64_t)cases[sample].focus_column * 10 + 1),
+            pixels((int64_t)cases[sample].focus_row * 10 + 1),
+            &focus) == BOXRIG_UI_OK);
+        CHECK(boxrig_ui_view_begin_selection(view, BOXRIG_UI_SELECTION_CHARACTER,
+            &anchor) == BOXRIG_UI_OK);
+        CHECK(boxrig_ui_view_update_selection(view, &focus) == BOXRIG_UI_OK);
+        boxrig_text_snapshot *copy = NULL;
+        CHECK(boxrig_ui_view_create_selection_snapshot(view, &copy) == BOXRIG_UI_OK);
+        size_t length;
+        const uint8_t *bytes = boxrig_text_snapshot_data(copy, &length);
+        CHECK(length == strlen(cases[sample].copy));
+        CHECK(memcmp(bytes, cases[sample].copy, length) == 0);
+        boxrig_text_snapshot_destroy(copy);
+        boxrig_text_layout_range ranges[2];
+        CHECK(boxrig_ui_view_selection_visual_ranges(view,
+            cases[sample].anchor_row, ranges, 2) == 1);
+        CHECK(ranges[0].column == 0 &&
+            ranges[0].column_count == cases[sample].first_row_count);
+        if (cases[sample].anchor_row != cases[sample].focus_row) {
+            CHECK(boxrig_ui_view_selection_visual_ranges(view,
+                cases[sample].focus_row, ranges, 2) == 1);
+        }
+        if (cases[sample].second_row_count != 0) {
+            CHECK(ranges[0].column == 0 &&
+                ranges[0].column_count == cases[sample].second_row_count);
+        }
+        boxrig_ui_accessible_row_state accessible;
+        boxrig_ui_view_accessible_row(view, cases[sample].focus_row, &accessible);
+        CHECK(accessible.newline_selected == (sample == 2));
+        boxrig_ui_view_destroy(view);
+        boxrig_ui_model_destroy(model);
+        boxrig_terminal_destroy(terminal);
+    }
+    return true;
+}
+
 int main(int argc, char **argv)
 {
     if (argc != 2 ||
+        !newline_selection_respects_document_and_wrap_boundaries() ||
+        !newline_selection_matches_copy_and_paint() ||
         !rectangular_selection_can_cross_zero_width() ||
         !text_hit_resolves_grapheme_edges_and_bidi_direction() ||
         !character_selection_copy_is_owned_bounded_and_view_local() ||

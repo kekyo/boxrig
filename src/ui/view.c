@@ -1505,20 +1505,71 @@ static void merge_annotation_style(
     merged->field_mask |= addition->field_mask;
 }
 
+/* LF is a boundary between logical lines, never a soft wrap or a spare
+ * terminal cell. Keep its range separate from cell hits used by rectangles
+ * and hyperlinks. Only the final fragment can present this selection unit. */
+static bool row_newline_range(const boxrig_ui_view *view, size_t row,
+    boxrig_text_range *range_out)
+{
+    boxrig_text_screen screen;
+    size_t index;
+    boxrig_text_fragment_view fragment;
+    if (!view_fragment_index(view, row, &screen, &index) ||
+        boxrig_terminal_get_text_fragment(view->model->terminal, screen,
+            index, &fragment) != BOXRIG_STATUS_OK || fragment.soft_wrapped ||
+        fragment.projected_end_column < fragment.logical_column_offset ||
+        index + 1 >= boxrig_terminal_text_fragment_count(view->model->terminal, screen)) {
+        return false;
+    }
+    return boxrig_terminal_get_text_position(view->model->terminal, screen,
+            index, fragment.projected_end_column - fragment.logical_column_offset,
+            &range_out->start) == BOXRIG_STATUS_OK &&
+        boxrig_terminal_get_text_position(view->model->terminal, screen,
+            index + 1, 0, &range_out->end) == BOXRIG_STATUS_OK;
+}
+
+static bool row_newline_selected(const boxrig_ui_view *view, size_t row)
+{
+    boxrig_text_range newline;
+    int start, end;
+    return view != NULL && view->selection_active &&
+        view->selection.shape == BOXRIG_UI_SELECTION_LINEAR &&
+        row_newline_range(view, row, &newline) &&
+        compare_text_positions(view->model->terminal,
+            &view->selection.range.start, &newline.start, &start) &&
+        compare_text_positions(view->model->terminal,
+            &newline.end, &view->selection.range.end, &end) &&
+        start <= 0 && end <= 0;
+}
+
 static bool selected_logical_interval(
     const boxrig_ui_view *view,
     size_t row,
     size_t *local_column_out,
     size_t *local_count_out)
 {
-    return view != NULL && view->selection_active &&
+    size_t start, count, index;
+    boxrig_text_screen screen;
+    boxrig_text_fragment_view fragment;
+    if (!(view != NULL && view->selection_active &&
            view->selection.shape == BOXRIG_UI_SELECTION_LINEAR &&
            range_logical_interval(
                view,
                &view->selection.range,
                row,
-               local_column_out,
-               local_count_out);
+               &start,
+               &count)) ||
+        !view_fragment_index(view, row, &screen, &index) ||
+        boxrig_terminal_get_text_fragment(view->model->terminal, screen,
+            index, &fragment) != BOXRIG_STATUS_OK) return false;
+    size_t end = fragment.projected_end_column > fragment.logical_column_offset
+        ? fragment.projected_end_column - fragment.logical_column_offset : 0;
+    if (end < view->column_count && row_newline_selected(view, row)) end++;
+    if (end > start + count) end = start + count;
+    if (end <= start) return false;
+    *local_column_out = start;
+    *local_count_out = end - start;
+    return true;
 }
 
 static const boxrig_ui_selection_row_slice *rectangular_selection_row(
@@ -4476,11 +4527,25 @@ boxrig_ui_status boxrig_ui_view_query_text_annotation_hits(
 }
 
 static boxrig_ui_status character_selection_unit(
+    const boxrig_ui_view *view,
     const boxrig_ui_hit_test_result *hit,
     boxrig_text_range *unit_out)
 {
     unit_out->start = hit->leading_position;
     unit_out->end = hit->trailing_position;
+    boxrig_text_screen screen;
+    size_t index;
+    boxrig_text_fragment_view fragment;
+    if (view_fragment_index(view, hit->row, &screen, &index) &&
+        boxrig_terminal_get_text_fragment(view->model->terminal, screen,
+            index, &fragment) == BOXRIG_STATUS_OK && !fragment.soft_wrapped &&
+        hit->leading_position.column >= fragment.projected_end_column) {
+        if (!row_newline_range(view, hit->row, unit_out)) {
+            /* The last document line has padding but no selectable LF. */
+            unit_out->start.column = fragment.projected_end_column;
+            unit_out->end = unit_out->start;
+        }
+    }
     return BOXRIG_UI_OK;
 }
 
@@ -5066,7 +5131,7 @@ static boxrig_ui_status word_selection_unit(
     bytes = boxrig_text_snapshot_data(snapshot, &byte_length);
     if (byte_length == 0) {
         boxrig_text_snapshot_destroy(snapshot);
-        return character_selection_unit(hit, unit_out);
+        return character_selection_unit(view, hit, unit_out);
     }
     core_status = boxrig_text_snapshot_byte_offset_at_position(
         snapshot,
@@ -5074,7 +5139,7 @@ static boxrig_ui_status word_selection_unit(
         &hit_offset);
     if (core_status != BOXRIG_STATUS_OK) {
         boxrig_text_snapshot_destroy(snapshot);
-        return character_selection_unit(hit, unit_out);
+        return character_selection_unit(view, hit, unit_out);
     }
     if (byte_length > SIZE_MAX / sizeof(*codepoints) ||
         byte_length == SIZE_MAX ||
@@ -5172,7 +5237,7 @@ static boxrig_ui_status selection_unit(
     }
     switch (kind) {
     case BOXRIG_UI_SELECTION_CHARACTER:
-        return character_selection_unit(hit, unit_out);
+        return character_selection_unit(view, hit, unit_out);
     case BOXRIG_UI_SELECTION_WORD:
         return word_selection_unit(view, hit, unit_out);
     case BOXRIG_UI_SELECTION_LINE:
@@ -5581,12 +5646,19 @@ size_t boxrig_ui_view_selection_visual_ranges(
         }
         return required;
     }
-    return range_visual_ranges(
-        view,
-        &view->selection.range,
-        row,
-        ranges_out,
-        range_capacity);
+    size_t start, count;
+    if ((range_capacity != 0 && ranges_out == NULL) || row >= view->row_count ||
+        !selected_logical_interval(view, row, &start, &count)) return 0;
+    const boxrig_ui_row_layout_cache *entry = &view->row_layouts[row];
+    if (entry->layout != NULL) {
+        return boxrig_text_layout_visual_ranges(entry->layout, start, count,
+            ranges_out, range_capacity);
+    }
+    if (range_capacity != 0) {
+        ranges_out[0].column = start;
+        ranges_out[0].column_count = count;
+    }
+    return 1;
 }
 
 void boxrig_ui_view_accessible_version(const boxrig_ui_view *view,
@@ -5632,19 +5704,7 @@ void boxrig_ui_view_accessible_row(const boxrig_ui_view *view, size_t row,
     }
     (void)selected_logical_interval(view, row,
         &state->selection_start, &state->selection_count);
-    boxrig_text_screen screen;
-    size_t index;
-    boxrig_text_position end;
-    int from_start, to_end;
-    if (view_fragment_index(view, row, &screen, &index) &&
-        boxrig_terminal_get_text_position(view->model->terminal,
-            screen, index, view->column_count, &end) == BOXRIG_STATUS_OK &&
-        compare_text_positions(view->model->terminal,
-            &view->selection.range.start, &end, &from_start) &&
-        compare_text_positions(view->model->terminal,
-            &end, &view->selection.range.end, &to_end)) {
-        state->newline_selected = from_start <= 0 && to_end < 0;
-    }
+    state->newline_selected = row_newline_selected(view, row);
 }
 
 boxrig_ui_status boxrig_ui_view_begin_search(

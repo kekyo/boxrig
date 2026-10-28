@@ -348,8 +348,10 @@ bool boxrig_test_renderer_selection_style(
     boxrig_ui_layout_result layout;
     CHECK(boxrig_ui_view_acquire_layout_authority(view) == BOXRIG_UI_OK);
     CHECK(boxrig_ui_view_accept_allocation(view, &allocation, &layout) == BOXRIG_UI_OK);
-    /* A blank separator keeps neighboring glyph overhang out of the alpha fixture. */
+    /* Explicit spaces keep the alpha fixture selectable without glyph
+     * overhang. Unused padding is reserved for the single LF selection unit. */
     const char text[] = "\033[?25l\033[48;2;16;32;48m\033[2J"
+        "\033[1;1H        "
         "\033[3;1HX\xe7\x95\x8c" "e\xcc\x88 fi \327\220\327\221\327\222"
         "\033[3;12H\033[8mX\033[28m";
     size_t consumed;
