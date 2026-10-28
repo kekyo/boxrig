@@ -350,6 +350,9 @@ OPENGL_RUNTIME_TEST_BINARY := $(BUILD_DIR)/tests/test_opengl_runtime
 OPENGL_RENDERER_FIXTURE_TEST_BINARY := \
 	$(BUILD_DIR)/tests/test_opengl_renderer_fixture
 UI_TEST_BINARY := $(BUILD_DIR)/tests/test_ui
+ANNOTATION_COST_BINARY := $(BUILD_DIR)/tests/performance/annotation_cost
+ANNOTATION_COST_UNWRAPPED_BINARY := \
+	$(BUILD_DIR)/tests/performance/annotation_cost_unwrapped
 SELECTION_TEST_BINARY := $(BUILD_DIR)/tests/test_selection
 UI_PLATFORM_FIXTURE_TEST_BINARY := $(BUILD_DIR)/tests/test_ui_platform_fixture
 PANGO_CAIRO_FIXTURE_TEST_BINARY := \
@@ -2440,6 +2443,22 @@ $(OPENGL_RENDERER_FIXTURE_TEST_BINARY): tests/test_ui_platform_fixture.c \
 
 $(UI_TEST_BINARY): tests/test_ui.c $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) tests/test_ui.c $(UI_LIBRARY) $(LIBRARY) -Wl,--wrap=malloc $(SANITIZERS) -o $@
+
+$(ANNOTATION_COST_BINARY): ANNOTATION_COST_FLAGS = \
+	-Wl,--wrap=boxrig_terminal_get_text_fragment
+$(ANNOTATION_COST_UNWRAPPED_BINARY): ANNOTATION_COST_FLAGS = \
+	-DBOXRIG_ANNOTATION_UNWRAPPED
+$(ANNOTATION_COST_BINARY) $(ANNOTATION_COST_UNWRAPPED_BINARY): \
+		tests/performance/annotation_cost.c $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests/performance
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) \
+		$(PROJECT_CFLAGS) $< $(UI_LIBRARY) $(LIBRARY) \
+		$(ANNOTATION_COST_FLAGS) -o $@
+
+.PHONY: test-annotation-cost
+test: test-annotation-cost
+test-annotation-cost: $(ANNOTATION_COST_BINARY) $(ANNOTATION_COST_UNWRAPPED_BINARY)
+	$(ANNOTATION_COST_BINARY) self-test
+	$(ANNOTATION_COST_UNWRAPPED_BINARY) self-test
 
 $(SELECTION_TEST_BINARY): tests/test_selection.c src/ui/word_break.h \
 		$(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
