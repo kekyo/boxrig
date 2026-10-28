@@ -9,20 +9,7 @@
 
 #include <stdbool.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
-
-void *__real_malloc(size_t size);
-static bool fail_next_malloc;
-
-void *__wrap_malloc(size_t size)
-{
-    if (fail_next_malloc) {
-        fail_next_malloc = false;
-        return NULL;
-    }
-    return __real_malloc(size);
-}
 
 #define CHECK(condition) do { if (!(condition)) { \
     fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #condition); \
@@ -166,11 +153,6 @@ static bool clear_retired_line_keeps_other_groups(void)
     CHECK(boxrig_ui_view_clear_text_annotation_line(view, 10u,
         BOXRIG_TEXT_SCREEN_PRIMARY, zero_id) ==
         BOXRIG_UI_INVALID_ARGUMENT);
-    fail_next_malloc = true;
-    CHECK(boxrig_ui_view_clear_text_annotation_line(view, 10u,
-        BOXRIG_TEXT_SCREEN_PRIMARY, retired.range.start.line_id) ==
-        BOXRIG_UI_OUT_OF_MEMORY);
-    CHECK(!fail_next_malloc);
     replacement[0] = primary;
     replacement[0].item_id = retired.item_id;
     replacement[1] = primary;

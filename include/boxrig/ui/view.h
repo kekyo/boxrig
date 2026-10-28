@@ -1606,7 +1606,7 @@ boxrig_ui_status boxrig_ui_view_replace_text_annotations(
  * @param screen Logical text namespace containing the original line.
  * @param line_id Stable logical-line identity; the line need not still exist.
  * @return OK when the group is absent or removed, INVALID_ARGUMENT for an
- * invalid key, or OUT_OF_MEMORY without changing the retained annotations.
+ * invalid key. This operation does not allocate memory.
  * @remarks Other sources and lines remain unchanged. A prior line revision is
  * unnecessary because a retired line cannot be validated against live text.
  */
