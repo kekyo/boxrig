@@ -22,6 +22,7 @@ typedef struct boxrig_regex_class {
     size_t range_count;
     uint32_t category_mask;
     bool negated;
+    uint64_t ascii[2];
 } boxrig_regex_class;
 
 typedef enum boxrig_regex_escape_kind {
@@ -1573,6 +1574,21 @@ static bool limits_valid(const boxrig_regex_limits *limits)
            limits->capture_byte_capacity <= BOXRIG_REGEX_CAPTURE_BYTE_CAPACITY_MAX;
 }
 
+static inline bool class_contains(
+    const boxrig_regex_class *class_value,
+    const boxrig_regex_range *ranges,
+    int32_t scalar)
+{
+    bool contained = class_value->category_mask != 0u &&
+        (class_value->category_mask &
+         (UINT32_C(1) << utf8proc_category(scalar))) != 0u;
+    for (size_t index = 0u; !contained && index < class_value->range_count; index++) {
+        const boxrig_regex_range *range = &ranges[class_value->range_start + index];
+        contained = scalar >= range->first && scalar <= range->last;
+    }
+    return class_value->negated ? !contained : contained;
+}
+
 boxrig_status boxrig_regex_compile(
     const uint8_t *pattern,
     size_t pattern_length,
@@ -1690,6 +1706,17 @@ boxrig_status boxrig_regex_compile(
     program->class_count = parser.class_count;
     program->ranges = parser.ranges;
     program->range_count = parser.range_count;
+    /* Include Unicode categories and negation in the table. ASCII input must
+     * have exactly the same class membership as the general scalar path. */
+    for (size_t index = 0u; index < program->class_count; index++) {
+        boxrig_regex_class *class_value = &program->classes[index];
+        for (int32_t scalar = 0; scalar < 128; scalar++) {
+            if (class_contains(class_value, program->ranges, scalar)) {
+                class_value->ascii[(unsigned)scalar / 64u] |=
+                    UINT64_C(1) << ((unsigned)scalar % 64u);
+            }
+        }
+    }
     parser.classes = NULL;
     parser.ranges = NULL;
     diagnostic_out->code = BOXRIG_TEXT_REGEX_DIAGNOSTIC_NONE;
@@ -1899,21 +1926,11 @@ static bool state_matches(
     if (state->type == BOXRIG_REGEX_STATE_CLASS) {
         const boxrig_regex_class *class_value =
             &program->classes[state->class_index];
-        bool contained = class_value->category_mask != 0u &&
-            (class_value->category_mask &
-             (UINT32_C(1) << utf8proc_category(scalar))) != 0u;
-        size_t index;
-
-        for (index = 0u; !contained && index < class_value->range_count; index++) {
-            const boxrig_regex_range *range =
-                &program->ranges[class_value->range_start + index];
-
-            if (scalar >= range->first && scalar <= range->last) {
-                contained = true;
-                break;
-            }
+        if ((uint32_t)scalar < 128u) {
+            return (class_value->ascii[(unsigned)scalar / 64u] &
+                (UINT64_C(1) << ((unsigned)scalar % 64u))) != 0u;
         }
-        return class_value->negated ? !contained : contained;
+        return class_contains(class_value, program->ranges, scalar);
     }
     return false;
 }

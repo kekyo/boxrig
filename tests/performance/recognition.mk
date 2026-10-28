@@ -47,6 +47,14 @@ $(REGEX_OBSERVED_BINARY): tests/performance/regex_cost.c tests/performance/regex
 $(RECOGNITION_PROFILE_BINARY): tests/performance/recognition_cost.c tests/performance/recognition_profile.c $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests/performance
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< tests/performance/recognition_profile.c $(UI_LIBRARY) $(LIBRARY) -Wl,--wrap=boxrig_regex_cursor_resume -Wl,--wrap=boxrig_text_line_projection_cursor_resume -Wl,--wrap=boxrig_terminal_resume_text_recognizers -o $@
 
+.PHONY: test-regex-work
+test: test-regex-work
+test-regex-work: $(BUILD_DIR)/tests/test_regex_work
+	$<
+
+$(BUILD_DIR)/tests/test_regex_work: tests/test_regex_work.c tests/performance/regex_observe.c tests/performance/regex_observe.h $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< tests/performance/regex_observe.c $(LIBRARY) -Wl,--wrap=utf8proc_category -Wl,--wrap=memcpy -o $@
+
 .PHONY: test-annotation-eviction
 test: test-annotation-eviction
 test-annotation-eviction: $(BUILD_DIR)/tests/test_annotation_eviction
