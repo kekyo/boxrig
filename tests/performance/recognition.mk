@@ -1,4 +1,7 @@
 RECOGNITION_COST_BINARY := $(BUILD_DIR)/tests/performance/recognition_cost
+REGEX_COST_BINARY := $(BUILD_DIR)/tests/performance/regex_cost
+REGEX_OBSERVED_BINARY := $(BUILD_DIR)/tests/performance/regex_cost_observed
+RECOGNITION_PROFILE_BINARY := $(BUILD_DIR)/tests/performance/recognition_profile
 RECOGNIZER_RESCAN_BINARY := $(BUILD_DIR)/tests/performance/recognizer_event_rescan
 OSC8_COST_BINARY := $(BUILD_DIR)/tests/performance/osc8_cost
 POLICY_COST_BINARY := $(BUILD_DIR)/tests/performance/policy_cost
@@ -20,10 +23,13 @@ $(OSC8_COST_BINARY): tests/performance/osc8_cost.c $(LIBRARY) | $(BUILD_DIR)/tes
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(LIBRARY) -o $@
 
 .PHONY: recognition-drivers test-recognition-drivers
-recognition-drivers: $(RECOGNITION_COST_BINARY) $(RECOGNIZER_RESCAN_BINARY) $(OSC8_COST_BINARY) $(POLICY_COST_BINARY) $(RECOGNIZER_BUDGET_COST_BINARY)
+recognition-drivers: $(RECOGNITION_COST_BINARY) $(RECOGNIZER_RESCAN_BINARY) $(OSC8_COST_BINARY) $(POLICY_COST_BINARY) $(RECOGNIZER_BUDGET_COST_BINARY) $(REGEX_COST_BINARY) $(REGEX_OBSERVED_BINARY) $(RECOGNITION_PROFILE_BINARY)
 
 test: test-recognition-drivers
 test-recognition-drivers: recognition-drivers
+	$(REGEX_COST_BINARY) http 64 match 2
+	$(REGEX_COST_BINARY) unicode 64 miss 2
+	$(REGEX_OBSERVED_BINARY) capture2 64 match 2
 	$(RECOGNITION_COST_BINARY) 0 2 2 65536 64 2 80
 	$(RECOGNITION_COST_BINARY) 10 3 1 0 4096 2 80
 	$(RECOGNIZER_RESCAN_BINARY) 8
@@ -31,6 +37,15 @@ test-recognition-drivers: recognition-drivers
 	$(OSC8_COST_BINARY) unique dead 10 10 40 4 16 20 400
 	$(POLICY_COST_BINARY) 10 2 5 4096
 	$(RECOGNIZER_BUDGET_COST_BINARY) 1600 7
+
+$(REGEX_COST_BINARY): tests/performance/regex_cost.c $(LIBRARY) | $(BUILD_DIR)/tests/performance
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(LIBRARY) -o $@
+
+$(REGEX_OBSERVED_BINARY): tests/performance/regex_cost.c tests/performance/regex_observe.c tests/performance/regex_observe.h $(LIBRARY) | $(BUILD_DIR)/tests/performance
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) -DBOXRIG_OBSERVE_REGEX $< tests/performance/regex_observe.c $(LIBRARY) -Wl,--wrap=utf8proc_category -Wl,--wrap=memcpy -o $@
+
+$(RECOGNITION_PROFILE_BINARY): tests/performance/recognition_cost.c tests/performance/recognition_profile.c $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests/performance
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< tests/performance/recognition_profile.c $(UI_LIBRARY) $(LIBRARY) -Wl,--wrap=boxrig_regex_cursor_resume -Wl,--wrap=boxrig_text_line_projection_cursor_resume -Wl,--wrap=boxrig_terminal_resume_text_recognizers -o $@
 
 .PHONY: test-annotation-eviction
 test: test-annotation-eviction
