@@ -649,6 +649,7 @@ BOXRIG_PUBLIC_CONTRACT(
     "boxrig_ui_view_hit_test "
     "boxrig_ui_view_hit_test_with_composition "
     "boxrig_ui_view_replace_text_annotations "
+    "boxrig_ui_view_clear_text_annotation_line "
     "boxrig_ui_view_clear_text_annotations "
     "boxrig_ui_view_query_text_annotation_visual_ranges "
     "boxrig_ui_view_query_text_annotation_hits "
