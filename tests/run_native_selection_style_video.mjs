@@ -546,7 +546,9 @@ try {
     command('xdotool', ['key', '--clearmodifiers', 'e']);
     const edgeDeadline = Date.now() + 15000;
     let edgeReady;
-    while (!(edgeReady = /^boxrig-selection-edge-ready-(\d+)$/.exec(readTitle()))) {
+    while (
+      !(edgeReady = /^boxrig-selection-edge-ready-(\d+)$/.exec(readTitle()))
+    ) {
       assert(Date.now() < edgeDeadline, 'full row preparation timeout');
       await setTimeout(20);
     }
@@ -555,11 +557,16 @@ try {
     assert(gridRight <= width, 'full row fits recorded surface');
     const edgeY = top + cellHeight * 2;
     const markerWidth = Math.ceil(cellWidth / 4);
-    const pointer = (px, py) => command('xdotool', ['mousemove',
-      String(Number(values.X) + px), String(Number(values.Y) + py)]);
+    const pointer = (px, py) =>
+      command('xdotool', [
+        'mousemove',
+        String(Number(values.X) + px),
+        String(Number(values.Y) + py),
+      ]);
     const waitEdge = async (name, selected, after) => {
       const deadline = Date.now() + 15000;
-      let examined = after, consecutive = 0;
+      let examined = after,
+        consecutive = 0;
       while (consecutive < 3) {
         assert(Date.now() < deadline, name + ': LF marker was not painted');
         assert(capture.exitCode === null, captureDiagnostics);
@@ -578,8 +585,11 @@ try {
         }
         if (consecutive < 3) await setTimeout(20);
       }
-      phases.push({name, firstSettledFrame: examined - consecutive,
-        lastSettledFrame: examined - 1});
+      phases.push({
+        name,
+        firstSettledFrame: examined - consecutive,
+        lastSettledFrame: examined - 1,
+      });
     };
     pointer(gridRight - Math.ceil(cellWidth / 2), edgeY + cellHeight / 2);
     command('xdotool', ['mousedown', '1']);
@@ -605,7 +615,6 @@ try {
     await waitFill('history-expanded', true, true, gestureFrames.length);
     command('xdotool', ['key', '--clearmodifiers', 'ctrl+shift+F9']);
     await waitFill('history-cleared', false, true, gestureFrames.length);
-
   } finally {
     capture.stdin.end('q');
     await captureClosed;

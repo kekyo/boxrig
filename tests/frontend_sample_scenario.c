@@ -537,6 +537,13 @@ static bool run_copy_policy_scenario(
         case 'n': if (!write_bytes(operations, "\033[?1002;1006l")) return false; break;
         case 'x': if (!write_bytes(operations, "\033[HA-replaced\r\n")) return false; break;
         case 'z': break;
+        case 'g': {
+            unsigned int rows, columns;
+            if (!operations->query_grid(operations->context, &rows, &columns)) return false;
+            snprintf(title, sizeof(title), "boxrig-copy-grid-%u-%u", rows, columns);
+            if (!operations->set_title(operations->context, title)) return false;
+            continue;
+        }
         case 0x1b: {
             char mouse[64]; size_t at = 0;
             do {

@@ -204,6 +204,18 @@ try {
     command('xdotool', ['click', '1']);
   }
   const select = async (row1, col1, row2, col2, mods = []) => {
+    // A prior drag may have started at the same point. Break the native
+    // multi-click sequence by changing position instead of sleeping through
+    // the platform's double-click interval.
+    move(3, 30);
+    command('xdotool', [
+      'keydown',
+      'Shift_L',
+      'click',
+      '1',
+      'keyup',
+      'Shift_L',
+    ]);
     for (const m of mods) command('xdotool', ['keydown', m]);
     try {
       move(row1, col1);
@@ -282,7 +294,11 @@ try {
   await send('z');
   await right();
   assert.equal(await readClipboard(), trimmedBlock);
-  results.push({ name: 'block-copy-policy-toggle', trimmedBlock, preservedBlock });
+  results.push({
+    name: 'block-copy-policy-toggle',
+    trimmedBlock,
+    preservedBlock,
+  });
   await select(4, 1, 6, 3, ['Control_L']);
   if (!wayland) assert.equal(await readClipboard('primary'), '\n\n');
   await right();
@@ -308,6 +324,9 @@ try {
     command('xdotool', ['key', '--clearmodifiers', 'ctrl+shift+c']);
     await send('z');
     assert.equal(await readClipboard(), expected);
+    // Weston composites its pointer into x11grab; keep it away from the
+    // pixels used to inspect the LF outline and its adjacent padding.
+    move(6, 30);
     await until(() => {
       const { bytes, w } = capture();
       // The default selection style is an outline; observe its top edge.
@@ -325,7 +344,20 @@ try {
   await send('z');
   assert.equal(await readClipboard(), 'copy-target');
   // Only the last logical line has no LF. Earlier empty rows now select LF.
-  const finalRow = Math.floor((geometry.height - origin.y) / state.height) - 1;
+  // Query the PTY grid: native decoration/shadow pixels are not grid rows.
+  command('xdotool', ['key', '--clearmodifiers', 'g']);
+  let grid;
+  await until(
+    () => (grid = /^boxrig-copy-grid-(\d+)-(\d+)$/.exec(title())),
+    'PTY grid acknowledgement'
+  );
+  const finalRow = Number(grid[1]) - 1;
+  command('xdotool', ['key', '--clearmodifiers', 'z']);
+  await until(
+    () => /^boxrig-copy-\d+-z-/.test(title()),
+    'copy acknowledgement restored'
+  );
+  state = readState();
   await select(finalRow, 1, finalRow, 1);
   await right();
   assert.equal(await readClipboard(), 'copy-target');
