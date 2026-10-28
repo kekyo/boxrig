@@ -22,6 +22,7 @@ typedef struct boxrig_regex_class {
     size_t range_count;
     uint32_t category_mask;
     bool negated;
+    uint64_t ascii[2];
 } boxrig_regex_class;
 
 typedef enum boxrig_regex_escape_kind {
@@ -47,6 +48,16 @@ typedef enum boxrig_regex_node_type {
     BOXRIG_REGEX_NODE_CAPTURE
 } boxrig_regex_node_type;
 
+/* A small, conservative prefix keeps candidate checks bounded for any budget.
+ * exact means the whole subtree consumes this fixed sequence (assertions may
+ * still reject it). Longer or variable subtrees retain only a required prefix. */
+typedef struct boxrig_regex_start_hint {
+    int32_t prefix[8];
+    size_t length;
+    bool exact;
+    bool anchored;
+} boxrig_regex_start_hint;
+
 typedef struct boxrig_regex_node {
     boxrig_regex_node_type type;
     size_t left;
@@ -57,6 +68,7 @@ typedef struct boxrig_regex_node {
     size_t class_index;
     size_t capture_index;
     bool nullable;
+    boxrig_regex_start_hint start_hint;
 } boxrig_regex_node;
 
 typedef enum boxrig_regex_token_type {
@@ -158,6 +170,7 @@ struct boxrig_regex_program {
     size_t pattern_length;
     char **group_names;
     size_t group_count;
+    boxrig_regex_start_hint start_hint;
 };
 
 typedef enum boxrig_regex_cursor_phase {
@@ -1573,6 +1586,77 @@ static bool limits_valid(const boxrig_regex_limits *limits)
            limits->capture_byte_capacity <= BOXRIG_REGEX_CAPTURE_BYTE_CAPACITY_MAX;
 }
 
+static void derive_start_hints(boxrig_regex_node *nodes, size_t count)
+{
+    /* AST children precede their parents, including expanded repetitions.
+     * This pass needs no recursion or allocation for deeply nested patterns. */
+    for (size_t index = 0u; index < count; index++) {
+        boxrig_regex_node *node = &nodes[index];
+        boxrig_regex_start_hint *hint = &node->start_hint;
+        if (node->type == BOXRIG_REGEX_NODE_LITERAL) {
+            hint->prefix[0] = node->scalar;
+            hint->length = 1u;
+            hint->exact = true;
+        } else if (node->type == BOXRIG_REGEX_NODE_EMPTY ||
+                   node->type == BOXRIG_REGEX_NODE_BEGIN ||
+                   node->type == BOXRIG_REGEX_NODE_END) {
+            hint->exact = true;
+            hint->anchored = node->type == BOXRIG_REGEX_NODE_BEGIN;
+        } else if (node->type == BOXRIG_REGEX_NODE_CONCAT ||
+                   node->type == BOXRIG_REGEX_NODE_ALTERNATE) {
+            const boxrig_regex_start_hint *left = &nodes[node->left].start_hint;
+            const boxrig_regex_start_hint *right = &nodes[node->right].start_hint;
+            if (node->type == BOXRIG_REGEX_NODE_CONCAT) {
+                *hint = *left;
+                if (left->exact) {
+                    for (size_t i = 0u; i < right->length && hint->length < 8u; i++)
+                        hint->prefix[hint->length++] = right->prefix[i];
+                }
+                hint->exact = left->exact && right->exact &&
+                    left->length + right->length <= 8u;
+                hint->anchored = left->anchored ||
+                    (left->exact && left->length == 0u && right->anchored);
+            } else {
+                while (hint->length < left->length && hint->length < right->length &&
+                       left->prefix[hint->length] == right->prefix[hint->length]) {
+                    hint->prefix[hint->length] = left->prefix[hint->length];
+                    hint->length++;
+                }
+                hint->exact = left->exact && right->exact &&
+                    hint->length == left->length && hint->length == right->length;
+                hint->anchored = left->anchored && right->anchored;
+            }
+        } else if (node->type == BOXRIG_REGEX_NODE_CAPTURE ||
+                   node->type == BOXRIG_REGEX_NODE_PLUS ||
+                   node->type == BOXRIG_REGEX_NODE_OPTIONAL ||
+                   node->type == BOXRIG_REGEX_NODE_STAR) {
+            *hint = nodes[node->left].start_hint;
+            if (node->type != BOXRIG_REGEX_NODE_CAPTURE)
+                hint->exact = hint->exact && hint->length == 0u;
+            if (node->type == BOXRIG_REGEX_NODE_OPTIONAL ||
+                node->type == BOXRIG_REGEX_NODE_STAR) {
+                hint->length = 0u;
+                hint->anchored = false;
+            }
+        }
+    }
+}
+
+static inline bool class_contains(
+    const boxrig_regex_class *class_value,
+    const boxrig_regex_range *ranges,
+    int32_t scalar)
+{
+    bool contained = class_value->category_mask != 0u &&
+        (class_value->category_mask &
+         (UINT32_C(1) << utf8proc_category(scalar))) != 0u;
+    for (size_t index = 0u; !contained && index < class_value->range_count; index++) {
+        const boxrig_regex_range *range = &ranges[class_value->range_start + index];
+        contained = scalar >= range->first && scalar <= range->last;
+    }
+    return class_value->negated ? !contained : contained;
+}
+
 boxrig_status boxrig_regex_compile(
     const uint8_t *pattern,
     size_t pattern_length,
@@ -1664,6 +1748,8 @@ boxrig_status boxrig_regex_compile(
     program->references = 1u;
     program->limits = *limits;
     program->pattern_length = pattern_length;
+    derive_start_hints(nodes, node_count);
+    program->start_hint = nodes[root].start_hint;
     program->states = calloc(limits->state_capacity, sizeof(*program->states));
     if (program->states == NULL) {
         goto cleanup;
@@ -1690,6 +1776,17 @@ boxrig_status boxrig_regex_compile(
     program->class_count = parser.class_count;
     program->ranges = parser.ranges;
     program->range_count = parser.range_count;
+    /* Include Unicode categories and negation in the table. ASCII input must
+     * have exactly the same class membership as the general scalar path. */
+    for (size_t index = 0u; index < program->class_count; index++) {
+        boxrig_regex_class *class_value = &program->classes[index];
+        for (int32_t scalar = 0; scalar < 128; scalar++) {
+            if (class_contains(class_value, program->ranges, scalar)) {
+                class_value->ascii[(unsigned)scalar / 64u] |=
+                    UINT64_C(1) << ((unsigned)scalar % 64u);
+            }
+        }
+    }
     parser.classes = NULL;
     parser.ranges = NULL;
     diagnostic_out->code = BOXRIG_TEXT_REGEX_DIAGNOSTIC_NONE;
@@ -1832,7 +1929,12 @@ static void process_closure_state(boxrig_regex_cursor *cursor)
     const size_t *source = frame.source == SIZE_MAX
                               ? cursor->seed_captures
                               : bank + frame.source * cursor->register_count;
-    memcpy(captures, source, cursor->register_count * sizeof(*captures));
+    /* Group zero is derived from the winning thread's start/end. It never
+     * needs to travel through the NFA, including programs with no captures. */
+    if (cursor->register_count > 2u) {
+        memcpy(captures + 2u, source + 2u,
+               (cursor->register_count - 2u) * sizeof(*captures));
+    }
     const boxrig_regex_state *state = &cursor->program->states[state_index];
     size_t closure_position = cursor->closure_target ==
                                       BOXRIG_REGEX_CLOSURE_CURRENT
@@ -1869,8 +1971,10 @@ static void process_closure_state(boxrig_regex_cursor *cursor)
               closure_position > cursor->longest_end))) {
             cursor->longest_start = cursor->closure_start;
             cursor->longest_end = closure_position;
-            memcpy(cursor->best_captures, captures,
-                   cursor->register_count * sizeof(*captures));
+            if (cursor->register_count > 2u) {
+                memcpy(cursor->best_captures + 2u, captures + 2u,
+                       (cursor->register_count - 2u) * sizeof(*captures));
+            }
             cursor->best_captures[0] = cursor->longest_start;
             cursor->best_captures[1] = cursor->longest_end;
         }
@@ -1899,21 +2003,11 @@ static bool state_matches(
     if (state->type == BOXRIG_REGEX_STATE_CLASS) {
         const boxrig_regex_class *class_value =
             &program->classes[state->class_index];
-        bool contained = class_value->category_mask != 0u &&
-            (class_value->category_mask &
-             (UINT32_C(1) << utf8proc_category(scalar))) != 0u;
-        size_t index;
-
-        for (index = 0u; !contained && index < class_value->range_count; index++) {
-            const boxrig_regex_range *range =
-                &program->ranges[class_value->range_start + index];
-
-            if (scalar >= range->first && scalar <= range->last) {
-                contained = true;
-                break;
-            }
+        if ((uint32_t)scalar < 128u) {
+            return (class_value->ascii[(unsigned)scalar / 64u] &
+                (UINT64_C(1) << ((unsigned)scalar % 64u))) != 0u;
         }
-        return class_value->negated ? !contained : contained;
+        return class_contains(class_value, program->ranges, scalar);
     }
     return false;
 }
@@ -2026,6 +2120,15 @@ static void clear_match(boxrig_regex_match *match)
     match->end = 0u;
 }
 
+static bool possible_start(const boxrig_regex_cursor *cursor)
+{
+    const boxrig_regex_start_hint *hint = &cursor->program->start_hint;
+    return (!hint->anchored || cursor->position == 0u) &&
+        hint->length <= cursor->scalar_count - cursor->position &&
+        (hint->length == 0u || memcmp(cursor->scalars + cursor->position,
+            hint->prefix, hint->length * sizeof(*hint->prefix)) == 0);
+}
+
 boxrig_status boxrig_regex_cursor_resume(
     boxrig_regex_cursor *cursor,
     size_t work_budget,
@@ -2053,10 +2156,10 @@ boxrig_status boxrig_regex_cursor_resume(
              * once at this input position, even for long unmatched suffixes. */
             if (cursor->longest_start == SIZE_MAX &&
                 cursor->position < cursor->scalar_count &&
-                cursor->boundaries[cursor->position]) {
+                cursor->boundaries[cursor->position] && possible_start(cursor)) {
                 cursor->closure_target = BOXRIG_REGEX_CLOSURE_CURRENT;
                 cursor->closure_start = cursor->position;
-                for (size_t i = 0u; i < cursor->register_count; i++) {
+                for (size_t i = 2u; i < cursor->register_count; i++) {
                     cursor->seed_captures[i] = SIZE_MAX;
                 }
                 schedule_closure(cursor, cursor->program->start_state, SIZE_MAX);
@@ -2069,6 +2172,8 @@ boxrig_status boxrig_regex_cursor_resume(
                 work_used++;
             } else if (cursor->phase == BOXRIG_REGEX_CURSOR_START_CLOSURE) {
                 if (cursor->position == cursor->scalar_count ||
+                    (cursor->program->start_hint.anchored &&
+                     cursor->position != 0u && cursor->current_count == 0u) ||
                     (cursor->longest_start != SIZE_MAX &&
                      (cursor->current_count == 0u ||
                       cursor->current_states[0].start > cursor->longest_start))) {
@@ -2100,10 +2205,13 @@ boxrig_status boxrig_regex_cursor_resume(
                                   cursor->scalars[cursor->position])) {
                     cursor->closure_target = BOXRIG_REGEX_CLOSURE_NEXT;
                     cursor->closure_start = thread->start;
-                    memcpy(cursor->seed_captures,
-                           cursor->current_captures +
-                               thread->state * cursor->register_count,
-                           cursor->register_count * sizeof(*cursor->seed_captures));
+                    if (cursor->register_count > 2u) {
+                        memcpy(cursor->seed_captures + 2u,
+                               cursor->current_captures +
+                                   thread->state * cursor->register_count + 2u,
+                               (cursor->register_count - 2u) *
+                                   sizeof(*cursor->seed_captures));
+                    }
                     schedule_closure(cursor, state->out, SIZE_MAX);
                     cursor->phase = BOXRIG_REGEX_CURSOR_OUTPUT_CLOSURE;
                 }
