@@ -289,6 +289,21 @@ static bool selection_full_line_newline_marker(
         baseline[(height / 2) * BOXRIG_TEST_COLOR_WIDTH +
             12 * width - (width + 3) / 4 - 1]));
     free(pixels);
+    /* The body outline and LF strip form one marker layer. Their shared
+     * right edge must not apply translucent paint twice. */
+    style.presentation = BOXRIG_UI_SELECTION_OUTLINE;
+    style.marker_opacity = 128;
+    CHECK(boxrig_ui_view_set_selection_style(view, &style) == BOXRIG_UI_OK);
+    CHECK(renderer.draw(renderer.context, view, NULL) == 0);
+    pixels = renderer.capture(renderer.context);
+    CHECK(pixels != NULL);
+    size_t overlap_pixel = (height / 2) * BOXRIG_TEST_COLOR_WIDTH + 12 * width - 1;
+    CHECK(close_rgb(pixels[overlap_pixel],
+        over(baseline[overlap_pixel], rgb(style.marker), 128)));
+    free(pixels);
+    style.presentation = BOXRIG_UI_SELECTION_FILL;
+    style.marker_opacity = 255;
+    CHECK(boxrig_ui_view_set_selection_style(view, &style) == BOXRIG_UI_OK);
     CHECK(boxrig_ui_view_clear_selection(view) == BOXRIG_UI_OK);
     CHECK(boxrig_ui_view_hit_test(view,
         (12 * width - 1) * BOXRIG_UI_FIXED_ONE, BOXRIG_UI_FIXED_ONE,

@@ -4083,6 +4083,9 @@ static int draw_view_overlay_role(
     boxrig_ui_selection_style style = boxrig_ui_selection_style_default();
     if (view != NULL) (void)boxrig_ui_view_get_selection_style(view, &style);
     bool selection = role == BOXRIG_UI_OVERLAY_SELECTION;
+    boxrig_ui_fixed marker_x, marker_width;
+    bool newline_marker = selection && boxrig_ui_view_selection_newline_marker(
+        view, row, &marker_x, &marker_width);
     if (selection && style.marker_opacity == 0) return 0;
     uint8_t opacity = selection ? style.marker_opacity : 255;
     LONG stroke_x = selection ? (LONG)boxrig_ui_view_selection_stroke_pixels(view,
@@ -4120,6 +4123,10 @@ static int draw_view_overlay_role(
             size_t span_end = filtered ? column + 1 : end;
             int left = (int)(column * renderer->cell_width);
             int right = (int)(span_end * renderer->cell_width);
+            /* The LF strip and body outline share one alpha layer. */
+            if (newline_marker && right > marker_x / BOXRIG_UI_FIXED_ONE)
+                right = (int)(marker_x / BOXRIG_UI_FIXED_ONE);
+            if (right <= left) continue;
             RECT span = {left, rectangle.top, right, rectangle.bottom};
             if (role == BOXRIG_UI_OVERLAY_HYPERLINK_HOVER) {
                 span.top = span.bottom - 1;
@@ -4157,9 +4164,7 @@ static int draw_view_overlay_role(
     }
     if (selection && renderer->cached_columns != 0 &&
         dirty->column + dirty->column_count >= renderer->cached_columns) {
-        boxrig_ui_fixed marker_x, marker_width;
-        if (boxrig_ui_view_selection_newline_marker(view, row,
-                &marker_x, &marker_width)) {
+        if (newline_marker) {
             boxrig_rgb color = original;
             size_t column = renderer->cached_columns - 1;
             if (filtered && resolve_marker_color(view,
