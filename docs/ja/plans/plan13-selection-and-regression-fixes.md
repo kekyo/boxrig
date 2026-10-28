@@ -2,7 +2,7 @@
 
 作成日：2026年10月28日
 
-状態：実施中。第1段階を完了し、第2段階の右端改行マーカーと描画系の検証を進めています。第3～6段階は未着手です。
+状態：実施中。第1～3段階を完了し、第4・第5段階を進めています。第6段階は未着手です。
 
 ## 目的と対象
 
@@ -184,10 +184,10 @@ elder-termsへの引き渡しには、修正コミット、公開情報の追加
 | --- | --- | --- |
 | 現行コードと既存失敗の調査 | 完了 | 本計画、選択の調査ドライバーとログ、plan12の診断記録 |
 | 第1段階 通常選択の本文終端と改行 | 完了 | core公開情報、範囲・コピーのRED/GREEN、GTK3 Cairoサンプル |
-| 第2段階 右端表示と描画系・境界条件 | 実施中 | 右端マーカー、描画fixture、GTK3 Cairo動画、履歴別の性能比較 |
+| 第2段階 右端表示と描画系・境界条件 | 完了（環境未検証あり） | 右端マーカー、境界条件と描画fixture、全条件のGUI試験、履歴別の性能比較 |
 | 第3段階 GTK4ズーム | 完了 | 繰り返し割当のRED/GREEN、候補失効、Cairo/OpenGLの連続ズームと動画 |
-| 第4段階 WindowsのDPI初期化 | 未着手 | 初期化の原因、座標系の検証、18件の結果 |
-| 第5段階 Windows点滅描画 | 未着手 | 字画欠落の原因、修正と32・64ビットの結果 |
+| 第4段階 WindowsのDPI初期化 | 実施中 | DPI初期化と座標系の修正、18件中16件成功、残る2件の診断 |
+| 第5段階 Windows点滅描画 | 実施中 | Wine 9.0のREDとWine 11.0のGREEN、実Windowsでの確認待ち |
 | 第6段階 全体試験と引き渡し | 未着手 | 全体結果の分類、完了条件との照合、引き渡し記録 |
 
 第1段階では、coreの公開fragmentに`projected_end_column`を追加しました（`9086479`）。[公開API索引](../reference/api.md)の日本語版を原本として英語版も更新しました（`7db6d29`）。公開契約監査は1,072定義・72ヘッダーで成功し、Linux、Win32 amd64、Win32 i686の配布SDKに新しいフィールドが入っていることを確認しました。結果は[公開契約監査](../../../artifacts/plan13/step1/public-contract-audit.log)、[配布試験](../../../artifacts/plan13/step1/package-test.log)、[配布ヘッダー確認](../../../artifacts/plan13/step1/distributed-header-check.log)に記録しました。
@@ -204,14 +204,18 @@ Win32の32・64ビットでは、新しい選択fixtureは成功しましたが�
 
 第2段階の再折り返し試験で、4行8列の`abcdefgh\r\nnext`からLFだけを選び、8→4→16列へ変更すると選択が消えることが分かりました（[RED](../../../artifacts/plan13/step2/selection-history-red.log)）。4列では`next`が物理行2へ移り、16列では物理行1へ戻ります。このとき未使用になった物理行2にも`next`の旧行IDが残るため、同じIDを持つ2行をcoreが再同期し、本文を変えずに`next`の行IDを付け替えています。古いIDを参照する選択範囲は失効します。これは本文の更新や履歴からの退去ではなく、リフロー後の未使用行に旧IDを残す処理が原因です。
 
-修正は、リフローで移動した行と未使用の末尾空行が同じIDを持たないよう、coreの行メタデータ引き継ぎを見直します。移動していない末尾空行の既存IDは維持します。8→4→16列で`abcdefgh`と`next`の本文および両行のIDを保持し、LFだけの選択表示とコピー結果`\n`も保つことを完了条件へ加えます。coreの回帰試験で行IDと本文を、UIの試験で選択とコピーを確認します。
+coreの行メタデータ引き継ぎを修正し、リフローで移動した行と未使用の末尾空行のID重複を解消しました（`fbc974a`）。移動していない末尾空行の既存IDは維持しています。8→4→16列で`abcdefgh`と`next`の本文・行ID、LFだけの選択表示とコピー結果`\n`をcoreとUIの回帰試験で確認しました。
 
 全幅行のASCII、幅広文字、結合文字、絵文字、RTL、混在文と短いUnicode行について、描画fixtureの表示・LFだけのヒットとコピー・解除を確認しました（[PangoCairo](../../../artifacts/plan13/step2/unicode-pangocairo-dynamic.log)、[X11](../../../artifacts/plan13/step2/unicode-x11-dynamic.log)、[OpenGL](../../../artifacts/plan13/step2/unicode-opengl-dynamic.log)、[Win32 amd64](../../../artifacts/plan13/step2/unicode-win32-amd64-dynamic.log)、[Win32 i686](../../../artifacts/plan13/step2/unicode-win32-i686-dynamic.log)）。フォーカス切替と色フィルターも各描画fixtureで確認しました。再折り返しで重複した行IDを解消し（`fbc974a`）、8→4→16列で本文、行ID、LF選択とコピーを維持する試験が成功しました。文字の追記・消去、履歴スクロール往復、代替画面の条件は[履歴試験](../../../artifacts/plan13/step2/selection-history-extended.log)で確認しています（`cc841af`）。
 
 選択表示の動画はX11、GTK3、GTK4、Waylandの8条件で成功し、結果を[全条件ログ](../../../artifacts/plan13/step2/native-selection-all.log)に保存しました。検索とリンクの回帰は[共通UI](../../../artifacts/plan13/step2/search-link-ui.log)と[Cairo描画](../../../artifacts/plan13/step2/search-link-cairo.log)で成功しました。実マウスとクリップボードを使うコピー試験も9条件で成功しました（[8条件の再試験](../../../artifacts/plan13/step2/native-copy-retest.log)、[GTK4 Waylandの最終結果](../../../artifacts/plan13/step2/copy-gtk4-wayland-final.log)）。GTK4 Waylandでは、装飾の画素数を格子の行数として扱う試験側の誤りを、PTYから格子を照会する方法へ修正しました（[RED](../../../artifacts/plan13/step2/copy-grid-red.log)、[GREEN](../../../artifacts/plan13/step2/copy-grid-green.log)、`befece0`）。
 
-第2段階は実施中です。連続空行、単語・行選択、自動スクロールなど、上記の試験だけでは表示・コピー・ヒットを一通り確認できない条件が残ります。Win32実機とD3D11の実画素は未検証であり、Wineで既知のヘブライ語の字画欠落は第5段階で扱います。未検証の条件を成功に含めず、完了条件との対応を引き続き確認します。
+単語・行選択、連続空行、最終行は、双方向のコピー・表示・ヒット・色を[RED](../../../artifacts/plan13/step2/word-line-red.log)と[GREEN](../../../artifacts/plan13/step2/word-line-green.log)で確認しました（`5ae198d`）。ホストの公開スクロール操作を駆動する自動スクロール経路も、6回の往復中にLFのコピー・表示・ヒットを[RED](../../../artifacts/plan13/step2/autoscroll-red.log)と[GREEN](../../../artifacts/plan13/step2/autoscroll-green.log)で確認しました（`5f82f5f`）。[最終コピー試験](../../../artifacts/plan13/step2/native-copy-final.log)では9構成の全12項目が成功しました。第2段階の機能と性能の完了条件は満たしました。Win32実機とD3D11の実画素は環境上未検証のまま区別し、成功には含めません。Wine 9.0でのヘブライ語の字画欠落は第5段階で扱います。
 
 第3段階では、GTK4のズーム候補を準備した後に同じ寸法の割当が繰り返される状態をwidget試験で作りました。この割当で最初のフレームが`BOXRIG_UI_UNAVAILABLE`になることを[RED](../../../artifacts/plan13/step3/gtk4-widget-red.log)で確認しました。サイズ要求が処理中なら、その要求した格子を保持し、現在の格子と寸法が異なる画像候補を失効させる修正を行いました（`c512069`）。[GTK4 widgetのGREEN](../../../artifacts/plan13/step3/gtk4-widget-green.log)では直前の完全な表示を保持し、要求した格子へ到達して処理待ちが解消することを確認しました。倍率2の[widget試験](../../../artifacts/plan13/step3/gtk4-widget-scale2-green.log)と[共通UIの回帰試験](../../../artifacts/plan13/step3/ui-regressions.log)も成功しています。
 
-実サンプルでは、CairoとOpenGLの両方でスクロールバーのAUTO・NEVER・ALWAYS切替、2回連続の拡大、復元、最終的な24行79列のPTY格子を確認しました（[Cairo](../../../artifacts/plan13/step3/gtk4-scrollbar-cairo.log)、[OpenGL](../../../artifacts/plan13/step3/gtk4-scrollbar-opengl.log)、`018f31b`）。GTK4 WaylandのCairoでも同じ順序が成功しました（[結果](../../../artifacts/plan13/step3/gtk4-scrollbar-wayland-cairo.log)）。[動画試験](../../../tests/run_native_gtk4_zoom_video.mjs)を追加し（`72b0490`）、実マウスで選んだ文字列を保ちながら2回拡大して戻しました。CairoとOpenGLの記録全フレームで背景と選択輪郭が残り、セル幅が7→8→9→7画素で推移し、通常入力後の文字画素も更新されました（[実行ログ](../../../artifacts/plan13/step3/gtk4-zoom-make.log)、[Cairo動画](../../../artifacts/plan13/step3/gtk4-cairo-zoom/zoom-selection.mkv)、[OpenGL動画](../../../artifacts/plan13/step3/gtk4-opengl-zoom/zoom-selection.mkv)）。Xvfb上のCairoで出たlibEGLのDRI3機器を取得できない警告は、表示と試験の判定に影響しない環境警告として区別しました。第3段階の完了条件は満たしましたが、第2・第4～第6段階と計画全体は完了していません。
+実サンプルでは、CairoとOpenGLの両方でスクロールバーのAUTO・NEVER・ALWAYS切替、2回連続の拡大、復元、最終的な24行79列のPTY格子を確認しました（[Cairo](../../../artifacts/plan13/step3/gtk4-scrollbar-cairo.log)、[OpenGL](../../../artifacts/plan13/step3/gtk4-scrollbar-opengl.log)、`018f31b`）。GTK4 WaylandのCairoでも同じ順序が成功しました（[結果](../../../artifacts/plan13/step3/gtk4-scrollbar-wayland-cairo.log)）。[動画試験](../../../tests/run_native_gtk4_zoom_video.mjs)を追加し（`72b0490`）、実マウスで選んだ文字列を保ちながら2回拡大して戻しました。CairoとOpenGLの記録全フレームで背景と選択輪郭が残り、セル幅が7→8→9→7画素で推移し、通常入力後の文字画素も更新されました（[実行ログ](../../../artifacts/plan13/step3/gtk4-zoom-make.log)、[Cairo動画](../../../artifacts/plan13/step3/gtk4-cairo-zoom/zoom-selection.mkv)、[OpenGL動画](../../../artifacts/plan13/step3/gtk4-opengl-zoom/zoom-selection.mkv)）。Xvfb上のCairoで出たlibEGLのDRI3機器を取得できない警告は、表示と試験の判定に影響しない環境警告として区別しました。第3段階の完了条件は満たしましたが、第4～第6段階と計画全体は完了していません。
+
+第4段階では、プロセスが既にPer-Monitor DPI Awareならその状態を維持し、それ以外でV2を要求してから必要な認識状態を確認するよう初期化を修正しました（`7778888`）。32・64ビットの96・144 DPIで、ウィンドウとクライアント領域、物理座標の入力、画面取得の1画素が一致しました（[96 DPI](../../../artifacts/plan13/step4/dpi96-green.log)、[144 DPI](../../../artifacts/plan13/step4/dpi144-green.log)、[64ビット](../../../artifacts/plan13/step4/dpi-probe-amd64.log)、[32ビット](../../../artifacts/plan13/step4/dpi-probe-i686.log)）。DPI初期化後の18件はWine 11.0で16件が成功しました（[実行ログ](../../../artifacts/plan13/step4/wine11-cases.log)）。残るshutdown-probeの32・64ビット各1件では、モーダルリサイズ中に保持する画面下端の帯へ本文が1行混入しました。最新の製品へ再リンクしても再現します。原因は未確定であり、第4段階の完了条件はまだ満たしていません。
+
+第5段階では、ヘブライ語を含む塗りつぶしカーソルの字画欠落を32・64ビットで診断しました（[Wine 9.0の64ビットRED](../../../artifacts/plan13/step5/hebrew-amd64-red.log)、[32ビットRED](../../../artifacts/plan13/step5/hebrew-i686-red.log)、`e135564`）。Wine 9.0では下地の字画が各42画素ある一方、2倍描画時に塗りつぶし後の字画は0画素でした。同じ製品コードと厳しい画素判定をWine 11.0で実行すると、両ビット数の対象fixtureと点滅の時間軸試験が成功しました（[64ビット](../../../artifacts/plan13/step5/hebrew-wine11-amd64.log)、[32ビット](../../../artifacts/plan13/step5/hebrew-wine11-i686.log)、[時間軸64ビット](../../../artifacts/plan13/step5/animation-wine11-amd64.log)、[時間軸32ビット](../../../artifacts/plan13/step5/animation-wine11-i686.log)）。Wineの[HiDPI字形位置修正の議論](https://list.winehq.org/hyperkitty/list/wine-gitlab%40list.winehq.org/thread/BEGZDITJRZHPO7U5JVTCZY64RJUULI2U/)とも整合します。製品の描画コードは変更していません。Wine 9.0側の不具合と考えられますが、実Windowsでの結果を確認するまで第5段階は完了にしません。
