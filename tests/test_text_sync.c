@@ -234,8 +234,92 @@ static bool test_projected_text_end(void)
     return true;
 }
 
+static bool test_reflow_preserves_moved_line_identity(void)
+{
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    boxrig_terminal *terminal = NULL;
+    boxrig_text_fragment_view first;
+    boxrig_text_fragment_view next;
+    boxrig_text_fragment_view unused;
+    boxrig_text_fragment_view trailing;
+    boxrig_text_range newline;
+    boxrig_text_range current;
+    const char *input = "abcdefgh\r\nnext";
+    size_t consumed = 0;
+
+    config.rows = 4;
+    config.columns = 8;
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)input,
+        strlen(input), &consumed) == BOXRIG_STATUS_OK);
+    CHECK(consumed == strlen(input));
+    CHECK(boxrig_terminal_get_text_fragment(terminal, BOXRIG_TEXT_SCREEN_PRIMARY,
+        0, &first) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_get_text_fragment(terminal, BOXRIG_TEXT_SCREEN_PRIMARY,
+        1, &next) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_get_text_fragment(terminal, BOXRIG_TEXT_SCREEN_PRIMARY,
+        3, &trailing) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_get_text_position(terminal, BOXRIG_TEXT_SCREEN_PRIMARY,
+        0, 8, &newline.start) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_get_text_position(terminal, BOXRIG_TEXT_SCREEN_PRIMARY,
+        1, 0, &newline.end) == BOXRIG_STATUS_OK);
+
+    const size_t columns[] = {4, 16};
+    for (size_t pass = 0; pass < 2; pass++) {
+        size_t next_index = pass == 0 ? 2 : 1;
+        boxrig_text_fragment_view now_first;
+        boxrig_text_fragment_view now_next;
+
+        CHECK(boxrig_terminal_resize(terminal, 4, columns[pass]) ==
+            BOXRIG_STATUS_OK);
+        CHECK(boxrig_terminal_get_text_fragment(terminal, BOXRIG_TEXT_SCREEN_PRIMARY,
+            0, &now_first) == BOXRIG_STATUS_OK);
+        CHECK(boxrig_terminal_get_text_fragment(terminal, BOXRIG_TEXT_SCREEN_PRIMARY,
+            next_index, &now_next) == BOXRIG_STATUS_OK);
+        CHECK(now_first.line_id.epoch == first.line_id.epoch &&
+            now_first.line_id.serial == first.line_id.serial &&
+            now_first.line_revision == first.line_revision &&
+            now_first.projected_end_column == 8);
+        CHECK(now_next.line_id.epoch == next.line_id.epoch &&
+            now_next.line_id.serial == next.line_id.serial &&
+            now_next.line_revision == next.line_revision &&
+            now_next.projected_end_column == 4);
+        CHECK(boxrig_terminal_rebase_text_range(terminal, &newline,
+            &current) == BOXRIG_STATUS_OK);
+        newline = current;
+    }
+    CHECK(boxrig_terminal_get_text_fragment(terminal, BOXRIG_TEXT_SCREEN_PRIMARY,
+        2, &unused) == BOXRIG_STATUS_OK);
+    CHECK(unused.line_id.epoch != next.line_id.epoch ||
+        unused.line_id.serial != next.line_id.serial);
+    boxrig_text_fragment_view now_trailing;
+    CHECK(boxrig_terminal_get_text_fragment(terminal, BOXRIG_TEXT_SCREEN_PRIMARY,
+        3, &now_trailing) == BOXRIG_STATUS_OK);
+    CHECK(now_trailing.line_id.epoch == trailing.line_id.epoch &&
+        now_trailing.line_id.serial == trailing.line_id.serial &&
+        now_trailing.line_revision == trailing.line_revision);
+
+    boxrig_text_snapshot_options options = {0};
+    options.screen = BOXRIG_TEXT_SCREEN_PRIMARY;
+    options.range = &newline;
+    options.byte_capacity = 1;
+    options.line_capacity = 2;
+    boxrig_text_snapshot *snapshot = NULL;
+    CHECK(boxrig_terminal_create_text_snapshot(terminal, &options,
+        &snapshot) == BOXRIG_STATUS_OK);
+    size_t length = 0;
+    const uint8_t *bytes = boxrig_text_snapshot_data(snapshot, &length);
+    CHECK(length == 1 && bytes[0] == '\n');
+    boxrig_text_snapshot_destroy(snapshot);
+    boxrig_terminal_destroy(terminal);
+    return true;
+}
+
 int main(void)
 {
+    if (!test_reflow_preserves_moved_line_identity()) {
+        return 1;
+    }
     if (!test_projected_text_end()) {
         return 1;
     }

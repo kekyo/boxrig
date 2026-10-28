@@ -202,4 +202,8 @@ GTK3のCairoサンプルでは、実マウス操作とクリップボードを�
 
 Win32の32・64ビットでは、新しい選択fixtureは成功しましたが、計画の第5段階に属するヘブライ語の点滅カーソル試験が引き続き失敗しています（[64ビット](../../../artifacts/plan13/step2/win32-amd64-marker-test.log)、[32ビット](../../../artifacts/plan13/step2/win32-i686-marker-test.log)）。D3D11はビルドできましたが、Wineでは資源作成時に実画素試験をSKIPしたため、マーカーの表示を確認できていません（[結果](../../../artifacts/plan13/step2/d3d11-marker-test.log)）。GTK3 OpenGL、GTK4 Cairo、GTK4 OpenGLの動画試験も終了コード0で、5種類のマーカー表示状態と既存の矩形選択・履歴操作が成功しました（[GTK3 OpenGL](../../../artifacts/plan13/step2/gtk3-opengl-edge/results.json)、[GTK4 Cairo](../../../artifacts/plan13/step2/gtk4-cairo-edge/results.json)、[GTK4 OpenGL](../../../artifacts/plan13/step2/gtk4-opengl-edge/results.json)）。
 
+第2段階の再折り返し試験で、4行8列の`abcdefgh\r\nnext`からLFだけを選び、8→4→16列へ変更すると選択が消えることが分かりました（[RED](../../../artifacts/plan13/step2/selection-history-red.log)）。4列では`next`が物理行2へ移り、16列では物理行1へ戻ります。このとき未使用になった物理行2にも`next`の旧行IDが残るため、同じIDを持つ2行をcoreが再同期し、本文を変えずに`next`の行IDを付け替えています。古いIDを参照する選択範囲は失効します。これは本文の更新や履歴からの退去ではなく、リフロー後の未使用行に旧IDを残す処理が原因です。
+
+修正は、リフローで移動した行と未使用の末尾空行が同じIDを持たないよう、coreの行メタデータ引き継ぎを見直します。移動していない末尾空行の既存IDは維持します。8→4→16列で`abcdefgh`と`next`の本文および両行のIDを保持し、LFだけの選択表示とコピー結果`\n`も保つことを完了条件へ加えます。coreの回帰試験で行IDと本文を、UIの試験で選択とコピーを確認します。
+
 第2段階の残る条件は、全幅行の幅広文字・結合文字・絵文字・LTRとRTLの混在、連続空行、文字の追加と消去、リサイズと再折り返し、フォント変更、主画面と代替画面、スクロールと自動スクロール、単語・行選択、検索とリンク、複数倍率とフォーカスです。Wayland、Win32実機、D3D11実画素の確認も残っています。各条件の表示、コピー、ヒットが一致する証拠と、未実行の環境条件が揃うまで、第2段階を完了扱いにしません。計画を変更する場合は、判明した原因と影響する完了条件を先に更新します。
