@@ -62,18 +62,20 @@ boxrig_status __wrap_boxrig_terminal_resume_text_recognizers(boxrig_terminal *te
     return status;
 }
 
-boxrig_status __real_boxrig_terminal_reuse_text_line_snapshot(const boxrig_terminal *terminal,
-    boxrig_text_screen screen, size_t fragment, boxrig_text_snapshot **snapshot,
-    size_t *next_out);
-boxrig_status __wrap_boxrig_terminal_reuse_text_line_snapshot(const boxrig_terminal *terminal,
-    boxrig_text_screen screen, size_t fragment, boxrig_text_snapshot **snapshot,
-    size_t *next_out)
+boxrig_status __real_boxrig_text_line_projection_cursor_resume(
+    boxrig_text_line_projection_cursor *cursor, const boxrig_terminal *terminal,
+    size_t budget, boxrig_text_snapshot **snapshot, size_t *used_out,
+    bool *complete_out);
+boxrig_status __wrap_boxrig_text_line_projection_cursor_resume(
+    boxrig_text_line_projection_cursor *cursor, const boxrig_terminal *terminal,
+    size_t budget, boxrig_text_snapshot **snapshot, size_t *used_out,
+    bool *complete_out)
 {
     boxrig_interval_start start = boxrig_interval_begin();
-    boxrig_status status = __real_boxrig_terminal_reuse_text_line_snapshot(
-        terminal, screen, fragment, snapshot, next_out);
-    boxrig_interval_end("projection", start, 1u,
-        boxrig_terminal_text_revision(terminal), status, false);
+    boxrig_status status = __real_boxrig_text_line_projection_cursor_resume(
+        cursor, terminal, budget, snapshot, used_out, complete_out);
+    boxrig_interval_end("projection", start, *used_out,
+        boxrig_terminal_text_revision(terminal), status, !*complete_out);
     return status;
 }
 

@@ -23,6 +23,22 @@ static unsigned int settle_serial;
 static size_t event_seen[4];
 static size_t clear_count;
 
+static size_t find_line(boxrig_text_screen screen, boxrig_text_line_id line_id)
+{
+    size_t index = 0;
+    while (index < line_count && (lines[index].screen != screen ||
+        lines[index].line_id.epoch != line_id.epoch ||
+        lines[index].line_id.serial != line_id.serial)) index++;
+    return index;
+}
+
+static void remove_line(size_t index)
+{
+    annotation_count -= lines[index].annotations;
+    line_count--;
+    if (index != line_count) lines[index] = lines[line_count];
+}
+
 bool __real_boxrig_terminal_text_recognizer_event_peek(
     const boxrig_terminal *, boxrig_text_recognizer_event *);
 
@@ -59,10 +75,11 @@ boxrig_ui_status __wrap_boxrig_ui_view_replace_text_annotations(
     boxrig_ui_status result = __real_boxrig_ui_view_replace_text_annotations(
         view, source, screen, line_id, revision, annotations, count);
     if (result != BOXRIG_UI_OK || source != BOXRIG_TERM_URL_ANNOTATION_SOURCE_ID) return result;
-    size_t index = 0;
-    while (index < line_count && (lines[index].screen != screen ||
-        lines[index].line_id.epoch != line_id.epoch ||
-        lines[index].line_id.serial != line_id.serial)) index++;
+    size_t index = find_line(screen, line_id);
+    if (count == 0) {
+        if (index < line_count) remove_line(index);
+        return result;
+    }
     if (index < line_count) {
         annotation_count -= lines[index].annotations;
     } else if (line_count < sizeof(lines) / sizeof(lines[0])) {
@@ -76,6 +93,25 @@ boxrig_ui_status __wrap_boxrig_ui_view_replace_text_annotations(
     annotation_count += count;
     return result;
 }
+
+#ifdef BOXRIG_ANNOTATION_COUNT_LINE_CLEAR
+boxrig_ui_status __real_boxrig_ui_view_clear_text_annotation_line(
+    boxrig_ui_view *, uint64_t, boxrig_text_screen, boxrig_text_line_id);
+
+boxrig_ui_status __wrap_boxrig_ui_view_clear_text_annotation_line(
+    boxrig_ui_view *view, uint64_t source, boxrig_text_screen screen,
+    boxrig_text_line_id line_id)
+{
+    boxrig_ui_status result = __real_boxrig_ui_view_clear_text_annotation_line(
+        view, source, screen, line_id);
+    if (result == BOXRIG_UI_OK &&
+        source == BOXRIG_TERM_URL_ANNOTATION_SOURCE_ID) {
+        size_t index = find_line(screen, line_id);
+        if (index < line_count) remove_line(index);
+    }
+    return result;
+}
+#endif
 
 boxrig_ui_status __real_boxrig_ui_view_clear_text_annotations(boxrig_ui_view *, uint64_t);
 

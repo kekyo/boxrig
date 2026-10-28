@@ -173,6 +173,7 @@ struct boxrig_ui_view {
     uint64_t dirty_revisions[BOXRIG_UI_DIRTY_LAYER_COUNT];
     boxrig_ui_retained_text_annotation *annotations;
     size_t annotation_count;
+    size_t annotation_capacity;
     boxrig_ui_frame_request_callback frame_callback;
     void *frame_context;
     bool visible;
@@ -1428,6 +1429,46 @@ static int compare_annotation_layer(
         return 1;
     }
     return compare_annotation_identity(left_pointer, right_pointer);
+}
+
+static size_t annotation_insert_index(
+    const boxrig_ui_retained_text_annotation *annotations,
+    size_t count,
+    const boxrig_ui_retained_text_annotation *candidate)
+{
+    size_t first = 0u;
+    size_t end = count;
+
+    while (first < end) {
+        size_t middle = first + (end - first) / 2u;
+
+        if (compare_annotation_layer(&annotations[middle], candidate) < 0) {
+            first = middle + 1u;
+        } else {
+            end = middle;
+        }
+    }
+    return first;
+}
+
+static size_t annotation_identity_index(
+    const boxrig_ui_retained_text_annotation *annotations,
+    size_t count,
+    const boxrig_ui_retained_text_annotation *candidate)
+{
+    size_t first = 0u;
+    size_t end = count;
+
+    while (first < end) {
+        size_t middle = first + (end - first) / 2u;
+
+        if (compare_annotation_identity(&annotations[middle], candidate) < 0) {
+            first = middle + 1u;
+        } else {
+            end = middle;
+        }
+    }
+    return first;
 }
 
 static bool annotation_intersects_range(
@@ -3970,10 +4011,8 @@ boxrig_ui_status boxrig_ui_view_replace_text_annotations(
     const boxrig_ui_text_annotation *annotations,
     size_t annotation_count)
 {
-    boxrig_ui_retained_text_annotation *replacement = NULL;
-    boxrig_ui_retained_text_annotation *previous_annotations;
-    size_t previous_count;
-    size_t removed_count = 0;
+    boxrig_ui_retained_text_annotation *candidates = NULL;
+    size_t removed_count = 0u;
     size_t retained_count;
     size_t replacement_count;
     size_t source_index;
@@ -3995,21 +4034,36 @@ boxrig_ui_status boxrig_ui_view_replace_text_annotations(
     if (annotation_count > view->maximum_annotation_count) {
         return BOXRIG_UI_LIMIT_EXCEEDED;
     }
-    for (source_index = 0; source_index < annotation_count; source_index++) {
-        status = validate_text_annotation(
-            view,
-            source_id,
-            screen,
-            line_id,
-            line_revision,
-            &annotations[source_index],
-            NULL);
-        if (status != BOXRIG_UI_OK) {
-            return status;
+    if (annotation_count != 0u) {
+        candidates = malloc(annotation_count * sizeof(*candidates));
+        if (candidates == NULL) {
+            return BOXRIG_UI_OUT_OF_MEMORY;
+        }
+        for (source_index = 0u; source_index < annotation_count;
+             source_index++) {
+            candidates[source_index].value = annotations[source_index];
+            status = validate_text_annotation(view, source_id, screen,
+                line_id, line_revision, &annotations[source_index],
+                &candidates[source_index].value.range);
+            if (status != BOXRIG_UI_OK) {
+                free(candidates);
+                return status;
+            }
+        }
+        if (annotation_count > 1u) {
+            qsort(candidates, annotation_count, sizeof(*candidates),
+                compare_annotation_identity);
+            for (source_index = 1u; source_index < annotation_count;
+                 source_index++) {
+                if (compare_annotation_identity(&candidates[source_index - 1u],
+                        &candidates[source_index]) == 0) {
+                    free(candidates);
+                    return BOXRIG_UI_INVALID_ARGUMENT;
+                }
+            }
         }
     }
-    for (source_index = 0;
-         source_index < view->annotation_count;
+    for (source_index = 0u; source_index < view->annotation_count;
          source_index++) {
         if (text_annotation_in_group(
                 &view->annotations[source_index].value,
@@ -4017,109 +4071,134 @@ boxrig_ui_status boxrig_ui_view_replace_text_annotations(
                 screen,
                 line_id)) {
             removed_count++;
+        } else if (candidates != NULL &&
+                   view->annotations[source_index].value.source_id == source_id) {
+            boxrig_ui_retained_text_annotation key =
+                view->annotations[source_index];
+            size_t candidate_index = annotation_identity_index(
+                candidates, annotation_count, &key);
+
+            /* Candidates are sorted by identity until validation finishes. */
+            if (candidate_index < annotation_count &&
+                compare_annotation_identity(&candidates[candidate_index],
+                    &key) == 0) {
+                free(candidates);
+                return BOXRIG_UI_INVALID_ARGUMENT;
+            }
         }
     }
     retained_count = view->annotation_count - removed_count;
     if (annotation_count > SIZE_MAX - retained_count) {
+        free(candidates);
         return BOXRIG_UI_LIMIT_EXCEEDED;
     }
     replacement_count = retained_count + annotation_count;
     if (replacement_count > view->maximum_annotation_count ||
-        replacement_count > SIZE_MAX / sizeof(*replacement)) {
+        replacement_count > SIZE_MAX / sizeof(*candidates)) {
+        free(candidates);
         return BOXRIG_UI_LIMIT_EXCEEDED;
     }
-    if (removed_count == 0 && annotation_count == 0) {
+    if (removed_count == 0u && annotation_count == 0u) {
         return BOXRIG_UI_OK;
     }
-    if (replacement_count != 0) {
-        replacement = malloc(replacement_count * sizeof(*replacement));
-        if (replacement == NULL) {
-            return BOXRIG_UI_OUT_OF_MEMORY;
-        }
-    }
-    destination_index = 0;
-    for (source_index = 0;
-         source_index < view->annotation_count;
-         source_index++) {
-        if (!text_annotation_in_group(
-                &view->annotations[source_index].value,
-                source_id,
-                screen,
-                line_id)) {
-            replacement[destination_index++] =
-                view->annotations[source_index];
-        }
-    }
-    for (source_index = 0; source_index < annotation_count; source_index++) {
-        replacement[destination_index].value = annotations[source_index];
-        status = validate_text_annotation(
-            view,
-            source_id,
-            screen,
-            line_id,
-            line_revision,
-            &annotations[source_index],
-            &replacement[destination_index].value.range);
-        if (status != BOXRIG_UI_OK) {
-            free(replacement);
-            return status;
-        }
-        destination_index++;
-    }
-    if (replacement_count > 1) {
-        qsort(
-            replacement,
-            replacement_count,
-            sizeof(*replacement),
-            compare_annotation_identity);
-        for (source_index = 1;
-             source_index < replacement_count;
-             source_index++) {
-            if (compare_annotation_identity(
-                    &replacement[source_index - 1],
-                    &replacement[source_index]) == 0) {
-                free(replacement);
-                return BOXRIG_UI_INVALID_ARGUMENT;
-            }
-        }
-        qsort(
-            replacement,
-            replacement_count,
-            sizeof(*replacement),
+    if (annotation_count > 1u) {
+        qsort(candidates, annotation_count, sizeof(*candidates),
             compare_annotation_layer);
     }
-    previous_annotations = view->annotations;
-    previous_count = view->annotation_count;
-    view->annotations = replacement;
-    view->annotation_count = replacement_count;
-    advance_annotation_generation(view);
-    for (source_index = 0; source_index < previous_count; source_index++) {
-        if (text_annotation_in_group(
-                &previous_annotations[source_index].value,
-                source_id,
-                screen,
-                line_id)) {
-            mark_text_annotation_dirty(
-                view,
-                &previous_annotations[source_index].value,
-                true);
+    if (replacement_count > view->annotation_capacity) {
+        size_t capacity = view->annotation_capacity == 0u ? 8u :
+            view->annotation_capacity;
+        boxrig_ui_retained_text_annotation *expanded;
+
+        if (capacity > view->maximum_annotation_count) {
+            capacity = view->maximum_annotation_count;
         }
+        while (capacity < replacement_count) {
+            if (capacity > view->maximum_annotation_count / 2u) {
+                capacity = view->maximum_annotation_count;
+                break;
+            }
+            capacity *= 2u;
+        }
+        expanded = realloc(view->annotations, capacity * sizeof(*expanded));
+        if (expanded == NULL) {
+            free(candidates);
+            return BOXRIG_UI_OUT_OF_MEMORY;
+        }
+        view->annotations = expanded;
+        view->annotation_capacity = capacity;
     }
-    for (source_index = 0;
-         source_index < view->annotation_count;
+    for (source_index = 0u; source_index < view->annotation_count;
          source_index++) {
-        if (text_annotation_in_group(
-                &view->annotations[source_index].value,
-                source_id,
-                screen,
-                line_id)) {
-            mark_text_annotation_dirty(
-                view,
-                &view->annotations[source_index].value,
-                true);
+        if (text_annotation_in_group(&view->annotations[source_index].value,
+                source_id, screen, line_id)) {
+            mark_text_annotation_dirty(view,
+                &view->annotations[source_index].value, true);
         }
     }
-    free(previous_annotations);
+    destination_index = 0u;
+    for (source_index = 0u; source_index < view->annotation_count;
+         source_index++) {
+        if (!text_annotation_in_group(&view->annotations[source_index].value,
+                source_id, screen, line_id)) {
+            if (destination_index != source_index) {
+                view->annotations[destination_index] =
+                    view->annotations[source_index];
+            }
+            destination_index++;
+        }
+    }
+    view->annotation_count = retained_count;
+    for (source_index = 0u; source_index < annotation_count; source_index++) {
+        size_t insertion = annotation_insert_index(view->annotations,
+            view->annotation_count, &candidates[source_index]);
+
+        memmove(&view->annotations[insertion + 1u],
+            &view->annotations[insertion],
+            (view->annotation_count - insertion) * sizeof(*view->annotations));
+        view->annotations[insertion] = candidates[source_index];
+        view->annotation_count++;
+    }
+    advance_annotation_generation(view);
+    for (source_index = 0u; source_index < annotation_count; source_index++) {
+        mark_text_annotation_dirty(view, &candidates[source_index].value, true);
+    }
+    free(candidates);
+    return BOXRIG_UI_OK;
+}
+
+boxrig_ui_status boxrig_ui_view_clear_text_annotation_line(
+    boxrig_ui_view *view,
+    uint64_t source_id,
+    boxrig_text_screen screen,
+    boxrig_text_line_id line_id)
+{
+    size_t source_index;
+    size_t destination_index = 0u;
+
+    if (view == NULL || view->model == NULL || source_id == 0u ||
+        !valid_text_screen(screen) || line_id.epoch == 0u ||
+        line_id.serial == 0u) {
+        return BOXRIG_UI_INVALID_ARGUMENT;
+    }
+    for (source_index = 0u; source_index < view->annotation_count;
+         source_index++) {
+        if (!text_annotation_in_group(&view->annotations[source_index].value,
+                source_id, screen, line_id)) {
+            if (destination_index != source_index) {
+                view->annotations[destination_index] =
+                    view->annotations[source_index];
+            }
+            destination_index++;
+        } else {
+            mark_text_annotation_dirty(view,
+                &view->annotations[source_index].value, true);
+        }
+    }
+    if (destination_index != view->annotation_count) {
+        view->annotation_count = destination_index;
+        advance_annotation_generation(view);
+    }
     return BOXRIG_UI_OK;
 }
 
@@ -4127,50 +4206,29 @@ boxrig_ui_status boxrig_ui_view_clear_text_annotations(
     boxrig_ui_view *view,
     uint64_t source_id)
 {
-    boxrig_ui_retained_text_annotation *replacement = NULL;
-    boxrig_ui_retained_text_annotation *previous_annotations;
-    size_t retained_count = 0;
     size_t source_index;
-    size_t destination_index = 0;
+    size_t destination_index = 0u;
 
     if (view == NULL || source_id == 0) {
         return BOXRIG_UI_INVALID_ARGUMENT;
     }
-    for (source_index = 0; source_index < view->annotation_count;
+    for (source_index = 0u; source_index < view->annotation_count;
          source_index++) {
         if (view->annotations[source_index].value.source_id != source_id) {
-            retained_count++;
+            if (destination_index != source_index) {
+                view->annotations[destination_index] =
+                    view->annotations[source_index];
+            }
+            destination_index++;
+        } else {
+            mark_text_annotation_dirty(view,
+                &view->annotations[source_index].value, true);
         }
     }
-    if (retained_count == view->annotation_count) {
-        return BOXRIG_UI_OK;
+    if (destination_index != view->annotation_count) {
+        view->annotation_count = destination_index;
+        advance_annotation_generation(view);
     }
-    if (retained_count != 0) {
-        replacement = malloc(retained_count * sizeof(*replacement));
-        if (replacement == NULL) {
-            return BOXRIG_UI_OUT_OF_MEMORY;
-        }
-    }
-    for (source_index = 0; source_index < view->annotation_count;
-         source_index++) {
-        if (view->annotations[source_index].value.source_id != source_id) {
-            replacement[destination_index++] = view->annotations[source_index];
-        }
-    }
-    previous_annotations = view->annotations;
-    destination_index = view->annotation_count;
-    view->annotations = replacement;
-    view->annotation_count = retained_count;
-    advance_annotation_generation(view);
-    for (source_index = 0; source_index < destination_index; source_index++) {
-        if (previous_annotations[source_index].value.source_id == source_id) {
-            mark_text_annotation_dirty(
-                view,
-                &previous_annotations[source_index].value,
-                true);
-        }
-    }
-    free(previous_annotations);
     return BOXRIG_UI_OK;
 }
 

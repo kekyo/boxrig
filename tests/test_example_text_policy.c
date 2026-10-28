@@ -871,10 +871,10 @@ static bool stationary_pointer_revalidates_text_and_clears_on_leave(void)
     return true;
 }
 
-static bool completed_recognition_drains_multiple_event_batches(void)
+static bool completed_recognition_drains_multiple_event_batches(size_t event_capacity)
 {
     text_policy_fixture fixture;
-    CHECK(create_fixture(96, 64, 512, NULL, 0, &fixture));
+    CHECK(create_fixture(96, 64, event_capacity, NULL, 0, &fixture));
     for (size_t row = 0; row < 96; row++) {
         char line[96];
         int length = snprintf(line, sizeof(line), "\033[%zu;1Hhttps://example.org/%zu", row + 1, row);
@@ -907,6 +907,53 @@ static bool completed_recognition_drains_multiple_event_batches(void)
     return true;
 }
 
+static bool full_history_preserves_surviving_link_identities(void)
+{
+    text_policy_fixture fixture;
+    CHECK(create_fixture(3, 64, 64, NULL, 0, &fixture));
+    for (size_t line = 0; line < 15; line++) {
+        char text[80];
+        int length = snprintf(text, sizeof(text),
+            "%shttps://example.org/%zu", line == 0 ? "" : "\r\n", line);
+        size_t consumed = 0;
+        CHECK(length > 0 && (size_t)length < sizeof(text));
+        CHECK(boxrig_terminal_feed(fixture.terminal, (const uint8_t *)text,
+            (size_t)length, &consumed) == BOXRIG_STATUS_OK);
+        CHECK(consumed == (size_t)length);
+    }
+    CHECK(boxrig_terminal_scrollback_rows(fixture.terminal) == 12);
+    CHECK(resume_policy(&fixture, 4096, NULL));
+    CHECK(boxrig_ui_model_synchronize(fixture.model) == BOXRIG_UI_OK);
+    boxrig_ui_text_annotation_visual_range previous;
+    size_t count = 0;
+    CHECK(boxrig_ui_view_query_text_annotation_visual_ranges(fixture.view,
+        2, &previous, 1, &count) == BOXRIG_UI_OK && count == 1);
+    for (size_t line = 15; line < 45; line++) {
+        char text[80];
+        int length = snprintf(text, sizeof(text), "\r\nhttps://example.org/%zu", line);
+        size_t consumed = 0;
+        CHECK(length > 0 && (size_t)length < sizeof(text));
+        CHECK(boxrig_terminal_feed(fixture.terminal, (const uint8_t *)text,
+            (size_t)length, &consumed) == BOXRIG_STATUS_OK);
+        CHECK(consumed == (size_t)length);
+        CHECK(resume_policy(&fixture, 4096, NULL));
+        CHECK(boxrig_ui_model_synchronize(fixture.model) == BOXRIG_UI_OK);
+        boxrig_ui_text_annotation_visual_range retained;
+        CHECK(boxrig_ui_view_query_text_annotation_visual_ranges(fixture.view,
+            1, &retained, 1, &count) == BOXRIG_UI_OK && count == 1);
+        CHECK(retained.annotation.item_id == previous.annotation.item_id);
+        CHECK(retained.annotation.source_id == previous.annotation.source_id);
+        CHECK(boxrig_ui_view_query_text_annotation_visual_ranges(fixture.view,
+            2, &previous, 1, &count) == BOXRIG_UI_OK && count == 1);
+    }
+    size_t work = SIZE_MAX;
+    bool more = true;
+    CHECK(boxrig_term_text_policy_resume(fixture.policy, 4096, &work, &more) == 0);
+    CHECK(work == 0 && !more);
+    destroy_fixture(&fixture);
+    return true;
+}
+
 int main(void)
 {
     const char *original = getenv("BOXRIG_AUTO_URLS");
@@ -916,7 +963,9 @@ int main(void)
 
     if (original != NULL && saved == NULL) return 1;
     passed = unsetenv("BOXRIG_AUTO_URLS") == 0 &&
-        completed_recognition_drains_multiple_event_batches() &&
+        full_history_preserves_surviving_link_identities() &&
+        completed_recognition_drains_multiple_event_batches(512) &&
+        completed_recognition_drains_multiple_event_batches(2) &&
         url_baseline_soft_wrap_and_core_ui_hits_converge() &&
         future_results_replace_annotations_without_partial_state() &&
         queued_pointer_motion_survives_replaced_alternate_text() &&

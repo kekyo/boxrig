@@ -211,11 +211,15 @@ TEXT_MEASUREMENT_GRAPHICS_OBJECT := \
 	$(TEXT_MEASUREMENT_BUILD_DIR)/graphics_protocol.o
 TEXT_MEASUREMENT_INTERPRETER_OBJECT := \
 	$(TEXT_MEASUREMENT_BUILD_DIR)/interpreter.o
+TEXT_MEASUREMENT_TERMINAL_OBJECT := $(TEXT_MEASUREMENT_BUILD_DIR)/terminal.o
+TEXT_MEASUREMENT_SCREEN_OBJECT := $(TEXT_MEASUREMENT_BUILD_DIR)/screen.o
 TEXT_MEASUREMENT_CORE_OBJECTS := $(filter-out \
 	$(BUILD_DIR)/core/text.o $(BUILD_DIR)/core/recognizer.o \
-	$(BUILD_DIR)/core/graphics_protocol.o $(BUILD_DIR)/core/interpreter.o,$(CORE_OBJECTS)) \
+	$(BUILD_DIR)/core/graphics_protocol.o $(BUILD_DIR)/core/interpreter.o \
+	$(BUILD_DIR)/core/terminal.o $(BUILD_DIR)/core/screen.o,$(CORE_OBJECTS)) \
 	$(TEXT_MEASUREMENT_TEXT_OBJECT) $(TEXT_MEASUREMENT_RECOGNIZER_OBJECT) \
-	$(TEXT_MEASUREMENT_GRAPHICS_OBJECT) $(TEXT_MEASUREMENT_INTERPRETER_OBJECT)
+	$(TEXT_MEASUREMENT_GRAPHICS_OBJECT) $(TEXT_MEASUREMENT_INTERPRETER_OBJECT) \
+	$(TEXT_MEASUREMENT_TERMINAL_OBJECT) $(TEXT_MEASUREMENT_SCREEN_OBJECT)
 UI_SOURCES := $(wildcard src/ui/*.c)
 UI_OBJECTS := $(patsubst src/ui/%.c,$(BUILD_DIR)/ui/%.o,$(UI_SOURCES))
 UI_HEADERS := include/boxrig/ui.h $(wildcard include/boxrig/ui/*.h)
@@ -1109,6 +1113,14 @@ test-recognizer-projection: $(BUILD_DIR)/tests/test_recognizer_projection
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
 
 $(BUILD_DIR)/tests/test_recognizer_projection: tests/test_recognizer_projection.c $(CORE_HEADERS) $(TEXT_MEASUREMENT_LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) -DBOXRIG_MEASURE_TEXT_WORKLOADS $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(TEXT_MEASUREMENT_LIBRARY) $(SANITIZERS) -o $@
+
+.PHONY: test-recognizer-budget
+test: test-recognizer-budget
+test-recognizer-budget: $(BUILD_DIR)/tests/test_recognizer_budget
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
+
+$(BUILD_DIR)/tests/test_recognizer_budget: tests/test_recognizer_budget.c $(CORE_HEADERS) $(TEXT_MEASUREMENT_LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) -DBOXRIG_MEASURE_TEXT_WORKLOADS $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(TEXT_MEASUREMENT_LIBRARY) $(SANITIZERS) -o $@
 
 .PHONY: test-recognizer-reuse
@@ -2354,6 +2366,16 @@ $(TEXT_MEASUREMENT_GRAPHICS_OBJECT): src/core/graphics_protocol.c \
 		$(PROJECT_CFLAGS) -DBOXRIG_MEASURE_TEXT_WORKLOADS -c $< -o $@
 
 $(TEXT_MEASUREMENT_INTERPRETER_OBJECT): src/core/interpreter.c \
+		$(CORE_HEADERS) | $(TEXT_MEASUREMENT_BUILD_DIR)
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) \
+		$(PROJECT_CFLAGS) -DBOXRIG_MEASURE_TEXT_WORKLOADS -c $< -o $@
+
+$(TEXT_MEASUREMENT_TERMINAL_OBJECT): src/core/terminal.c \
+		$(CORE_HEADERS) | $(TEXT_MEASUREMENT_BUILD_DIR)
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) \
+		$(PROJECT_CFLAGS) -DBOXRIG_MEASURE_TEXT_WORKLOADS -c $< -o $@
+
+$(TEXT_MEASUREMENT_SCREEN_OBJECT): src/core/screen.c \
 		$(CORE_HEADERS) | $(TEXT_MEASUREMENT_BUILD_DIR)
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) \
 		$(PROJECT_CFLAGS) -DBOXRIG_MEASURE_TEXT_WORKLOADS -c $< -o $@
@@ -6104,6 +6126,7 @@ test-gtk-sample-recognition: $(BUILD_DIR)/tests/test_gtk3_sample_recognition $(B
 	$(XVFB_RUN) -a env GDK_BACKEND=x11 LIBGL_ALWAYS_SOFTWARE=1 NO_AT_BRIDGE=1 GTK_A11Y=none $(GTK4_TEST_IM_ENV) node tests/gtk/run_sample_recognition.mjs $(FRONTEND_SAMPLE_GTK4_PROBE_BINARY)
 
 include tests/performance/phase_probe.mk
+include tests/performance/recognition.mk
 
 $(BUILD_DIR)/tests/performance/steady_recognizer: tests/performance/steady_recognizer.c \
 		tests/measure_text_workloads.c $(TEXT_MEASUREMENT_LIBRARY) | $(BUILD_DIR)/tests/performance
@@ -6199,22 +6222,33 @@ $(BUILD_DIR)/tests/performance/annotation_gtk_counted: $(GTK3_EXAMPLE_SOURCES) \
 		| $(BUILD_DIR)/tests/performance
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_URI_CPPFLAGS) $(POSIX_CPPFLAGS) \
 		$(GTK3_CPPFLAGS) $(CFLAGS) $(GTK3_PROJECT_CFLAGS) \
+		-DBOXRIG_ANNOTATION_COUNT_LINE_CLEAR=1 \
 		$(GTK3_EXAMPLE_SOURCES) tests/performance/annotation_gtk_count.c \
 		$(GTK3_LIBRARY) $(NOTIFICATION_LIBRARY) $(POSIX_LIBRARY) $(SESSION_LIBRARY) \
 		$(UI_LIBRARY) $(LIBRARY) $(GTK3_LIBS) -lutil $(POSIX_URI_LIBS) \
 		-Wl,--wrap=boxrig_term_text_policy_create \
 		-Wl,--wrap=boxrig_term_text_policy_resume \
 		-Wl,--wrap=boxrig_ui_view_replace_text_annotations \
+		-Wl,--wrap=boxrig_ui_view_clear_text_annotation_line \
 		-Wl,--wrap=boxrig_ui_view_clear_text_annotations \
 		-Wl,--wrap=boxrig_terminal_text_recognizer_event_peek -o $@
 
-$(BUILD_DIR)/tests/performance/annotation_gtk_counted_baseline: $(GTK3_EXAMPLE_SOURCES) \
+PLAN11_BASELINE_TEXT_POLICY := $(BUILD_DIR)/tests/performance/plan11-text_policy.c
+PLAN11_BASELINE_GTK3_SOURCES := \
+	$(filter-out examples/boxrig_term/common/text_policy.c,$(GTK3_EXAMPLE_SOURCES)) \
+	$(PLAN11_BASELINE_TEXT_POLICY)
+
+$(PLAN11_BASELINE_TEXT_POLICY): | $(BUILD_DIR)/tests/performance
+	git show 2a7a682:examples/boxrig_term/common/text_policy.c > $@.tmp && mv $@.tmp $@
+
+$(BUILD_DIR)/tests/performance/annotation_gtk_counted_baseline: $(PLAN11_BASELINE_GTK3_SOURCES) \
 		tests/performance/annotation_gtk_count.c $(GTK3_LIBRARY) $(NOTIFICATION_LIBRARY) \
 		$(POSIX_LIBRARY) $(SESSION_LIBRARY) artifacts/plan11/baseline/libboxrig-ui.a \
 		artifacts/plan11/baseline/libboxrig.a | $(BUILD_DIR)/tests/performance
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_URI_CPPFLAGS) $(POSIX_CPPFLAGS) \
+		-Iexamples/boxrig_term/common \
 		$(GTK3_CPPFLAGS) $(CFLAGS) $(GTK3_PROJECT_CFLAGS) \
-		$(GTK3_EXAMPLE_SOURCES) tests/performance/annotation_gtk_count.c \
+		$(PLAN11_BASELINE_GTK3_SOURCES) tests/performance/annotation_gtk_count.c \
 		$(GTK3_LIBRARY) $(NOTIFICATION_LIBRARY) $(POSIX_LIBRARY) $(SESSION_LIBRARY) \
 		artifacts/plan11/baseline/libboxrig-ui.a artifacts/plan11/baseline/libboxrig.a \
 		$(GTK3_LIBS) -lutil $(POSIX_URI_LIBS) \

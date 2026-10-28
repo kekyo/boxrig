@@ -200,26 +200,6 @@ static int apply_line_replacement(
     return ui_status == BOXRIG_UI_OK ? 0 : fail_ui_status(ui_status);
 }
 
-static int restart_complete_annotation_set(
-    boxrig_term_text_policy *policy)
-{
-    boxrig_ui_status ui_status = boxrig_ui_view_clear_text_annotations(
-        policy->view,
-        BOXRIG_TERM_URL_ANNOTATION_SOURCE_ID);
-
-    if (ui_status != BOXRIG_UI_OK) {
-        return fail_ui_status(ui_status);
-    }
-    if (boxrig_terminal_unregister_text_recognizer(
-            policy->terminal,
-            policy->recognizer_id) != BOXRIG_STATUS_OK) {
-        errno = EINVAL;
-        return -1;
-    }
-    policy->recognizer_id = 0u;
-    return register_url_recognizer(policy);
-}
-
 static int process_events(
     boxrig_term_text_policy *policy,
     bool *more_work_out)
@@ -258,13 +238,13 @@ static int process_events(
             return 0;
         }
         if (event.kind == BOXRIG_TEXT_RECOGNIZER_EVENT_LINE_EVICTED) {
-            if (restart_complete_annotation_set(policy) == -1) {
-                return -1;
+            boxrig_ui_status ui_status = boxrig_ui_view_clear_text_annotation_line(
+                policy->view, BOXRIG_TERM_URL_ANNOTATION_SOURCE_ID,
+                event.screen, event.line_id);
+            if (ui_status != BOXRIG_UI_OK) {
+                return fail_ui_status(ui_status);
             }
-            *more_work_out = true;
-            return 0;
-        }
-        if (event.kind == BOXRIG_TEXT_RECOGNIZER_EVENT_SCOPE_INCOMPLETE) {
+        } else if (event.kind == BOXRIG_TEXT_RECOGNIZER_EVENT_SCOPE_INCOMPLETE) {
             boxrig_ui_status ui_status =
                 boxrig_ui_view_clear_text_annotations(
                     policy->view,
