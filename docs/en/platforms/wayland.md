@@ -72,6 +72,40 @@ boxrig does not commit a borrowed parent on its own.
 Toplevel decorations are the application's responsibility.
 The bundled demo uses libdecor where available, but libdecor is not required to use a boxrig component.
 
+## Move to another parent surface
+
+Use `boxrig_wayland_terminal_component_request_reparent(component, parent, &revision)` to request a move to a parent on the same connection.
+The component must have completed its initial allocation.
+Both shared-memory and OpenGL rendering retain the child surface, view, selection, display settings, terminal, and communication session.
+Supply a live parent surface that is neither the child itself nor one of its descendants.
+
+`OK` means the request was accepted.
+Acceptance removes the old parent relationship, so the old parent can be destroyed immediately.
+Keep the new parent alive through completion and until the next accepted move or component destruction.
+The child is temporarily unmapped during the move.
+Parent relationships and commits follow the [Wayland subsurface specification](https://wayland.freedesktop.org/docs/html/apa.html#protocol-spec-wl_subsurface).
+
+Continue calling `frame()`, then commit the `action.parent` returned by `take_host_action()`.
+Pass that action's revision to `complete_parent_commit()` and continue queue and context dispatch.
+The server has processed the move when diagnostic `effective_reparent_revision` matches the requested revision.
+This is distinct from presentation on screen.
+Completing an old revision cannot complete a newer move.
+
+Input, rendering, layout work, or another pending move causes `BUSY` without changing the existing state.
+Retry after held keys and buttons, composition, and paste have finished.
+Failure before acceptance preserves the old parent.
+If preparing the new relationship runs out of resources after acceptance, the request stays pending for retry through `frame()`.
+Use normal shutdown handling if the connection fails.
+
+Input during the move is discarded; do not replay host-retained input from older generations.
+If keyboard focus enters the specified parent while completion is pending, input resumes after completion.
+Otherwise, the host must arrange destination focus separately.
+After a move, parent input forwarding matches only the explicitly specified parent.
+Once the destination layout is known, call `allocate()` and propagate grid changes to the communication peer.
+
+The [round-trip example](../../../examples/wayland/transfer.c) moves on F6.
+Build the shared-memory version with `make build/examples/wayland_transfer`, or use `make build/examples/wayland_transfer_opengl` for OpenGL.
+
 ## Input and the clipboard
 
 The default AUTO policy prefers compositor input when text-input-v3 version 2 is available and the candidate policy is not CLIENT.

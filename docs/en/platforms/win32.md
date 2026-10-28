@@ -76,10 +76,38 @@ Apply the saved input generation to application-retained native messages and dir
 The window's borrowed IMM context is temporarily detached, then restored on resumption or destruction.
 Keep that context alive and leave its association unchanged meanwhile, following the [ImmAssociateContext lifetime contract](https://learn.microsoft.com/en-us/windows/win32/api/imm/nf-imm-immassociatecontext).
 
+## Move to another parent window
+
+Use `boxrig_win32_terminal_component_reparent(component, parent)` to move an owned child to another parent.
+The standard, OpenGL, and Direct3D 11 backends share this API.
+It retains the child HWND, view, selection, display settings, terminal, and communication session.
+
+Create the parent in the same process and UI thread, with the same DPI awareness as the child.
+The child itself, its descendants, and borrowed targets created with `create_on_target()` are excluded.
+See the [SetParent specification](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setparent) for native parenting and DPI-awareness constraints.
+
+The call returns `BUSY` during held keys or mouse buttons, input capture, IME composition, paste, rendering or input callbacks, and other active work.
+Finish that work and retry from the event loop.
+Discard host-retained input when the generation from `get_input_state()` changes.
+
+`OK` means the parent has been replaced, so the old parent can be destroyed.
+Failure preserves the old parent.
+Keep the new parent alive until the next move or component destruction.
+Geometry and grid dimensions remain unchanged; pass the destination area to `allocate()`.
+Request focus separately with `request_focus()`.
+If the destination DPI differs, also update font metrics as described below.
+
+The [round-trip example](../../../examples/win32/transfer.c) moves the same ConPTY session between two windows on F6.
+Build it with `make build/win32/amd64/examples/win32_transfer.exe`.
+Replace `amd64` with `i686` for the 32-bit version.
+
 ## DPI and resizing
 
 Pass the actual client area to `allocate()` and apply confirmed grid dimensions to the terminal and PTY.
 DPI and font changes also change cell dimensions, so do not continue calculating columns from old dimensions.
+When output DPI changes, read the policy with `get_font_rendering_policy()`, update `dpi_x` and `dpi_y`, and pass it to `set_font_rendering_policy()`.
+Then pass the new area to `allocate()` and complete layout actions normally.
+The move API does not query DPI and preserves the font policy.
 Only one view determines a model's grid size.
 
 When the parent moves on screen, update the candidate window position as well.
