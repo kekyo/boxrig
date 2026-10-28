@@ -4422,6 +4422,12 @@ test-native-scrollbar: $(EXAMPLE_BINARY) $(GTK3_EXAMPLE_BINARY) $(GTK4_EXAMPLE_B
 	$(XVFB_RUN) -a -s '-screen 0 2400x1800x24' env BOXRIG_TEST_SCROLLBAR_WAYLAND=1 BOXRIG_TEST_SCROLLBAR_SCALE=2 node tests/run_native_scrollbar.mjs $(WAYLAND_EXAMPLE_BINARY) $(PTY_HELPER_BINARY) wayland
 	$(XVFB_RUN) -a -s '-screen 0 2400x1800x24' env BOXRIG_TEST_SCROLLBAR_WAYLAND=1 BOXRIG_TEST_SCROLLBAR_SCALE=2 LIBGL_ALWAYS_SOFTWARE=1 node tests/run_native_scrollbar.mjs $(WAYLAND_EXAMPLE_BINARY) $(PTY_HELPER_BINARY) opengl
 
+.PHONY: test-native-gtk4-zoom-video
+test: test-native-gtk4-zoom-video
+test-native-gtk4-zoom-video: $(GTK4_EXAMPLE_BINARY) $(PTY_HELPER_BINARY)
+	$(XVFB_RUN) -a -s '-screen 0 1280x1024x24' env $(GTK4_TEST_IM_ENV) GDK_BACKEND=x11 GSK_RENDERER=cairo node tests/run_native_gtk4_zoom_video.mjs $(GTK4_EXAMPLE_BINARY) $(PTY_HELPER_BINARY) $(BUILD_DIR)/test-results/plan13/gtk4-cairo cairo
+	$(XVFB_RUN) -a -s '-screen 0 1280x1024x24' env $(GTK4_TEST_IM_ENV) GDK_BACKEND=x11 GDK_DEBUG=gl-prefer-gl GSK_RENDERER=gl LIBGL_ALWAYS_SOFTWARE=1 node tests/run_native_gtk4_zoom_video.mjs $(GTK4_EXAMPLE_BINARY) $(PTY_HELPER_BINARY) $(BUILD_DIR)/test-results/plan13/gtk4-opengl opengl
+
 .PHONY: test-scrollbar-demo
 test: test-scrollbar-demo
 test-scrollbar-demo: $(BUILD_DIR)/tests/test_scrollbar_demo
