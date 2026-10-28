@@ -6183,3 +6183,54 @@ test-ascii-runs: $(BUILD_DIR)/tests/test_ascii_runs
 
 $(BUILD_DIR)/tests/test_ascii_runs: tests/test_ascii_runs.c $(CORE_HEADERS) $(LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(LIBRARY) $(SANITIZERS) -Wl,--wrap=boxrig_unicode_cluster_analyzer_accept -Wl,--wrap=malloc -o $@
+
+$(BUILD_DIR)/tests/performance/annotation_gtk_peer: tests/performance/annotation_gtk_peer.c | $(BUILD_DIR)/tests/performance
+	$(CC) $(POSIX_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< -o $@
+
+$(BUILD_DIR)/tests/performance/annotation_gtk_probe: tests/performance/annotation_gtk_probe.c | $(BUILD_DIR)/tests/performance
+	$(CC) $(POSIX_CPPFLAGS) $(X11_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(X11_LIBS) -lXtst -o $@
+
+$(BUILD_DIR)/tests/performance/annotation_gl_vendor: tests/performance/annotation_gl_vendor.c | $(BUILD_DIR)/tests/performance
+	$(CC) $(POSIX_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< -lX11 -lGL -o $@
+
+$(BUILD_DIR)/tests/performance/annotation_gtk_counted: $(GTK3_EXAMPLE_SOURCES) \
+		tests/performance/annotation_gtk_count.c $(GTK3_LIBRARY) $(NOTIFICATION_LIBRARY) \
+		$(POSIX_LIBRARY) $(SESSION_LIBRARY) $(UI_LIBRARY) $(LIBRARY) \
+		| $(BUILD_DIR)/tests/performance
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_URI_CPPFLAGS) $(POSIX_CPPFLAGS) \
+		$(GTK3_CPPFLAGS) $(CFLAGS) $(GTK3_PROJECT_CFLAGS) \
+		$(GTK3_EXAMPLE_SOURCES) tests/performance/annotation_gtk_count.c \
+		$(GTK3_LIBRARY) $(NOTIFICATION_LIBRARY) $(POSIX_LIBRARY) $(SESSION_LIBRARY) \
+		$(UI_LIBRARY) $(LIBRARY) $(GTK3_LIBS) -lutil $(POSIX_URI_LIBS) \
+		-Wl,--wrap=boxrig_term_text_policy_create \
+		-Wl,--wrap=boxrig_term_text_policy_resume \
+		-Wl,--wrap=boxrig_ui_view_replace_text_annotations \
+		-Wl,--wrap=boxrig_ui_view_clear_text_annotations \
+		-Wl,--wrap=boxrig_terminal_text_recognizer_event_peek -o $@
+
+$(BUILD_DIR)/tests/performance/annotation_gtk_counted_baseline: $(GTK3_EXAMPLE_SOURCES) \
+		tests/performance/annotation_gtk_count.c $(GTK3_LIBRARY) $(NOTIFICATION_LIBRARY) \
+		$(POSIX_LIBRARY) $(SESSION_LIBRARY) artifacts/plan11/baseline/libboxrig-ui.a \
+		artifacts/plan11/baseline/libboxrig.a | $(BUILD_DIR)/tests/performance
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_URI_CPPFLAGS) $(POSIX_CPPFLAGS) \
+		$(GTK3_CPPFLAGS) $(CFLAGS) $(GTK3_PROJECT_CFLAGS) \
+		$(GTK3_EXAMPLE_SOURCES) tests/performance/annotation_gtk_count.c \
+		$(GTK3_LIBRARY) $(NOTIFICATION_LIBRARY) $(POSIX_LIBRARY) $(SESSION_LIBRARY) \
+		artifacts/plan11/baseline/libboxrig-ui.a artifacts/plan11/baseline/libboxrig.a \
+		$(GTK3_LIBS) -lutil $(POSIX_URI_LIBS) \
+		-Wl,--wrap=boxrig_term_text_policy_create \
+		-Wl,--wrap=boxrig_term_text_policy_resume \
+		-Wl,--wrap=boxrig_ui_view_replace_text_annotations \
+		-Wl,--wrap=boxrig_ui_view_clear_text_annotations \
+		-Wl,--wrap=boxrig_terminal_text_recognizer_event_peek -o $@
+
+.PHONY: test-annotation-gtk annotation-gtk-comparison annotation-gtk-stress
+test: test-annotation-gtk
+test-annotation-gtk: $(GTK3_EXAMPLE_BINARY) $(BUILD_DIR)/tests/performance/annotation_gtk_peer $(BUILD_DIR)/tests/performance/annotation_gtk_probe $(BUILD_DIR)/tests/performance/annotation_gl_vendor
+	bash tests/performance/run_annotation_gtk.sh $(GTK3_EXAMPLE_BINARY) $(BUILD_DIR)/tests/performance/annotation_gtk_peer $(BUILD_DIR)/tests/performance/annotation_gtk_probe cairo 0 idle none $(BUILD_DIR)/tests/performance/annotation-gtk-smoke
+
+annotation-gtk-comparison: $(GTK3_EXAMPLE_BINARY) $(BUILD_DIR)/tests/performance/annotation_gtk_peer $(BUILD_DIR)/tests/performance/annotation_gtk_probe $(BUILD_DIR)/tests/performance/annotation_gl_vendor $(BUILD_DIR)/tests/performance/annotation_gtk_counted $(BUILD_DIR)/tests/performance/annotation_gtk_counted_baseline
+	node tests/performance/run_annotation_gtk_matrix.mjs artifacts/plan11/gtk-matrix
+
+annotation-gtk-stress: $(BUILD_DIR)/tests/performance/annotation_gtk_peer $(BUILD_DIR)/tests/performance/annotation_gtk_probe $(BUILD_DIR)/tests/performance/annotation_gl_vendor
+	node tests/performance/run_annotation_gtk_stress.mjs artifacts/plan11/gtk-matrix
