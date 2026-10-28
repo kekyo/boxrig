@@ -2496,6 +2496,16 @@ test: test-selection-cost
 test-selection-cost: $(BUILD_DIR)/tests/performance/selection_cost
 	$<
 
+$(BUILD_DIR)/tests/performance/selection_cost_cairo: \
+		tests/performance/selection_cost.c src/pangocairo/renderer.c \
+		$(PANGO_CANDIDATE_OBJECT) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests/performance
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) -Isrc $(POSIX_CPPFLAGS) \
+		$(PANGO_CAIRO_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) \
+		-DBOXRIG_SELECTION_COST_CAIRO $< src/pangocairo/renderer.c \
+		$(PANGO_CANDIDATE_OBJECT) $(UI_LIBRARY) $(LIBRARY) \
+		$(PANGO_CAIRO_LIBS) -Wl,--wrap=boxrig_terminal_get_text_fragment \
+		-Wl,--wrap=boxrig_terminal_create_text_snapshot -o $@
+
 $(SELECTION_TEST_BINARY): tests/test_selection.c src/ui/word_break.h \
 		$(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) -Isrc/ui $(CFLAGS) \

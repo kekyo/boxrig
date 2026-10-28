@@ -3,6 +3,9 @@
 #include "boxrig/terminal.h"
 #include "boxrig/ui/view.h"
 #include "../../src/ui/view_private.h"
+#ifdef BOXRIG_SELECTION_COST_CAIRO
+#include "../../src/pangocairo/renderer.h"
+#endif
 
 #include <inttypes.h>
 #include <stdio.h>
@@ -70,6 +73,9 @@ static void run_case(size_t history, bool wrapped, size_t repetitions)
     boxrig_terminal *terminal = NULL;
     boxrig_ui_model *model = NULL;
     boxrig_ui_view *view = NULL;
+#ifdef BOXRIG_SELECTION_COST_CAIRO
+    boxrig_pango_cairo_renderer *renderer = NULL;
+#endif
     char line[200];
     size_t length;
     config.rows = 4;
@@ -97,13 +103,27 @@ static void run_case(size_t history, bool wrapped, size_t repetitions)
         "create model");
     require(boxrig_ui_view_create(model, &view_config, &view) == BOXRIG_UI_OK,
         "create view");
+#ifdef BOXRIG_SELECTION_COST_CAIRO
+    require(boxrig_pango_cairo_renderer_create(800, 80, &renderer) == 0,
+        "create Cairo renderer");
+    require(boxrig_pango_cairo_renderer_bind_view(renderer, view) == BOXRIG_UI_OK,
+        "bind Cairo renderer");
+#endif
     require(boxrig_ui_view_acquire_layout_authority(view) == BOXRIG_UI_OK,
         "acquire layout");
     boxrig_ui_allocation_input allocation = {0};
-    allocation.allocation_width = 640 * BOXRIG_UI_FIXED_ONE;
-    allocation.allocation_height = 40 * BOXRIG_UI_FIXED_ONE;
-    allocation.cell_width = 8 * BOXRIG_UI_FIXED_ONE;
-    allocation.cell_height = 10 * BOXRIG_UI_FIXED_ONE;
+#ifdef BOXRIG_SELECTION_COST_CAIRO
+    unsigned int cell_width = boxrig_pango_cairo_renderer_cell_width(renderer);
+    unsigned int cell_height = boxrig_pango_cairo_renderer_cell_height(renderer);
+    require(boxrig_pango_cairo_renderer_set_surface_size(renderer,
+        80 * cell_width, 4 * cell_height) == 0, "size Cairo surface");
+#else
+    unsigned int cell_width = 8, cell_height = 10;
+#endif
+    allocation.allocation_width = 80 * cell_width * BOXRIG_UI_FIXED_ONE;
+    allocation.allocation_height = 4 * cell_height * BOXRIG_UI_FIXED_ONE;
+    allocation.cell_width = cell_width * BOXRIG_UI_FIXED_ONE;
+    allocation.cell_height = cell_height * BOXRIG_UI_FIXED_ONE;
     allocation.cell_metrics_revision = 1;
     allocation.window_state = BOXRIG_UI_WINDOW_NORMAL;
     boxrig_ui_layout_result layout;
@@ -111,19 +131,25 @@ static void run_case(size_t history, bool wrapped, size_t repetitions)
         BOXRIG_UI_OK, "allocate view");
     require(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK,
         "synchronize model");
+#ifdef BOXRIG_SELECTION_COST_CAIRO
+    require(boxrig_pango_cairo_renderer_draw_view(renderer, view) == 0,
+        "initial Cairo frame");
+#endif
     boxrig_ui_hit_test_result anchor, near, far;
     require(boxrig_ui_view_hit_test(view, BOXRIG_UI_FIXED_ONE,
         BOXRIG_UI_FIXED_ONE, &anchor) == BOXRIG_UI_OK &&
-        boxrig_ui_view_hit_test(view, 8 * BOXRIG_UI_FIXED_ONE,
-        11 * BOXRIG_UI_FIXED_ONE, &near) == BOXRIG_UI_OK &&
-        boxrig_ui_view_hit_test(view, 24 * BOXRIG_UI_FIXED_ONE,
-        11 * BOXRIG_UI_FIXED_ONE, &far) == BOXRIG_UI_OK,
+        boxrig_ui_view_hit_test(view, cell_width * BOXRIG_UI_FIXED_ONE,
+        (cell_height + 1) * BOXRIG_UI_FIXED_ONE, &near) == BOXRIG_UI_OK &&
+        boxrig_ui_view_hit_test(view, 3 * cell_width * BOXRIG_UI_FIXED_ONE,
+        (cell_height + 1) * BOXRIG_UI_FIXED_ONE, &far) == BOXRIG_UI_OK,
         "hit visible rows");
     require(boxrig_ui_view_begin_selection(view, BOXRIG_UI_SELECTION_CHARACTER,
         &anchor) == BOXRIG_UI_OK, "begin selection");
     size_t update_reads = 0, draw_reads = 0, update_snapshots = 0;
     size_t draw_snapshots = 0, ranges = 0;
+    size_t raster_reads = 0, raster_snapshots = 0;
     uint64_t update_ns = 0, draw_ns = 0;
+    uint64_t raster_ns = 0;
     for (size_t iteration = 0; iteration < repetitions; iteration++) {
         fragment_reads = 0;
         snapshot_creations = 0;
@@ -150,16 +176,32 @@ static void run_case(size_t history, bool wrapped, size_t repetitions)
         draw_ns += clock_ns() - start;
         draw_reads += fragment_reads;
         draw_snapshots += snapshot_creations;
+#ifdef BOXRIG_SELECTION_COST_CAIRO
+        fragment_reads = 0;
+        snapshot_creations = 0;
+        start = clock_ns();
+        require(boxrig_pango_cairo_renderer_draw_view(renderer, view) == 0,
+            "redraw Cairo frame");
+        raster_ns += clock_ns() - start;
+        raster_reads += fragment_reads;
+        raster_snapshots += snapshot_creations;
+#endif
     }
-    require(update_snapshots == 0 && draw_snapshots == 0,
+    require(update_snapshots == 0 && draw_snapshots == 0 &&
+        raster_snapshots == 0,
         "selection work creates no full snapshot");
     printf("MEASURE selection history=%zu shape=%s iterations=%zu "
         "update_ns=%" PRIu64 " redraw_prepare_ns=%" PRIu64
-        " update_fragments=%zu redraw_fragments=%zu "
-        "update_snapshots=%zu redraw_snapshots=%zu ranges=%zu\n",
+        " raster_ns=%" PRIu64 " update_fragments=%zu redraw_fragments=%zu "
+        "raster_fragments=%zu update_snapshots=%zu redraw_snapshots=%zu "
+        "raster_snapshots=%zu ranges=%zu\n",
         history, wrapped ? "wrapped" : "short", repetitions,
-        update_ns, draw_ns, update_reads, draw_reads,
-        update_snapshots, draw_snapshots, ranges);
+        update_ns, draw_ns, raster_ns, update_reads, draw_reads,
+        raster_reads, update_snapshots, draw_snapshots, raster_snapshots,
+        ranges);
+#ifdef BOXRIG_SELECTION_COST_CAIRO
+    boxrig_pango_cairo_renderer_destroy(renderer);
+#endif
     boxrig_ui_view_destroy(view);
     boxrig_ui_model_destroy(model);
     boxrig_terminal_destroy(terminal);
