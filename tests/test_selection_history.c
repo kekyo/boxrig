@@ -266,13 +266,24 @@ static int linear_newline_updates_across_scroll_round_trip(void)
     CHECK(boxrig_ui_view_begin_selection(view, BOXRIG_UI_SELECTION_CHARACTER,
         &hit) == BOXRIG_UI_OK);
 
-    const size_t offsets[] = {2, 0, 2};
-    const size_t rows[] = {0, 1, 0};
-    const char *expected[] = {"\nB\nC\n", "\nD\n", "\nB\nC\n"};
-    for (size_t pass = 0; pass < 3; pass++) {
-        CHECK(boxrig_terminal_set_viewport_offset(terminal, offsets[pass]) ==
-            BOXRIG_STATUS_OK);
-        CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+    /* A host autoscroll tick moves one row and extends the held selection
+     * using the newly visible hit. Drive those ticks explicitly so no timer
+     * or pointer-speed assumption determines the observed selection. */
+    const size_t offsets[] = {1, 2, 1, 0, 1, 2};
+    const size_t rows[] = {0, 0, 2, 1, 0, 0};
+    const char *expected[] = {"\nC\n", "\nB\nC\n", "\nD\n",
+        "\nD\n", "\nC\n", "\nB\nC\n"};
+    const size_t starts[][3] = {{1, 0, 0}, {1, 0, 0}, {0, 1, 0},
+        {1, 0, 0}, {1, 0, 0}, {1, 0, 0}};
+    const size_t counts[][3] = {{1, 2, 0}, {1, 2, 2}, {0, 1, 2},
+        {1, 2, 0}, {1, 2, 0}, {1, 2, 2}};
+    for (size_t pass = 0; pass < 6; pass++) {
+        bool changed = false;
+        boxrig_scrollbar_action action = pass == 2 || pass == 3
+            ? BOXRIG_SCROLLBAR_LINE_DOWN : BOXRIG_SCROLLBAR_LINE_UP;
+        CHECK(boxrig_ui_view_apply_scrollbar_action(view, action, 0, &changed) ==
+            BOXRIG_UI_OK && changed);
+        CHECK(boxrig_terminal_viewport_offset(terminal) == offsets[pass]);
         CHECK(boxrig_ui_view_hit_test(view, 11 * BOXRIG_UI_FIXED_ONE,
             (boxrig_ui_fixed)(rows[pass] * 20 + 1) * BOXRIG_UI_FIXED_ONE,
             &hit) == BOXRIG_UI_OK);
@@ -290,6 +301,20 @@ static int linear_newline_updates_across_scroll_round_trip(void)
         CHECK(length == strlen(expected[pass]) &&
             memcmp(bytes, expected[pass], length) == 0);
         boxrig_text_snapshot_destroy(copy);
+        for (size_t row = 0; row < 3; row++) {
+            size_t start = starts[pass][row], count = counts[pass][row];
+            boxrig_text_layout_range range;
+            CHECK(boxrig_ui_view_selection_visual_ranges(view, row, &range, 1) == (count != 0));
+            if (count != 0) CHECK(range.column == start && range.column_count == count);
+            for (size_t column = 0; column < 8; column++) {
+                CHECK(boxrig_ui_view_hit_test(view,
+                    (boxrig_ui_fixed)(column * 10 + 1) * BOXRIG_UI_FIXED_ONE,
+                    (boxrig_ui_fixed)(row * 20 + 1) * BOXRIG_UI_FIXED_ONE,
+                    &hit) == BOXRIG_UI_OK);
+                CHECK(((hit.overlay_roles & BOXRIG_UI_OVERLAY_SELECTION) != 0) ==
+                    (column >= start && column < start + count));
+            }
+        }
     }
     boxrig_ui_view_destroy(view); boxrig_ui_model_destroy(model);
     boxrig_terminal_destroy(terminal);
