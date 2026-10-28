@@ -4667,6 +4667,37 @@ static void test_visible_resize_commits_child_with_parent(void)
     free(expected);
     puts("PASS Wayland resized buffers initialize on presentation and preserve busy buffers");
 
+    /* An output change must not replace a child buffer staged for an
+     * outstanding parent commit. The scale belongs to the following frame. */
+    allocation.width = 112;
+    allocation.height = 56;
+    CHECK(boxrig_wayland_terminal_component_allocate(component, &allocation, &layout) == BOXRIG_UI_OK);
+    CHECK(boxrig_wayland_terminal_component_take_layout_action(component, &layout_action));
+    CHECK(boxrig_terminal_resize(terminal, layout_action.value.grid_resize.rows,
+        layout_action.value.grid_resize.columns) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_wayland_terminal_component_complete_grid_resize(component,
+        layout_action.revision, true) == BOXRIG_UI_OK);
+    pump(&server);
+    wl_surface_send_enter(server.child_resource, server.output_resource);
+    pump(&server);
+    boxrig_wayland_dispatch_result scale_dispatch;
+    CHECK(boxrig_wayland_context_dispatch(context, BOXRIG_WAYLAND_WORK_ITEMS_DEFAULT,
+        &scale_dispatch) == BOXRIG_UI_OK);
+    CHECK(boxrig_wayland_terminal_component_frame(component, &frame_result) == BOXRIG_UI_OK);
+    boxrig_wayland_component_diagnostic scale_diagnostic;
+    CHECK(boxrig_wayland_terminal_component_get_diagnostic(component, &scale_diagnostic) == BOXRIG_UI_OK);
+    CHECK(scale_diagnostic.scale_numerator == 120);
+    CHECK(scale_diagnostic.buffer_width == 112 && scale_diagnostic.buffer_height == 56);
+    CHECK(scale_diagnostic.parent_commit_pending);
+    CHECK(boxrig_wayland_terminal_component_take_host_action(component, &action));
+    wl_surface_commit(action.parent);
+    CHECK(boxrig_wayland_terminal_component_complete_parent_commit(component,
+        action.revision, &applied) == BOXRIG_UI_OK && applied);
+    CHECK(boxrig_wayland_terminal_component_frame(component, &frame_result) == BOXRIG_UI_OK);
+    CHECK(boxrig_wayland_terminal_component_get_diagnostic(component, &scale_diagnostic) == BOXRIG_UI_OK);
+    CHECK(scale_diagnostic.scale_numerator == 240);
+    CHECK(scale_diagnostic.buffer_width == 224 && scale_diagnostic.buffer_height == 112);
+
     boxrig_wayland_terminal_component_destroy(component);
     wl_surface_destroy(parent);
     wl_compositor_destroy(host.compositor);

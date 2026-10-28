@@ -210,6 +210,10 @@ boxrig_ui_status boxrig_wayland_input_initialize_component(
 void boxrig_wayland_input_quiesce_component(
     boxrig_wayland_terminal_component *component);
 
+/* Detach idle native input without terminating the retained composition. */
+void boxrig_wayland_input_reparent_component(
+    boxrig_wayland_terminal_component *component);
+
 void boxrig_wayland_input_destroy_component(
     boxrig_wayland_terminal_component *component);
 

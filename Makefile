@@ -6160,6 +6160,7 @@ test-gtk-sample-recognition: $(BUILD_DIR)/tests/test_gtk3_sample_recognition $(B
 include tests/performance/phase_probe.mk
 include tests/performance/recognition.mk
 include tests/x11/transfer.mk
+include tests/wayland/transfer.mk
 
 test: test-x11-transfer
 

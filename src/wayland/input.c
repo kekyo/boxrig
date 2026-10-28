@@ -51,7 +51,7 @@ static boxrig_wayland_terminal_component *find_component(
     for (component = context->components;
          component != NULL;
          component = component->next) {
-        if (component->running && component->surface == surface) {
+        if (component->running && !component->reparent_pending && component->surface == surface) {
             return component;
         }
     }
@@ -72,7 +72,7 @@ static boxrig_wayland_terminal_component *find_keyboard_component(
     for (component = context->components;
          component != NULL;
          component = component->next) {
-        if (component->running && component->config.keyboard_focus_fallback &&
+        if (component->running && !component->reparent_pending && component->config.keyboard_focus_fallback &&
             component->parent == surface) {
             return component;
         }
@@ -80,7 +80,8 @@ static boxrig_wayland_terminal_component *find_keyboard_component(
     for (component = context->components;
          component != NULL;
          component = component->next) {
-        if (component->running && component->config.keyboard_focus_fallback) {
+        if (component->running && !component->reparent_pending && !component->explicit_parent_input &&
+            component->config.keyboard_focus_fallback) {
             /* Decoration libraries may own focusable subsurfaces without
              * exposing their wl_surface objects through a public API. */
             return component;
@@ -2735,8 +2736,8 @@ boxrig_ui_status boxrig_wayland_terminal_component_get_input_state(
     return BOXRIG_UI_OK;
 }
 
-void boxrig_wayland_input_quiesce_component(
-    boxrig_wayland_terminal_component *component)
+static void detach_component_input(
+    boxrig_wayland_terminal_component *component, bool terminating)
 {
     boxrig_wayland_seat *seat;
 
@@ -2774,8 +2775,32 @@ void boxrig_wayland_input_quiesce_component(
     component->pointer_focus_count = 0;
     component->pressed_key_count = 0;
     component->pressed_button_count = 0;
-    if (component->composition != NULL) {
+    if (component->composition != NULL && terminating) {
         (void)boxrig_composition_terminate(component->composition);
+    }
+}
+
+void boxrig_wayland_input_quiesce_component(
+    boxrig_wayland_terminal_component *component)
+{
+    detach_component_input(component, true);
+}
+
+void boxrig_wayland_input_reparent_component(
+    boxrig_wayland_terminal_component *component)
+{
+    component->input_generation++;
+    component->input_control.state.generation++;
+    detach_component_input(component, false);
+    (void)boxrig_composition_focus_changed(component->composition, false);
+    (void)boxrig_ui_view_set_focused(component->view, false);
+    for (boxrig_wayland_seat *seat = component->context->seats; seat != NULL; seat = seat->next) {
+        for (size_t index = 0; index < 4; index++) {
+            if (seat->serial_components[index] == component) {
+                seat->serial_valid[index] = false;
+                seat->serial_components[index] = NULL;
+            }
+        }
     }
 }
 

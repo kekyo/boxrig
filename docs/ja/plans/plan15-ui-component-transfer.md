@@ -216,7 +216,7 @@ GTKでは参照を保持した同じウィジェットを、各コンテナー�
 
 ネイティブAPIでは処理中の入力を無理に移しません。キーやボタンの押下、未確定入力、未完了の貼り付け、描画や入力コールバック中の呼び出しはBUSYとして、状態を変更せずアプリのイベントループから再試行します。既に端末へ送ったデータは保持します。GTKでは既存の取り外し処理による未確定入力の取消を検証します。X11のクリップボード所有権と送信中の選択データは同じ子Windowとアダプターに保持します。
 
-引数の不正、対応しない親、回復可能な資源準備失敗では旧表示先と入力を維持します。接続切断やデバイス消失は通常の障害処理に従い、移設APIによる復旧保証には含めません。アプリが保持した旧入力は入力世代で識別し、古い世代の通知を新しい接続へ適用しないことを検証します。
+引数の不正、対応しない親、要求受理前の回復可能な資源準備失敗では旧表示先と入力を維持します。Waylandでは、要求受理後に新しいsubsurface関係を準備します。この準備に失敗した場合は、移設要求を保持して再試行します。接続切断やデバイス消失は通常の障害処理に従い、移設APIによる復旧保証には含めません。アプリが保持した旧入力は入力世代で識別し、古い世代の通知を新しい接続へ適用しないことを検証します。
 
 ### 実装と確認の順序
 
@@ -250,3 +250,21 @@ X11のOpenGLファクトリーも、段階1で実装した親変更APIを使え�
 make test-x11-transfer-openglで、OpenGL版の対話ドライバーとPTY往復試験を実行できます。生成されるbuild/examples/x11_transfer_openglは、ソフトウェア版と同じF6操作に対応します。この試験と、test_x11_opengl_componentのOpenGL ESおよびdesktop-context構成は成功しました。XvfbとMesa llvmpipe上で実行し、警告、AddressSanitizer・UndefinedBehaviorSanitizerのエラー、リークはありません。物理GPU上の確認を示す結果ではありません。
 
 段階2の残りはWin32、Wayland、GTK3・GTK4です。段階3の障害・資源寿命の追加試験と、段階4の公開文書・全体テストも未完了です。
+
+### 段階2のWayland実装と検証
+
+Waylandに非同期の親変更APIを追加しました。要求を受理すると旧subsurface関係を解除し、同じ子surfaceを新しい親へ接続します。アプリはhost actionに含まれる親をcommitし、その世代を完了通知へ渡します。移設の完了条件は、その後のサーバー応答です。描画の提示完了とは区別しています。
+
+子surfaceには同時に二つのsubsurface関係を設定できません。そのため、要求受理前の失敗では旧接続を残し、受理後の準備失敗では受理済み要求を保持する契約としました。frameを呼び直すと準備を再試行します。旧親は要求受理後に破棄でき、新親は次の移設を受理するまで保持します。根拠は[Waylandのsubsurface仕様](https://wayland.freedesktop.org/docs/html/apa.html#protocol-spec-wl_subsurface)と、SDKの生成済みAPIコメントです。
+
+Weston上の共有メモリー描画とOpenGLで4回の移設を検証しました。子surface、view、layout authority、選択を保持し、提出する描画内容も一致しています。OpenGLではEGLSurfaceとレンダラーを再生成せず、コンテキストと描画先の世代も維持できました。古い親commitの完了を渡しても、新しい移設は完了しません。
+
+操作例examples/wayland/transfer.cでは、F6キーを離すと端末を別の親へ移します。二つの親は異なる大きさを持ち、移設後に配置とPTY寸法を更新します。--verifyでは、子プロセスの準備通知、移設完了、入力に対する応答を順に確認します。同じPTYセッションで2回の移設と通信が成功しました。
+
+操作例から、親commit待ちの配置と出力スケール変更が重なる問題を検出しました。スケール変更が、親へ反映する前の描画バッファーを交換していました。親commit完了まで元の配置を保持するテストでREDを確認し、その間のframe処理を保留する修正でGREENとなりました。待ち時間の追加やコンポジターの変更による回避は行っていません。
+
+この問題の調査では、Weston 13の共有メモリーバッファー参照でSIGSEGVを確認しました。[同版のPixman実装](https://gitlab.freedesktop.org/wayland/weston/-/blob/13.0/libweston/pixman-renderer.c)と[現在の実装](https://gitlab.freedesktop.org/wayland/weston/-/blob/main/libweston/pixman-renderer.c)には、破棄済みSHMバッファーの扱いに差があります。boxrigでは上記の配置順序を修正し、既存のWeston 13で再検証しています。外部コードは変更していません。
+
+C99の警告をエラーとするビルド、test-wayland-input、Westonの共有メモリー・OpenGL試験、両方式の操作例が成功しました。Wayland入力試験はASan・UBSan・リーク検査も通りました。OpenGL統合試験のリーク検査除外は既存のEGL向け設定です。Westonのdebug protocolに関する通知も既存ランナーの設定によるもので、コンパイル警告はありません。
+
+証跡はartifacts/plan15/のwayland-red.log、wayland-scale-red.log、wayland-scale-green.log、wayland-frame-green.log、wayland-frame-gl-green.logに保存しています。入力途中、資源準備失敗、古い入力通知の詳細は段階3で補います。GTKの環境追加、公開利用文書と全体テストも未完了です。
