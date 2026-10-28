@@ -1546,6 +1546,9 @@ static bool row_newline_selected(const boxrig_ui_view *view, size_t row)
         if (range->start.column > newline.start.column) return false;
     } else if (!find_line_bounds(view->model->terminal, screen,
             range->start.line_id, &first, &end) || first > index) return false;
+    /* A pointer on LF ends at the next line's column zero. Its identity is
+     * available from the adjacent fragment, including after reflow. */
+    if (text_line_id_equal(range->end.line_id, newline.end.line_id)) return true;
     return find_line_bounds(view->model->terminal, screen,
         range->end.line_id, &first, &end) && first > index;
 }
