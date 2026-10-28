@@ -827,7 +827,9 @@ boxrig_ui_status boxrig_wayland_terminal_component_create(
  * display errors use the ordinary connection-failure path.
  * Input is suspended during the move; active keys, buttons, IME and paste must
  * settle before requesting it. Keyboard fallback after a move matches the
- * explicit parent only. Allocate and focus the destination separately.
+ * explicit parent only. Focus entering that parent while completion is pending
+ * resumes on acknowledgement; intervening input is discarded. Otherwise the
+ * host must arrange destination focus separately. Allocate after its layout.
  * See https://wayland.freedesktop.org/docs/html/apa.html#protocol-spec-wl_subsurface .
  */
 boxrig_ui_status boxrig_wayland_terminal_component_request_reparent(
@@ -1417,7 +1419,9 @@ bool boxrig_wayland_terminal_component_take_host_action(
  * @return A portable UI status.
  *
  * @remarks A matching completion restores desynchronized child presentation
- * after any synchronized visible-allocation transaction.
+ * after any synchronized visible-allocation transaction. During reparenting,
+ * OUT_OF_MEMORY leaves the action pending; retain its revision and retry this
+ * call. The reparent acknowledgement is delivered by later context dispatch.
  */
 boxrig_ui_status boxrig_wayland_terminal_component_complete_parent_commit(
     boxrig_wayland_terminal_component *component,

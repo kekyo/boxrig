@@ -2831,7 +2831,7 @@ $(WAYLAND_CONTEXT_TEST_BINARY): tests/wayland/test_wayland_context.c tests/edita
 		-Isrc/ui tests/wayland/test_wayland_context.c src/wayland/input.c src/wayland/ibus.c $(IME_SOURCES) \
 		$(FRONTEND_COMPONENT_FIXTURE_SOURCES) \
 		$(WAYLAND_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(WAYLAND_LIBS) \
-		$(PANGO_CAIRO_LIBS) $(SANITIZERS) -Wl,--wrap=boxrig_ui_editable_document_apply_edit,--wrap=boxrig_composition_apply_event -o $@
+		$(PANGO_CAIRO_LIBS) $(SANITIZERS) -Wl,--wrap=boxrig_ui_editable_document_apply_edit,--wrap=boxrig_composition_apply_event,--wrap=wl_proxy_create_wrapper -o $@
 
 $(WAYLAND_WESTON_TEST_BINARY): $(WAYLAND_WESTON_TEST_SOURCE) \
 		$(WAYLAND_HEADERS) $(WAYLAND_LIBRARY) $(WAYLAND_XDG_SHELL_HEADER) \

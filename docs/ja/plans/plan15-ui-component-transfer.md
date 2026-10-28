@@ -268,3 +268,15 @@ Weston上の共有メモリー描画とOpenGLで4回の移設を検証しまし�
 C99の警告をエラーとするビルド、test-wayland-input、Westonの共有メモリー・OpenGL試験、両方式の操作例が成功しました。Wayland入力試験はASan・UBSan・リーク検査も通りました。OpenGL統合試験のリーク検査除外は既存のEGL向け設定です。Westonのdebug protocolに関する通知も既存ランナーの設定によるもので、コンパイル警告はありません。
 
 証跡はartifacts/plan15/のwayland-red.log、wayland-scale-red.log、wayland-scale-green.log、wayland-frame-green.log、wayland-frame-gl-green.logに保存しています。入力途中、資源準備失敗、古い入力通知の詳細は段階3で補います。GTKの環境追加、公開利用文書と全体テストも未完了です。
+
+### 段階3のWayland入力と再試行
+
+移設時に旧フォーカスの喪失を端末へ通知する処理を補いました。移設先の親へ完了前にフォーカスが来た場合は、その通知を保持してサーバー応答後に再開します。キーボードとtext-inputの両方を検証しました。旧親へ戻る遅いフォーカス通知と入力は、新しい接続へ適用しません。
+
+移設中に捨てたキー押下の解放通知が、移設完了後に送られる問題も再現しました。Kittyのキー解放報告を有効にしたテストでREDを確認しています。押下を抑止した記録を解放まで残す修正でGREENとなりました。押したままのキーが残る場合は、次の移設もBUSYとなります。
+
+キー押下、ボタン押下、未確定入力、貼り付け中、描画要求コールバック内の移設はBUSYです。text-inputの古いシリアルによる確定文字を捨て、新しいシリアルの確定文字を一度だけ送ることも確認しました。
+
+親commitの完了確認に必要な資源の確保を失敗させ、OUT_OF_MEMORY後の再試行を検証しました。移設要求と世代を保持し、同じ完了通知を再試行すると成功します。旧親は要求受理後、新しい親commitの前に破棄しても、その後の入力を継続できました。
+
+test-wayland-inputと共有メモリー・OpenGLのPTY操作例が成功しています。入力試験のASan・UBSan・リーク検査も通りました。証跡はwayland-focus-red.log、wayland-pending-release-red.log、wayland-pending-release-green.log、wayland-reparent-lifetime-green.logです。これらはWaylandの確認結果であり、計画全体の完了ではありません。

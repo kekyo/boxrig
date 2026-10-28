@@ -1234,6 +1234,10 @@ boxrig_ui_status boxrig_wayland_terminal_component_request_reparent(
         return BOXRIG_UI_UNAVAILABLE;
     if (composition.active || composition.commit_pending) return BOXRIG_UI_BUSY;
     for (boxrig_wayland_seat *seat = component->context->seats; seat != NULL; seat = seat->next) {
+        if (seat->keyboard_component == component) {
+            for (size_t key = 0; key < 256; key++)
+                if (seat->native_pressed[key]) return BOXRIG_UI_BUSY;
+        }
         if ((seat->text_component == component &&
              (seat->pending_preedit_set || seat->pending_commit_set || seat->pending_delete_set || seat->text_state_deferred)) ||
             (seat->keyboard_component == component && seat->compose_state != NULL &&
@@ -3719,6 +3723,7 @@ static void reparent_done(void *data, struct wl_callback *callback, uint32_t ser
     component->reparent_sync = NULL;
     component->effective_reparent_revision = component->reparent_revision;
     component->reparent_pending = false;
+    boxrig_wayland_input_complete_reparent(component);
     component_request_frame(component);
 }
 
