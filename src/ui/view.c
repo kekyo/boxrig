@@ -4123,6 +4123,63 @@ boxrig_ui_status boxrig_ui_view_replace_text_annotations(
     return BOXRIG_UI_OK;
 }
 
+boxrig_ui_status boxrig_ui_view_clear_text_annotation_line(
+    boxrig_ui_view *view,
+    uint64_t source_id,
+    boxrig_text_screen screen,
+    boxrig_text_line_id line_id)
+{
+    boxrig_ui_retained_text_annotation *replacement = NULL;
+    boxrig_ui_retained_text_annotation *previous_annotations;
+    size_t retained_count = 0u;
+    size_t previous_count;
+    size_t source_index;
+    size_t destination_index = 0u;
+
+    if (view == NULL || view->model == NULL || source_id == 0u ||
+        !valid_text_screen(screen) || line_id.epoch == 0u ||
+        line_id.serial == 0u) {
+        return BOXRIG_UI_INVALID_ARGUMENT;
+    }
+    for (source_index = 0u; source_index < view->annotation_count;
+         source_index++) {
+        if (!text_annotation_in_group(&view->annotations[source_index].value,
+                source_id, screen, line_id)) {
+            retained_count++;
+        }
+    }
+    if (retained_count == view->annotation_count) {
+        return BOXRIG_UI_OK;
+    }
+    if (retained_count != 0u) {
+        replacement = malloc(retained_count * sizeof(*replacement));
+        if (replacement == NULL) {
+            return BOXRIG_UI_OUT_OF_MEMORY;
+        }
+    }
+    for (source_index = 0u; source_index < view->annotation_count;
+         source_index++) {
+        if (!text_annotation_in_group(&view->annotations[source_index].value,
+                source_id, screen, line_id)) {
+            replacement[destination_index++] = view->annotations[source_index];
+        }
+    }
+    previous_annotations = view->annotations;
+    previous_count = view->annotation_count;
+    view->annotations = replacement;
+    view->annotation_count = retained_count;
+    advance_annotation_generation(view);
+    for (source_index = 0u; source_index < previous_count; source_index++) {
+        if (text_annotation_in_group(&previous_annotations[source_index].value,
+                source_id, screen, line_id)) {
+            mark_text_annotation_dirty(view,
+                &previous_annotations[source_index].value, true);
+        }
+    }
+    free(previous_annotations);
+    return BOXRIG_UI_OK;
+}
+
 boxrig_ui_status boxrig_ui_view_clear_text_annotations(
     boxrig_ui_view *view,
     uint64_t source_id)
