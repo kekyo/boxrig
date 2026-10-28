@@ -230,6 +230,104 @@ static bool selection_history_and_ime(
     return true;
 }
 
+static bool selection_full_line_newline_marker(
+    bool (*create)(boxrig_test_color_renderer *renderer))
+{
+    boxrig_test_color_renderer renderer = {0};
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    boxrig_ui_view_config view_config = boxrig_ui_view_config_default();
+    boxrig_terminal *terminal = NULL;
+    boxrig_ui_model *model = NULL;
+    boxrig_ui_view *view = NULL;
+    config.rows = 3;
+    config.columns = 12;
+    view_config.blink.cursor_enabled = false;
+    view_config.blink.text_enabled = false;
+    CHECK(create(&renderer));
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_create(model, &view_config, &view) == BOXRIG_UI_OK);
+    unsigned width = renderer.cell_width, height = renderer.cell_height;
+    boxrig_ui_allocation_input allocation = {0};
+    allocation.allocation_width = 12 * width * BOXRIG_UI_FIXED_ONE;
+    allocation.allocation_height = 3 * height * BOXRIG_UI_FIXED_ONE;
+    allocation.cell_width = width * BOXRIG_UI_FIXED_ONE;
+    allocation.cell_height = height * BOXRIG_UI_FIXED_ONE;
+    allocation.cell_metrics_revision = 1;
+    boxrig_ui_layout_result layout;
+    CHECK(boxrig_ui_view_acquire_layout_authority(view) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_accept_allocation(view, &allocation, &layout) == BOXRIG_UI_OK);
+    const char text[] = "\033[?25l            \r\nz";
+    size_t consumed;
+    CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)text,
+        sizeof(text) - 1, &consumed) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+    CHECK(renderer.draw(renderer.context, view, NULL) == 0);
+    uint32_t *baseline = renderer.capture(renderer.context);
+    CHECK(baseline != NULL);
+    boxrig_ui_hit_test_result first, last;
+    CHECK(boxrig_ui_view_hit_test(view, BOXRIG_UI_FIXED_ONE,
+        BOXRIG_UI_FIXED_ONE, &first) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_hit_test(view, BOXRIG_UI_FIXED_ONE,
+        (height + 1) * BOXRIG_UI_FIXED_ONE, &last) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_begin_selection(view, BOXRIG_UI_SELECTION_CHARACTER,
+        &first) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_update_selection(view, &last) == BOXRIG_UI_OK);
+    boxrig_ui_selection_style style = boxrig_ui_selection_style_default();
+    style.presentation = BOXRIG_UI_SELECTION_FILL;
+    style.background_opacity = 0;
+    style.marker = (boxrig_rgb){220, 100, 60};
+    style.marker_opacity = 255;
+    CHECK(boxrig_ui_view_set_selection_style(view, &style) == BOXRIG_UI_OK);
+    CHECK(renderer.draw(renderer.context, view, NULL) == 0);
+    uint32_t *pixels = renderer.capture(renderer.context);
+    CHECK(pixels != NULL);
+    CHECK(close_rgb(pixels[(height / 2) * BOXRIG_TEST_COLOR_WIDTH +
+        12 * width - 1], rgb(style.marker)));
+    CHECK(close_rgb(pixels[(height / 2) * BOXRIG_TEST_COLOR_WIDTH +
+        12 * width - (width + 3) / 4 - 1],
+        baseline[(height / 2) * BOXRIG_TEST_COLOR_WIDTH +
+            12 * width - (width + 3) / 4 - 1]));
+    free(pixels);
+    CHECK(boxrig_ui_view_clear_selection(view) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_hit_test(view,
+        (12 * width - 1) * BOXRIG_UI_FIXED_ONE, BOXRIG_UI_FIXED_ONE,
+        &first) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_begin_selection(view, BOXRIG_UI_SELECTION_CHARACTER,
+        &first) == BOXRIG_UI_OK);
+    boxrig_text_snapshot *copy = NULL;
+    CHECK(boxrig_ui_view_create_selection_snapshot(view, &copy) == BOXRIG_UI_OK);
+    size_t length;
+    const uint8_t *bytes = boxrig_text_snapshot_data(copy, &length);
+    CHECK(length == 1 && bytes[0] == '\n');
+    boxrig_text_snapshot_destroy(copy);
+    selection_filter seen = {0};
+    CHECK(boxrig_ui_view_set_color_filter(view, inspect_selection, &seen) == BOXRIG_UI_OK);
+    CHECK(renderer.draw(renderer.context, view, NULL) == 0);
+    pixels = renderer.capture(renderer.context);
+    CHECK(pixels != NULL);
+    CHECK(close_rgb(pixels[(height / 2) * BOXRIG_TEST_COLOR_WIDTH +
+        12 * width - 1], rgb(shift_color(style.marker))));
+    CHECK(seen.selection_marker);
+    free(pixels);
+    style.marker_opacity = 128;
+    CHECK(boxrig_ui_view_set_selection_style(view, &style) == BOXRIG_UI_OK);
+    CHECK(renderer.draw(renderer.context, view, NULL) == 0);
+    pixels = renderer.capture(renderer.context);
+    CHECK(pixels != NULL);
+    size_t marker_pixel = (height / 2) * BOXRIG_TEST_COLOR_WIDTH +
+        12 * width - 1;
+    CHECK(close_rgb(pixels[marker_pixel],
+        over(baseline[marker_pixel], rgb(shift_color(style.marker)), 128)));
+    free(pixels);
+    free(baseline);
+    renderer.destroy(renderer.context);
+    boxrig_ui_view_destroy(view);
+    boxrig_ui_model_destroy(model);
+    boxrig_terminal_destroy(terminal);
+    return true;
+}
+
 static bool selection_unvisited_unicode(
     bool (*create)(boxrig_test_color_renderer *renderer))
 {
@@ -324,6 +422,7 @@ bool boxrig_test_renderer_selection_style(
     bool (*create)(boxrig_test_color_renderer *renderer),
     unsigned int expected_stroke_x, unsigned int expected_stroke_y)
 {
+    CHECK(selection_full_line_newline_marker(create));
     boxrig_terminal_config config = boxrig_terminal_config_default();
     config.rows = 4; config.columns = 12;
     boxrig_ui_view_config view_config = boxrig_ui_view_config_default();
@@ -426,7 +525,8 @@ bool boxrig_test_renderer_selection_style(
      * bidi text, while copy text and concealed cells retain their meaning. */
     CHECK(boxrig_ui_view_hit_test(view, BOXRIG_UI_FIXED_ONE,
         (2*height+1)*BOXRIG_UI_FIXED_ONE, &first) == BOXRIG_UI_OK);
-    CHECK(boxrig_ui_view_hit_test(view, (12*width-1)*BOXRIG_UI_FIXED_ONE,
+    CHECK(boxrig_ui_view_hit_test(view,
+        (12*width-(width+3)/4-1)*BOXRIG_UI_FIXED_ONE,
         (2*height+1)*BOXRIG_UI_FIXED_ONE, &last) == BOXRIG_UI_OK);
     CHECK(boxrig_ui_view_begin_selection(view, BOXRIG_UI_SELECTION_CHARACTER, &first) == BOXRIG_UI_OK);
     CHECK(boxrig_ui_view_update_selection(view, &last) == BOXRIG_UI_OK);

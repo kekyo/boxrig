@@ -4083,8 +4083,7 @@ static int draw_view_overlay_role(
     boxrig_ui_selection_style style = boxrig_ui_selection_style_default();
     if (view != NULL) (void)boxrig_ui_view_get_selection_style(view, &style);
     bool selection = role == BOXRIG_UI_OVERLAY_SELECTION;
-    if (selection && (style.presentation == BOXRIG_UI_SELECTION_FILL ||
-            style.marker_opacity == 0)) return 0;
+    if (selection && style.marker_opacity == 0) return 0;
     uint8_t opacity = selection ? style.marker_opacity : 255;
     LONG stroke_x = selection ? (LONG)boxrig_ui_view_selection_stroke_pixels(view,
         renderer->rendering_policy.dpi_x, renderer->rendering_policy.output_scale, renderer->cell_width) : 1;
@@ -4098,7 +4097,8 @@ static int draw_view_overlay_role(
         ? BOXRIG_UI_COLOR_SEARCH_MARKER
         : role == BOXRIG_UI_OVERLAY_SELECTION
             ? BOXRIG_UI_COLOR_SELECTION_MARKER : BOXRIG_UI_COLOR_HOVER_MARKER;
-    size_t range_count = view_overlay_ranges(view, role, row,
+    size_t range_count = selection && style.presentation == BOXRIG_UI_SELECTION_FILL
+        ? 0 : view_overlay_ranges(view, role, row,
         renderer->overlay_ranges, renderer->cached_columns);
     if (range_count > renderer->cached_columns) return -1;
     for (size_t range_index = 0; range_index < range_count; range_index++) {
@@ -4154,6 +4154,27 @@ static int draw_view_overlay_role(
                 ? &renderer->render_statistics.selection_raster_count
                 : &renderer->render_statistics.hyperlink_hover_raster_count;
         if (*counter != SIZE_MAX) (*counter)++;
+    }
+    if (selection && renderer->cached_columns != 0 &&
+        dirty->column + dirty->column_count >= renderer->cached_columns) {
+        boxrig_ui_fixed marker_x, marker_width;
+        if (boxrig_ui_view_selection_newline_marker(view, row,
+                &marker_x, &marker_width)) {
+            boxrig_rgb color = original;
+            size_t column = renderer->cached_columns - 1;
+            if (filtered && resolve_marker_color(view,
+                    &renderer->row_filter_colors[column], target, original,
+                    BOXRIG_UI_COLOR_UI, &color) == -1) return -1;
+            RECT marker = {
+                (LONG)(marker_x / BOXRIG_UI_FIXED_ONE),
+                (LONG)(row * renderer->cell_height),
+                (LONG)((marker_x + marker_width) / BOXRIG_UI_FIXED_ONE),
+                (LONG)((row + 1) * renderer->cell_height)};
+            if (composite_solid_rectangle(renderer, memory_context, &marker,
+                    color_pixel(renderer, color), opacity) == -1) return -1;
+            if (renderer->render_statistics.selection_raster_count != SIZE_MAX)
+                renderer->render_statistics.selection_raster_count++;
+        }
     }
     return 0;
 }

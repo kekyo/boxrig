@@ -2155,8 +2155,8 @@ static int draw_overlay_role(
     boxrig_ui_selection_style style = boxrig_ui_selection_style_default();
     if (view != NULL) (void)boxrig_ui_view_get_selection_style(view, &style);
     bool selection = role == BOXRIG_UI_OVERLAY_SELECTION;
-    if (selection && (style.presentation == BOXRIG_UI_SELECTION_FILL ||
-            style.marker_opacity == 0)) return 0;
+    if (selection && style.marker_opacity == 0) return 0;
+    if (selection && style.presentation == BOXRIG_UI_SELECTION_FILL) range_count = 0;
     uint8_t opacity = selection ? style.marker_opacity : 255;
     float stroke_x = selection ? (float)boxrig_ui_view_selection_stroke_pixels(view,
         renderer->config.rendering_policy.dpi_x, renderer->config.rendering_policy.output_scale, renderer->cell_width) : 1;
@@ -2217,6 +2217,23 @@ static int draw_overlay_role(
                 ? &renderer->statistics.selection_raster_count
                 : &renderer->statistics.hyperlink_hover_raster_count;
         *counter = saturated_add(*counter, 1);
+    }
+    if (selection && renderer->cached_columns != 0) {
+        boxrig_ui_fixed marker_x, marker_width;
+        if (boxrig_ui_view_selection_newline_marker(view, row,
+                &marker_x, &marker_width)) {
+            uint32_t color = rgb_pixel(original);
+            if (filtered && resolve_marker_color(view,
+                    &renderer->row_filter_colors[renderer->cached_columns - 1],
+                    target, original, BOXRIG_UI_COLOR_UI, &color) == -1) return -1;
+            if (emit_solid(renderer,
+                    (float)marker_x / BOXRIG_UI_FIXED_ONE,
+                    row * (float)renderer->cell_height,
+                    (float)marker_width / BOXRIG_UI_FIXED_ONE,
+                    (float)renderer->cell_height, color, opacity, false) == -1) return -1;
+            renderer->statistics.selection_raster_count = saturated_add(
+                renderer->statistics.selection_raster_count, 1);
+        }
     }
     return 0;
 }
