@@ -5,6 +5,7 @@
  */
 
 #include "boxrig/x11/input.h"
+#include "input_private.h"
 
 #include "boxrig/ui/input_text.h"
 #include "utf8.h"
@@ -3665,13 +3666,19 @@ static XIMStyle select_input_style(
     return 0;
 }
 
-static int create_input_context(boxrig_x11_input_adapter *adapter)
+static XIC prepare_input_context(
+    boxrig_x11_input_adapter *adapter,
+    Window client_window,
+    bool *string_conversion_supported_out)
 {
     XIMStyles *styles = NULL;
     XIMValuesList *values = NULL;
     XIMStyle style;
     XVaNestedList preedit_attributes = NULL;
     char *unsupported;
+    XIC input_context = NULL;
+
+    *string_conversion_supported_out = false;
 
     /* Query the native styles and the locally described optional values in
      * one call. libX11 1.8.7 leaks its wire buffer for a local-only query. */
@@ -3711,12 +3718,12 @@ static int create_input_context(boxrig_x11_input_adapter *adapter)
             &adapter->preedit_caret_callback,
             NULL);
         if (preedit_attributes != NULL) {
-            adapter->input_context = XCreateIC(
+            input_context = XCreateIC(
                 adapter->input_method,
                 XNInputStyle,
                 style,
                 XNClientWindow,
-                adapter->client_window,
+                client_window,
                 XNFocusWindow,
                 adapter->window,
                 XNPreeditAttributes,
@@ -3725,15 +3732,15 @@ static int create_input_context(boxrig_x11_input_adapter *adapter)
             XFree(preedit_attributes);
         }
     }
-    if (adapter->input_context == NULL) {
+    if (input_context == NULL) {
         style = select_input_style(styles, false);
         if (style != 0) {
-            adapter->input_context = XCreateIC(
+            input_context = XCreateIC(
                 adapter->input_method,
                 XNInputStyle,
                 style,
                 XNClientWindow,
-                adapter->client_window,
+                client_window,
                 XNFocusWindow,
                 adapter->window,
                 NULL);
@@ -3742,22 +3749,83 @@ static int create_input_context(boxrig_x11_input_adapter *adapter)
     if (styles != NULL) {
         XFree(styles);
     }
-    adapter->string_conversion_supported = false;
-    if (adapter->input_context != NULL) {
+    if (input_context != NULL) {
         if (unsupported == NULL && values != NULL) {
             for (unsigned short index = 0; index < values->count_values; index++) {
                 if (strcmp(values->supported_values[index], XNStringConversionCallback) != 0)
                     continue;
                 adapter->string_conversion_callback.client_data = (XPointer)adapter;
                 adapter->string_conversion_callback.callback = xim_string_conversion_callback;
-                adapter->string_conversion_supported = XSetICValues(adapter->input_context,
+                *string_conversion_supported_out = XSetICValues(input_context,
                     XNStringConversionCallback, &adapter->string_conversion_callback, NULL) == NULL;
                 break;
             }
         }
     }
     if (values != NULL) XFree(values);
+    return input_context;
+}
+
+static int create_input_context(boxrig_x11_input_adapter *adapter)
+{
+    adapter->input_context = prepare_input_context(
+        adapter, adapter->client_window, &adapter->string_conversion_supported);
     return adapter->input_context == NULL ? -1 : 0;
+}
+
+boxrig_ui_status boxrig_x11_input_adapter_reparent_client(
+    boxrig_x11_input_adapter *adapter,
+    Window new_parent)
+{
+    boxrig_composition_view composition;
+    XIC replacement = NULL;
+    XIC old;
+    bool string_conversion_supported = false;
+
+    if (adapter == NULL || new_parent == None || !adapter->input_window_alive) {
+        return BOXRIG_UI_INVALID_ARGUMENT;
+    }
+    if (boxrig_composition_get_view(adapter->composition, &composition) !=
+        BOXRIG_COMPOSITION_OK) return BOXRIG_UI_UNAVAILABLE;
+    if (adapter->dispatching || adapter->control.state.phase == BOXRIG_UI_INPUT_STOPPING ||
+        adapter->pending.kind != PENDING_INPUT_NONE || adapter->paste_active ||
+        adapter->selection_receive_state != SELECTION_RECEIVE_IDLE ||
+        adapter->server_timestamp_pending || adapter->pressed_buttons != 0 ||
+        adapter->application_buttons != 0 || composition.active ||
+        composition.commit_pending || adapter->preedit_started ||
+        adapter->document_reset_pending ||
+        adapter->escape_preedit_pending) return BOXRIG_UI_BUSY;
+    for (size_t index = 0; index < KEYCODE_COUNT; index++) {
+        if (adapter->native_pressed[index] || adapter->pressed[index])
+            return BOXRIG_UI_BUSY;
+    }
+    if (new_parent == adapter->client_window) return BOXRIG_UI_OK;
+    if (adapter->control.state.generation == UINT64_MAX)
+        return BOXRIG_UI_LIMIT_EXCEEDED;
+    if (adapter->input_method != NULL) {
+        replacement = prepare_input_context(adapter, new_parent,
+            &string_conversion_supported);
+        if (replacement == NULL) return BOXRIG_UI_UNAVAILABLE;
+    }
+
+    old = adapter->input_context;
+    adapter->client_window = new_parent;
+    adapter->input_context = replacement;
+    adapter->string_conversion_supported = string_conversion_supported;
+    adapter->candidate_spot_valid = false;
+    /* FocusOut may leave a tail barrier even without live preedit. A fresh
+     * XIC rejects callbacks from the retired IC, so that barrier is complete. */
+    adapter->reset_preedit_tail_pending = false;
+    adapter->control.state.generation++;
+    if (old != NULL) {
+        adapter->resetting_preedit = true;
+        if (adapter->input_focused) XUnsetICFocus(old);
+        XDestroyIC(old);
+        adapter->resetting_preedit = false;
+    }
+    if (adapter->input_focused && input_enabled(adapter) && replacement != NULL)
+        XSetICFocus(replacement);
+    return BOXRIG_UI_OK;
 }
 
 static void refresh_editable_context(boxrig_x11_input_adapter *adapter)

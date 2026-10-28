@@ -10,6 +10,7 @@
 #include <X11/Xatom.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
+#include <X11/keysym.h>
 #include <cairo/cairo.h>
 #include <fontconfig/fontconfig.h>
 
@@ -2439,6 +2440,175 @@ static bool scrollbar_visibility_changes_layout(Display *display)
     return true;
 }
 
+typedef struct reparent_callback_probe {
+    boxrig_x11_terminal_component *component;
+    Window destination;
+    boxrig_ui_status result;
+    size_t calls;
+} reparent_callback_probe;
+
+static void reparent_from_frame_request(void *context)
+{
+    reparent_callback_probe *probe = context;
+    probe->calls++;
+    probe->result = boxrig_x11_terminal_component_reparent(probe->component, probe->destination);
+}
+
+static bool component_reparents_between_windows(Display *display)
+{
+    Window root = DefaultRootWindow(display);
+    Window first = XCreateSimpleWindow(display, root, 0, 0, 400, 240, 0, 0, 0);
+    Window second = XCreateSimpleWindow(display, root, 420, 0, 400, 240, 0, 0, 0);
+    boxrig_terminal_config tc = boxrig_terminal_config_default();
+    tc.rows = 3;
+    tc.columns = 12;
+    boxrig_terminal *terminal = NULL;
+    boxrig_ui_model *model = NULL;
+    boxrig_x11_terminal_component *component = NULL;
+    boxrig_x11_terminal_component_config config = boxrig_x11_terminal_component_config_default();
+    config.view.blink.text_enabled = false;
+    config.view.blink.cursor_enabled = false;
+    CHECK(boxrig_terminal_create(&tc, &terminal) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
+    CHECK(boxrig_x11_terminal_component_create_child(display, first, model, &config, &component) == BOXRIG_UI_OK);
+    boxrig_ui_view *view = boxrig_x11_terminal_component_view(component);
+    Window child = boxrig_x11_terminal_component_owned_window(component);
+    Window scrollbar = boxrig_x11_terminal_component_scrollbar_window(component);
+    boxrig_font_effective_metrics metrics;
+    CHECK(boxrig_x11_terminal_component_get_effective_metrics(component, &metrics) == BOXRIG_FONT_CATALOG_OK);
+    boxrig_ui_component_allocation allocation = {0};
+    allocation.x = 8;
+    allocation.y = 10;
+    allocation.width = metrics.cell_width * tc.columns + boxrig_x11_scrollbar_pixel_width();
+    allocation.height = metrics.cell_height * tc.rows;
+    allocation.window_state = BOXRIG_UI_WINDOW_EMBEDDED;
+    boxrig_ui_layout_result layout;
+    CHECK(boxrig_x11_terminal_component_allocate(component, &allocation, &layout) == BOXRIG_UI_OK);
+    CHECK(feed_text(terminal, "persistent"));
+    CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+    boxrig_ui_hit_test_result hit = {0};
+    hit.inside_grid = hit.text_position_valid = true;
+    CHECK(boxrig_terminal_get_text_position(terminal, BOXRIG_TEXT_SCREEN_PRIMARY, 0, 0, &hit.leading_position) == BOXRIG_STATUS_OK);
+    hit.trailing_position = hit.position = hit.leading_position;
+    CHECK(boxrig_ui_view_begin_selection(view, BOXRIG_UI_SELECTION_LINE, &hit) == BOXRIG_UI_OK);
+    XMapWindow(display, first);
+    XMapWindow(display, second);
+    CHECK(boxrig_x11_terminal_component_set_visible(component, true) == BOXRIG_UI_OK);
+    XSync(display, False);
+    CHECK(boxrig_x11_terminal_component_request_focus(component) == BOXRIG_UI_OK);
+    boxrig_ui_component_frame_result frame;
+    CHECK(boxrig_x11_terminal_component_frame(component, &frame) == BOXRIG_UI_OK);
+    XSync(display, False);
+    while (XPending(display)) {
+        XEvent event;
+        XNextEvent(display, &event);
+        CHECK(boxrig_x11_terminal_component_dispatch_event(component, &event) != BOXRIG_UI_COMPONENT_EVENT_FAILURE);
+    }
+    CHECK(boxrig_x11_terminal_component_frame(component, &frame) == BOXRIG_UI_OK);
+    uint64_t before;
+    CHECK(read_window_hash(display, child, allocation.width, allocation.height, &before));
+    for (size_t i = 0; i < 4; i++) {
+        Window destination = i % 2 == 0 ? second : first;
+        boxrig_ui_input_state old_input, new_input;
+        CHECK(boxrig_x11_terminal_component_get_input_state(component, &old_input) == BOXRIG_UI_OK);
+        CHECK(boxrig_x11_terminal_component_reparent(component, destination) == BOXRIG_UI_OK);
+        CHECK(boxrig_x11_terminal_component_request_focus(component) == BOXRIG_UI_OK);
+        CHECK(child_has_parent(display, child, destination));
+        CHECK(child_has_parent(display, scrollbar, child));
+        CHECK(boxrig_x11_terminal_component_view(component) == view);
+        CHECK(boxrig_ui_view_is_layout_authority(view));
+        boxrig_ui_selection selection;
+        CHECK(boxrig_ui_view_get_selection(view, &selection));
+        CHECK(selection.range_valid);
+        CHECK(boxrig_x11_terminal_component_get_input_state(component, &new_input) == BOXRIG_UI_OK);
+        CHECK(new_input.generation > old_input.generation && new_input.phase == old_input.phase);
+        CHECK(boxrig_x11_terminal_component_frame(component, &frame) == BOXRIG_UI_OK);
+        XSync(display, False);
+        while (XPending(display)) {
+            XEvent event;
+            XNextEvent(display, &event);
+            CHECK(boxrig_x11_terminal_component_dispatch_event(component, &event) != BOXRIG_UI_COMPONENT_EVENT_FAILURE);
+        }
+        CHECK(boxrig_x11_terminal_component_frame(component, &frame) == BOXRIG_UI_OK);
+        uint64_t after;
+        CHECK(read_window_hash(display, child, allocation.width, allocation.height, &after));
+        CHECK(after == before);
+        boxrig_font_effective_metrics after_metrics;
+        CHECK(boxrig_x11_terminal_component_get_effective_metrics(component, &after_metrics) == BOXRIG_FONT_CATALOG_OK);
+        CHECK(metrics_match(&metrics, &after_metrics));
+        CHECK(boxrig_x11_terminal_component_reparent(component, child) == BOXRIG_UI_UNAVAILABLE);
+        CHECK(boxrig_x11_terminal_component_reparent(component, scrollbar) == BOXRIG_UI_UNAVAILABLE);
+        CHECK(child_has_parent(display, child, destination));
+    }
+    /* Input from the old attachment must not be replayed after the move. */
+    XEvent key = {0};
+    key.xkey.type = KeyPress;
+    key.xkey.display = display;
+    key.xkey.window = child;
+    key.xkey.root = root;
+    key.xkey.keycode = XKeysymToKeycode(display, XK_a);
+    key.xkey.same_screen = True;
+    key.xkey.serial = 1;
+    CHECK(boxrig_x11_terminal_component_dispatch_event(component, &key) == BOXRIG_UI_COMPONENT_EVENT_UNRELATED);
+    const uint8_t *key_output = NULL;
+    CHECK(boxrig_terminal_output_peek(terminal, &key_output) == 0);
+    key.xkey.serial = NextRequest(display);
+    CHECK(boxrig_x11_terminal_component_dispatch_event(component, &key) == BOXRIG_UI_COMPONENT_EVENT_HANDLED);
+    CHECK(boxrig_terminal_output_peek(terminal, &key_output) == 1 && key_output[0] == 'a');
+    CHECK(boxrig_terminal_output_consume(terminal, 1) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_x11_terminal_component_reparent(component, second) == BOXRIG_UI_BUSY);
+    CHECK(boxrig_x11_terminal_component_reparent(component, first) == BOXRIG_UI_BUSY);
+    CHECK(child_has_parent(display, child, first));
+    key.xkey.type = KeyRelease;
+    CHECK(boxrig_x11_terminal_component_dispatch_event(component, &key) == BOXRIG_UI_COMPONENT_EVENT_HANDLED);
+    XEvent focus = {0};
+    focus.xfocus.type = FocusIn;
+    focus.xfocus.display = display;
+    focus.xfocus.window = child;
+    focus.xfocus.serial = NextRequest(display);
+    focus.xfocus.mode = NotifyNormal;
+    focus.xfocus.detail = NotifyNonlinear;
+    CHECK(boxrig_x11_terminal_component_dispatch_event(component, &focus) == BOXRIG_UI_COMPONENT_EVENT_HANDLED);
+    boxrig_composition_event preedit = {0};
+    preedit.type = BOXRIG_COMPOSITION_PREEDIT_UPDATE;
+    preedit.text = "pending";
+    preedit.text_length = 7;
+    CHECK(boxrig_composition_apply_event(boxrig_x11_terminal_component_composition(component), &preedit) == BOXRIG_COMPOSITION_OK);
+    CHECK(boxrig_x11_terminal_component_reparent(component, second) == BOXRIG_UI_BUSY);
+    CHECK(child_has_parent(display, child, first));
+    memset(&preedit, 0, sizeof(preedit));
+    preedit.type = BOXRIG_COMPOSITION_CANCEL;
+    CHECK(boxrig_composition_apply_event(boxrig_x11_terminal_component_composition(component), &preedit) == BOXRIG_COMPOSITION_OK);
+    CHECK(boxrig_x11_terminal_component_frame(component, &frame) == BOXRIG_UI_OK);
+    reparent_callback_probe probe = {component, second, BOXRIG_UI_OK, 0};
+    CHECK(boxrig_x11_terminal_component_set_frame_request_callback(component, reparent_from_frame_request, &probe) == BOXRIG_UI_OK);
+    CHECK(feed_text(terminal, "x"));
+    CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+    CHECK(probe.calls > 0 && probe.result == BOXRIG_UI_BUSY);
+    CHECK(child_has_parent(display, child, first));
+    CHECK(boxrig_x11_terminal_component_set_frame_request_callback(component, NULL, NULL) == BOXRIG_UI_OK);
+    /* Destruction of the former parent must not destroy the moved child. */
+    CHECK(boxrig_x11_terminal_component_reparent(component, second) == BOXRIG_UI_OK);
+    XDestroyWindow(display, first);
+    CHECK(window_is_valid(display, child));
+    CHECK(feed_text(terminal, "\r\nafter move"));
+    CHECK(boxrig_x11_terminal_component_frame(component, &frame) == BOXRIG_UI_OK);
+    const uint8_t *output = NULL;
+    const uint8_t paste[] = "input after move";
+    CHECK(boxrig_x11_terminal_component_queue_paste(component, paste, sizeof(paste) - 1) == BOXRIG_UI_OK);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == sizeof(paste) - 1);
+    CHECK(memcmp(output, paste, sizeof(paste) - 1) == 0);
+    CHECK(boxrig_x11_terminal_component_reparent(NULL, second) == BOXRIG_UI_INVALID_ARGUMENT);
+    CHECK(boxrig_x11_terminal_component_reparent(component, None) == BOXRIG_UI_INVALID_ARGUMENT);
+    CHECK(boxrig_x11_terminal_component_quiesce(component) == BOXRIG_UI_OK);
+    CHECK(boxrig_x11_terminal_component_reparent(component, second) == BOXRIG_UI_INVALID_ARGUMENT);
+    boxrig_x11_terminal_component_destroy(component);
+    boxrig_ui_model_destroy(model);
+    boxrig_terminal_destroy(terminal);
+    XDestroyWindow(display, second);
+    return true;
+}
+
 int main(int argc, char **argv)
 {
     Display *display = XOpenDisplay(NULL);
@@ -2448,7 +2618,8 @@ int main(int argc, char **argv)
         fprintf(stderr, "FAIL: usage or XOpenDisplay\n");
         return 1;
     }
-    passed = scrollbar_visibility_changes_layout(display) &&
+    passed = component_reparents_between_windows(display) &&
+             scrollbar_visibility_changes_layout(display) &&
              component_owns_only_its_child(display) &&
              component_font_and_size_transactions(display, argv[1]) &&
              component_controls(display) &&

@@ -2308,7 +2308,7 @@ $(MINGW_AMD64_INPUT_TEST) $(MINGW_I686_INPUT_TEST): src/ui/input_control.h
 $(X11_OBJECTS): $(X11_HEADERS) $(UI_HEADERS) include/boxrig/terminal.h \
 	src/ui/view_private.h src/ui/color_private.h \
 	include/boxrig/posix.h src/ui/renderer_lifecycle.h src/ui/utf8.h \
-	src/x11/component_private.h src/x11/renderer_private.h src/pangocairo/glyph_fit.h src/ui/glyph_fit.h Makefile
+	src/x11/component_private.h src/x11/input_private.h src/x11/renderer_private.h src/pangocairo/glyph_fit.h src/ui/glyph_fit.h Makefile
 
 $(OPENGL_RENDERER_OBJECTS): $(OPENGL_RENDERER_HEADERS) $(UI_HEADERS) \
 	src/ui/view_private.h src/ui/color_private.h src/ui/glyph_fit.h src/pangocairo/glyph_fit.h src/opengl/renderer.h src/opengl/runtime.h src/opengl/text_provider.h Makefile
@@ -6159,6 +6159,9 @@ test-gtk-sample-recognition: $(BUILD_DIR)/tests/test_gtk3_sample_recognition $(B
 
 include tests/performance/phase_probe.mk
 include tests/performance/recognition.mk
+include tests/x11/transfer.mk
+
+test: test-x11-transfer
 
 $(BUILD_DIR)/tests/performance/steady_recognizer: tests/performance/steady_recognizer.c \
 		tests/measure_text_workloads.c $(TEXT_MEASUREMENT_LIBRARY) | $(BUILD_DIR)/tests/performance
