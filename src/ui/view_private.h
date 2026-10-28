@@ -87,6 +87,12 @@ boxrig_ui_status boxrig_ui_view_resolve_cell_paint(boxrig_ui_view *view,
 unsigned int boxrig_ui_view_selection_stroke_pixels(const boxrig_ui_view *view,
     float dpi, float output_scale, unsigned int limit);
 
+/* Selected LF at a full row's right edge, in pixel-aligned view coordinates.
+ * The same geometry defines the linear-selection hit region. Cell positions
+ * and rectangular selection keep their original mapping. */
+bool boxrig_ui_view_selection_newline_marker(const boxrig_ui_view *view,
+    size_t row, boxrig_ui_fixed *x_out, boxrig_ui_fixed *width_out);
+
 /* Retained row metadata; this query never scans terminal cells. */
 bool boxrig_ui_view_row_has_text_blink(const boxrig_ui_view *view, size_t row);
 
@@ -95,6 +101,7 @@ bool boxrig_ui_view_row_has_text_blink(const boxrig_ui_view *view, size_t row);
 typedef struct boxrig_ui_accessible_row_state {
     const boxrig_text_layout *layout;
     boxrig_ui_fixed cell_width, cell_height;
+    boxrig_ui_fixed newline_marker_x, newline_marker_width;
     size_t selection_start, selection_count;
     bool newline_selected;
     const boxrig_ui_selection_row_range *ranges;

@@ -1531,15 +1531,57 @@ static bool row_newline_range(const boxrig_ui_view *view, size_t row,
 static bool row_newline_selected(const boxrig_ui_view *view, size_t row)
 {
     boxrig_text_range newline;
-    int start, end;
-    return view != NULL && view->selection_active &&
-        view->selection.shape == BOXRIG_UI_SELECTION_LINEAR &&
-        row_newline_range(view, row, &newline) &&
-        compare_text_positions(view->model->terminal,
-            &view->selection.range.start, &newline.start, &start) &&
-        compare_text_positions(view->model->terminal,
-            &newline.end, &view->selection.range.end, &end) &&
-        start <= 0 && end <= 0;
+    boxrig_text_screen screen;
+    size_t index, first, end;
+    if (view == NULL || !view->selection_active ||
+        view->selection.shape != BOXRIG_UI_SELECTION_LINEAR ||
+        !row_newline_range(view, row, &newline) ||
+        !view_fragment_index(view, row, &screen, &index)) return false;
+    const boxrig_text_range *range = &view->selection.range;
+    if (range->start.screen != screen || range->end.screen != screen ||
+        text_line_id_equal(range->end.line_id, newline.start.line_id)) return false;
+    /* The current fragment's index is already known. Do not rediscover it by
+     * scanning history for each endpoint comparison. */
+    if (text_line_id_equal(range->start.line_id, newline.start.line_id)) {
+        if (range->start.column > newline.start.column) return false;
+    } else if (!find_line_bounds(view->model->terminal, screen,
+            range->start.line_id, &first, &end) || first > index) return false;
+    return find_line_bounds(view->model->terminal, screen,
+        range->end.line_id, &first, &end) && first > index;
+}
+
+static bool row_newline_marker_geometry(const boxrig_ui_view *view,
+    size_t row, boxrig_ui_fixed *x_out, boxrig_ui_fixed *width_out)
+{
+    boxrig_text_range newline;
+    boxrig_text_fragment_view fragment;
+    boxrig_text_screen screen;
+    size_t index;
+    if (view == NULL || !view->layout_configured ||
+        view->allocation_input.cell_width <= BOXRIG_UI_FIXED_ONE ||
+        !row_newline_range(view, row, &newline) ||
+        !view_fragment_index(view, row, &screen, &index) ||
+        boxrig_terminal_get_text_fragment(view->model->terminal, screen,
+            index, &fragment) != BOXRIG_STATUS_OK ||
+        newline.start.column - fragment.logical_column_offset < view->column_count)
+        return false;
+    /* Reserve a narrow, pixel-aligned hit strip without adding grid columns.
+     * Cell metrics include output scaling and font zoom. */
+    boxrig_ui_fixed width = (view->allocation_input.cell_width / 4 +
+        BOXRIG_UI_FIXED_ONE - 1) / BOXRIG_UI_FIXED_ONE * BOXRIG_UI_FIXED_ONE;
+    if (width >= view->allocation_input.cell_width)
+        width = BOXRIG_UI_FIXED_ONE;
+    *width_out = width;
+    *x_out = view->layout_result.grid_width - width;
+    return true;
+}
+
+bool boxrig_ui_view_selection_newline_marker(const boxrig_ui_view *view,
+    size_t row, boxrig_ui_fixed *x_out, boxrig_ui_fixed *width_out)
+{
+    return x_out != NULL && width_out != NULL &&
+        row_newline_marker_geometry(view, row, x_out, width_out) &&
+        row_newline_selected(view, row);
 }
 
 static bool selected_logical_interval(
@@ -1564,7 +1606,11 @@ static bool selected_logical_interval(
             index, &fragment) != BOXRIG_STATUS_OK) return false;
     size_t end = fragment.projected_end_column > fragment.logical_column_offset
         ? fragment.projected_end_column - fragment.logical_column_offset : 0;
-    if (end < view->column_count && row_newline_selected(view, row)) end++;
+    /* range_logical_interval already established document order. A range
+     * continuing beyond this logical line includes its LF; no additional
+     * history search is needed for each cell's selection paint. */
+    if (end < view->column_count && !fragment.soft_wrapped &&
+        !text_line_id_equal(fragment.line_id, view->selection.range.end.line_id)) end++;
     if (end > start + count) end = start + count;
     if (end <= start) return false;
     *local_column_out = start;
@@ -1810,6 +1856,14 @@ static void mark_selection_dirty(boxrig_ui_view *view)
         view->accessible_selection_revision = next_revision(view->accessible_selection_revision);
         if (view->selection.shape == BOXRIG_UI_SELECTION_LINEAR) {
             mark_logical_range_dirty(view, &view->selection.range);
+            /* LF-only ranges contain no grid cell at a full row. Invalidate
+             * its visual right edge before and after changing selection. */
+            for (size_t row = 0; row < view->row_count; row++) {
+                boxrig_ui_fixed x, width;
+                if (boxrig_ui_view_selection_newline_marker(view, row, &x, &width))
+                    mark_dirty(view, BOXRIG_UI_DIRTY_OVERLAY, row, 1,
+                        view->column_count - 1, 1);
+            }
         } else if (!view->selection.stale) {
             size_t row;
 
@@ -3966,8 +4020,12 @@ boxrig_ui_status boxrig_ui_view_hit_test(
         size_t interval_column;
         size_t interval_count;
         boxrig_cursor_view cursor;
+        boxrig_ui_fixed marker_x, marker_width;
 
-        if ((selected_logical_interval(
+        if ((boxrig_ui_view_selection_newline_marker(view, result_out->row,
+                 &marker_x, &marker_width) && x >= marker_x &&
+             x < marker_x + marker_width) ||
+            (selected_logical_interval(
                  view,
                  result_out->row,
                  &interval_column,
@@ -4533,6 +4591,10 @@ static boxrig_ui_status character_selection_unit(
 {
     unit_out->start = hit->leading_position;
     unit_out->end = hit->trailing_position;
+    boxrig_ui_fixed marker_x, marker_width;
+    if (row_newline_marker_geometry(view, hit->row, &marker_x, &marker_width) &&
+        hit->x >= marker_x && hit->x < marker_x + marker_width &&
+        row_newline_range(view, hit->row, unit_out)) return BOXRIG_UI_OK;
     boxrig_text_screen screen;
     size_t index;
     boxrig_text_fragment_view fragment;
@@ -5691,6 +5753,8 @@ void boxrig_ui_view_accessible_row(const boxrig_ui_view *view, size_t row,
         state->cell_width = view->allocation_input.cell_width;
         state->cell_height = view->allocation_input.cell_height;
     }
+    (void)row_newline_marker_geometry(view, row,
+        &state->newline_marker_x, &state->newline_marker_width);
     if (!view->selection_active) return;
     if (view->selection.shape == BOXRIG_UI_SELECTION_RECTANGULAR) {
         const boxrig_ui_selection_row_slice *slice =

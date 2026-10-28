@@ -678,6 +678,19 @@ static bool run_selection_style_video_scenario(
         uint8_t command;
         if (!operations->read_terminal(operations->context, &command, 1)) return false;
         if (command == 'q') return true;
+        if (command == 'e') {
+            unsigned int rows, columns;
+            if (!operations->query_grid(operations->context, &rows, &columns) ||
+                !write_bytes(operations, "\033[3;1H")) return false;
+            /* Explicit spaces occupy every column without obscuring the LF
+             * strip with glyphs. CRLF creates a hard, not soft, boundary. */
+            for (unsigned int column = 0; column < columns; column++)
+                if (!write_bytes(operations, " ")) return false;
+            if (!write_bytes(operations, "\r\nnext")) return false;
+            snprintf(ready, sizeof(ready), "boxrig-selection-edge-ready-%u", columns);
+            if (!operations->set_title(operations->context, ready)) return false;
+            continue;
+        }
         if (command == 'h') {
             /* Prepare history after the style and drag phases. Native scroll
              * containers may add a top-edge shadow once history exists. */

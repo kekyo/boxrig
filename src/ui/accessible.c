@@ -138,6 +138,10 @@ static boxrig_ui_status project(boxrig_ui_view *view, snapshot_builder *builder,
                 .selected = state.newline_selected
             };
             if (builder->snapshot != NULL) cell_geometry(&state, row, end_column, 1, &newline);
+            if (state.newline_marker_width > 0) {
+                newline.x = state.newline_marker_x;
+                newline.width = state.newline_marker_width;
+            }
             if (!append_scalar(builder, "\n", 1, &newline)) return BOXRIG_UI_LIMIT_EXCEEDED;
         }
         if (builder->snapshot != NULL) builder->snapshot->rows[row].end = builder->characters;

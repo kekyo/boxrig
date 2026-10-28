@@ -8,6 +8,7 @@
 #include "../src/core/terminal_internal.h"
 #include "../src/ui/word_break.h"
 #include "../src/ui/view_private.h"
+#include "../src/ui/accessible.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -1909,9 +1910,98 @@ static bool newline_selection_respects_document_and_wrap_boundaries(void)
     return true;
 }
 
+static bool full_row_newline_hit_is_separate_from_text(void)
+{
+    for (size_t rtl = 0; rtl < 2; rtl++) {
+        boxrig_terminal_config config = boxrig_terminal_config_default();
+        config.rows = 2;
+        config.columns = 8;
+        boxrig_terminal *terminal = NULL;
+        boxrig_ui_model *model = NULL;
+        boxrig_ui_view *view = NULL;
+        boxrig_ui_view_config view_config = boxrig_ui_view_config_default();
+        CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+        const char *text = rtl ? "אבגדהוזח\r\nz" : "abcdefgh\r\nz";
+        size_t consumed;
+        CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)text,
+            strlen(text), &consumed) == BOXRIG_STATUS_OK);
+        CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
+        CHECK(boxrig_ui_view_create(model, &view_config, &view) == BOXRIG_UI_OK);
+        CHECK(boxrig_ui_view_acquire_layout_authority(view) == BOXRIG_UI_OK);
+        boxrig_ui_allocation_input allocation = {
+            .allocation_width = pixels(80), .allocation_height = pixels(20),
+            .cell_width = pixels(10), .cell_height = pixels(10),
+            .cell_metrics_revision = 1, .window_state = BOXRIG_UI_WINDOW_NORMAL
+        };
+        boxrig_ui_layout_result accepted;
+        CHECK(boxrig_ui_view_accept_allocation(view, &allocation, &accepted) == BOXRIG_UI_OK);
+        boxrig_text_cluster_input clusters[8] = {0};
+        for (size_t i = 0; i < 8; i++) {
+            clusters[i].logical_column = i;
+            clusters[i].column_count = 1;
+            clusters[i].text_offset = i * (rtl ? 2 : 1);
+            clusters[i].text_length = rtl ? 2 : 1;
+            clusters[i].bidi_level = (uint8_t)rtl;
+        }
+        boxrig_text_layout *layout = NULL;
+        CHECK(boxrig_text_layout_create(clusters, 8, 8,
+            rtl ? BOXRIG_TEXT_DIRECTION_RTL : BOXRIG_TEXT_DIRECTION_LTR,
+            &layout) == BOXRIG_TEXT_LAYOUT_OK);
+        CHECK(boxrig_ui_view_store_row_layout(view, 0, layout, 512, 1) == BOXRIG_UI_OK);
+        boxrig_ui_hit_test_result hit;
+        CHECK(boxrig_ui_view_hit_test(view, pixels(79), pixels(1), &hit) == BOXRIG_UI_OK);
+        size_t logical = hit.logical_column;
+        CHECK(logical == (rtl ? 0 : 7));
+        CHECK(boxrig_ui_view_begin_selection(view, BOXRIG_UI_SELECTION_CHARACTER, &hit) == BOXRIG_UI_OK);
+        boxrig_text_snapshot *copy = NULL;
+        CHECK(boxrig_ui_view_create_selection_snapshot(view, &copy) == BOXRIG_UI_OK);
+        size_t length;
+        const uint8_t *bytes = boxrig_text_snapshot_data(copy, &length);
+        CHECK(length == 1 && bytes[0] == '\n');
+        boxrig_text_snapshot_destroy(copy);
+        boxrig_ui_fixed x, width;
+        CHECK(boxrig_ui_view_selection_newline_marker(view, 0, &x, &width));
+        CHECK(x + width == pixels(80) && width > 0 && width < pixels(10));
+        boxrig_ui_accessible_snapshot *accessible = NULL;
+        CHECK(boxrig_ui_accessible_snapshot_create(view,
+            BOXRIG_UI_ACCESSIBLE_MAXIMUM_BYTES, &accessible) == BOXRIG_UI_OK);
+        CHECK(accessible->characters[8].scalar == '\n');
+        CHECK(accessible->characters[8].selected);
+        CHECK(accessible->characters[8].x == x && accessible->characters[8].width == width);
+        boxrig_ui_accessible_snapshot_destroy(accessible);
+        boxrig_text_layout_range ranges[2];
+        CHECK(boxrig_ui_view_selection_visual_ranges(view, 0, ranges, 2) == 0);
+        CHECK(boxrig_ui_view_hit_test(view, pixels(79), pixels(1), &hit) == BOXRIG_UI_OK);
+        CHECK((hit.overlay_roles & BOXRIG_UI_OVERLAY_SELECTION) != 0);
+        CHECK(hit.logical_column == logical);
+        CHECK(boxrig_ui_view_hit_test(view, pixels(75), pixels(1), &hit) == BOXRIG_UI_OK);
+        CHECK((hit.overlay_roles & BOXRIG_UI_OVERLAY_SELECTION) == 0);
+        boxrig_ui_dirty dirty;
+        while (boxrig_ui_view_peek_dirty(view, BOXRIG_UI_DIRTY_OVERLAY, &dirty))
+            CHECK(boxrig_ui_view_consume_dirty(view, BOXRIG_UI_DIRTY_OVERLAY) == BOXRIG_UI_OK);
+        CHECK(boxrig_ui_view_clear_selection(view) == BOXRIG_UI_OK);
+        CHECK(!boxrig_ui_view_selection_newline_marker(view, 0, &x, &width));
+        CHECK(boxrig_ui_view_get_row_dirty(view, BOXRIG_UI_DIRTY_OVERLAY, 0, &dirty));
+        CHECK(dirty.column <= 7 && dirty.column + dirty.column_count >= 8);
+        CHECK(boxrig_ui_view_hit_test(view, pixels(rtl ? 5 : 75), pixels(1), &hit) == BOXRIG_UI_OK);
+        CHECK(boxrig_ui_view_begin_selection(view, BOXRIG_UI_SELECTION_CHARACTER, &hit) == BOXRIG_UI_OK);
+        CHECK(boxrig_ui_view_create_selection_snapshot(view, &copy) == BOXRIG_UI_OK);
+        bytes = boxrig_text_snapshot_data(copy, &length);
+        CHECK(length == (rtl ? 2 : 1));
+        CHECK(memcmp(bytes, rtl ? "ח" : "h", length) == 0);
+        boxrig_text_snapshot_destroy(copy);
+        CHECK(!boxrig_ui_view_selection_newline_marker(view, 0, &x, &width));
+        boxrig_ui_view_destroy(view);
+        boxrig_ui_model_destroy(model);
+        boxrig_terminal_destroy(terminal);
+    }
+    return true;
+}
+
 int main(int argc, char **argv)
 {
     if (argc != 2 ||
+        !full_row_newline_hit_is_separate_from_text() ||
         !newline_selection_respects_document_and_wrap_boundaries() ||
         !newline_selection_matches_copy_and_paint() ||
         !rectangular_selection_can_cross_zero_width() ||
