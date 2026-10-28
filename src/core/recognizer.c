@@ -25,6 +25,13 @@ typedef struct boxrig_text_recognizer_match {
     boxrig_regex_result *captures;
 } boxrig_text_recognizer_match;
 
+/* Open-addressed slots hold array indices plus one, never reallocatable
+ * pointers. Occupancy stays below one half and follows result-set ownership. */
+typedef struct boxrig_text_recognizer_index {
+    size_t *slots;
+    size_t capacity;
+} boxrig_text_recognizer_index;
+
 /* A bounded, optional cache of fully checked lines with no matches. */
 typedef struct boxrig_text_recognizer_empty_line {
     boxrig_text_line_id line_id;
@@ -78,6 +85,8 @@ typedef struct boxrig_text_recognizer_entry {
     boxrig_text_recognizer_line *current_lines;
     size_t current_line_count;
     size_t current_line_capacity;
+    boxrig_text_recognizer_index current_line_index;
+    boxrig_text_recognizer_index current_match_index;
     size_t cached_line_index;
     boxrig_text_recognizer_match *staging_results;
     size_t staging_result_count;
@@ -86,6 +95,8 @@ typedef struct boxrig_text_recognizer_entry {
     boxrig_text_recognizer_line *staging_lines;
     size_t staging_line_count;
     size_t staging_line_capacity;
+    boxrig_text_recognizer_index staging_line_index;
+    boxrig_text_recognizer_index staging_match_index;
     boxrig_text_recognizer_empty_line *current_empty_lines;
     size_t current_empty_capacity;
     boxrig_text_recognizer_empty_line *staging_empty_lines;
@@ -168,6 +179,7 @@ static bool range_location_equal(
 static const boxrig_text_recognizer_line *find_line(
     const boxrig_text_recognizer_line *lines,
     size_t line_count,
+    const boxrig_text_recognizer_index *lookup,
     boxrig_text_screen screen,
     boxrig_text_line_id line_id);
 
@@ -246,7 +258,8 @@ static bool cached_empty_line(
         return false;
     }
     current = find_line(recognizer->current_lines,
-        recognizer->current_line_count, position.screen, position.line_id);
+        recognizer->current_line_count, &recognizer->current_line_index,
+        position.screen, position.line_id);
     return current == NULL || current->result_count == 0u;
 }
 
@@ -309,6 +322,10 @@ static void destroy_scan(boxrig_text_recognizer_entry *recognizer)
     recognizer->staging_result_count = 0u;
     recognizer->staging_result_bytes = 0u;
     recognizer->staging_line_count = 0u;
+    if (recognizer->staging_line_index.capacity != 0u) {
+        memset(recognizer->staging_line_index.slots, 0,
+            recognizer->staging_line_index.capacity * sizeof(size_t));
+    }
     memset(&recognizer->scan_line, 0, sizeof(recognizer->scan_line));
     recognizer->scan_line_retained = false;
     recognizer->line_start_position_valid = false;
@@ -335,6 +352,10 @@ static void destroy_recognizer(boxrig_text_recognizer_entry *recognizer)
     free(recognizer->current_empty_lines);
     free(recognizer->staging_empty_lines);
     free(recognizer->pending_events);
+    free(recognizer->current_line_index.slots);
+    free(recognizer->staging_line_index.slots);
+    free(recognizer->current_match_index.slots);
+    free(recognizer->staging_match_index.slots);
     memset(recognizer, 0, sizeof(*recognizer));
 }
 
@@ -715,6 +736,50 @@ static bool ensure_line_storage(
     return true;
 }
 
+static size_t identity_hash(uint64_t value)
+{
+    value ^= value >> 30u;
+    value *= UINT64_C(0xbf58476d1ce4e5b9);
+    value ^= value >> 27u;
+    value *= UINT64_C(0x94d049bb133111eb);
+    value ^= value >> 31u;
+    return (size_t)value;
+}
+
+static size_t line_hash(boxrig_text_screen screen, boxrig_text_line_id id)
+{
+    return identity_hash(id.serial ^
+        (id.epoch * UINT64_C(0x9e3779b97f4a7c15)) ^ (uint64_t)screen);
+}
+
+static bool reserve_index(boxrig_text_recognizer_index *lookup, size_t count)
+{
+    if (count == 0u) return true;
+    size_t capacity = lookup->capacity == 0u ? 16u : lookup->capacity;
+    while (count > capacity / 2u) {
+        if (capacity > SIZE_MAX / 2u) return false;
+        capacity *= 2u;
+    }
+    if (capacity == lookup->capacity) return true;
+    if (capacity > SIZE_MAX / sizeof(*lookup->slots)) return false;
+    size_t *slots = calloc(capacity, sizeof(*slots));
+    if (slots == NULL) return false;
+    free(lookup->slots);
+    lookup->slots = slots;
+    lookup->capacity = capacity;
+    return true;
+}
+
+static void insert_index(boxrig_text_recognizer_index *lookup,
+    size_t hash, size_t entry)
+{
+    size_t slot = hash & (lookup->capacity - 1u);
+    while (lookup->slots[slot] != 0u) {
+        slot = (slot + 1u) & (lookup->capacity - 1u);
+    }
+    lookup->slots[slot] = entry + 1u;
+}
+
 static boxrig_status retain_scan_line(
     boxrig_text_recognizer_entry *recognizer)
 {
@@ -735,10 +800,25 @@ static boxrig_status retain_scan_line(
                    ? BOXRIG_STATUS_LIMIT_EXCEEDED
                    : BOXRIG_STATUS_OUT_OF_MEMORY;
     }
-    line = &recognizer->staging_lines[recognizer->staging_line_count++];
+    size_t previous_capacity = recognizer->staging_line_index.capacity;
+    if (!reserve_index(&recognizer->staging_line_index,
+            recognizer->staging_line_count + 1u)) {
+        return BOXRIG_STATUS_OUT_OF_MEMORY;
+    }
+    if (previous_capacity != recognizer->staging_line_index.capacity) {
+        for (size_t index = 0u; index < recognizer->staging_line_count; index++) {
+            const boxrig_text_recognizer_line *existing = &recognizer->staging_lines[index];
+            insert_index(&recognizer->staging_line_index,
+                line_hash(existing->screen, existing->line_id), index);
+        }
+    }
+    line = &recognizer->staging_lines[recognizer->staging_line_count];
     *line = recognizer->scan_line;
     line->result_start = recognizer->staging_result_count;
     line->result_count = 0u;
+    insert_index(&recognizer->staging_line_index,
+        line_hash(line->screen, line->line_id), recognizer->staging_line_count);
+    recognizer->staging_line_count++;
     recognizer->scan_line_retained = true;
     return BOXRIG_STATUS_OK;
 }
@@ -898,7 +978,7 @@ static boxrig_status prepare_line_step(
     recognizer->scan_line_retained = false;
     if (find_line(
             recognizer->current_lines,
-            recognizer->current_line_count,
+            recognizer->current_line_count, &recognizer->current_line_index,
             recognizer->line_start_position.screen,
             recognizer->line_start_position.line_id) != NULL) {
         status = retain_scan_line(recognizer);
@@ -1049,16 +1129,20 @@ static boxrig_status reuse_match(boxrig_text_recognizer_entry *recognizer)
 static const boxrig_text_recognizer_line *find_line(
     const boxrig_text_recognizer_line *lines,
     size_t line_count,
+    const boxrig_text_recognizer_index *lookup,
     boxrig_text_screen screen,
     boxrig_text_line_id line_id)
 {
-    size_t index;
-
-    for (index = 0u; index < line_count; index++) {
+    if (line_count == 0u || lookup->capacity == 0u) return NULL;
+    size_t slot = line_hash(screen, line_id) & (lookup->capacity - 1u);
+    while (lookup->slots[slot] != 0u) {
+        size_t index = lookup->slots[slot] - 1u;
+        boxrig_text_workload_observe_recognizer_line_lookup();
         if (lines[index].screen == screen &&
             line_id_equal(lines[index].line_id, line_id)) {
             return &lines[index];
         }
+        slot = (slot + 1u) & (lookup->capacity - 1u);
     }
     return NULL;
 }
@@ -1069,23 +1153,27 @@ static uint64_t previous_match_id(
 {
     const boxrig_text_recognizer_line *line = find_line(
         recognizer->current_lines,
-        recognizer->current_line_count,
+        recognizer->current_line_count, &recognizer->current_line_index,
         candidate->screen,
         candidate->range.start.line_id);
-    size_t index;
-
     if (line == NULL) {
         return 0u;
     }
-    /* Each retained logical line owns a contiguous slice of current_results. */
-    for (index = 0u; index < line->result_count; index++) {
+    /* Non-overlapping matches are stored in increasing logical-column order. */
+    size_t low = 0u;
+    size_t high = line->result_count;
+    while (low < high) {
+        size_t index = low + (high - low) / 2u;
         const boxrig_text_recognition_result *current =
             &recognizer->current_results[line->result_start + index].value;
-
         boxrig_text_workload_observe_recognizer_match_identity_comparison();
-        if (current->screen == candidate->screen &&
-            range_location_equal(&current->range, &candidate->range)) {
-            return current->match_id;
+        if (current->range.start.column < candidate->range.start.column) {
+            low = index + 1u;
+        } else if (current->range.start.column > candidate->range.start.column) {
+            high = index;
+        } else {
+            return range_location_equal(&current->range, &candidate->range)
+                ? current->match_id : 0u;
         }
     }
     return 0u;
@@ -1139,11 +1227,22 @@ static boxrig_status commit_scan(
     if (status != BOXRIG_STATUS_OK) {
         return status;
     }
+    if (!reserve_index(&recognizer->staging_match_index,
+            recognizer->staging_result_count)) {
+        return BOXRIG_STATUS_OUT_OF_MEMORY;
+    }
+    if (recognizer->staging_match_index.capacity != 0u) {
+        memset(recognizer->staging_match_index.slots, 0,
+            recognizer->staging_match_index.capacity * sizeof(size_t));
+    }
     revision = recognizer->result_set_revision + 1u;
     for (index = 0u; index < recognizer->staging_result_count; index++) {
         boxrig_text_recognition_result *result =
             &recognizer->staging_results[index].value;
-        uint64_t match_id = previous_match_id(recognizer, result);
+        /* Reused captures already carry a stable identity. Only changed
+         * lines need a location comparison against the prior result set. */
+        uint64_t match_id = result->match_id != 0u ? result->match_id :
+            previous_match_id(recognizer, result);
 
         if (match_id == 0u) {
             if (state->match_id_limit || state->next_match_id == 0u) {
@@ -1158,13 +1257,15 @@ static boxrig_status commit_scan(
         result->match_id = match_id;
         result->result_set_revision = revision;
         result->text_revision = recognizer->scan_text_revision;
+        insert_index(&recognizer->staging_match_index,
+            identity_hash(match_id), index);
     }
     for (index = 0u; index < recognizer->staging_line_count; index++) {
         const boxrig_text_recognizer_line *line =
             &recognizer->staging_lines[index];
         const boxrig_text_recognizer_line *old_line = find_line(
             recognizer->current_lines,
-            recognizer->current_line_count,
+            recognizer->current_line_count, &recognizer->current_line_index,
             line->screen,
             line->line_id);
 
@@ -1204,7 +1305,7 @@ static boxrig_status commit_scan(
         if (old_line->result_count != 0u &&
             find_line(
                 recognizer->staging_lines,
-                recognizer->staging_line_count,
+                recognizer->staging_line_count, &recognizer->staging_line_index,
                 old_line->screen,
                 old_line->line_id) == NULL) {
             boxrig_text_recognizer_event event;
@@ -1237,6 +1338,12 @@ static boxrig_status commit_scan(
     recognizer->staging_line_capacity = capacity_swap;
     recognizer->current_line_count = recognizer->staging_line_count;
     recognizer->staging_line_count = 0u;
+    boxrig_text_recognizer_index index_swap = recognizer->current_line_index;
+    recognizer->current_line_index = recognizer->staging_line_index;
+    recognizer->staging_line_index = index_swap;
+    index_swap = recognizer->current_match_index;
+    recognizer->current_match_index = recognizer->staging_match_index;
+    recognizer->staging_match_index = index_swap;
     recognizer->result_set_revision = revision;
     recognizer->current_text_revision = recognizer->scan_text_revision;
     recognizer->current_layout_revision = recognizer->scan_layout_revision;
@@ -1352,6 +1459,7 @@ static boxrig_status resume_recognizer(
                 }
                 const boxrig_text_recognizer_line *current = find_line(
                     recognizer->current_lines, recognizer->current_line_count,
+                    &recognizer->current_line_index,
                     position.screen, position.line_id);
                 if (current != NULL && current->result_count != 0u &&
                     current->line_revision == position.line_revision) {
@@ -1406,7 +1514,8 @@ static boxrig_status resume_recognizer(
             recognizer->scan_line.line_revision = position.line_revision;
             recognizer->scan_line.result_start = recognizer->staging_result_count;
             if (find_line(recognizer->current_lines,
-                    recognizer->current_line_count, position.screen,
+                    recognizer->current_line_count,
+                    &recognizer->current_line_index, position.screen,
                     position.line_id) != NULL) {
                 /* Retained zero-result lines remain publicly queryable.
                  * Keep this phase on allocation failure so retry cannot skip
@@ -1837,7 +1946,7 @@ boxrig_status boxrig_terminal_query_text_recognizer_line_results(
     }
     line = find_line(
         recognizer->current_lines,
-        recognizer->current_line_count,
+        recognizer->current_line_count, &recognizer->current_line_index,
         screen,
         line_id);
     if (line == NULL || line->line_revision != line_revision) {
@@ -1896,8 +2005,15 @@ boxrig_status boxrig_terminal_text_recognizer_result(
         !recognizer_has_current_results(terminal, recognizer)) {
         return BOXRIG_STATUS_STALE;
     }
-    for (size_t i = 0u; i < recognizer->current_result_count; i++) {
-        const boxrig_text_recognizer_match *match = &recognizer->current_results[i];
+    const boxrig_text_recognizer_index *lookup = &recognizer->current_match_index;
+    if (recognizer->current_result_count == 0u || lookup->capacity == 0u) {
+        return BOXRIG_STATUS_STALE;
+    }
+    size_t slot = identity_hash(match_id) & (lookup->capacity - 1u);
+    while (lookup->slots[slot] != 0u) {
+        const boxrig_text_recognizer_match *match =
+            &recognizer->current_results[lookup->slots[slot] - 1u];
+        boxrig_text_workload_observe_recognizer_result_lookup();
         if (match->value.match_id == match_id) {
             boxrig_status status = boxrig_regex_result_retain(match->captures);
             if (status == BOXRIG_STATUS_OK) {
@@ -1905,6 +2021,7 @@ boxrig_status boxrig_terminal_text_recognizer_result(
             }
             return status;
         }
+        slot = (slot + 1u) & (lookup->capacity - 1u);
     }
     return BOXRIG_STATUS_STALE;
 }
@@ -1921,6 +2038,35 @@ static bool result_intersects_grapheme(
            result->range.end.column > grapheme_range->start.column;
 }
 
+static const boxrig_text_recognition_result *recognizer_grapheme_result(
+    const boxrig_text_recognizer_entry *recognizer,
+    const boxrig_text_range *range)
+{
+    const boxrig_text_recognizer_line *line = find_line(
+        recognizer->current_lines, recognizer->current_line_count,
+        &recognizer->current_line_index, range->start.screen, range->start.line_id);
+    if (line == NULL) return NULL;
+    size_t low = 0u;
+    size_t high = line->result_count;
+    /* Each recognizer publishes non-overlapping, grapheme-aligned matches.
+     * At most one can intersect this single validated grapheme. */
+    while (low < high) {
+        size_t index = low + (high - low) / 2u;
+        const boxrig_text_recognition_result *candidate =
+            &recognizer->current_results[line->result_start + index].value;
+        boxrig_text_workload_observe_recognizer_result_lookup();
+        if (candidate->range.end.column <= range->start.column) {
+            low = index + 1u;
+        } else {
+            high = index;
+        }
+    }
+    if (low == line->result_count) return NULL;
+    const boxrig_text_recognition_result *candidate =
+        &recognizer->current_results[line->result_start + low].value;
+    return result_intersects_grapheme(candidate, range) ? candidate : NULL;
+}
+
 boxrig_status boxrig_terminal_query_recognition_hits(
     const boxrig_terminal *terminal,
     const boxrig_text_range *grapheme_range,
@@ -1933,7 +2079,6 @@ boxrig_status boxrig_terminal_query_recognition_hits(
     const boxrig_text_recognizer_entry *filtered = NULL;
     size_t required_count = 0u;
     size_t recognizer_index;
-    size_t result_index;
     boxrig_status status;
 
     if (terminal == NULL || grapheme_range == NULL ||
@@ -1973,17 +2118,11 @@ boxrig_status boxrig_terminal_query_recognition_hits(
         if (!recognizer_has_current_results(terminal, recognizer)) {
             return BOXRIG_STATUS_INCOMPLETE;
         }
-        for (result_index = 0u;
-             result_index < recognizer->current_result_count;
-             result_index++) {
-            if (result_intersects_grapheme(
-                    &recognizer->current_results[result_index].value,
-                    grapheme_range)) {
-                if (required_count == SIZE_MAX) {
-                    return BOXRIG_STATUS_LIMIT_EXCEEDED;
-                }
-                required_count++;
+        if (recognizer_grapheme_result(recognizer, grapheme_range) != NULL) {
+            if (required_count == SIZE_MAX) {
+                return BOXRIG_STATUS_LIMIT_EXCEEDED;
             }
+            required_count++;
         }
     }
     *required_count_out = required_count;
@@ -2013,11 +2152,9 @@ boxrig_status boxrig_terminal_query_recognition_hits(
                         grapheme_range->start.screen)) {
                     continue;
                 }
-                for (result_index = 0u;
-                     result_index < recognizer->current_result_count;
-                     result_index++) {
-                    const boxrig_text_recognition_result *candidate =
-                        &recognizer->current_results[result_index].value;
+                const boxrig_text_recognition_result *candidate =
+                    recognizer_grapheme_result(recognizer, grapheme_range);
+                if (candidate != NULL) {
                     bool follows_previous =
                         candidate->recognizer_id > previous_recognizer_id ||
                         (candidate->recognizer_id ==
@@ -2029,10 +2166,7 @@ boxrig_status boxrig_terminal_query_recognition_hits(
                         (candidate->recognizer_id == next->recognizer_id &&
                          candidate->match_id < next->match_id);
 
-                    if (follows_previous && precedes_next &&
-                        result_intersects_grapheme(
-                            candidate,
-                            grapheme_range)) {
+                    if (follows_previous && precedes_next) {
                         next = candidate;
                     }
                 }

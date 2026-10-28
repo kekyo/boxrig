@@ -98,6 +98,16 @@ void boxrig_text_workload_counters_reset(void)
     memset(&text_workload_counters, 0, sizeof(text_workload_counters));
 }
 
+void boxrig_text_workload_observe_recognizer_line_lookup(void)
+{
+    text_workload_add(&text_workload_counters.recognizer_line_lookup_probes, 1u);
+}
+
+void boxrig_text_workload_observe_recognizer_result_lookup(void)
+{
+    text_workload_add(&text_workload_counters.recognizer_result_lookup_probes, 1u);
+}
+
 void boxrig_text_workload_counters_read(
     boxrig_text_workload_counters *counters_out)
 {

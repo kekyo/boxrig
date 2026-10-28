@@ -580,6 +580,8 @@ typedef struct boxrig_text_workload_counters {
     size_t recognizer_unbudgeted_prepare_steps;
     size_t recognizer_cursor_creations;
     size_t recognizer_match_identity_comparisons;
+    size_t recognizer_line_lookup_probes;
+    size_t recognizer_result_lookup_probes;
 } boxrig_text_workload_counters;
 
 void boxrig_text_workload_counters_reset(void);
@@ -591,6 +593,8 @@ void boxrig_text_workload_observe_recognizer_event_queue(size_t count);
 void boxrig_text_workload_observe_recognizer_prepare_step(bool budgeted);
 void boxrig_text_workload_observe_recognizer_cursor_creation(void);
 void boxrig_text_workload_observe_recognizer_match_identity_comparison(void);
+void boxrig_text_workload_observe_recognizer_line_lookup(void);
+void boxrig_text_workload_observe_recognizer_result_lookup(void);
 #else
 #define boxrig_text_workload_observe_placeholder_cell() ((void)0)
 #define boxrig_text_workload_observe_ascii_batch(count) ((void)(count))
@@ -601,6 +605,8 @@ void boxrig_text_workload_observe_recognizer_match_identity_comparison(void);
 #define boxrig_text_workload_observe_recognizer_cursor_creation() ((void)0)
 #define boxrig_text_workload_observe_recognizer_match_identity_comparison() \
     ((void)0)
+#define boxrig_text_workload_observe_recognizer_line_lookup() ((void)0)
+#define boxrig_text_workload_observe_recognizer_result_lookup() ((void)0)
 #endif
 boxrig_status boxrig_terminal_queue_notification(
     boxrig_terminal *terminal,
