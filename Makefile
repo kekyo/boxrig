@@ -1111,6 +1111,14 @@ test-recognizer-projection: $(BUILD_DIR)/tests/test_recognizer_projection
 $(BUILD_DIR)/tests/test_recognizer_projection: tests/test_recognizer_projection.c $(CORE_HEADERS) $(TEXT_MEASUREMENT_LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) -DBOXRIG_MEASURE_TEXT_WORKLOADS $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(TEXT_MEASUREMENT_LIBRARY) $(SANITIZERS) -o $@
 
+.PHONY: test-recognizer-budget
+test: test-recognizer-budget
+test-recognizer-budget: $(BUILD_DIR)/tests/test_recognizer_budget
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
+
+$(BUILD_DIR)/tests/test_recognizer_budget: tests/test_recognizer_budget.c $(CORE_HEADERS) $(TEXT_MEASUREMENT_LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) -DBOXRIG_MEASURE_TEXT_WORKLOADS $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(TEXT_MEASUREMENT_LIBRARY) $(SANITIZERS) -o $@
+
 .PHONY: test-recognizer-reuse
 test: test-recognizer-reuse
 test-recognizer-reuse: $(BUILD_DIR)/tests/test_recognizer_reuse

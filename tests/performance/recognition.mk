@@ -2,6 +2,10 @@ RECOGNITION_COST_BINARY := $(BUILD_DIR)/tests/performance/recognition_cost
 RECOGNIZER_RESCAN_BINARY := $(BUILD_DIR)/tests/performance/recognizer_event_rescan
 OSC8_COST_BINARY := $(BUILD_DIR)/tests/performance/osc8_cost
 POLICY_COST_BINARY := $(BUILD_DIR)/tests/performance/policy_cost
+RECOGNIZER_BUDGET_COST_BINARY := $(BUILD_DIR)/tests/performance/recognizer_budget_cost
+
+$(RECOGNIZER_BUDGET_COST_BINARY): tests/performance/recognizer_budget_cost.c $(LIBRARY) | $(BUILD_DIR)/tests/performance
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(LIBRARY) -o $@
 
 $(POLICY_COST_BINARY): tests/performance/policy_cost.c examples/boxrig_term/common/text_policy.c examples/boxrig_term/common/text_policy.h $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests/performance
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) -Iexamples/boxrig_term/common $< examples/boxrig_term/common/text_policy.c $(UI_LIBRARY) $(LIBRARY) -Wl,--wrap=boxrig_terminal_register_text_recognizer -o $@
@@ -16,7 +20,7 @@ $(OSC8_COST_BINARY): tests/performance/osc8_cost.c $(LIBRARY) | $(BUILD_DIR)/tes
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(LIBRARY) -o $@
 
 .PHONY: recognition-drivers test-recognition-drivers
-recognition-drivers: $(RECOGNITION_COST_BINARY) $(RECOGNIZER_RESCAN_BINARY) $(OSC8_COST_BINARY) $(POLICY_COST_BINARY)
+recognition-drivers: $(RECOGNITION_COST_BINARY) $(RECOGNIZER_RESCAN_BINARY) $(OSC8_COST_BINARY) $(POLICY_COST_BINARY) $(RECOGNIZER_BUDGET_COST_BINARY)
 
 test: test-recognition-drivers
 test-recognition-drivers: recognition-drivers
@@ -26,6 +30,7 @@ test-recognition-drivers: recognition-drivers
 	$(OSC8_COST_BINARY) repeat live 10 10 40 4 16 20 1048576
 	$(OSC8_COST_BINARY) unique dead 10 10 40 4 16 20 400
 	$(POLICY_COST_BINARY) 10 2 5 4096
+	$(RECOGNIZER_BUDGET_COST_BINARY) 1600 7
 
 .PHONY: test-annotation-eviction
 test: test-annotation-eviction

@@ -108,6 +108,16 @@ void boxrig_text_workload_observe_recognizer_result_lookup(void)
     text_workload_add(&text_workload_counters.recognizer_result_lookup_probes, 1u);
 }
 
+void boxrig_text_workload_observe_recognizer_metadata(size_t count)
+{
+    text_workload_add(&text_workload_counters.recognizer_metadata_steps, count);
+}
+
+void boxrig_text_workload_observe_recognizer_finalize(size_t count)
+{
+    text_workload_add(&text_workload_counters.recognizer_finalize_steps, count);
+}
+
 void boxrig_text_workload_counters_read(
     boxrig_text_workload_counters *counters_out)
 {
@@ -524,6 +534,7 @@ static size_t logical_line_end(
            document_fragment_soft_wrapped(screen, text_screen, end - 1)) {
         end++;
     }
+    boxrig_text_workload_observe_recognizer_metadata(end - line_start);
     return end;
 }
 
@@ -1438,6 +1449,7 @@ boxrig_status boxrig_screen_text_fragment_info(
     }
     const boxrig_text_fragment_metadata *metadata =
         document_fragment_metadata(screen, text_screen, fragment_index);
+    boxrig_text_workload_observe_recognizer_metadata(1u);
     info_out->fragment_count = document_fragment_count(screen, text_screen);
     info_out->position = make_position(
         text_screen, metadata->line_id, 0u, metadata->line_revision,
@@ -1729,26 +1741,6 @@ boxrig_status boxrig_screen_text_document_size(
     }
     *bytes_out = bytes;
     *lines_out = lines;
-    return BOXRIG_STATUS_OK;
-}
-
-boxrig_status boxrig_screen_text_line_metadata(
-    const boxrig_screen *screen,
-    boxrig_text_screen text_screen,
-    size_t fragment_index,
-    boxrig_text_position *position_out,
-    size_t *next_fragment_out)
-{
-    if (screen == NULL || !text_screen_valid(text_screen) ||
-        position_out == NULL || next_fragment_out == NULL ||
-        fragment_index >= document_fragment_count(screen, text_screen)) {
-        return BOXRIG_STATUS_INVALID_ARGUMENT;
-    }
-    const boxrig_text_fragment_metadata *metadata =
-        document_fragment_metadata(screen, text_screen, fragment_index);
-    *position_out = make_position(text_screen, metadata->line_id, 0u,
-        metadata->line_revision, screen->text_revision);
-    *next_fragment_out = logical_line_end(screen, text_screen, fragment_index);
     return BOXRIG_STATUS_OK;
 }
 

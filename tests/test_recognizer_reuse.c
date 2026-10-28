@@ -570,8 +570,19 @@ static bool test_positive_lines_preserve_results_and_captures(void)
     CHECK(feed(terminal, "\rploin"));
     bool more = false;
     fail_next_realloc = true;
-    CHECK(boxrig_terminal_resume_text_recognizers(
-              terminal, 1u, &work, &more) == BOXRIG_STATUS_OUT_OF_MEMORY);
+    bool saw_oom = false;
+    for (size_t attempt = 0u; attempt < 10000u; attempt++) {
+        boxrig_status status = boxrig_terminal_resume_text_recognizers(
+            terminal, 1u, &work, &more);
+        CHECK(work <= 1u);
+        if (status == BOXRIG_STATUS_OUT_OF_MEMORY) {
+            saw_oom = true;
+            break;
+        }
+        CHECK(status == BOXRIG_STATUS_OK);
+        CHECK(more);
+    }
+    CHECK(saw_oom);
     CHECK(!fail_next_realloc);
     CHECK(complete_scan(terminal, 1u, &work, &counters));
     CHECK(!boxrig_terminal_text_recognizer_event_peek(terminal, NULL));

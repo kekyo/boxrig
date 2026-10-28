@@ -449,7 +449,9 @@ static bool incomplete_once_for_same_revision(void)
     CHECK(feed(terminal, (const uint8_t *)"hit", 3u));
     CHECK(boxrig_terminal_resume_text_recognizers(terminal, 128u,
         &used, &more) == BOXRIG_STATUS_OK);
-    CHECK(used == 0u && !more);
+    /* Document measurement now consumes scan work before reporting the
+     * limit. A subsequent dispatch for the same revision remains idle. */
+    CHECK(used > 0u && used <= 128u && !more);
     CHECK(boxrig_terminal_text_recognizer_event_peek(terminal, &event));
     CHECK(event.kind == BOXRIG_TEXT_RECOGNIZER_EVENT_SCOPE_INCOMPLETE);
     CHECK(event.recognizer_id == id);

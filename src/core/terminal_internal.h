@@ -412,14 +412,6 @@ boxrig_status boxrig_screen_text_document_size(
     boxrig_text_screen text_screen,
     size_t *bytes_out,
     size_t *lines_out);
-/* Read a synchronized logical line's identity and extent without projecting
- * cells. The caller must start at a logical-line boundary. */
-boxrig_status boxrig_screen_text_line_metadata(
-    const boxrig_screen *screen,
-    boxrig_text_screen text_screen,
-    size_t fragment_index,
-    boxrig_text_position *position_out,
-    size_t *next_fragment_out);
 boxrig_status boxrig_terminal_reuse_text_line_snapshot(
     const boxrig_terminal *terminal,
     boxrig_text_screen text_screen,
@@ -616,6 +608,8 @@ typedef struct boxrig_text_workload_counters {
     size_t recognizer_match_identity_comparisons;
     size_t recognizer_line_lookup_probes;
     size_t recognizer_result_lookup_probes;
+    size_t recognizer_metadata_steps;
+    size_t recognizer_finalize_steps;
 } boxrig_text_workload_counters;
 
 void boxrig_text_workload_counters_reset(void);
@@ -629,6 +623,8 @@ void boxrig_text_workload_observe_recognizer_cursor_creation(void);
 void boxrig_text_workload_observe_recognizer_match_identity_comparison(void);
 void boxrig_text_workload_observe_recognizer_line_lookup(void);
 void boxrig_text_workload_observe_recognizer_result_lookup(void);
+void boxrig_text_workload_observe_recognizer_metadata(size_t count);
+void boxrig_text_workload_observe_recognizer_finalize(size_t count);
 #else
 #define boxrig_text_workload_observe_placeholder_cell() ((void)0)
 #define boxrig_text_workload_observe_ascii_batch(count) ((void)(count))
@@ -641,6 +637,8 @@ void boxrig_text_workload_observe_recognizer_result_lookup(void);
     ((void)0)
 #define boxrig_text_workload_observe_recognizer_line_lookup() ((void)0)
 #define boxrig_text_workload_observe_recognizer_result_lookup() ((void)0)
+#define boxrig_text_workload_observe_recognizer_metadata(count) ((void)(count))
+#define boxrig_text_workload_observe_recognizer_finalize(count) ((void)(count))
 #endif
 boxrig_status boxrig_terminal_queue_notification(
     boxrig_terminal *terminal,

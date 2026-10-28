@@ -1900,6 +1900,10 @@ boxrig_text_recognizer_limits boxrig_text_recognizer_limits_default(void);
  * matches, and grapheme-boundary match ends. Nullable expressions and syntax
  * requiring backtracking are rejected. The terminal never invokes an
  * application callback.
+ * Document sizes are checked incrementally by resume, not registration.
+ * Exceeding a snapshot or scan limit reports SCOPE_INCOMPLETE for that
+ * revision through the event API; a successful registration alone does not
+ * guarantee that the current document fits its scan limits.
  */
 boxrig_status boxrig_terminal_register_text_recognizer(
     boxrig_terminal *terminal,
@@ -1917,6 +1921,8 @@ boxrig_status boxrig_terminal_register_text_recognizer(
  * @param recognizer_id_out Required nonzero identity, cleared on failure.
  * @return OK, INVALID_ARGUMENT, LIMIT_EXCEEDED, or OUT_OF_MEMORY.
  * @remarks Uses the same captures and matching rules as standalone matchers.
+ * Document limits are checked by resume and reported as SCOPE_INCOMPLETE,
+ * as with pattern-based registration.
  */
 boxrig_status boxrig_terminal_register_compiled_text_recognizer(
     boxrig_terminal *terminal, boxrig_regex_program *program,
@@ -1961,12 +1967,13 @@ size_t boxrig_terminal_text_recognizer_count(
     const boxrig_terminal *terminal);
 
 /**
- * Advances recognizer line preparation and NFA cursors by a positive integer
- * work budget.
+ * Advances document measurement, line projection, NFA cursors, result commit,
+ * and capture cleanup by a positive integer work budget.
  *
  * @param terminal Terminal whose pending baselines and dirty lines advance.
- * @param work_budget Maximum explicit line preparation, NFA, and scan work in
- *        this dispatch.
+ * @param work_budget Maximum explicit scan work units in this dispatch.
+ *        One unit handles one fragment, cell, byte, match, or retained result,
+ *        a state transition, or a batch of at most 32 cache/index slots.
  * @param work_used_out Receives work no greater than work_budget.
  * @param more_work_out Receives whether another dispatch is required.
  * @return BOXRIG_STATUS_OK, BOXRIG_STATUS_INVALID_ARGUMENT, or
@@ -1976,6 +1983,11 @@ size_t boxrig_terminal_text_recognizer_count(
  * Drain events with peek/consume even when more_work_out is false. If text or
  * layout changes before all prior notifications are consumed, this call
  * replaces them with RESCAN_REQUIRED; no incomplete delta is published.
+ * The budget is a work bound, not a wall-clock deadline. Allocation, capture
+ * materialization, and individual hash lookups remain indivisible operations.
+ * Public text mutations synchronize text before returning; their cost is
+ * separate from this dispatch. Results become visible atomically, while old
+ * captures can be released by subsequent dispatches.
  */
 boxrig_status boxrig_terminal_resume_text_recognizers(
     boxrig_terminal *terminal,
