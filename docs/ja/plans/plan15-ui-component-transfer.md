@@ -317,3 +317,8 @@ widget試験は、GTK3・GTK4それぞれのX11 Cairo、X11 OpenGL、Wayland Cai
 標準操作は[GTK3 Container.remove](https://docs.gtk.org/gtk3/method.Container.remove.html)、[GTK4 Window.set_child](https://docs.gtk.org/gtk4/method.Window.set_child.html)とSDKの宣言・コメントを確認しました。quiesceは終了操作のため移設には使いません。公開コメントと利用文書には、参照、入力、再配置、OpenGL資源の扱いを記載しました。全体テストと最終的な完了条件の照合は次の段階で行います。
 
 最終のGTK4試験では、ブラケット付き貼り付けの開始通知を送った後に移設し、残り本文と終了通知までバイト列で確認しました。GTK3・GTK4のX11 Cairo試験はASan・UBSan付きで成功しています。GTK3のリーク検査には、既存ランナーと同じ[倍率変更時の限定除外](../../../tests/gtk3/gdk_scale_leaks.supp)を適用しました。[GTK 3.24.41の該当コード](https://github.com/GNOME/gtk/blob/3.24.41/gdk/x11/gdkscreen-x11.c#L1131-L1160)から割り当てたリスト240バイトだけが対象で、設定の追加・変更はありません。ログはgtk3-final-green.logとgtk4-final-green.logです。
+
+
+### 段階4の全体確認中に検出した統合不備
+
+全体テストの隔離プロトコルビルドで、追加したtransfer.mkが作業コピーに含まれず失敗しました。Makefile本体を共有する試験用コピーには、参照するMakefile部品も必要です。tests/wayland/test_protocol_build.shのコピー一覧へ4環境の部品を加え、make test-wayland-protocol-buildの成功を確認しました。製品の移設処理を変更する必要はありません。REDはfull-test.log、GREENはwayland-protocol-build-green.logに保存しています。
