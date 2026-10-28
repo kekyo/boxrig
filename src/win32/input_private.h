@@ -14,4 +14,12 @@ void boxrig_win32_input_adapter_report_animation_failure(
 boxrig_ui_status boxrig_win32_input_adapter_animation_status(
     const boxrig_win32_input_adapter *adapter);
 
+/* Validates a native parent move without changing the retained input state. */
+boxrig_ui_status boxrig_win32_input_adapter_check_reparent(
+    const boxrig_win32_input_adapter *adapter);
+
+/* Invalidates native input queued before a successful parent move. */
+void boxrig_win32_input_adapter_complete_reparent(
+    boxrig_win32_input_adapter *adapter);
+
 #endif

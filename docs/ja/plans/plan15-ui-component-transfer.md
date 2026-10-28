@@ -280,3 +280,20 @@ C99の警告をエラーとするビルド、test-wayland-input、Westonの共�
 親commitの完了確認に必要な資源の確保を失敗させ、OUT_OF_MEMORY後の再試行を検証しました。移設要求と世代を保持し、同じ完了通知を再試行すると成功します。旧親は要求受理後、新しい親commitの前に破棄しても、その後の入力を継続できました。
 
 test-wayland-inputと共有メモリー・OpenGLのPTY操作例が成功しています。入力試験のASan・UBSan・リーク検査も通りました。証跡はwayland-focus-red.log、wayland-pending-release-red.log、wayland-pending-release-green.log、wayland-reparent-lifetime-green.logです。これらはWaylandの確認結果であり、計画全体の完了ではありません。
+
+
+### 段階2のWin32実装と段階3の境界検証
+
+Win32の所有子HWNDに親変更APIを追加しました。同じプロセス・UIスレッドで、DPI awarenessが一致する親を受け付けます。子HWND、view、レンダラーとセッションを保持し、成功後に入力世代を更新します。準備中の配置、描画フレーム、コールバック、押下中のキー・ボタン、入力捕捉、IME、貼り付けがある場合はBUSYを返します。SetParentの失敗注入では旧親を保持しました。
+
+同親を指定した押下中の呼び出し、描画要求コールバック内、端末向けマウス報告中、ネイティブcapture中の呼び出しは、REDを確認してからBUSYに修正しました。捕捉取消後にもボタン押下が残る問題は、WM_CANCELMODEとWM_CAPTURECHANGEDで解消するように修正しています。
+
+ソフトウェア描画の試験では、別親との往復、旧親の破棄後の継続描画、選択文字列、行高設定、layout authority、フォント寸法を確認しました。移設自体では寸法を変えず、ホストからDPIを1.5倍に更新した後に配置すると、セル寸法を更新しながら選択を保持できます。これはホストからのDPI更新を模擬した試験で、異なるDPIの物理モニター間の移動を実測した結果ではありません。
+
+WGLはamd64とi686のWine上で、移設前後のGPU描画バッファーと子HWND・viewの保持を確認しました。WineではD3D11生成が未対応のため、agent-roverで実Windowsへ接続し、D3D11の8構成を実行しています。amd64・i686、hardware・WARP、transaction・fontの全構成で成功し、デバイス世代を保持しました。テスト後は実機を解放しています。
+
+examples/win32/transfer.cはF6で二つの親を往復するConPTYドライバーです。実機のamd64・i686で、子プロセスの可視文字とOSC titleの通知に続いて移設し、同じPTYへの入力と応答を確認しました。待ち時間で進行を決めず、応答通知で次へ進みます。実機テストはtests/p2/win32/src/win32-transfer.test.tsから実行できます。
+
+SetParentとDPI awarenessの制約は[Microsoftの公式資料](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setparent)とMinGW SDKの宣言を確認しました。警告をエラーとして扱うamd64・i686のビルドは成功しています。Win32段階の全体テストとの統合確認は、段階4で行います。
+
+追加の境界試験では、移設後のフォーカス再取得、親のクライアント領域に対する配置の保持、旧WM_CHAR・WM_IME_CHARの破棄を確認しました。未確定入力と未完の貼り付けがある場合の移設はBUSYとなり、入力が落ち着いた後は往復を継続できます。

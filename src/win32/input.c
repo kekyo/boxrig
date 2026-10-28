@@ -104,6 +104,7 @@ struct boxrig_win32_input_adapter {
     boxrig_input_mouse_router mouse_router;
     void *mouse_router_context;
     uint32_t application_buttons;
+    uint32_t pressed_mouse_buttons;
     DWORD last_click_time;
     boxrig_mouse_button last_click_button;
     int last_click_x;
@@ -2263,6 +2264,10 @@ static int process_mouse_button(
                                             : BOXRIG_MOUSE_PRESS;
     event.button = message_button(message, word_parameter);
     event.pressed_buttons = mouse_buttons(word_parameter);
+    if (event.action == BOXRIG_MOUSE_PRESS)
+        adapter->pressed_mouse_buttons |= button_mask(event.button);
+    else
+        adapter->pressed_mouse_buttons &= ~button_mask(event.button);
     event.modifiers = mouse_modifiers(adapter, word_parameter);
     translate_coordinates(
         adapter,
@@ -3174,6 +3179,44 @@ boxrig_ui_status boxrig_win32_input_adapter_set_input_config(
     return BOXRIG_UI_INVALID_ARGUMENT;
 }
 
+boxrig_ui_status boxrig_win32_input_adapter_check_reparent(
+    const boxrig_win32_input_adapter *adapter)
+{
+    boxrig_composition_view composition;
+    if (adapter == NULL) return BOXRIG_UI_INVALID_ARGUMENT;
+    if (boxrig_composition_get_view(adapter->composition, &composition) !=
+        BOXRIG_COMPOSITION_OK) return BOXRIG_UI_UNAVAILABLE;
+    if (adapter->control.state.generation == UINT64_MAX)
+        return BOXRIG_UI_LIMIT_EXCEEDED;
+    if (adapter->dispatching || adapter->control.state.phase == BOXRIG_UI_INPUT_STOPPING ||
+        adapter->pending.kind != PENDING_INPUT_NONE || adapter->paste_active ||
+        adapter->character.active || adapter->high_surrogate != 0 ||
+        adapter->ime_high_surrogate != 0 || adapter->native_composing ||
+        adapter->deferred_preedit.active || adapter->reconversion_sink_active ||
+        adapter->application_buttons != 0 || adapter->pressed_mouse_buttons != 0 ||
+        composition.active ||
+        composition.commit_pending) return BOXRIG_UI_BUSY;
+    for (size_t slot = 0; slot < KEY_SLOT_COUNT; slot++)
+        if (adapter->pressed[slot]) return BOXRIG_UI_BUSY;
+    return BOXRIG_UI_OK;
+}
+
+void boxrig_win32_input_adapter_complete_reparent(
+    boxrig_win32_input_adapter *adapter)
+{
+    adapter->control.state.generation++;
+    adapter->discard_focus_loss_ime_result = true;
+    adapter->ime_requires_start = true;
+    adapter->synchronized_composition_form_valid = false;
+    adapter->synchronized_candidate_form_valid = false;
+    adapter->vertical_wheel_delta = 0;
+    adapter->horizontal_wheel_delta = 0;
+    memset(&adapter->character, 0, sizeof(adapter->character));
+    adapter->high_surrogate = 0;
+    for (size_t slot = 0; slot < KEY_SLOT_COUNT; slot++)
+        adapter->stale_character[slot] = true;
+}
+
 int boxrig_win32_input_adapter_set_key_router(
     boxrig_win32_input_adapter *adapter,
     boxrig_input_key_router router,
@@ -3459,6 +3502,12 @@ static int process_message(
         return -1;
     }
     *result_out = 0;
+    if (message == WM_CANCELMODE || message == WM_CAPTURECHANGED) {
+        adapter->pressed_mouse_buttons = 0;
+        adapter->application_buttons = 0;
+        adapter->last_click_valid = false;
+        return 0;
+    }
     if (adapter->animation_view != NULL &&
         (message == WM_KEYDOWN || message == WM_SYSKEYDOWN ||
          message == WM_IME_KEYDOWN || message == WM_CHAR || message == WM_SYSCHAR) &&
@@ -3723,6 +3772,7 @@ static int process_message(
         adapter->modifiers &= BOXRIG_MODIFIER_CAPS_LOCK |
                               BOXRIG_MODIFIER_NUM_LOCK;
         adapter->application_buttons = 0;
+        adapter->pressed_mouse_buttons = 0;
         adapter->last_click_valid = false;
         adapter->character.active = false;
         adapter->high_surrogate = 0;

@@ -28,6 +28,19 @@
         }                                                                       \
     } while (0)
 
+#ifdef BOXRIG_TEST_REPARENT_FAILURE
+static bool fail_set_parent;
+
+HWND WINAPI boxrig_test_set_parent(HWND child, HWND parent)
+{
+    if (fail_set_parent) {
+        SetLastError(ERROR_ACCESS_DENIED);
+        return NULL;
+    }
+    return SetParent(child, parent);
+}
+#endif
+
 static unsigned int omitted_interface;
 static unsigned int omitted_interface_queries;
 
@@ -531,6 +544,21 @@ static void count_frame_request(void *context)
     size_t *count = context;
 
     (*count)++;
+}
+
+typedef struct reparent_callback_probe {
+    boxrig_win32_terminal_component *component;
+    HWND destination;
+    size_t calls;
+    boxrig_ui_status status;
+} reparent_callback_probe;
+
+static void reparent_during_frame_request(void *context)
+{
+    reparent_callback_probe *probe = context;
+    probe->calls++;
+    probe->status = boxrig_win32_terminal_component_reparent(
+        probe->component, probe->destination);
 }
 
 typedef struct presentation_probe {
@@ -2322,6 +2350,7 @@ static bool input_inhibition_completes_during_frames(void)
     HIMC previous_context = ImmAssociateContext(input, input_context);
     CHECK(feed_text(terminal, "\033[?2004h"));
     CHECK(boxrig_win32_terminal_component_queue_paste(component, (const uint8_t *)"discard", 7) == BOXRIG_UI_OK);
+    CHECK(boxrig_win32_terminal_component_reparent(component, parent) == BOXRIG_UI_BUSY);
     CHECK(boxrig_win32_terminal_component_set_input_enabled(component, false) == BOXRIG_UI_BUSY);
     boxrig_ui_input_state state;
     CHECK(boxrig_win32_terminal_component_get_input_state(component, &state) == BOXRIG_UI_OK);
@@ -2364,12 +2393,283 @@ static bool input_inhibition_completes_during_frames(void)
     return true;
 }
 
+static bool owned_child_moves_between_windows(void)
+{
+    HINSTANCE instance = GetModuleHandleW(NULL);
+    HWND first = CreateWindowExW(0, L"STATIC", L"first", WS_OVERLAPPEDWINDOW,
+        0, 0, 640, 480, NULL, NULL, instance, NULL);
+    HWND second = CreateWindowExW(0, L"STATIC", L"second", WS_OVERLAPPEDWINDOW,
+        50, 50, 640, 480, NULL, NULL, instance, NULL);
+    boxrig_terminal_config terminal_config = boxrig_terminal_config_default();
+    boxrig_win32_terminal_component_config config =
+        boxrig_win32_terminal_component_config_default();
+    boxrig_terminal *terminal = NULL;
+    boxrig_ui_model *model = NULL;
+    boxrig_win32_terminal_component *component = NULL;
+    HWND child;
+    boxrig_ui_view *view;
+    boxrig_ui_input_state before;
+    boxrig_ui_input_state after;
+    LRESULT message_result;
+    CHECK(first != NULL && second != NULL);
+    CHECK(boxrig_terminal_create(&terminal_config, &terminal) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
+    CHECK(boxrig_win32_terminal_component_create_child(instance, first, model,
+        &config, &component) == BOXRIG_UI_OK);
+    child = boxrig_win32_terminal_component_owned_window(component);
+    view = boxrig_win32_terminal_component_view(component);
+    CHECK(boxrig_win32_terminal_component_get_input_state(component, &before) == BOXRIG_UI_OK);
+    CHECK(boxrig_win32_terminal_component_reparent(component, child) == BOXRIG_UI_UNAVAILABLE);
+    CHECK(boxrig_win32_terminal_component_reparent(component, NULL) == BOXRIG_UI_INVALID_ARGUMENT);
+    CHECK(GetParent(child) == first);
+    boxrig_composition_event preedit = {0};
+    preedit.type = BOXRIG_COMPOSITION_PREEDIT_UPDATE;
+    preedit.text = "pending";
+    preedit.text_length = 7;
+    CHECK(boxrig_composition_apply_event(
+        boxrig_win32_terminal_component_composition(component), &preedit) == BOXRIG_COMPOSITION_OK);
+    CHECK(boxrig_win32_terminal_component_reparent(component, second) == BOXRIG_UI_BUSY);
+    CHECK(GetParent(child) == first);
+    memset(&preedit, 0, sizeof(preedit));
+    preedit.type = BOXRIG_COMPOSITION_CANCEL;
+    CHECK(boxrig_composition_apply_event(
+        boxrig_win32_terminal_component_composition(component), &preedit) == BOXRIG_COMPOSITION_OK);
+#ifdef BOXRIG_TEST_REPARENT_FAILURE
+    fail_set_parent = true;
+    CHECK(boxrig_win32_terminal_component_reparent(component, second) == BOXRIG_UI_UNAVAILABLE);
+    CHECK(GetParent(child) == first);
+    CHECK(boxrig_win32_terminal_component_owned_window(component) == child);
+    CHECK(boxrig_win32_terminal_component_view(component) == view);
+    fail_set_parent = false;
+#endif
+    CHECK(boxrig_win32_terminal_component_reparent(component, second) == BOXRIG_UI_OK);
+    CHECK(GetParent(child) == second);
+    CHECK(boxrig_win32_terminal_component_get_input_state(component, &after) == BOXRIG_UI_OK);
+    CHECK(after.generation > before.generation);
+    CHECK(boxrig_win32_terminal_component_dispatch_message(component, child,
+        WM_CHAR, 'z', 0, &message_result) != BOXRIG_UI_COMPONENT_EVENT_FAILURE);
+    CHECK(boxrig_win32_terminal_component_dispatch_message(component, child,
+        WM_IME_CHAR, 'z', 0, &message_result) != BOXRIG_UI_COMPONENT_EVENT_FAILURE);
+    const uint8_t *stale_output = NULL;
+    CHECK(boxrig_terminal_output_peek(terminal, &stale_output) == 0);
+    CHECK(feed_text(terminal, "\033[?1000;1006h"));
+    CHECK(boxrig_win32_terminal_component_dispatch_message(component, child,
+        WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(4, 4), &message_result) !=
+        BOXRIG_UI_COMPONENT_EVENT_FAILURE);
+    CHECK(boxrig_win32_terminal_component_reparent(component, first) == BOXRIG_UI_BUSY);
+    CHECK(boxrig_win32_terminal_component_dispatch_message(component, child,
+        WM_LBUTTONUP, 0, MAKELPARAM(4, 4), &message_result) !=
+        BOXRIG_UI_COMPONENT_EVENT_FAILURE);
+    CHECK(boxrig_win32_terminal_component_dispatch_message(component, child,
+        WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(4, 4), &message_result) !=
+        BOXRIG_UI_COMPONENT_EVENT_FAILURE);
+    CHECK(boxrig_win32_terminal_component_dispatch_message(component, child,
+        WM_CANCELMODE, 0, 0, &message_result) != BOXRIG_UI_COMPONENT_EVENT_FAILURE);
+    CHECK(boxrig_win32_terminal_component_reparent(component, second) == BOXRIG_UI_OK);
+    CHECK(boxrig_win32_terminal_component_dispatch_message(component, child,
+        WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(4, 4), &message_result) !=
+        BOXRIG_UI_COMPONENT_EVENT_FAILURE);
+    CHECK(boxrig_win32_terminal_component_dispatch_message(component, child,
+        WM_CAPTURECHANGED, 0, 0, &message_result) != BOXRIG_UI_COMPONENT_EVENT_FAILURE);
+    CHECK(boxrig_win32_terminal_component_reparent(component, second) == BOXRIG_UI_OK);
+    CHECK(SetCapture(child) != NULL || GetCapture() == child);
+    CHECK(GetCapture() == child);
+    CHECK(boxrig_win32_terminal_component_reparent(component, first) == BOXRIG_UI_BUSY);
+    CHECK(ReleaseCapture());
+    HWND scrollbar = boxrig_win32_terminal_component_scrollbar_window(component);
+    CHECK(scrollbar != NULL);
+    (void)SetCapture(scrollbar);
+    CHECK(GetCapture() == scrollbar);
+    CHECK(boxrig_win32_terminal_component_reparent(component, first) == BOXRIG_UI_BUSY);
+    CHECK(ReleaseCapture());
+    CHECK(boxrig_win32_terminal_component_dispatch_message(component, child,
+        WM_KEYDOWN, 'A', 0, &message_result) != BOXRIG_UI_COMPONENT_EVENT_FAILURE);
+    CHECK(boxrig_win32_terminal_component_reparent(component, second) == BOXRIG_UI_BUSY);
+    CHECK(boxrig_win32_terminal_component_reparent(component, first) == BOXRIG_UI_BUSY);
+    CHECK(GetParent(child) == second);
+    CHECK(boxrig_win32_terminal_component_dispatch_message(component, child,
+        WM_CHAR, 'a', 0, &message_result) != BOXRIG_UI_COMPONENT_EVENT_FAILURE);
+    CHECK(boxrig_win32_terminal_component_dispatch_message(component, child,
+        WM_KEYUP, 'A', 0, &message_result) != BOXRIG_UI_COMPONENT_EVENT_FAILURE);
+    boxrig_ui_component_frame_result frame;
+    CHECK(boxrig_win32_terminal_component_frame(component, &frame) == BOXRIG_UI_OK);
+    CHECK(boxrig_win32_terminal_component_owned_window(component) == child);
+    CHECK(boxrig_win32_terminal_component_view(component) == view);
+    CHECK(boxrig_win32_terminal_component_reparent(component, first) == BOXRIG_UI_OK);
+    CHECK(GetParent(child) == first);
+    CHECK(boxrig_win32_terminal_component_get_input_state(component, &after) == BOXRIG_UI_OK);
+    CHECK(after.generation > before.generation + 1);
+    boxrig_ui_component_allocation allocation = {0};
+    boxrig_ui_layout_result layout;
+    allocation.width = 320;
+    allocation.height = 160;
+    allocation.window_state = BOXRIG_UI_WINDOW_EMBEDDED;
+    CHECK(boxrig_win32_terminal_component_allocate(component, &allocation,
+        &layout) == BOXRIG_UI_OK);
+    CHECK(boxrig_win32_terminal_component_set_visible(component, true) == BOXRIG_UI_OK);
+    CHECK(boxrig_win32_terminal_component_frame(component, &frame) == BOXRIG_UI_OK);
+    reparent_callback_probe probe = {component, second, 0, BOXRIG_UI_OK};
+    CHECK(boxrig_win32_terminal_component_set_frame_request_callback(component,
+        reparent_during_frame_request, &probe) == BOXRIG_UI_OK);
+    CHECK(feed_text(terminal, "callback guard"));
+    CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+    CHECK(probe.calls > 0 && probe.status == BOXRIG_UI_BUSY);
+    CHECK(GetParent(child) == first);
+    CHECK(boxrig_win32_terminal_component_frame(component, &frame) == BOXRIG_UI_OK);
+    probe.calls = 0;
+    CHECK(feed_text(terminal, " frame guard"));
+    CHECK(boxrig_win32_terminal_component_frame(component, &frame) == BOXRIG_UI_OK);
+    CHECK(probe.calls > 0 && probe.status == BOXRIG_UI_BUSY);
+    CHECK(GetParent(child) == first);
+    CHECK(boxrig_win32_terminal_component_set_frame_request_callback(component,
+        NULL, NULL) == BOXRIG_UI_OK);
+    CHECK(DestroyWindow(second));
+    second = NULL;
+    CHECK(IsWindow(child) && GetParent(child) == first);
+    boxrig_win32_terminal_component_destroy(component);
+    boxrig_ui_model_destroy(model);
+    boxrig_terminal_destroy(terminal);
+    CHECK(DestroyWindow(first));
+    return true;
+}
+
+static bool reparent_preserves_selection_and_output_metrics(void)
+{
+    HINSTANCE instance = GetModuleHandleW(NULL);
+    HWND parents[2] = {
+        CreateWindowExW(0, L"STATIC", L"metrics first", WS_OVERLAPPEDWINDOW,
+            0, 0, 640, 480, NULL, NULL, instance, NULL),
+        CreateWindowExW(0, L"STATIC", L"metrics second", WS_OVERLAPPEDWINDOW,
+            50, 50, 640, 480, NULL, NULL, instance, NULL)
+    };
+    CHECK(parents[0] != NULL && parents[1] != NULL);
+    boxrig_terminal_config tc = boxrig_terminal_config_default();
+    tc.rows = 3;
+    tc.columns = 20;
+    boxrig_terminal *terminal = NULL;
+    boxrig_ui_model *model = NULL;
+    boxrig_win32_terminal_component *component = NULL;
+    boxrig_win32_terminal_component_config config =
+        boxrig_win32_terminal_component_config_default();
+    config.scrollbar_presentation = BOXRIG_UI_COMPONENT_SCROLLBAR_NONE;
+    config.view.blink.text_enabled = false;
+    config.view.blink.cursor_enabled = false;
+    CHECK(boxrig_terminal_create(&tc, &terminal) == BOXRIG_STATUS_OK);
+    CHECK(feed_text(terminal, "persistent"));
+    CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
+    CHECK(boxrig_win32_terminal_component_create_child(instance, parents[0],
+        model, &config, &component) == BOXRIG_UI_OK);
+    CHECK(boxrig_win32_terminal_component_set_line_height_adjustment(
+        component, 2.0f) == BOXRIG_UI_OK);
+    boxrig_ui_view *view = boxrig_win32_terminal_component_view(component);
+    HWND child = boxrig_win32_terminal_component_owned_window(component);
+    boxrig_font_effective_metrics metrics;
+    CHECK(boxrig_win32_terminal_component_get_effective_metrics(component,
+        &metrics) == BOXRIG_FONT_CATALOG_OK);
+    boxrig_ui_component_allocation allocation = {0};
+    allocation.width = metrics.cell_width * tc.columns;
+    allocation.height = metrics.cell_height * tc.rows;
+    allocation.window_state = BOXRIG_UI_WINDOW_EMBEDDED;
+    boxrig_ui_layout_result layout;
+    CHECK(boxrig_win32_terminal_component_allocate(component, &allocation,
+        &layout) == BOXRIG_UI_OK);
+    boxrig_ui_hit_test_result hit = {0};
+    hit.inside_grid = hit.text_position_valid = true;
+    CHECK(boxrig_terminal_get_text_position(terminal, BOXRIG_TEXT_SCREEN_PRIMARY,
+        0, 0, &hit.leading_position) == BOXRIG_STATUS_OK);
+    hit.trailing_position = hit.position = hit.leading_position;
+    CHECK(boxrig_ui_view_begin_selection(view, BOXRIG_UI_SELECTION_WORD,
+        &hit) == BOXRIG_UI_OK);
+    CHECK(boxrig_win32_terminal_component_set_visible(component, true) == BOXRIG_UI_OK);
+    boxrig_ui_component_frame_result frame;
+    CHECK(boxrig_win32_terminal_component_frame(component, &frame) == BOXRIG_UI_OK);
+
+    ShowWindow(parents[0], SW_SHOWNA);
+    ShowWindow(parents[1], SW_SHOWNA);
+    CHECK(boxrig_win32_terminal_component_request_focus(component) == BOXRIG_UI_OK);
+    CHECK(boxrig_win32_terminal_component_focused(component));
+    for (size_t move = 0; move < 4; move++) {
+        CHECK(boxrig_win32_terminal_component_reparent(component,
+            parents[(move + 1) % 2]) == BOXRIG_UI_OK);
+        CHECK(GetParent(child) == parents[(move + 1) % 2]);
+        RECT child_rect;
+        POINT parent_origin = {0, 0};
+        CHECK(GetWindowRect(child, &child_rect));
+        CHECK(ClientToScreen(parents[(move + 1) % 2], &parent_origin));
+        CHECK(child_rect.left - parent_origin.x == allocation.x);
+        CHECK(child_rect.top - parent_origin.y == allocation.y);
+        CHECK(boxrig_win32_terminal_component_request_focus(component) == BOXRIG_UI_OK);
+        CHECK(boxrig_win32_terminal_component_focused(component));
+        CHECK(boxrig_win32_terminal_component_view(component) == view);
+        CHECK(boxrig_ui_view_is_layout_authority(view));
+        boxrig_font_effective_metrics after;
+        CHECK(boxrig_win32_terminal_component_get_effective_metrics(component,
+            &after) == BOXRIG_FONT_CATALOG_OK);
+        CHECK(metrics_match(&metrics, &after));
+        float line_height = 0;
+        CHECK(boxrig_win32_terminal_component_get_line_height_adjustment(
+            component, &line_height) == BOXRIG_UI_OK && line_height == 2.0f);
+        if (move == 0) {
+            /* The host supplies destination DPI; moving alone does not alter it. */
+            boxrig_font_rendering_policy policy;
+            CHECK(boxrig_win32_terminal_component_get_font_rendering_policy(
+                component, &policy) == BOXRIG_UI_OK);
+            policy.dpi_x *= 1.5f;
+            policy.dpi_y *= 1.5f;
+            CHECK(boxrig_win32_terminal_component_set_font_rendering_policy(
+                component, &policy) == BOXRIG_UI_OK);
+            CHECK(boxrig_win32_terminal_component_get_effective_metrics(component,
+                &after) == BOXRIG_FONT_CATALOG_OK);
+            CHECK(after.cell_height > metrics.cell_height);
+            CHECK(after.layout_revision > metrics.layout_revision);
+            metrics = after;
+            allocation.width = metrics.cell_width * tc.columns;
+            allocation.height = metrics.cell_height * tc.rows;
+            CHECK(boxrig_win32_terminal_component_allocate(component,
+                &allocation, &layout) == BOXRIG_UI_OK);
+            boxrig_ui_layout_action action;
+            while (boxrig_win32_terminal_component_take_layout_action(component,
+                &action)) {
+                CHECK(action.kind == BOXRIG_UI_LAYOUT_ACTION_GRID_RESIZE);
+                CHECK(boxrig_terminal_resize(terminal, action.value.grid_resize.rows,
+                    action.value.grid_resize.columns) == BOXRIG_STATUS_OK);
+                CHECK(boxrig_win32_terminal_component_complete_grid_resize(component,
+                    action.revision, true) == BOXRIG_UI_OK);
+            }
+        }
+        CHECK(boxrig_win32_terminal_component_frame(component, &frame) == BOXRIG_UI_OK);
+        boxrig_text_snapshot *snapshot = NULL;
+        CHECK(boxrig_ui_view_create_selection_snapshot(view, &snapshot) == BOXRIG_UI_OK);
+        size_t length = 0;
+        const uint8_t *selected = boxrig_text_snapshot_data(snapshot, &length);
+        if (length != 10 || memcmp(selected, "persistent", length < 10 ? length : 10) != 0)
+            fprintf(stderr, "selection after move %zu: %zu bytes [%.*s]\n",
+                move, length, (int)length, (const char *)selected);
+        CHECK(length == 10 && memcmp(selected, "persistent", 10) == 0);
+        boxrig_text_snapshot_destroy(snapshot);
+        size_t rows, columns;
+        boxrig_terminal_size(terminal, &rows, &columns);
+        CHECK(rows == tc.rows && columns == tc.columns);
+    }
+    CHECK(DestroyWindow(parents[1]));
+    CHECK(IsWindow(child));
+    CHECK(feed_text(terminal, "\r\ncontinued"));
+    CHECK(boxrig_win32_terminal_component_frame(component, &frame) == BOXRIG_UI_OK);
+    boxrig_win32_terminal_component_destroy(component);
+    boxrig_ui_model_destroy(model);
+    boxrig_terminal_destroy(terminal);
+    CHECK(DestroyWindow(parents[0]));
+    return true;
+}
+
 int main(int argc, char **argv)
 {
     if (argc != 2) return 1;
     for (omitted_interface = 0; omitted_interface < OPTIONAL_INTERFACE_SCENARIOS; omitted_interface++) {
         omitted_interface_queries = 0;
-        if (!input_inhibition_completes_during_frames() ||
+        if (!owned_child_moves_between_windows() ||
+            !reparent_preserves_selection_and_output_metrics() ||
+            !input_inhibition_completes_during_frames() ||
             !scrollbar_visibility_changes_layout() ||
             !component_is_embedded_and_independent(argv[1]) ||
             !constrained_zoom_uses_one_layout_action() ||

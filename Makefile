@@ -6161,6 +6161,7 @@ include tests/performance/phase_probe.mk
 include tests/performance/recognition.mk
 include tests/x11/transfer.mk
 include tests/wayland/transfer.mk
+include tests/win32/transfer.mk
 
 test: test-x11-transfer
 
