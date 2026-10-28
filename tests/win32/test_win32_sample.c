@@ -6341,6 +6341,82 @@ cleanup:
     return passed;
 }
 
+/* Screen capture and SendInput must share physical coordinates. PMv1 and
+ * PMv2 both disable coordinate virtualization; PMv2 additionally manages
+ * child notifications and non-client scaling, which this test driver does
+ * not require. See Microsoft's DPI_AWARENESS_CONTEXT and GetWindowRect docs. */
+static bool test_physical_dpi_coordinates(void)
+{
+    HWND window = CreateWindowExW(0, L"STATIC", L"boxrig-dpi-probe",
+        WS_POPUP | WS_VISIBLE, 100, 120, 80, 60, NULL, NULL,
+        GetModuleHandleW(NULL), NULL);
+    if (window == NULL) return false;
+    bool passed = false;
+    HDC window_context = NULL, screen_context = NULL;
+    RECT rectangle = {0}, client = {0};
+    POINT point = {17, 23}, logical = {0}, physical = {0};
+    COLORREF captured = CLR_INVALID;
+    const char *stage = "window geometry";
+    INPUT input;
+    if (!GetWindowRect(window, &rectangle) || !GetClientRect(window, &client) ||
+        !ClientToScreen(window, &point)) goto cleanup;
+    if (rectangle.left != 100 || rectangle.top != 120 ||
+        rectangle.right - rectangle.left != 80 || rectangle.bottom - rectangle.top != 60 ||
+        client.right != 80 || client.bottom != 60 || point.x != 117 || point.y != 143)
+        goto cleanup;
+    /* A client pixel must be captured at the same physical desktop position
+     * used by the absolute mouse input below. */
+    stage = "screen pixel";
+    UpdateWindow(window);
+    window_context = GetDC(window);
+    screen_context = GetDC(NULL);
+    if (window_context == NULL || screen_context == NULL ||
+        SetPixel(window_context, 17, 23, RGB(43, 157, 211)) == CLR_INVALID ||
+        !GdiFlush())
+        goto cleanup;
+    /* GDI completion does not imply that the desktop compositor has presented
+     * the window surface. Observe the actual screen pixel while pumping the
+     * window queue; the deadline is a failure bound, not a rendering delay. */
+    DWORD pixel_started = GetTickCount();
+    do {
+        captured = GetPixel(screen_context, point.x, point.y);
+        if (captured == RGB(43, 157, 211)) break;
+        if (GetTickCount() - pixel_started >= 5000) goto cleanup;
+        if (MsgWaitForMultipleObjectsEx(0, NULL, 50, QS_ALLINPUT,
+                MWMO_INPUTAVAILABLE) == WAIT_FAILED) goto cleanup;
+        MSG message;
+        while (PeekMessageW(&message, NULL, 0, 0, PM_REMOVE)) {
+            TranslateMessage(&message);
+            DispatchMessageW(&message);
+        }
+    } while (true);
+    stage = "absolute mouse input";
+    initialize_absolute_mouse_input(&input, point.x, point.y, MOUSEEVENTF_MOVE,
+        GetSystemMetrics(SM_XVIRTUALSCREEN), GetSystemMetrics(SM_YVIRTUALSCREEN),
+        GetSystemMetrics(SM_CXVIRTUALSCREEN), GetSystemMetrics(SM_CYVIRTUALSCREEN));
+    if (SendInput(1, &input, sizeof(input)) != 1 ||
+        !GetCursorPos(&logical) || !GetPhysicalCursorPos(&physical) ||
+        logical.x != point.x || logical.y != point.y ||
+        physical.x != point.x || physical.y != point.y) goto cleanup;
+    printf("PASS DPI coordinates: context=%p awareness=%d dpi=%u client=80x60 physical=%ld,%ld\n",
+        (void *)GetThreadDpiAwarenessContext(),
+        (int)GetAwarenessFromDpiAwarenessContext(GetThreadDpiAwarenessContext()),
+        GetDpiForWindow(window), physical.x, physical.y);
+    passed = true;
+cleanup:
+    if (!passed) fprintf(stderr,
+        "FAIL physical DPI coordinate agreement at %s: dpi=%u rect=%ld,%ld,%ld,%ld "
+        "client=%ld,%ld point=%ld,%ld logical=%ld,%ld physical=%ld,%ld pixel=%08lx\n",
+        stage, GetDpiForWindow(window), rectangle.left, rectangle.top,
+        rectangle.right, rectangle.bottom, client.right, client.bottom,
+        point.x, point.y, logical.x, logical.y, physical.x, physical.y,
+        (unsigned long)captured);
+    if (screen_context != NULL) ReleaseDC(NULL, screen_context);
+    if (window_context != NULL) ReleaseDC(window, window_context);
+    DestroyWindow(window);
+    return passed;
+}
+
 int wmain(int argument_count, wchar_t **arguments)
 {
     STARTUPINFOW startup;
@@ -6363,9 +6439,23 @@ int wmain(int argument_count, wchar_t **arguments)
     bool scroll_information_available;
     bool passed = false;
 
-    /* Screen capture and absolute mouse input use physical desktop pixels. */
-    if (SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) == NULL)
+    /* Screen capture and absolute mouse input use physical desktop pixels.
+     * An inherited per-monitor context already provides that contract. Do
+     * not replace it just to request V2's unrelated child-window behavior. */
+    DPI_AWARENESS_CONTEXT initial_dpi = GetThreadDpiAwarenessContext();
+    if (GetAwarenessFromDpiAwarenessContext(initial_dpi) !=
+            DPI_AWARENESS_PER_MONITOR_AWARE &&
+        SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) == NULL) {
+        fprintf(stderr, "FAIL physical DPI initialization: initial=%p V2-valid=%d\n",
+            (void *)initial_dpi,
+            (int)IsValidDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2));
         return 1;
+    }
+    if (GetAwarenessFromDpiAwarenessContext(GetThreadDpiAwarenessContext()) !=
+        DPI_AWARENESS_PER_MONITOR_AWARE) return 1;
+
+    if (argument_count == 2 && wcscmp(arguments[1], L"--dpi-probe") == 0)
+        return test_physical_dpi_coordinates() ? 0 : 1;
 
     if (argument_count == 4 && wcscmp(arguments[1], L"--pointer") == 0) {
         if (!run_pointer_visibility(arguments[2], arguments[3])) return 1;

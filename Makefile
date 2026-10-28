@@ -4003,8 +4003,12 @@ test-win32-first-frame-fence: $(MINGW_AMD64_FIRST_FRAME_FENCE_TEST) $(MINGW_I686
 	$(WINE_RUN) $(abspath $(MINGW_AMD64_FIRST_FRAME_FENCE_TEST))
 	$(WINE_RUN) $(abspath $(MINGW_I686_FIRST_FRAME_FENCE_TEST))
 
-.PHONY: test-win32-sample-first-frame-fence
-test: test-win32-sample-first-frame-fence
+.PHONY: test-win32-sample-first-frame-fence test-win32-sample-dpi
+test: test-win32-sample-first-frame-fence test-win32-sample-dpi
+
+test-win32-sample-dpi: $(MINGW_AMD64_SAMPLE_TEST) $(MINGW_I686_SAMPLE_TEST)
+	$(WINE_RUN) $(abspath $(MINGW_AMD64_SAMPLE_TEST)) --dpi-probe
+	$(WINE_RUN) $(abspath $(MINGW_I686_SAMPLE_TEST)) --dpi-probe
 test-p2-win32: $(MINGW_AMD64_BUILD_DIR)/tests/first_frame_child.exe $(MINGW_I686_BUILD_DIR)/tests/first_frame_child.exe
 $(MINGW_AMD64_BUILD_DIR)/tests/first_frame_child.exe: tests/win32/first_frame_child.c | $(MINGW_AMD64_BUILD_DIR)/tests
 	$(MINGW_AMD64_CC) $(CPPFLAGS) $(MINGW_TERM_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< -o $@
