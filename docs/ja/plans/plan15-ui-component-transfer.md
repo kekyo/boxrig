@@ -322,3 +322,5 @@ widget試験は、GTK3・GTK4それぞれのX11 Cairo、X11 OpenGL、Wayland Cai
 ### 段階4の全体確認中に検出した統合不備
 
 全体テストの隔離プロトコルビルドで、追加したtransfer.mkが作業コピーに含まれず失敗しました。Makefile本体を共有する試験用コピーには、参照するMakefile部品も必要です。tests/wayland/test_protocol_build.shのコピー一覧へ4環境の部品を加え、make test-wayland-protocol-buildの成功を確認しました。製品の移設処理を変更する必要はありません。REDはfull-test.log、GREENはwayland-protocol-build-green.logに保存しています。
+
+Win32のPE依存監査でも、新規に使ったIsChildとSetParentが許可一覧に未登録であることを検出しました。[IsChild](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-ischild)と[SetParent](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setparent)はWindows 2000以降の公開APIで、既存のVista基準を満たします。MinGWの宣言も確認し、amd64・i686の監査一覧へ追加しました。make test-win32-ui-artifactsの6件が成功し、結果はwin32-ui-imports-green.logに保存しています。対応OSや製品コードの変更はありません。

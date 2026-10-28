@@ -171,6 +171,9 @@ user32.dll GetWindowTextLengthW
 user32.dll GetWindowTextW
 user32.dll GetWindowThreadProcessId
 user32.dll InvalidateRect
+# IsChild: Windows 2000; rejects a descendant as the new parent.
+# https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-ischild
+user32.dll IsChild
 user32.dll IsClipboardFormatAvailable
 user32.dll IsIconic
 user32.dll IsWindow
@@ -188,6 +191,9 @@ user32.dll SendMessageW
 user32.dll SetClipboardData
 user32.dll SetFocus
 user32.dll SetKeyboardState
+# SetParent: Windows 2000; moves the owned child between compatible parents.
+# https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setparent
+user32.dll SetParent
 user32.dll SetScrollInfo
 user32.dll SetWindowLongW
 user32.dll SetWindowPos
