@@ -2,7 +2,7 @@
 
 作成日：2026年10月28日
 
-状態：計画のみ。製品と試験の変更は未着手です。
+状態：段階0～3の実装・検証と結果分類を完了しました。全体試験には後述の失敗が残ります。
 
 ## 目的と対象
 
@@ -97,4 +97,70 @@ elder-termsのサブモジュール参照は動かさず、段階0で確認し�
 
 ## 実施状況と計画全体の完了条件
 
-段階0、段階1、段階2a・2b・2c、段階3はいずれも未着手です。この文書の保存は実装開始ではありません。計画全体の完了は、各段階の完了条件と両リポジトリの最終全体試験を満たし、採用・不採用の測定証拠、警告・SKIP・未検証、JITの再判断材料を記録した時点です。`deps/boxrig`の正式な参照更新は、この計画の成果を引き渡した後の別作業です。
+段階0はelder-termsの`136a8759`で独立boxrigソースのビルド指定を追加しました。既定依存`2576a91`と固定したboxrig`b22cad9`について、SDKのヘッダーと実行時ライブラリの対応を[SDK識別記録](../../../../elder-terms/artifacts/plan14/step0/sdk-identity.log)で確認し、管理対象の[OSC 8解決ドライバー](../../../../elder-terms/elder-terms-terminal/tests/performance/osc8-resolve-cost.cpp)で両者の差を[基準集計](../../../../elder-terms/artifacts/plan14/step0/resolve-summary.json)へ保存しました。64バイトURIの一致は既定依存8.622µs、独立版8.484µs、8,192バイトでは808.670µs、861.601µsでした。各値は反復呼出の平均時間を3試行して得た中央値です。依存の違いによる差を次のキャッシュ効果へ算入しません。旧・新SDKでリンク機能を確認し、通知契約の差を試験へ反映しました。[RED](../../../../elder-terms/artifacts/plan14/step0/source-selection-red.log)と[GREEN](../../../../elder-terms/artifacts/plan14/step0/base-links-green.log)を保存しています。
+
+段階1はelder-termsの`adca14c8`で、端末文脈・ルール世代・所有するURIバイト列による最大128件・所有URIキーバイト合計256KiBのキャッシュを追加しました。キャッシュ全体のメモリ使用量の上限ではありません。確定した正規表現の一致・不一致だけを保持し、UIヒットの有効性とアクション展開後の既存検証は毎回確認します。`d1ea44d8`でファイル状態変化と作業量上限を追加検証しました。
+
+[機能RED](../../../../elder-terms/artifacts/plan14/step1/cache-functional-red.log)、[機能GREEN](../../../../elder-terms/artifacts/plan14/step1/cache-green.log)、[作業量上限GREEN](../../../../elder-terms/artifacts/plan14/step1/cache-ceiling-green.log)に、所有権、ハッシュ衝突、ルールの変更と優先順位、容量、OOMを含みます。
+
+固定SDK`b22cad9`の同一URI反復解決では、64バイトの一致が8.484→1.714µs、8,192バイトの一致が861.601→2.919µsでした。[計測集計](../../../../elder-terms/artifacts/plan14/step1/resolve-summary.json)の値は単発ホバーのp95ではなく、同じURIを繰り返した3試行の中央値です。GTK CairoとOpenGLの[リンク動画試験](../../../../elder-terms/artifacts/plan14/step1/gui-video)でも表示・解除・起動を確認しました。
+
+| URI条件 | boxrig `b22cad9`・キャッシュ前 | 同SDK・キャッシュ後 | boxrig `85b55a9`・キャッシュ後 |
+| --- | ---: | ---: | ---: |
+| 64バイト・一致 | 8.484µs | 1.714µs | 1.748µs |
+| 64バイト・不一致 | 4.563µs | 0.203µs | 0.213µs |
+| 512バイト・一致 | 51.900µs | 1.780µs | 1.789µs |
+| 512バイト・不一致 | 35.752µs | 0.250µs | 0.262µs |
+| 8,192バイト・一致 | 861.601µs | 2.919µs | 2.939µs |
+| 8,192バイト・不一致 | 577.846µs | 1.041µs | 1.082µs |
+
+[複数ルールの診断ドライバー](../../../tests/performance/osc8_resolve_cost.cpp)は`c41dc78`で追加し、既定のOSC 8ルール3件と、先行する不一致2件・名前付きキャプチャを持つ一致1件の利用者ルールを分けて測りました。[独立ビルド指定](../../../tests/performance/osc8_resolve.mk)でキャッシュ前`136a8759`＋boxrig`b22cad9`、キャッシュ後`110621d6`＋同SDK、結合後`110621d6`＋boxrig`85b55a9`を比較しています。実行ファイル、SDK、ヘッダーとライブラリの対応は[集計](../../../artifacts/plan14/osc8-multi/summary.json)に記録しました。利用者ルールのキャッシュ前は1解決につきmatcherと入力準備が各3回でした。利用者ルールの一致URIを保持して反復解決すると、64バイトで24.435→2.717→2.646µs、8,192バイトで2,295.659→5.664→5.768µsです。基準版の正規表現作業量は各解決で4,092・532,412、キャッシュ後は保持・移動・他行更新の反復解決ですべて0でした。結合後の初回作業量は1,950・253,918です。入力準備の回数は公開matcher生成の成功回数であり、すべてのメモリ確保や全コピーの数ではありません。64・512・8,192バイトの一致・不一致、保持・移動・他行更新を各3試行し、別個の時間計測とカウンタ計測から計1,296行を検証しました。他行更新はモデル同期を伴う診断で、実GTKフレームの検証は前述の動画です。再現にはelder-termsのソースと対応する独立SDKビルドを指定します。
+
+```sh
+make -f tests/performance/osc8_resolve.mk \
+  ELDER_SOURCE=/path/to/elder-checkout \
+  ELDER_BUILD=/path/to/elder-build \
+  OUTPUT=build/osc8-resolve check
+```
+
+段階2aはboxrigの`fa97ad1`でASCIIクラスを事前分類し、段階2bは`0b443e5`で必須の先頭文字列による開始位置の走査を減らし、段階2cは`85b55a9`で不要なキャプチャ伝播を省きました。診断ドライバーは`1b3063d`で管理対象にしました。各候補のRED/GREENを記録し、[41,784行の意味差分](../../../artifacts/plan14/prefix-differential.log)と予算1・7・4,096での再開結果を確認しています。
+
+| 候補 | RED | GREEN | 採用コミット |
+| --- | --- | --- | --- |
+| ASCIIクラス | [診断](../../../artifacts/plan14/ascii-red.log) | [診断](../../../artifacts/plan14/ascii-green.log) | `fa97ad1` |
+| 必須prefix | [診断](../../../artifacts/plan14/prefix-red.log) | [診断](../../../artifacts/plan14/prefix-green.log) | `0b443e5` |
+| 不要キャプチャ | [診断](../../../artifacts/plan14/captures-red.log) | [診断](../../../artifacts/plan14/captures-green.log) | `85b55a9` |
+
+[ASCIIの採用版](../../../artifacts/plan14/ascii-inline-comparison.json)、[prefix](../../../artifacts/plan14/prefix-comparison.json)、[キャプチャ](../../../artifacts/plan14/captures-comparison.json)の各36条件比較では、既定HTTP式の64バイト一致が段階2b導入時5.66→2.87µs、8,192バイト一致が647→298µsでした。共通の文字クラス判定関数をインライン化した採用版を[再測定](../../../artifacts/plan14/ascii-final-repeat)し、当初観測したUnicodeの遅延は再現しませんでした。2cの2キャプチャ・64バイト一致は[再測定](../../../artifacts/plan14/captures-repeat)でVM区間約4.5%、公開API全体約3.4%の退行が残りました。2cはキャプチャなしの既定HTTP式約17%、4キャプチャ式約8%の改善も含む候補として採用しました。
+
+| 既定HTTP式の一致 | 基準版の公開API全体 | 最終版の公開API全体 |
+| --- | ---: | ---: |
+| 64バイト | 7.1169µs | 2.3643µs |
+| 512バイト | 51.2906µs | 16.0022µs |
+| 8,192バイト | 812.9987µs | 247.4003µs |
+
+既定HTTP式のコンパイル時間は[比較](../../../artifacts/plan14/compile-comparison.json)で84.2→118.3µsに増えました。x64の[基準](../../../artifacts/plan14/base-layout.log)と[最終版](../../../artifacts/plan14/final-layout.log)の型サイズ比較ではprogramが136→184バイト、classが24→40バイト、構文木（AST）ノードが72→120バイトです。classはパターンのバイト長+1スロットを確保するため1スロットあたり16バイト増え、一時ASTはstate_capacity（状態数の上限）ぶんのノードが1個あたり48バイト増えます。型とコンパイル時の事前計算量はともに増えていますが、コンパイル時間増加への寄与は個別に分離していません。単一の式の改善を全体応答の改善とは扱いません。
+
+段階3では最終boxrig`85b55a9`を独立SDKとしてelder-termsへ結合しました。[ビルド](../../../../elder-terms/artifacts/plan14/step3/elder-final-build.log)、[リンク試験](../../../../elder-terms/artifacts/plan14/step3/elder-final-links.log)、[GTK動画試験](../../../../elder-terms/artifacts/plan14/step3/elder-final-links-gui.log)は成功しています。同一URI反復の[結合集計](../../../../elder-terms/artifacts/plan14/step3/elder-final-resolve-summary.json)では、64バイト一致がcache後1.714µs、最終版1.748µsでした。キャッシュヒット時にはVM最適化がほぼ現れない条件です。
+
+最終SDKとの結合試験では、1,365バイトのURIで4096単位の予算をちょうど使い切った後、公開matcherが追加作業量0・結果MATCHを返す境界を見つけました。[core診断](../../../artifacts/plan14/resume-completion.log)で一致範囲0～1,365バイトを確認しています。elder-termsが追加作業量0を一律に失敗として捨てていたため、`110621d6`で照合が未完了のときだけ停止するよう修正しました。1,365・2,341・5,461バイトのURIを実際のリンク解決で検証した[RED](../../../../elder-terms/artifacts/plan14/step3/osc8-budget-boundary-red.log)と[GREEN](../../../../elder-terms/artifacts/plan14/step3/osc8-budget-three-green.log)を保存しています。修正後の[GTK Cairo・OpenGL動画試験](../../../../elder-terms/artifacts/plan14/step3/elder-boundary-final-links-gui.log)も2件成功しました。
+
+elder-termsのGUI入力は、同じboxrig`b22cad9`を使うキャッシュ前後と、最終boxrig`85b55a9`を使う結合後を、[72実行の比較](../../../../elder-terms/artifacts/plan14/step3/gui-matrix/comparison.json)で交互に測りました。[実行ファイルとSDKの識別記録](../../../../elder-terms/artifacts/plan14/step3/gui-sdk-identity.log)では、キャッシュ前後のlibboxrig共有ライブラリのハッシュが一致し、結合後だけ異なります。履歴0・1,000・10,000行、本文だけ・URLだけ・OSC 8だけ・混合、Cairo・OpenGLの24条件で、各版10キー、合計720キーです。CPU 2・3に固定し、別の全体試験はCPU 4～23で実行しました。画素観測までの全キー中央値はキャッシュ前32.221ms、キャッシュ後32.238ms、結合後32.231ms、p95は順に32.502ms、32.548ms、32.488msでした。16/32ms程度の描画周期で値がまとまり、3版の一貫した応答差は観測されていません。キャッシュ後のURL/Cairoに最大116.11msの単発値がありましたが、[同条件再測定](../../../../elder-terms/artifacts/plan14/step3/gui-repeat/summary.json)の20キー×2試行では最大32.37ms程度で再現しませんでした。OSC 8/OpenGLのキャッシュ前に最大49.99msの単発値があり、同じ再測定では最大約32.4msでした。単発の最大値を製品差とはみなしません。OpenGLで合成処理が終わる前に画素が観測された1件は、解析側の時刻順序を[RED](../../../../elder-terms/artifacts/plan14/step3/latency-analysis-red.log)と[GREEN](../../../../elder-terms/artifacts/plan14/step3/latency-analysis-green.log)で補正して集計しました。
+
+boxrig単独の[GTK比較](../../../artifacts/plan14/gtk/summary.json)もCairo・OpenGL、本文認識・OSC 8・両方の条件で60実行し、すべて正常終了しました。12の動画条件は画素も確認しています。履歴満杯で継続出力中のキー応答中央値は概ね20.20～20.22msの範囲でした。停止後の値は20/30ms程度の観測刻みで変動し、最終版の一貫したGUI改善は確認できません。OSC 8ホバーの中央値は概ね16.7～17.2msでした。OpenGLのOSC 8だけを表示した出力中の1条件では33.3→16.7msでしたが、各版3点の測定なので一般化しません。
+
+boxrig sample式を使う本文認識の[比較](../../../artifacts/plan14/recognition-summary.json)では、履歴1万行の1行更新全体が基準0.5513→最終0.5646ms、うち正規表現が19.86→18.65µsでした。この式では認識全体の改善は観測されていません。一方、elder-termsが実際に使う先頭固定文字列を持ち、キャプチャを使わない既定本文式の[独立比較](../../../artifacts/plan14/recognition-elder-summary.json)では、履歴1万行・10行に1 URLの初回認識全体が18.478→12.841ms、うち正規表現が6.893→1.400msでした。1行の定常更新は全体0.5598→0.5507ms、うち正規表現17.68→3.55µsで、最終版の全体に占める比率は0.609%です。履歴なしの定常更新は全体32.75→22.15µs、うち正規表現13.22→2.12µsでした。全体時間は通常ビルド、正規表現の内訳と0.609%の比率は別試行の計測用ビルドから得ました。比率を通常ビルドの全体時間と内訳の割り算として扱いません。この差は本文認識の計測条件であり、実GUI入力の差と同一視しません。
+
+boxrigのOSC 8受信だけを測った[36実行](../../../artifacts/plan14/osc8-summary.json)では、1,000件保持後に1,000件を追加する64バイトURIが3.907→3.926ms、512バイトURIが15.567→15.616msで、ほぼ変化しませんでした。URI登録探索などの残余費用は今回の実装範囲外です。正規表現オブジェクトの[コードサイズ比較](../../../artifacts/plan14/regex-code-size.log)ではtext区間が20,928→21,872バイト（+944バイト）です。実行時の機械語生成や実行可能メモリの確保はありません。
+
+boxrig製品版`85b55a9`の全体試験は、[実行ログ](../../../artifacts/plan14/boxrig-full-suite.log)で4,038.52秒かけて完走しました。全体試験後に、診断追加`ffb6cbc`の認識ドライバーと`c41dc78`の複数ルールドライバーをそれぞれ単独で確認しました。[分類結果](../../../artifacts/plan14/full-suite-summary.json)では、`make -i`の終了値0を全項目成功とは扱いません。無視されたエラー3件のうち、Win32のドラッグ中のウィンドウサイズ変更試験（amd64・i686）はplan13でも発生したWine上の2件です。今回は実WindowsでGUIを再試験していないため、最終版の実機成功とも記しません。残るi686 OpenGL component fixtureは、機能確認を2件出力した後に終了値137で停止しました。原因は特定できていませんが、[独立Wine prefix](../../../artifacts/plan14/wine-opengl-fixture-retry.log)と[元のprefix](../../../artifacts/plan14/wine-opengl-fixture-original-prefix.log)では同じ実行ファイル・同じ起動経路の再試験がそれぞれ成功しました。初回の停止を成功へ置き換えず記録します。
+
+同じ分類では、明示SKIP33件とVitestの任意GTKランタイムSKIP各1件の2回がplan13の内容・件数と一致し、新しいSKIPはありません。意図的な異常条件の試験7件の結果も一致しました。コンパイラ警告とsanitizer診断は0件です。GLib診断95件はplan13と内容・件数が一致し、EGL・keysym・portalなどの実行環境警告に新しい分類はありません。[追加された認識ドライバー](../../../artifacts/plan14/final-recognition-drivers.log)は全体試験後に単独実行して成功しました。公開ヘッダーと配布SDKの契約には変更がありません。
+
+elder-termsの固定HEAD`110621d6`では、通常の`make build`が[7.94秒で成功](../../../../elder-terms/artifacts/plan14/step3/elder-locked-build.log)し、コンパイラ警告はありません。[通常の`make test`](../../../../elder-terms/artifacts/plan14/step3/elder-locked-test.log)は930.15秒で終了値2でした。sharedのVitestは146件成功・6件SKIP、elder UIのVitestは114件成功・1件SKIPです。terminalのMesonは221件成功・2件SKIP・1件失敗で、失敗は`ssh-channel-connection-test`のセッション検証でした。[単独再実行](../../../../elder-terms/artifacts/plan14/step3/elder-locked-ssh-retry.log)でも同じアサートで失敗しています。[plan10の先行記録](../../../../elder-terms/docs/ja/plans/plan10-cell-width.md)にも同じアサートがあり、今回SSH関連の製品・試験コードに差分はありません。ただし今回の基準ソースを別に再実行して再現した証拠はないため、今回の失敗原因を断定しません。
+
+通常の全体コマンドはこの1件で停止したため、未到達だったterminalのVitestと`test:latency`を同じ固定HEADで正規のサブレシピとして個別に完走しました。[terminal Vitest](../../../../elder-terms/artifacts/plan14/step3/elder-locked-vitest.log)は54ファイル・703件成功・4件SKIP、失敗0で、壁時計時間1,606.86秒です。[latency](../../../../elder-terms/artifacts/plan14/step3/elder-locked-latency.log)は動画、入力、注釈と解析を含め6.75秒で成功しました。GVfsのマウント権限と隔離したセッションバスの診断は実行環境からのもので、試験は成功しています。[全結果の分類](../../../../elder-terms/artifacts/plan14/step3/elder-final-summary.json)には通常の全体コマンドの失敗を残し、個別実行の成功をそれと区別して記録しました。elder-termsのサブモジュール参照と外部コードは変更していません。
+
+JITは今回も実装を保留します。elder-termsの既定本文式で履歴1万行の定常更新に残る正規表現時間は3.55µs、全体の0.609%です。同じURIを指し続けるOSC 8照合はキャッシュヒットでVMへ進まず、GUI入力のp95にも一貫した差は観測されていません。一方、初回の既定本文認識には正規表現がなお1.400ms残ります。実際に報告された2～3秒のCodex入力遅延はこの試験で再現しておらず、実利用のURI長と再照合頻度も採集していません。入力遅延の再現条件で残余の正規表現CPU時間が主要因となるかを確認してから、コンパイル費・コード容量と既存の最左最長、書記素、キャプチャ、任意予算での再開を保つ費用を含めて再判断します。参考PCRE2の倍率だけでは独自JITの利益を推定しません。
+
+段階0～2の成果物と段階3の独立SDK結合、機能・動画・性能測定、両リポジトリの全体試験実行と失敗・SKIP分類は揃いました。全体試験がすべて成功した状態ではありません。今回確認できていない事項は、elder-termsのSSH検証失敗の原因特定、boxrig最終版を使った実Windows GUIの再確認、実利用のURI長・再照合頻度とCodex入力遅延の再現です。これらを今回確認済みの性能値として扱いません。`deps/boxrig`の正式な参照更新は、この計画の成果を引き渡した後の別作業です。
