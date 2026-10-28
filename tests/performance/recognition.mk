@@ -71,3 +71,11 @@ test-text-projection-budget: $(BUILD_DIR)/tests/test_text_projection_budget
 
 $(BUILD_DIR)/tests/test_text_projection_budget: tests/test_text_projection_budget.c $(CORE_HEADERS) $(TEXT_MEASUREMENT_LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) -DBOXRIG_MEASURE_TEXT_WORKLOADS $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(TEXT_MEASUREMENT_LIBRARY) $(SANITIZERS) -o $@
+
+.PHONY: test-osc8-references
+test: test-osc8-references
+test-osc8-references: $(BUILD_DIR)/tests/test_osc8_references
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
+
+$(BUILD_DIR)/tests/test_osc8_references: tests/test_osc8_references.c $(CORE_HEADERS) $(TEXT_MEASUREMENT_LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) -DBOXRIG_MEASURE_TEXT_WORKLOADS $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) -Wl,--wrap=calloc $< $(TEXT_MEASUREMENT_LIBRARY) $(SANITIZERS) -o $@

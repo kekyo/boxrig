@@ -69,7 +69,9 @@ typedef struct boxrig_hyperlink_entry {
     size_t uri_length;
     char *id;
     size_t id_length;
-    bool marked;
+    /* Live cells only; active_hyperlink is retained independently. Temporary
+     * resize copies join these counts only after the replacement is committed. */
+    size_t cell_references;
 } boxrig_hyperlink_entry;
 
 typedef struct boxrig_history_line {
@@ -610,6 +612,7 @@ typedef struct boxrig_text_workload_counters {
     size_t recognizer_result_lookup_probes;
     size_t recognizer_metadata_steps;
     size_t recognizer_finalize_steps;
+    size_t hyperlink_scan_cells;
 } boxrig_text_workload_counters;
 
 void boxrig_text_workload_counters_reset(void);
@@ -625,6 +628,7 @@ void boxrig_text_workload_observe_recognizer_line_lookup(void);
 void boxrig_text_workload_observe_recognizer_result_lookup(void);
 void boxrig_text_workload_observe_recognizer_metadata(size_t count);
 void boxrig_text_workload_observe_recognizer_finalize(size_t count);
+void boxrig_text_workload_observe_hyperlink_scan_cells(size_t count);
 #else
 #define boxrig_text_workload_observe_placeholder_cell() ((void)0)
 #define boxrig_text_workload_observe_ascii_batch(count) ((void)(count))
@@ -639,6 +643,7 @@ void boxrig_text_workload_observe_recognizer_finalize(size_t count);
 #define boxrig_text_workload_observe_recognizer_result_lookup() ((void)0)
 #define boxrig_text_workload_observe_recognizer_metadata(count) ((void)(count))
 #define boxrig_text_workload_observe_recognizer_finalize(count) ((void)(count))
+#define boxrig_text_workload_observe_hyperlink_scan_cells(count) ((void)(count))
 #endif
 boxrig_status boxrig_terminal_queue_notification(
     boxrig_terminal *terminal,

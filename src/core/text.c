@@ -118,6 +118,11 @@ void boxrig_text_workload_observe_recognizer_finalize(size_t count)
     text_workload_add(&text_workload_counters.recognizer_finalize_steps, count);
 }
 
+void boxrig_text_workload_observe_hyperlink_scan_cells(size_t count)
+{
+    text_workload_add(&text_workload_counters.hyperlink_scan_cells, count);
+}
+
 void boxrig_text_workload_counters_read(
     boxrig_text_workload_counters *counters_out)
 {

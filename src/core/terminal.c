@@ -909,62 +909,12 @@ boxrig_status boxrig_terminal_push_grid_resize(
     return status;
 }
 
-static void mark_hyperlink_handle(
-    boxrig_terminal *terminal,
-    uint32_t handle)
-{
-    if (handle != 0 && handle <= terminal->hyperlink_slot_count &&
-        terminal->hyperlinks[handle - 1].uri != NULL) {
-        terminal->hyperlinks[handle - 1].marked = true;
-    }
-}
-
-static void mark_cell_hyperlinks(
-    boxrig_terminal *terminal,
-    const boxrig_cell *cells,
-    size_t count)
-{
-    size_t index;
-
-    if (cells == NULL) {
-        return;
-    }
-    for (index = 0; index < count; index++) {
-        mark_hyperlink_handle(terminal, cells[index].hyperlink_handle);
-    }
-}
-
 static void collect_hyperlinks(boxrig_terminal *terminal)
 {
-    size_t cell_count = terminal->screen.rows * terminal->screen.columns;
-    size_t index;
-
-    for (index = 0; index < terminal->hyperlink_slot_count; index++) {
-        terminal->hyperlinks[index].marked = false;
-    }
-    mark_hyperlink_handle(terminal, terminal->screen.active_hyperlink);
-    mark_cell_hyperlinks(
-        terminal,
-        terminal->screen.primary.cell_storage,
-        cell_count);
-    mark_cell_hyperlinks(
-        terminal,
-        terminal->screen.alternate.cell_storage,
-        cell_count);
-    for (index = 0; index < terminal->screen.history_capacity; index++) {
-        mark_cell_hyperlinks(
-            terminal,
-            terminal->screen.history[index].cell_storage,
-            terminal->screen.columns);
-    }
-    for (index = 0; index < terminal->hyperlink_slot_count; index++) {
+    for (size_t index = 0u; index < terminal->hyperlink_slot_count; index++) {
         boxrig_hyperlink_entry *entry = &terminal->hyperlinks[index];
-
-        if (entry->uri == NULL) {
-            continue;
-        }
-        if (entry->marked) {
-            entry->marked = false;
+        if (entry->uri == NULL || entry->cell_references != 0u ||
+            terminal->screen.active_hyperlink == index + 1u) {
             continue;
         }
         terminal->hyperlink_length -= entry->uri_length + entry->id_length;
