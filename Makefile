@@ -2459,6 +2459,8 @@ test: test-annotation-cost
 test-annotation-cost: $(ANNOTATION_COST_BINARY) $(ANNOTATION_COST_UNWRAPPED_BINARY)
 	$(ANNOTATION_COST_BINARY) self-test
 	$(ANNOTATION_COST_UNWRAPPED_BINARY) self-test
+	$(ANNOTATION_COST_BINARY) 16 10 45 2 bound
+	$(ANNOTATION_COST_BINARY) 10000 10 45 2 bound
 
 $(SELECTION_TEST_BINARY): tests/test_selection.c src/ui/word_break.h \
 		$(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests

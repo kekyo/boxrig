@@ -1331,31 +1331,50 @@ static boxrig_ui_status validate_text_annotation(
     return BOXRIG_UI_OK;
 }
 
-static bool text_annotation_is_current(
+static bool text_annotation_logical_interval(
     const boxrig_ui_view *view,
-    const boxrig_ui_text_annotation *annotation)
+    const boxrig_ui_text_annotation *annotation,
+    size_t row,
+    bool require_current,
+    size_t *local_column_out,
+    size_t *local_count_out)
 {
+    boxrig_text_screen screen;
     boxrig_text_fragment_view fragment;
-    size_t first;
+    size_t fragment_index;
+    size_t start;
     size_t end;
 
-    if (view == NULL || annotation == NULL || view->model == NULL ||
-        !find_line_bounds(
+    /* Registration guarantees a single logical line. Its identity can be
+     * compared directly with the visible fragment without searching history. */
+    if (annotation == NULL ||
+        !view_fragment_index(view, row, &screen, &fragment_index) ||
+        annotation->range.start.screen != screen ||
+        boxrig_terminal_get_text_fragment(
             view->model->terminal,
-            annotation->range.start.screen,
-            annotation->range.start.line_id,
-            &first,
-            &end)) {
+            screen,
+            fragment_index,
+            &fragment) != BOXRIG_STATUS_OK ||
+        !text_line_id_equal(fragment.line_id, annotation->range.start.line_id) ||
+        (require_current && fragment.line_revision !=
+             annotation->range.start.line_revision) ||
+        fragment.logical_column_offset > SIZE_MAX - view->column_count) {
         return false;
     }
-    (void)end;
-    return boxrig_terminal_get_text_fragment(
-               view->model->terminal,
-               annotation->range.start.screen,
-               first,
-               &fragment) == BOXRIG_STATUS_OK &&
-           fragment.line_revision ==
-               annotation->range.start.line_revision;
+    start = fragment.logical_column_offset;
+    end = start + view->column_count;
+    if (annotation->range.start.column > start) {
+        start = annotation->range.start.column;
+    }
+    if (annotation->range.end.column < end) {
+        end = annotation->range.end.column;
+    }
+    if (start >= end) {
+        return false;
+    }
+    *local_column_out = start - fragment.logical_column_offset;
+    *local_count_out = end - start;
+    return true;
 }
 
 static bool text_annotation_in_group(
@@ -1419,6 +1438,7 @@ static bool annotation_intersects_range(
            text_line_id_equal(
                annotation->range.start.line_id,
                range->start.line_id) &&
+           annotation->range.start.line_revision == range->start.line_revision &&
            annotation->range.start.column < range->end.column &&
            annotation->range.end.column > range->start.column;
 }
@@ -1570,6 +1590,65 @@ static bool search_logical_interval(
                local_count_out);
 }
 
+static void mark_logical_interval_dirty(
+    boxrig_ui_view *view,
+    size_t row,
+    size_t logical_column,
+    size_t logical_count)
+{
+    boxrig_ui_row_layout_cache *entry = &view->row_layouts[row];
+
+    if (entry->layout == NULL) {
+        /* Overlay dirty uses visual columns. Without a retained mapping,
+         * invalidate the whole row instead of forwarding logical columns. */
+        mark_dirty(
+            view,
+            BOXRIG_UI_DIRTY_OVERLAY,
+            row,
+            1,
+            0,
+            view->column_count);
+    } else {
+        size_t visual = 0;
+
+        while (visual < view->column_count) {
+            size_t mapped;
+            size_t run_start;
+
+            if (boxrig_text_layout_visual_to_logical(
+                    entry->layout,
+                    visual,
+                    &mapped) != BOXRIG_TEXT_LAYOUT_OK) {
+                break;
+            }
+            if (mapped < logical_column ||
+                mapped >= logical_column + logical_count) {
+                visual++;
+                continue;
+            }
+            run_start = visual;
+            do {
+                visual++;
+                if (visual == view->column_count ||
+                    boxrig_text_layout_visual_to_logical(
+                        entry->layout,
+                        visual,
+                        &mapped) != BOXRIG_TEXT_LAYOUT_OK) {
+                    break;
+                }
+            } while (mapped >= logical_column &&
+                     mapped < logical_column + logical_count);
+            mark_dirty(
+                view,
+                BOXRIG_UI_DIRTY_OVERLAY,
+                row,
+                1,
+                run_start,
+                visual - run_start);
+        }
+    }
+}
+
 static void mark_logical_range_dirty(
     boxrig_ui_view *view,
     const boxrig_text_range *range)
@@ -1580,66 +1659,16 @@ static void mark_logical_range_dirty(
         return;
     }
     for (row = 0; row < view->row_count; row++) {
-        boxrig_ui_row_layout_cache *entry = &view->row_layouts[row];
         size_t logical_column;
         size_t logical_count;
 
-        if (!range_logical_interval(
+        if (range_logical_interval(
                 view,
                 range,
                 row,
                 &logical_column,
                 &logical_count)) {
-            continue;
-        }
-        if (entry->layout == NULL) {
-            /* Overlay dirty uses visual columns. Without a retained mapping,
-             * invalidate the whole row instead of forwarding logical columns. */
-            mark_dirty(
-                view,
-                BOXRIG_UI_DIRTY_OVERLAY,
-                row,
-                1,
-                0,
-                view->column_count);
-        } else {
-            size_t visual = 0;
-
-            while (visual < view->column_count) {
-                size_t mapped;
-                size_t run_start;
-
-                if (boxrig_text_layout_visual_to_logical(
-                        entry->layout,
-                        visual,
-                        &mapped) != BOXRIG_TEXT_LAYOUT_OK) {
-                    break;
-                }
-                if (mapped < logical_column ||
-                    mapped >= logical_column + logical_count) {
-                    visual++;
-                    continue;
-                }
-                run_start = visual;
-                do {
-                    visual++;
-                    if (visual == view->column_count ||
-                        boxrig_text_layout_visual_to_logical(
-                            entry->layout,
-                            visual,
-                            &mapped) != BOXRIG_TEXT_LAYOUT_OK) {
-                        break;
-                    }
-                } while (mapped >= logical_column &&
-                         mapped < logical_column + logical_count);
-                mark_dirty(
-                    view,
-                    BOXRIG_UI_DIRTY_OVERLAY,
-                    row,
-                    1,
-                    run_start,
-                    visual - run_start);
-            }
+            mark_logical_interval_dirty(view, row, logical_column, logical_count);
         }
     }
 }
@@ -1649,9 +1678,20 @@ static void mark_text_annotation_dirty(
     const boxrig_ui_text_annotation *annotation,
     bool require_current)
 {
-    if (view != NULL && annotation != NULL &&
-        (!require_current || text_annotation_is_current(view, annotation))) {
-        mark_logical_range_dirty(view, &annotation->range);
+    if (view == NULL || annotation == NULL) {
+        return;
+    }
+    for (size_t row = 0; row < view->row_count; row++) {
+        size_t logical_column;
+        size_t logical_count;
+
+        /* Old decorations need erasing even when their line revision changed.
+         * Retired identities are covered by the model/viewport dirty instead. */
+        if (text_annotation_logical_interval(
+                view, annotation, row, require_current,
+                &logical_column, &logical_count)) {
+            mark_logical_interval_dirty(view, row, logical_column, logical_count);
+        }
     }
 }
 
@@ -4147,11 +4187,11 @@ static size_t text_annotation_visual_ranges(
     size_t visual_column = 0;
     size_t output_count = 0;
 
-    if (!text_annotation_is_current(view, annotation) ||
-        !range_logical_interval(
+    if (!text_annotation_logical_interval(
             view,
-            &annotation->range,
+            annotation,
             row,
+            true,
             &logical_column,
             &logical_count)) {
         return 0;
@@ -4344,8 +4384,7 @@ boxrig_ui_status boxrig_ui_view_query_text_annotation_hits(
         const boxrig_ui_text_annotation *annotation =
             &view->annotations[index].value;
 
-        if (text_annotation_is_current(view, annotation) &&
-            annotation_intersects_range(annotation, &range)) {
+        if (annotation_intersects_range(annotation, &range)) {
             match_count++;
             topmost = annotation;
             merge_annotation_style(&merged, &annotation->style);
@@ -4367,8 +4406,7 @@ boxrig_ui_status boxrig_ui_view_query_text_annotation_hits(
             const boxrig_ui_text_annotation *annotation =
                 &view->annotations[index].value;
 
-            if (text_annotation_is_current(view, annotation) &&
-                annotation_intersects_range(annotation, &range)) {
+            if (annotation_intersects_range(annotation, &range)) {
                 annotations[output_index++] = *annotation;
             }
         }
