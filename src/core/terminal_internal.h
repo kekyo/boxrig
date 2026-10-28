@@ -373,6 +373,40 @@ void boxrig_screen_text_sync(boxrig_screen *screen);
 const boxrig_cell *boxrig_screen_text_fragment_cell(
     const boxrig_screen *screen, boxrig_text_screen text_screen,
     size_t fragment_index, size_t column);
+typedef struct boxrig_text_fragment_info {
+    size_t fragment_count;
+    boxrig_text_position position;
+    size_t projected_length;
+    bool soft_wrapped;
+} boxrig_text_fragment_info;
+/* Read one synchronized physical fragment in constant time. The projected
+ * length is for its whole logical line and is counted only at line starts. */
+boxrig_status boxrig_screen_text_fragment_info(
+    const boxrig_screen *screen, boxrig_text_screen text_screen,
+    size_t fragment_index, boxrig_text_fragment_info *info_out);
+typedef struct boxrig_text_line_projection_cursor
+    boxrig_text_line_projection_cursor;
+/* The cursor owns only its progress state; the caller owns the reusable
+ * snapshot. No terminal cell pointer survives a resume call. */
+boxrig_status boxrig_text_line_projection_cursor_create(
+    boxrig_text_line_projection_cursor **cursor_out);
+/* The caller has already found the complete logical-line extent with
+ * budgeted fragment inspection. Reset does not traverse that extent. */
+boxrig_status boxrig_text_line_projection_cursor_reset(
+    boxrig_text_line_projection_cursor *cursor,
+    const boxrig_terminal *terminal, boxrig_text_screen text_screen,
+    size_t first_fragment, size_t next_fragment);
+/* Inspect at most work_budget cells, emitted gap spaces, or UTF-8 bytes.
+ * Keep snapshot_inout and its owned snapshot stable across resume calls. The
+ * snapshot is usable for this line only after complete_out becomes true.
+ * STALE means the caller must discard this cursor state and reset it. */
+boxrig_status boxrig_text_line_projection_cursor_resume(
+    boxrig_text_line_projection_cursor *cursor,
+    const boxrig_terminal *terminal, size_t work_budget,
+    boxrig_text_snapshot **snapshot_inout, size_t *work_used_out,
+    bool *complete_out);
+void boxrig_text_line_projection_cursor_destroy(
+    boxrig_text_line_projection_cursor *cursor);
 boxrig_status boxrig_screen_text_document_size(
     const boxrig_screen *screen,
     boxrig_text_screen text_screen,
