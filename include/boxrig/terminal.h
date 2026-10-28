@@ -113,6 +113,8 @@ typedef struct boxrig_text_fragment_view {
     boxrig_text_line_id line_id;
     /** Terminal-column offset of this fragment within the logical line. */
     size_t logical_column_offset;
+    /** Exclusive terminal-column end of projected text in the whole logical line, including explicit spaces. */
+    size_t projected_end_column;
     /** Current content revision shared by the logical line. */
     uint64_t line_revision;
     /** True when this fragment continues without a line-break byte. */

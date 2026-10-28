@@ -26,6 +26,7 @@ static bool fragments_equal(
            left->line_id.epoch == right->line_id.epoch &&
            left->line_id.serial == right->line_id.serial &&
            left->logical_column_offset == right->logical_column_offset &&
+           left->projected_end_column == right->projected_end_column &&
            left->line_revision == right->line_revision &&
            left->soft_wrapped == right->soft_wrapped;
 }
@@ -193,8 +194,51 @@ static bool test_history_sync_boundaries(void)
     return true;
 }
 
+static bool test_projected_text_end(void)
+{
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    boxrig_terminal *terminal = NULL;
+    boxrig_text_fragment_view fragment;
+    size_t consumed = 0;
+    const char *input = "ab  ";
+
+    config.rows = 3;
+    config.columns = 8;
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_get_text_fragment(terminal, BOXRIG_TEXT_SCREEN_PRIMARY,
+        0, &fragment) == BOXRIG_STATUS_OK);
+    CHECK(fragment.projected_end_column == 0);
+    CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)input, strlen(input),
+        &consumed) == BOXRIG_STATUS_OK);
+    CHECK(consumed == strlen(input));
+    CHECK(boxrig_terminal_get_text_fragment(terminal, BOXRIG_TEXT_SCREEN_PRIMARY,
+        0, &fragment) == BOXRIG_STATUS_OK);
+    CHECK(fragment.projected_end_column == 4);
+    CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)"\r\033[K", 4,
+        &consumed) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_get_text_fragment(terminal, BOXRIG_TEXT_SCREEN_PRIMARY,
+        0, &fragment) == BOXRIG_STATUS_OK);
+    CHECK(fragment.projected_end_column == 0);
+    boxrig_terminal_destroy(terminal);
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    input = "abcdefghij";
+    CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)input, strlen(input),
+        &consumed) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_get_text_fragment(terminal, BOXRIG_TEXT_SCREEN_PRIMARY,
+        0, &fragment) == BOXRIG_STATUS_OK);
+    CHECK(fragment.projected_end_column == 10);
+    CHECK(boxrig_terminal_get_text_fragment(terminal, BOXRIG_TEXT_SCREEN_PRIMARY,
+        1, &fragment) == BOXRIG_STATUS_OK);
+    CHECK(fragment.projected_end_column == 10);
+    boxrig_terminal_destroy(terminal);
+    return true;
+}
+
 int main(void)
 {
+    if (!test_projected_text_end()) {
+        return 1;
+    }
     if (!test_history_sync_boundaries()) {
         return 1;
     }
