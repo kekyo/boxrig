@@ -138,22 +138,47 @@ static bool test_scope_limits_and_interrupted_scan(void)
         primary_bytes + alternate_bytes - 1;
     CHECK(boxrig_terminal_register_text_recognizer(
               terminal, &options, &diagnostic,
-              &recognizer_id) == BOXRIG_STATUS_LIMIT_EXCEEDED);
-    CHECK(recognizer_id == 0);
+              &recognizer_id) == BOXRIG_STATUS_OK);
+    CHECK(finish_recognition(terminal));
+    CHECK(boxrig_terminal_text_recognizer_event_peek(terminal, &event));
+    CHECK(event.kind == BOXRIG_TEXT_RECOGNIZER_EVENT_SCOPE_INCOMPLETE);
+    CHECK(event.recognizer_id == recognizer_id);
+    CHECK(boxrig_terminal_text_recognizer_event_consume(terminal) ==
+          BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_unregister_text_recognizer(
+              terminal, recognizer_id) == BOXRIG_STATUS_OK);
     options.limits.snapshot_byte_capacity = primary_bytes + alternate_bytes;
     options.limits.snapshot_line_capacity = total_lines - 1;
     CHECK(boxrig_terminal_register_text_recognizer(
               terminal, &options, &diagnostic,
-              &recognizer_id) == BOXRIG_STATUS_LIMIT_EXCEEDED);
-    CHECK(recognizer_id == 0);
+              &recognizer_id) == BOXRIG_STATUS_OK);
+    CHECK(finish_recognition(terminal));
+    CHECK(boxrig_terminal_text_recognizer_event_peek(terminal, &event));
+    CHECK(event.kind == BOXRIG_TEXT_RECOGNIZER_EVENT_SCOPE_INCOMPLETE);
+    CHECK(event.recognizer_id == recognizer_id);
+    CHECK(boxrig_terminal_text_recognizer_event_consume(terminal) ==
+          BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_unregister_text_recognizer(
+              terminal, recognizer_id) == BOXRIG_STATUS_OK);
     options.limits.snapshot_line_capacity = total_lines;
     CHECK(boxrig_terminal_register_text_recognizer(
               terminal, &options, &diagnostic,
               &recognizer_id) == BOXRIG_STATUS_OK);
 
     boxrig_terminal_test_fail_text_snapshot_allocation(terminal, 1);
-    CHECK(boxrig_terminal_resume_text_recognizers(
-              terminal, 1, &work_used, &more) == BOXRIG_STATUS_OUT_OF_MEMORY);
+    bool saw_oom = false;
+    for (size_t attempt = 0; attempt < 10000u; attempt++) {
+        boxrig_status status = boxrig_terminal_resume_text_recognizers(
+            terminal, 1u, &work_used, &more);
+        CHECK(work_used <= 1u);
+        if (status == BOXRIG_STATUS_OUT_OF_MEMORY) {
+            saw_oom = true;
+            break;
+        }
+        CHECK(status == BOXRIG_STATUS_OK);
+        CHECK(more);
+    }
+    CHECK(saw_oom);
     CHECK(boxrig_terminal_resume_text_recognizers(
               terminal, 1, &work_used, &more) == BOXRIG_STATUS_OK);
     CHECK(more);
@@ -213,7 +238,15 @@ static bool test_wrapped_line_projection(void)
         boxrig_text_snapshot_line_count(snapshot);
     CHECK(boxrig_terminal_register_text_recognizer(
               terminal, &options, &diagnostic,
-              &recognizer_id) == BOXRIG_STATUS_LIMIT_EXCEEDED);
+              &recognizer_id) == BOXRIG_STATUS_OK);
+    CHECK(finish_recognition(terminal));
+    CHECK(boxrig_terminal_text_recognizer_event_peek(terminal, &event));
+    CHECK(event.kind == BOXRIG_TEXT_RECOGNIZER_EVENT_SCOPE_INCOMPLETE);
+    CHECK(event.recognizer_id == recognizer_id);
+    CHECK(boxrig_terminal_text_recognizer_event_consume(terminal) ==
+          BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_unregister_text_recognizer(
+              terminal, recognizer_id) == BOXRIG_STATUS_OK);
     options.limits.snapshot_byte_capacity = bytes;
     CHECK(boxrig_terminal_register_text_recognizer(
               terminal, &options, &diagnostic,

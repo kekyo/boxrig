@@ -21,6 +21,10 @@ Header comments at each link specify the individual API contracts.
 | POSIX file descriptors and PTYs | [posix.h](../../../include/boxrig/posix.h) | [Sessions](../sessions.md) |
 | Win32 communication and PTYs | [session.h](../../../include/boxrig/win32/session.h), [pty.h](../../../include/boxrig/win32/pty.h) | [Win32](../platforms/win32.md) |
 
+When displaying terminal text, `boxrig_text_fragment_view.projected_end_column` returned by `boxrig_terminal_get_text_fragment()` gives the end of text in a logical line. It is a logical column, includes trailing spaces written as characters, and excludes erased cells. Every physical fragment of a soft-wrapped logical line reports the same end column.
+
+When a logical line has room after its text, selecting the immediately following cell in a normal selection selects the line break before the next logical line. Selecting through that cell includes LF (`\n`) in the copied text; selecting only that cell copies only LF. Selection fill and outline do not extend into unused cells after the text. Rectangular selections use their own range rules.
+
 ## UI and input
 
 | Purpose | Public header | Guide |

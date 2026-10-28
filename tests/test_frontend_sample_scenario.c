@@ -487,7 +487,7 @@ static bool test_grid_mismatch_reports_observed_dimensions(void)
 static bool test_copy_policy_counts_button_transitions_with_drag_motion(void)
 {
     static const uint8_t input[] =
-        "\033[6;18;9tr\033[<2;11;5M\033[<34;12;5M\033[<2;12;5mzq";
+        "\033[6;18;9tr\033[<2;11;5M\033[<34;12;5M\033[<2;12;5mzgq";
     scenario_fixture fixture = {0};
     fixture.input = input;
     fixture.input_length = sizeof(input) - 1u;
@@ -502,8 +502,9 @@ static bool test_copy_policy_counts_button_transitions_with_drag_motion(void)
     CHECK(unsetenv("BOXRIG_TEST_SAMPLE_COPY_POLICY") == 0);
     CHECK(completed);
     CHECK(fixture.input_offset == fixture.input_length);
-    CHECK(fixture.title_count == 6u);
+    CHECK(fixture.title_count == 7u);
     CHECK(strcmp(fixture.titles[5], "boxrig-copy-5-z-18-9-3-2") == 0);
+    CHECK(strcmp(fixture.titles[6], "boxrig-copy-grid-24-80") == 0);
     return true;
 }
 

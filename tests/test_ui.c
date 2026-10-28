@@ -1812,8 +1812,288 @@ static bool annotation_without_layout_invalidates_whole_row(void)
     return true;
 }
 
+static bool annotations_follow_wrapping_views_and_screen_changes(void)
+{
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    boxrig_ui_view_config view_config = boxrig_ui_view_config_default();
+    boxrig_terminal *terminal = NULL;
+    boxrig_ui_model *model = NULL;
+    boxrig_ui_view *views[2] = {NULL, NULL};
+    boxrig_ui_text_annotation annotation = {0};
+    const char text[] = "abcdefghijklmnopqr\r\nXYZ";
+    size_t consumed;
+
+    config.rows = 3;
+    config.columns = 6;
+    config.scrollback_capacity = 4;
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)text,
+        sizeof(text) - 1, &consumed) == BOXRIG_STATUS_OK);
+    CHECK(consumed == sizeof(text) - 1);
+    CHECK(boxrig_terminal_scrollback_rows(terminal) == 1);
+    CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
+    CHECK(boxrig_terminal_get_text_position(terminal,
+        BOXRIG_TEXT_SCREEN_PRIMARY, 0, 2, &annotation.range.start) ==
+        BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_get_text_position(terminal,
+        BOXRIG_TEXT_SCREEN_PRIMARY, 2, 4, &annotation.range.end) ==
+        BOXRIG_STATUS_OK);
+    annotation.source_id = 81;
+    annotation.item_id = 1;
+    annotation.style.field_mask = BOXRIG_UI_ANNOTATION_UNDERLINE_STYLE;
+    annotation.style.underline_style = BOXRIG_UNDERLINE_SINGLE;
+    for (size_t index = 0; index < 2; index++) {
+        CHECK(boxrig_ui_view_create(model, &view_config, &views[index]) ==
+            BOXRIG_UI_OK);
+        CHECK(boxrig_ui_view_replace_text_annotations(views[index], 81,
+            BOXRIG_TEXT_SCREEN_PRIMARY, annotation.range.start.line_id,
+            annotation.range.start.line_revision, &annotation, 1) ==
+            BOXRIG_UI_OK);
+    }
+    CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+
+    /* Each physical row clips the same logical range, including after reflow. */
+    const size_t expected_start[3][3] = {{0, 0, 0}, {2, 0, 0}, {2, 0, 0}};
+    const size_t expected_count[3][3] = {{6, 4, 0}, {4, 6, 4}, {7, 7, 0}};
+    for (size_t phase = 0; phase < 3; phase++) {
+        if (phase == 1) {
+            CHECK(boxrig_terminal_set_viewport_offset(terminal, 1) ==
+                BOXRIG_STATUS_OK);
+        } else if (phase == 2) {
+            CHECK(boxrig_terminal_set_viewport_offset(terminal, 0) ==
+                BOXRIG_STATUS_OK);
+            CHECK(boxrig_terminal_resize(terminal, 3, 9) == BOXRIG_STATUS_OK);
+        }
+        CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+        for (size_t index = 0; index < 2; index++) {
+            for (size_t row = 0; row < 3; row++) {
+                boxrig_ui_text_annotation_visual_range range;
+                size_t required;
+                CHECK(boxrig_ui_view_query_text_annotation_visual_ranges(
+                    views[index], row, &range, 1, &required) == BOXRIG_UI_OK);
+                CHECK(required == (expected_count[phase][row] != 0 ? 1u : 0u));
+                if (required != 0) {
+                    CHECK(range.annotation.item_id == 1);
+                    CHECK(range.visual_range.column == expected_start[phase][row]);
+                    CHECK(range.visual_range.column_count == expected_count[phase][row]);
+                }
+            }
+        }
+    }
+
+    const char *screens[] = {"\033[?47h", "\033[?47l"};
+    for (size_t screen = 0; screen < 2; screen++) {
+        CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)screens[screen],
+            strlen(screens[screen]), &consumed) == BOXRIG_STATUS_OK);
+        CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+        for (size_t index = 0; index < 2; index++) {
+            boxrig_ui_text_annotation_visual_range range;
+            size_t required;
+            CHECK(boxrig_ui_view_query_text_annotation_visual_ranges(
+                views[index], 0, &range, 1, &required) == BOXRIG_UI_OK);
+            CHECK(required == screen);
+            while (boxrig_ui_view_consume_dirty(views[index],
+                BOXRIG_UI_DIRTY_OVERLAY) == BOXRIG_UI_OK) {}
+        }
+    }
+
+    /* Editing outside the decorated columns invalidates the entire logical
+     * line. Both wrapped rows still need their old underline erased. */
+    const char edit[] = "\033[1;1HZ";
+    CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)edit,
+        sizeof(edit) - 1, &consumed) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+    for (size_t index = 0; index < 2; index++) {
+        bool erased[2] = {false, false};
+        boxrig_ui_dirty dirty;
+        while (boxrig_ui_view_peek_dirty(views[index],
+                BOXRIG_UI_DIRTY_OVERLAY, &dirty)) {
+            for (size_t row = 0; row < 2; row++) {
+                if (row >= dirty.row && row - dirty.row < dirty.row_count)
+                    erased[row] = true;
+            }
+            CHECK(boxrig_ui_view_consume_dirty(views[index],
+                BOXRIG_UI_DIRTY_OVERLAY) == BOXRIG_UI_OK);
+        }
+        CHECK(erased[0] && erased[1]);
+        for (size_t row = 0; row < 3; row++) {
+            size_t required;
+            CHECK(boxrig_ui_view_query_text_annotation_visual_ranges(
+                views[index], row, NULL, 0, &required) == BOXRIG_UI_OK);
+            CHECK(required == 0);
+        }
+        boxrig_ui_view_destroy(views[index]);
+    }
+    boxrig_ui_model_destroy(model);
+    boxrig_terminal_destroy(terminal);
+    return true;
+}
+
+static bool annotations_clip_partially_evicted_logical_lines(void)
+{
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    boxrig_ui_view_config view_config = boxrig_ui_view_config_default();
+    boxrig_terminal *terminal = NULL;
+    boxrig_ui_model *model = NULL;
+    boxrig_ui_view *view = NULL;
+    boxrig_ui_text_annotation annotation = {0};
+    const char text[] = "ABCDEFGHIJKLMNOPQRST";
+    size_t consumed;
+
+    config.rows = 2;
+    config.columns = 4;
+    config.scrollback_capacity = 2;
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)text,
+        sizeof(text) - 1, &consumed) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_scrollback_rows(terminal) == 2);
+    CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_create(model, &view_config, &view) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+    CHECK(boxrig_terminal_get_text_position(terminal,
+        BOXRIG_TEXT_SCREEN_PRIMARY, 0, 1, &annotation.range.start) ==
+        BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_get_text_position(terminal,
+        BOXRIG_TEXT_SCREEN_PRIMARY, 3, 2, &annotation.range.end) ==
+        BOXRIG_STATUS_OK);
+    /* Truncating the head creates a new logical identity and rebases columns
+     * to the retained text. A later truncation must retire this annotation. */
+    CHECK(annotation.range.start.column == 1 && annotation.range.end.column == 14);
+    annotation.source_id = 82;
+    annotation.item_id = 1;
+    annotation.style.field_mask = BOXRIG_UI_ANNOTATION_UNDERLINE_STYLE;
+    annotation.style.underline_style = BOXRIG_UNDERLINE_SINGLE;
+    CHECK(boxrig_ui_view_replace_text_annotations(view, 82,
+        BOXRIG_TEXT_SCREEN_PRIMARY, annotation.range.start.line_id,
+        annotation.range.start.line_revision, &annotation, 1) == BOXRIG_UI_OK);
+
+    const size_t starts[3][2] = {{0, 0}, {1, 0}, {0, 0}};
+    const size_t counts[3][2] = {{4, 2}, {3, 4}, {0, 0}};
+    for (size_t phase = 0; phase < 3; phase++) {
+        if (phase == 1) {
+            CHECK(boxrig_terminal_set_viewport_offset(terminal, 2) == BOXRIG_STATUS_OK);
+        } else if (phase == 2) {
+            CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)"\r\nZ",
+                3, &consumed) == BOXRIG_STATUS_OK);
+        }
+        CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+        for (size_t row = 0; row < 2; row++) {
+            boxrig_ui_text_annotation_visual_range range;
+            size_t required;
+            CHECK(boxrig_ui_view_query_text_annotation_visual_ranges(
+                view, row, &range, 1, &required) == BOXRIG_UI_OK);
+            CHECK(required == (counts[phase][row] != 0 ? 1u : 0u));
+            if (required != 0) {
+                CHECK(range.visual_range.column == starts[phase][row]);
+                CHECK(range.visual_range.column_count == counts[phase][row]);
+            }
+        }
+    }
+    for (size_t line = 0; line < 4; line++) {
+        CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)"\r\nnext",
+            6, &consumed) == BOXRIG_STATUS_OK);
+    }
+    CHECK(boxrig_terminal_set_viewport_offset(terminal, 0) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+    boxrig_ui_dirty dirty;
+    CHECK(boxrig_ui_view_peek_dirty(view, BOXRIG_UI_DIRTY_MODEL, &dirty));
+    for (size_t row = 0; row < 2; row++) {
+        size_t required;
+        CHECK(boxrig_ui_view_query_text_annotation_visual_ranges(
+            view, row, NULL, 0, &required) == BOXRIG_UI_OK);
+        CHECK(required == 0);
+    }
+    boxrig_ui_view_destroy(view);
+    boxrig_ui_model_destroy(model);
+    boxrig_terminal_destroy(terminal);
+    return true;
+}
+
+static bool annotations_follow_moved_wide_and_combining_text(void)
+{
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    boxrig_ui_view_config view_config = boxrig_ui_view_config_default();
+    boxrig_terminal *terminal = NULL;
+    boxrig_ui_model *model = NULL;
+    boxrig_ui_view *view = NULL;
+    boxrig_ui_text_annotation annotation = {0};
+    boxrig_ui_allocation_input allocation = {0};
+    boxrig_ui_layout_result layout;
+    boxrig_ui_hit_test_result previous_hit = {0};
+    const char text[] = "\r\nA\xe7\x95\x8c" "e\xcc\x81" "B";
+    size_t consumed;
+
+    config.rows = 4;
+    config.columns = 8;
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)text,
+        sizeof(text) - 1, &consumed) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_create(model, &view_config, &view) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_acquire_layout_authority(view) == BOXRIG_UI_OK);
+    allocation.allocation_width = pixels(64);
+    allocation.allocation_height = pixels(40);
+    allocation.cell_width = pixels(8);
+    allocation.cell_height = pixels(10);
+    allocation.cell_metrics_revision = 1;
+    allocation.window_state = BOXRIG_UI_WINDOW_NORMAL;
+    CHECK(boxrig_ui_view_accept_allocation(view, &allocation, &layout) == BOXRIG_UI_OK);
+    CHECK(boxrig_terminal_get_text_position(terminal,
+        BOXRIG_TEXT_SCREEN_PRIMARY, 1, 1, &annotation.range.start) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_get_text_position(terminal,
+        BOXRIG_TEXT_SCREEN_PRIMARY, 1, 4, &annotation.range.end) == BOXRIG_STATUS_OK);
+    annotation.source_id = 83;
+    annotation.item_id = 1;
+    annotation.style.field_mask = BOXRIG_UI_ANNOTATION_UNDERLINE_STYLE;
+    annotation.style.underline_style = BOXRIG_UNDERLINE_SINGLE;
+    CHECK(boxrig_ui_view_replace_text_annotations(view, 83,
+        BOXRIG_TEXT_SCREEN_PRIMARY, annotation.range.start.line_id,
+        annotation.range.start.line_revision, &annotation, 1) == BOXRIG_UI_OK);
+
+    const char *moves[] = {"", "\033[1;1H\033[L", "\033[1;1H\033[M"};
+    const size_t decorated_rows[] = {1, 2, 1};
+    for (size_t phase = 0; phase < 3; phase++) {
+        CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)moves[phase],
+            strlen(moves[phase]), &consumed) == BOXRIG_STATUS_OK);
+        CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+        size_t required;
+        if (phase != 0) {
+            CHECK(boxrig_ui_view_query_text_annotation_hits(view, &previous_hit,
+                BOXRIG_UI_ANNOTATION_HIT_ALL, NULL, 0, &required, NULL) == BOXRIG_UI_STALE);
+        }
+        for (size_t row = 0; row < 4; row++) {
+            boxrig_ui_text_annotation_visual_range range;
+            CHECK(boxrig_ui_view_query_text_annotation_visual_ranges(view,
+                row, &range, 1, &required) == BOXRIG_UI_OK);
+            CHECK(required == (row == decorated_rows[phase] ? 1u : 0u));
+            if (required != 0) {
+                CHECK(range.visual_range.column == 1 && range.visual_range.column_count == 3);
+            }
+        }
+        /* Both halves of the wide character and the combining grapheme
+         * resolve to the same retained annotation after row movement. */
+        for (size_t column = 1; column <= 3; column++) {
+            boxrig_ui_text_annotation hit_annotation;
+            CHECK(boxrig_ui_view_hit_test(view, pixels(column * 8 + 1),
+                pixels(decorated_rows[phase] * 10 + 1), &previous_hit) == BOXRIG_UI_OK);
+            CHECK(boxrig_ui_view_query_text_annotation_hits(view, &previous_hit,
+                BOXRIG_UI_ANNOTATION_HIT_ALL, &hit_annotation, 1, &required, NULL) == BOXRIG_UI_OK);
+            CHECK(required == 1 && hit_annotation.source_id == 83);
+            CHECK(previous_hit.leading_position.column == (column < 3 ? 1u : 3u));
+            CHECK(previous_hit.trailing_position.column == (column < 3 ? 3u : 4u));
+        }
+    }
+    boxrig_ui_view_destroy(view);
+    boxrig_ui_model_destroy(model);
+    boxrig_terminal_destroy(terminal);
+    return true;
+}
+
 int main(void)
 {
+    if (!annotations_follow_wrapping_views_and_screen_changes() ||
+        !annotations_clip_partially_evicted_logical_lines() ||
+        !annotations_follow_moved_wide_and_combining_text()) return 1;
     if (!annotation_without_layout_invalidates_whole_row()) return 1;
     CHECK(independent_view_dirty_and_frame_requests());
     CHECK(fixed_grid_layout_hit_test_and_retained_mapping());

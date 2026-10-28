@@ -98,6 +98,31 @@ void boxrig_text_workload_counters_reset(void)
     memset(&text_workload_counters, 0, sizeof(text_workload_counters));
 }
 
+void boxrig_text_workload_observe_recognizer_line_lookup(void)
+{
+    text_workload_add(&text_workload_counters.recognizer_line_lookup_probes, 1u);
+}
+
+void boxrig_text_workload_observe_recognizer_result_lookup(void)
+{
+    text_workload_add(&text_workload_counters.recognizer_result_lookup_probes, 1u);
+}
+
+void boxrig_text_workload_observe_recognizer_metadata(size_t count)
+{
+    text_workload_add(&text_workload_counters.recognizer_metadata_steps, count);
+}
+
+void boxrig_text_workload_observe_recognizer_finalize(size_t count)
+{
+    text_workload_add(&text_workload_counters.recognizer_finalize_steps, count);
+}
+
+void boxrig_text_workload_observe_hyperlink_scan_cells(size_t count)
+{
+    text_workload_add(&text_workload_counters.hyperlink_scan_cells, count);
+}
+
 void boxrig_text_workload_counters_read(
     boxrig_text_workload_counters *counters_out)
 {
@@ -160,6 +185,49 @@ typedef struct boxrig_text_projection_sink {
     size_t point_count;
     bool overflow;
 } boxrig_text_projection_sink;
+
+typedef enum boxrig_text_line_projection_pass {
+    BOXRIG_LINE_PROJECTION_MEASURE = 0,
+    BOXRIG_LINE_PROJECTION_ALLOCATE,
+    BOXRIG_LINE_PROJECTION_WRITE,
+    BOXRIG_LINE_PROJECTION_DONE
+} boxrig_text_line_projection_pass;
+
+typedef enum boxrig_text_line_projection_step {
+    BOXRIG_LINE_PROJECTION_START = 0,
+    BOXRIG_LINE_PROJECTION_SCAN,
+    BOXRIG_LINE_PROJECTION_GAP,
+    BOXRIG_LINE_PROJECTION_TOKEN_START,
+    BOXRIG_LINE_PROJECTION_TOKEN_BYTES,
+    BOXRIG_LINE_PROJECTION_TOKEN_END,
+    BOXRIG_LINE_PROJECTION_FINISH
+} boxrig_text_line_projection_step;
+
+struct boxrig_text_line_projection_cursor {
+    boxrig_text_screen screen;
+    uint64_t text_revision;
+    uint64_t layout_revision;
+    size_t first_fragment;
+    size_t next_fragment;
+    size_t fragment_index;
+    size_t column;
+    size_t previous_end;
+    size_t blank_column;
+    size_t blank_end;
+    size_t token_fragment;
+    size_t token_column;
+    size_t token_logical_column;
+    size_t token_width;
+    size_t token_length;
+    size_t token_offset;
+    size_t measured_bytes;
+    size_t measured_points;
+    bool saw_text;
+    bool initialized;
+    boxrig_text_line_projection_pass pass;
+    boxrig_text_line_projection_step step;
+    boxrig_text_projection_sink sink;
+};
 
 typedef enum boxrig_text_search_iterator_stage {
     BOXRIG_TEXT_SEARCH_ITERATOR_LINE_START = 0,
@@ -471,6 +539,7 @@ static size_t logical_line_end(
            document_fragment_soft_wrapped(screen, text_screen, end - 1)) {
         end++;
     }
+    boxrig_text_workload_observe_recognizer_metadata(end - line_start);
     return end;
 }
 
@@ -833,6 +902,7 @@ boxrig_status boxrig_terminal_get_text_fragment(
     fragment_out->line_id = metadata->line_id;
     fragment_out->logical_column_offset =
         metadata->logical_column_offset;
+    fragment_out->projected_end_column = metadata->projected_end_column;
     fragment_out->line_revision = metadata->line_revision;
     fragment_out->soft_wrapped = document_fragment_soft_wrapped(
         &terminal->screen,
@@ -1374,6 +1444,276 @@ static void *snapshot_allocate(boxrig_screen *screen, size_t size)
     return malloc(size == 0 ? 1 : size);
 }
 
+boxrig_status boxrig_screen_text_fragment_info(
+    const boxrig_screen *screen, boxrig_text_screen text_screen,
+    size_t fragment_index, boxrig_text_fragment_info *info_out)
+{
+    if (screen == NULL || !text_screen_valid(text_screen) ||
+        info_out == NULL ||
+        fragment_index >= document_fragment_count(screen, text_screen)) {
+        return BOXRIG_STATUS_INVALID_ARGUMENT;
+    }
+    const boxrig_text_fragment_metadata *metadata =
+        document_fragment_metadata(screen, text_screen, fragment_index);
+    boxrig_text_workload_observe_recognizer_metadata(1u);
+    info_out->fragment_count = document_fragment_count(screen, text_screen);
+    info_out->position = make_position(
+        text_screen, metadata->line_id, 0u, metadata->line_revision,
+        screen->text_revision);
+    info_out->projected_length = metadata->projected_length;
+    info_out->soft_wrapped = document_fragment_soft_wrapped(
+        screen, text_screen, fragment_index);
+    return BOXRIG_STATUS_OK;
+}
+
+boxrig_status boxrig_text_line_projection_cursor_create(
+    boxrig_text_line_projection_cursor **cursor_out)
+{
+    if (cursor_out == NULL) return BOXRIG_STATUS_INVALID_ARGUMENT;
+    *cursor_out = calloc(1u, sizeof(**cursor_out));
+    return *cursor_out == NULL ? BOXRIG_STATUS_OUT_OF_MEMORY : BOXRIG_STATUS_OK;
+}
+
+boxrig_status boxrig_text_line_projection_cursor_reset(
+    boxrig_text_line_projection_cursor *cursor,
+    const boxrig_terminal *terminal, boxrig_text_screen text_screen,
+    size_t first_fragment, size_t next_fragment)
+{
+    if (cursor == NULL || terminal == NULL ||
+        !text_screen_valid(text_screen) ||
+        first_fragment >= next_fragment ||
+        next_fragment > document_fragment_count(
+            &terminal->screen, text_screen) ||
+        next_fragment - first_fragment > SIZE_MAX / terminal->screen.columns) {
+        return BOXRIG_STATUS_INVALID_ARGUMENT;
+    }
+    const boxrig_text_fragment_metadata *metadata =
+        document_fragment_metadata(
+            &terminal->screen, text_screen, first_fragment);
+    memset(cursor, 0, sizeof(*cursor));
+    cursor->screen = text_screen;
+    cursor->text_revision = terminal->screen.text_revision;
+    cursor->layout_revision = terminal->screen.text_layout_revision;
+    cursor->first_fragment = first_fragment;
+    cursor->next_fragment = next_fragment;
+    cursor->pass = BOXRIG_LINE_PROJECTION_MEASURE;
+    cursor->step = BOXRIG_LINE_PROJECTION_START;
+    cursor->fragment_index = first_fragment;
+    cursor->sink.screen = text_screen;
+    cursor->sink.line_id = metadata->line_id;
+    cursor->sink.line_revision = metadata->line_revision;
+    cursor->sink.text_revision = cursor->text_revision;
+    cursor->sink.selection_end =
+        (next_fragment - first_fragment) * terminal->screen.columns;
+    cursor->initialized = true;
+    return BOXRIG_STATUS_OK;
+}
+
+static boxrig_text_position projection_cursor_position(
+    const boxrig_text_line_projection_cursor *cursor, size_t column)
+{
+    return make_position(
+        cursor->screen, cursor->sink.line_id, column,
+        cursor->sink.line_revision, cursor->text_revision);
+}
+
+static void projection_cursor_start_write(
+    boxrig_text_line_projection_cursor *cursor,
+    boxrig_text_snapshot *snapshot)
+{
+    cursor->pass = BOXRIG_LINE_PROJECTION_WRITE;
+    cursor->step = BOXRIG_LINE_PROJECTION_START;
+    cursor->fragment_index = cursor->first_fragment;
+    cursor->column = 0u;
+    cursor->previous_end = 0u;
+    cursor->blank_column = 0u;
+    cursor->blank_end = 0u;
+    cursor->token_offset = 0u;
+    cursor->saw_text = false;
+    cursor->sink.snapshot = snapshot;
+    cursor->sink.byte_count = 0u;
+    cursor->sink.point_count = 0u;
+    cursor->sink.overflow = false;
+}
+
+static boxrig_status projection_cursor_allocate(
+    boxrig_text_line_projection_cursor *cursor,
+    boxrig_screen *screen, boxrig_text_snapshot **snapshot_inout)
+{
+    boxrig_text_snapshot *snapshot = *snapshot_inout;
+    if (snapshot == NULL) {
+        snapshot = snapshot_allocate(screen, sizeof(*snapshot));
+        if (snapshot == NULL) return BOXRIG_STATUS_OUT_OF_MEMORY;
+        memset(snapshot, 0, sizeof(*snapshot));
+        *snapshot_inout = snapshot;
+    }
+    if (cursor->measured_bytes > snapshot->byte_capacity) {
+        uint8_t *bytes = snapshot_allocate(screen, cursor->measured_bytes);
+        if (bytes == NULL) return BOXRIG_STATUS_OUT_OF_MEMORY;
+        free(snapshot->bytes);
+        snapshot->bytes = bytes;
+        snapshot->byte_capacity = cursor->measured_bytes;
+    }
+    if (cursor->measured_points > snapshot->point_capacity) {
+        boxrig_text_snapshot_point *points = snapshot_allocate(
+            screen, cursor->measured_points * sizeof(*points));
+        if (points == NULL) return BOXRIG_STATUS_OUT_OF_MEMORY;
+        free(snapshot->points);
+        snapshot->points = points;
+        snapshot->point_capacity = cursor->measured_points;
+    }
+    projection_cursor_start_write(cursor, snapshot);
+    return BOXRIG_STATUS_OK;
+}
+
+boxrig_status boxrig_text_line_projection_cursor_resume(
+    boxrig_text_line_projection_cursor *cursor,
+    const boxrig_terminal *terminal, size_t work_budget,
+    boxrig_text_snapshot **snapshot_inout, size_t *work_used_out,
+    bool *complete_out)
+{
+    if (cursor == NULL || !cursor->initialized || terminal == NULL ||
+        work_budget == 0u || snapshot_inout == NULL ||
+        work_used_out == NULL || complete_out == NULL) {
+        return BOXRIG_STATUS_INVALID_ARGUMENT;
+    }
+    *work_used_out = 0u;
+    *complete_out = false;
+    if (cursor->text_revision != terminal->screen.text_revision ||
+        cursor->layout_revision != terminal->screen.text_layout_revision) {
+        return BOXRIG_STATUS_STALE;
+    }
+    if (cursor->pass == BOXRIG_LINE_PROJECTION_DONE) {
+        *complete_out = true;
+        return BOXRIG_STATUS_OK;
+    }
+    const boxrig_screen *screen = &terminal->screen;
+    while (*work_used_out < work_budget) {
+        if (cursor->pass == BOXRIG_LINE_PROJECTION_ALLOCATE) {
+            boxrig_status status = projection_cursor_allocate(
+                cursor, (boxrig_screen *)screen, snapshot_inout);
+            if (status != BOXRIG_STATUS_OK) return status;
+            continue;
+        }
+        if (cursor->step == BOXRIG_LINE_PROJECTION_START) {
+            projection_add_point(
+                &cursor->sink, projection_cursor_position(cursor, 0u));
+            cursor->step = BOXRIG_LINE_PROJECTION_SCAN;
+        } else if (cursor->step == BOXRIG_LINE_PROJECTION_SCAN) {
+            if (cursor->fragment_index == cursor->next_fragment) {
+                cursor->step = BOXRIG_LINE_PROJECTION_FINISH;
+                continue;
+            }
+            if (cursor->column == screen->columns) {
+                cursor->fragment_index++;
+                cursor->column = 0u;
+                continue;
+            }
+            size_t fragment = cursor->fragment_index;
+            size_t column = cursor->column++;
+            const boxrig_cell *cell = document_cell(
+                screen, cursor->screen, fragment, column);
+            (*work_used_out)++;
+            text_workload_visit_cells(1u);
+            if (cell->continuation || cell->text_length == 0u) continue;
+            size_t logical_column =
+                (fragment - cursor->first_fragment) * screen->columns + column;
+            size_t width = cell->column_width == 0u
+                               ? 1u : cell->column_width;
+            if (!cursor->saw_text) {
+                cursor->previous_end = logical_column;
+                cursor->saw_text = true;
+            }
+            cursor->blank_column = cursor->previous_end;
+            cursor->blank_end = logical_column;
+            cursor->token_fragment = fragment;
+            cursor->token_column = column;
+            cursor->token_logical_column = logical_column;
+            cursor->token_width = width;
+            cursor->token_length = cell->text_length;
+            cursor->token_offset = 0u;
+            cursor->previous_end = logical_column + width;
+            cursor->step = cursor->blank_column < cursor->blank_end
+                               ? BOXRIG_LINE_PROJECTION_GAP
+                               : BOXRIG_LINE_PROJECTION_TOKEN_START;
+        } else if (cursor->step == BOXRIG_LINE_PROJECTION_GAP) {
+            static const uint8_t space = (uint8_t)' ';
+            size_t column = cursor->blank_column++;
+            projection_add_token(
+                &cursor->sink, &space, 1u,
+                projection_cursor_position(cursor, column),
+                projection_cursor_position(cursor, column + 1u));
+            (*work_used_out)++;
+            if (cursor->blank_column == cursor->blank_end) {
+                cursor->step = BOXRIG_LINE_PROJECTION_TOKEN_START;
+            }
+        } else if (cursor->step == BOXRIG_LINE_PROJECTION_TOKEN_START) {
+            projection_add_point(
+                &cursor->sink,
+                projection_cursor_position(
+                    cursor, cursor->token_logical_column));
+            cursor->step = BOXRIG_LINE_PROJECTION_TOKEN_BYTES;
+        } else if (cursor->step == BOXRIG_LINE_PROJECTION_TOKEN_BYTES) {
+            const boxrig_cell *cell = document_cell(
+                screen, cursor->screen, cursor->token_fragment,
+                cursor->token_column);
+            const uint8_t *bytes =
+                (const uint8_t *)boxrig_cell_text(cell);
+            projection_add_bytes(
+                &cursor->sink, &bytes[cursor->token_offset], 1u);
+            cursor->token_offset++;
+            (*work_used_out)++;
+            if (cursor->token_offset == cursor->token_length) {
+                cursor->step = BOXRIG_LINE_PROJECTION_TOKEN_END;
+            }
+        } else if (cursor->step == BOXRIG_LINE_PROJECTION_TOKEN_END) {
+            projection_add_point(
+                &cursor->sink,
+                projection_cursor_position(
+                    cursor,
+                    cursor->token_logical_column + cursor->token_width));
+            cursor->step = BOXRIG_LINE_PROJECTION_SCAN;
+        } else {
+            projection_add_point(
+                &cursor->sink,
+                projection_cursor_position(
+                    cursor, cursor->sink.selection_end));
+            if (cursor->sink.overflow) return BOXRIG_STATUS_LIMIT_EXCEEDED;
+            if (cursor->pass == BOXRIG_LINE_PROJECTION_MEASURE) {
+                if (cursor->sink.point_count >
+                    SIZE_MAX / sizeof(boxrig_text_snapshot_point)) {
+                    return BOXRIG_STATUS_LIMIT_EXCEEDED;
+                }
+                cursor->measured_bytes = cursor->sink.byte_count;
+                cursor->measured_points = cursor->sink.point_count;
+                cursor->pass = BOXRIG_LINE_PROJECTION_ALLOCATE;
+                continue;
+            }
+            if (cursor->sink.byte_count != cursor->measured_bytes ||
+                cursor->sink.point_count != cursor->measured_points) {
+                return BOXRIG_STATUS_LIMIT_EXCEEDED;
+            }
+            boxrig_text_snapshot *snapshot = *snapshot_inout;
+            snapshot->screen = cursor->screen;
+            snapshot->revision = cursor->text_revision;
+            snapshot->line_count = 1u;
+            snapshot->byte_length = cursor->sink.byte_count;
+            snapshot->point_count = cursor->sink.point_count;
+            cursor->pass = BOXRIG_LINE_PROJECTION_DONE;
+            *complete_out = true;
+            return BOXRIG_STATUS_OK;
+        }
+        if (cursor->sink.overflow) return BOXRIG_STATUS_LIMIT_EXCEEDED;
+    }
+    return BOXRIG_STATUS_OK;
+}
+
+void boxrig_text_line_projection_cursor_destroy(
+    boxrig_text_line_projection_cursor *cursor)
+{
+    free(cursor);
+}
+
 boxrig_status boxrig_screen_text_document_size(
     const boxrig_screen *screen,
     boxrig_text_screen text_screen,
@@ -1407,26 +1747,6 @@ boxrig_status boxrig_screen_text_document_size(
     }
     *bytes_out = bytes;
     *lines_out = lines;
-    return BOXRIG_STATUS_OK;
-}
-
-boxrig_status boxrig_screen_text_line_metadata(
-    const boxrig_screen *screen,
-    boxrig_text_screen text_screen,
-    size_t fragment_index,
-    boxrig_text_position *position_out,
-    size_t *next_fragment_out)
-{
-    if (screen == NULL || !text_screen_valid(text_screen) ||
-        position_out == NULL || next_fragment_out == NULL ||
-        fragment_index >= document_fragment_count(screen, text_screen)) {
-        return BOXRIG_STATUS_INVALID_ARGUMENT;
-    }
-    const boxrig_text_fragment_metadata *metadata =
-        document_fragment_metadata(screen, text_screen, fragment_index);
-    *position_out = make_position(text_screen, metadata->line_id, 0u,
-        metadata->line_revision, screen->text_revision);
-    *next_fragment_out = logical_line_end(screen, text_screen, fragment_index);
     return BOXRIG_STATUS_OK;
 }
 

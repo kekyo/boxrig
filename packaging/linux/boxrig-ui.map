@@ -271,6 +271,7 @@ BOXRIG_PRIVATE_0 {
         boxrig_ui_view_require_animation_runtime;
         boxrig_ui_view_resolve_cell_paint;
         boxrig_ui_view_resolve_paint_colors;
+        boxrig_ui_view_selection_newline_marker;
         boxrig_ui_view_selection_stroke_pixels;
         boxrig_ui_view_selection_uses_cell_colors;
         boxrig_ui_view_store_candidate_layout;

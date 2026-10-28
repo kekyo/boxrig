@@ -5232,8 +5232,10 @@ static int draw_view_overlay_role(
     boxrig_ui_selection_style style = boxrig_ui_selection_style_default();
     if (view != NULL) (void)boxrig_ui_view_get_selection_style(view, &style);
     bool selection = role == BOXRIG_UI_OVERLAY_SELECTION;
-    if (selection && (style.presentation == BOXRIG_UI_SELECTION_FILL ||
-            style.marker_opacity == 0)) return 0;
+    boxrig_ui_fixed marker_x, marker_width;
+    bool newline_marker = selection && boxrig_ui_view_selection_newline_marker(
+        view, row, &marker_x, &marker_width);
+    if (selection && style.marker_opacity == 0) return 0;
     uint8_t opacity = selection ? style.marker_opacity : 255;
     unsigned int stroke_x = selection ? boxrig_ui_view_selection_stroke_pixels(view,
         renderer->rendering_policy.dpi_x, renderer->rendering_policy.output_scale, renderer->cell_width) : 1;
@@ -5247,7 +5249,8 @@ static int draw_view_overlay_role(
         ? BOXRIG_UI_COLOR_SEARCH_MARKER
         : role == BOXRIG_UI_OVERLAY_SELECTION
             ? BOXRIG_UI_COLOR_SELECTION_MARKER : BOXRIG_UI_COLOR_HOVER_MARKER;
-    size_t range_count = view_overlay_ranges(view, role, row,
+    size_t range_count = selection && style.presentation == BOXRIG_UI_SELECTION_FILL
+        ? 0 : view_overlay_ranges(view, role, row,
         renderer->overlay_ranges, renderer->cached_columns);
     if (range_count > renderer->cached_columns) return -1;
     for (size_t range_index = 0; range_index < range_count; range_index++) {
@@ -5270,12 +5273,17 @@ static int draw_view_overlay_role(
             if (filtered && resolve_marker_color(view,
                     &renderer->row_filter_colors[column], target, original,
                     BOXRIG_UI_COLOR_UI, &color) == -1) return -1;
+            double clip_x = (double)(column * renderer->cell_width);
+            double clip_width = (double)((filtered ? 1 : end - start) * renderer->cell_width);
+            /* The LF strip and body outline share one alpha layer. */
+            if (newline_marker && clip_x + clip_width > (double)marker_x / BOXRIG_UI_FIXED_ONE)
+                clip_width = (double)marker_x / BOXRIG_UI_FIXED_ONE - clip_x;
+            if (clip_width <= 0) continue;
             cairo_save(renderer->cairo);
             /* The native backing may retain SOURCE from its clear operation. */
             cairo_set_operator(renderer->cairo, CAIRO_OPERATOR_OVER);
             cairo_rectangle(renderer->cairo,
-                (double)(column * renderer->cell_width), y,
-                (double)((filtered ? 1 : end - start) * renderer->cell_width), height);
+                clip_x, y, clip_width, height);
             cairo_clip(renderer->cairo);
             if (!set_cairo_source_pixel(renderer, color_pixel(renderer, color), opacity)) {
                 cairo_restore(renderer->cairo);
@@ -5305,6 +5313,33 @@ static int draw_view_overlay_role(
                 ? &renderer->render_statistics.selection_raster_count
                 : &renderer->render_statistics.hyperlink_hover_raster_count;
         if (*counter != SIZE_MAX) (*counter)++;
+    }
+    if (selection && renderer->cached_columns != 0 &&
+        dirty->column + dirty->column_count >= renderer->cached_columns) {
+        if (newline_marker) {
+            boxrig_rgb color = original;
+            size_t column = renderer->cached_columns - 1;
+            if (filtered && resolve_marker_color(view,
+                    &renderer->row_filter_colors[column], target, original,
+                    BOXRIG_UI_COLOR_UI, &color) == -1) return -1;
+            cairo_save(renderer->cairo);
+            cairo_set_operator(renderer->cairo, CAIRO_OPERATOR_OVER);
+            if (!set_cairo_source_pixel(renderer, color_pixel(renderer, color),
+                    opacity)) {
+                cairo_restore(renderer->cairo);
+                return -1;
+            }
+            cairo_rectangle(renderer->cairo,
+                (double)marker_x / BOXRIG_UI_FIXED_ONE,
+                (double)(row * renderer->cell_height),
+                (double)marker_width / BOXRIG_UI_FIXED_ONE,
+                (double)renderer->cell_height);
+            cairo_fill(renderer->cairo);
+            cairo_restore(renderer->cairo);
+            if (cairo_status(renderer->cairo) != CAIRO_STATUS_SUCCESS) return -1;
+            if (renderer->render_statistics.selection_raster_count != SIZE_MAX)
+                renderer->render_statistics.selection_raster_count++;
+        }
     }
     return 0;
 }

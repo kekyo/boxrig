@@ -211,11 +211,15 @@ TEXT_MEASUREMENT_GRAPHICS_OBJECT := \
 	$(TEXT_MEASUREMENT_BUILD_DIR)/graphics_protocol.o
 TEXT_MEASUREMENT_INTERPRETER_OBJECT := \
 	$(TEXT_MEASUREMENT_BUILD_DIR)/interpreter.o
+TEXT_MEASUREMENT_TERMINAL_OBJECT := $(TEXT_MEASUREMENT_BUILD_DIR)/terminal.o
+TEXT_MEASUREMENT_SCREEN_OBJECT := $(TEXT_MEASUREMENT_BUILD_DIR)/screen.o
 TEXT_MEASUREMENT_CORE_OBJECTS := $(filter-out \
 	$(BUILD_DIR)/core/text.o $(BUILD_DIR)/core/recognizer.o \
-	$(BUILD_DIR)/core/graphics_protocol.o $(BUILD_DIR)/core/interpreter.o,$(CORE_OBJECTS)) \
+	$(BUILD_DIR)/core/graphics_protocol.o $(BUILD_DIR)/core/interpreter.o \
+	$(BUILD_DIR)/core/terminal.o $(BUILD_DIR)/core/screen.o,$(CORE_OBJECTS)) \
 	$(TEXT_MEASUREMENT_TEXT_OBJECT) $(TEXT_MEASUREMENT_RECOGNIZER_OBJECT) \
-	$(TEXT_MEASUREMENT_GRAPHICS_OBJECT) $(TEXT_MEASUREMENT_INTERPRETER_OBJECT)
+	$(TEXT_MEASUREMENT_GRAPHICS_OBJECT) $(TEXT_MEASUREMENT_INTERPRETER_OBJECT) \
+	$(TEXT_MEASUREMENT_TERMINAL_OBJECT) $(TEXT_MEASUREMENT_SCREEN_OBJECT)
 UI_SOURCES := $(wildcard src/ui/*.c)
 UI_OBJECTS := $(patsubst src/ui/%.c,$(BUILD_DIR)/ui/%.o,$(UI_SOURCES))
 UI_HEADERS := include/boxrig/ui.h $(wildcard include/boxrig/ui/*.h)
@@ -350,6 +354,9 @@ OPENGL_RUNTIME_TEST_BINARY := $(BUILD_DIR)/tests/test_opengl_runtime
 OPENGL_RENDERER_FIXTURE_TEST_BINARY := \
 	$(BUILD_DIR)/tests/test_opengl_renderer_fixture
 UI_TEST_BINARY := $(BUILD_DIR)/tests/test_ui
+ANNOTATION_COST_BINARY := $(BUILD_DIR)/tests/performance/annotation_cost
+ANNOTATION_COST_UNWRAPPED_BINARY := \
+	$(BUILD_DIR)/tests/performance/annotation_cost_unwrapped
 SELECTION_TEST_BINARY := $(BUILD_DIR)/tests/test_selection
 UI_PLATFORM_FIXTURE_TEST_BINARY := $(BUILD_DIR)/tests/test_ui_platform_fixture
 PANGO_CAIRO_FIXTURE_TEST_BINARY := \
@@ -1106,6 +1113,14 @@ test-recognizer-projection: $(BUILD_DIR)/tests/test_recognizer_projection
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
 
 $(BUILD_DIR)/tests/test_recognizer_projection: tests/test_recognizer_projection.c $(CORE_HEADERS) $(TEXT_MEASUREMENT_LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) -DBOXRIG_MEASURE_TEXT_WORKLOADS $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(TEXT_MEASUREMENT_LIBRARY) $(SANITIZERS) -o $@
+
+.PHONY: test-recognizer-budget
+test: test-recognizer-budget
+test-recognizer-budget: $(BUILD_DIR)/tests/test_recognizer_budget
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
+
+$(BUILD_DIR)/tests/test_recognizer_budget: tests/test_recognizer_budget.c $(CORE_HEADERS) $(TEXT_MEASUREMENT_LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) -DBOXRIG_MEASURE_TEXT_WORKLOADS $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(TEXT_MEASUREMENT_LIBRARY) $(SANITIZERS) -o $@
 
 .PHONY: test-recognizer-reuse
@@ -2355,6 +2370,16 @@ $(TEXT_MEASUREMENT_INTERPRETER_OBJECT): src/core/interpreter.c \
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) \
 		$(PROJECT_CFLAGS) -DBOXRIG_MEASURE_TEXT_WORKLOADS -c $< -o $@
 
+$(TEXT_MEASUREMENT_TERMINAL_OBJECT): src/core/terminal.c \
+		$(CORE_HEADERS) | $(TEXT_MEASUREMENT_BUILD_DIR)
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) \
+		$(PROJECT_CFLAGS) -DBOXRIG_MEASURE_TEXT_WORKLOADS -c $< -o $@
+
+$(TEXT_MEASUREMENT_SCREEN_OBJECT): src/core/screen.c \
+		$(CORE_HEADERS) | $(TEXT_MEASUREMENT_BUILD_DIR)
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) \
+		$(PROJECT_CFLAGS) -DBOXRIG_MEASURE_TEXT_WORKLOADS -c $< -o $@
+
 $(TEXT_MEASUREMENT_LIBRARY): $(TEXT_MEASUREMENT_CORE_OBJECTS) \
 		$(UTF8PROC_OBJECT) $(LIBPNG_OBJECTS) $(ZLIB_OBJECTS) | \
 		$(TEXT_MEASUREMENT_BUILD_DIR)
@@ -2440,6 +2465,46 @@ $(OPENGL_RENDERER_FIXTURE_TEST_BINARY): tests/test_ui_platform_fixture.c \
 
 $(UI_TEST_BINARY): tests/test_ui.c $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) tests/test_ui.c $(UI_LIBRARY) $(LIBRARY) -Wl,--wrap=malloc $(SANITIZERS) -o $@
+
+$(ANNOTATION_COST_BINARY): ANNOTATION_COST_FLAGS = \
+	-Wl,--wrap=boxrig_terminal_get_text_fragment
+$(ANNOTATION_COST_UNWRAPPED_BINARY): ANNOTATION_COST_FLAGS = \
+	-DBOXRIG_ANNOTATION_UNWRAPPED
+$(ANNOTATION_COST_BINARY) $(ANNOTATION_COST_UNWRAPPED_BINARY): \
+		tests/performance/annotation_cost.c $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests/performance
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) \
+		$(PROJECT_CFLAGS) $< $(UI_LIBRARY) $(LIBRARY) \
+		$(ANNOTATION_COST_FLAGS) -o $@
+
+.PHONY: test-annotation-cost
+test: test-annotation-cost
+test-annotation-cost: $(ANNOTATION_COST_BINARY) $(ANNOTATION_COST_UNWRAPPED_BINARY)
+	$(ANNOTATION_COST_BINARY) self-test
+	$(ANNOTATION_COST_UNWRAPPED_BINARY) self-test
+	$(ANNOTATION_COST_BINARY) 16 10 45 2 bound
+	$(ANNOTATION_COST_BINARY) 10000 10 45 2 bound
+
+$(BUILD_DIR)/tests/performance/selection_cost: \
+		tests/performance/selection_cost.c $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests/performance
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) \
+		$(PROJECT_CFLAGS) $< $(UI_LIBRARY) $(LIBRARY) \
+		-Wl,--wrap=boxrig_terminal_get_text_fragment \
+		-Wl,--wrap=boxrig_terminal_create_text_snapshot -o $@
+
+.PHONY: test-selection-cost
+test: test-selection-cost
+test-selection-cost: $(BUILD_DIR)/tests/performance/selection_cost
+	$<
+
+$(BUILD_DIR)/tests/performance/selection_cost_cairo: \
+		tests/performance/selection_cost.c src/pangocairo/renderer.c \
+		$(PANGO_CANDIDATE_OBJECT) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests/performance
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) -Isrc $(POSIX_CPPFLAGS) \
+		$(PANGO_CAIRO_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) \
+		-DBOXRIG_SELECTION_COST_CAIRO $< src/pangocairo/renderer.c \
+		$(PANGO_CANDIDATE_OBJECT) $(UI_LIBRARY) $(LIBRARY) \
+		$(PANGO_CAIRO_LIBS) -Wl,--wrap=boxrig_terminal_get_text_fragment \
+		-Wl,--wrap=boxrig_terminal_create_text_snapshot -o $@
 
 $(SELECTION_TEST_BINARY): tests/test_selection.c src/ui/word_break.h \
 		$(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
@@ -3938,8 +4003,12 @@ test-win32-first-frame-fence: $(MINGW_AMD64_FIRST_FRAME_FENCE_TEST) $(MINGW_I686
 	$(WINE_RUN) $(abspath $(MINGW_AMD64_FIRST_FRAME_FENCE_TEST))
 	$(WINE_RUN) $(abspath $(MINGW_I686_FIRST_FRAME_FENCE_TEST))
 
-.PHONY: test-win32-sample-first-frame-fence
-test: test-win32-sample-first-frame-fence
+.PHONY: test-win32-sample-first-frame-fence test-win32-sample-dpi
+test: test-win32-sample-first-frame-fence test-win32-sample-dpi
+
+test-win32-sample-dpi: $(MINGW_AMD64_SAMPLE_TEST) $(MINGW_I686_SAMPLE_TEST)
+	$(WINE_RUN) $(abspath $(MINGW_AMD64_SAMPLE_TEST)) --dpi-probe
+	$(WINE_RUN) $(abspath $(MINGW_I686_SAMPLE_TEST)) --dpi-probe
 test-p2-win32: $(MINGW_AMD64_BUILD_DIR)/tests/first_frame_child.exe $(MINGW_I686_BUILD_DIR)/tests/first_frame_child.exe
 $(MINGW_AMD64_BUILD_DIR)/tests/first_frame_child.exe: tests/win32/first_frame_child.c | $(MINGW_AMD64_BUILD_DIR)/tests
 	$(MINGW_AMD64_CC) $(CPPFLAGS) $(MINGW_TERM_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< -o $@
@@ -4356,6 +4425,12 @@ test-native-scrollbar: $(EXAMPLE_BINARY) $(GTK3_EXAMPLE_BINARY) $(GTK4_EXAMPLE_B
 	$(XVFB_RUN) -a -s '-screen 0 1280x1024x24' env BOXRIG_TEST_SCROLLBAR_WAYLAND=1 LIBGL_ALWAYS_SOFTWARE=1 node tests/run_native_scrollbar.mjs $(WAYLAND_EXAMPLE_BINARY) $(PTY_HELPER_BINARY) opengl
 	$(XVFB_RUN) -a -s '-screen 0 2400x1800x24' env BOXRIG_TEST_SCROLLBAR_WAYLAND=1 BOXRIG_TEST_SCROLLBAR_SCALE=2 node tests/run_native_scrollbar.mjs $(WAYLAND_EXAMPLE_BINARY) $(PTY_HELPER_BINARY) wayland
 	$(XVFB_RUN) -a -s '-screen 0 2400x1800x24' env BOXRIG_TEST_SCROLLBAR_WAYLAND=1 BOXRIG_TEST_SCROLLBAR_SCALE=2 LIBGL_ALWAYS_SOFTWARE=1 node tests/run_native_scrollbar.mjs $(WAYLAND_EXAMPLE_BINARY) $(PTY_HELPER_BINARY) opengl
+
+.PHONY: test-native-gtk4-zoom-video
+test: test-native-gtk4-zoom-video
+test-native-gtk4-zoom-video: $(GTK4_EXAMPLE_BINARY) $(PTY_HELPER_BINARY)
+	$(XVFB_RUN) -a -s '-screen 0 1280x1024x24' env $(GTK4_TEST_IM_ENV) GDK_BACKEND=x11 GSK_RENDERER=cairo node tests/run_native_gtk4_zoom_video.mjs $(GTK4_EXAMPLE_BINARY) $(PTY_HELPER_BINARY) $(BUILD_DIR)/test-results/plan13/gtk4-cairo cairo
+	$(XVFB_RUN) -a -s '-screen 0 1280x1024x24' env $(GTK4_TEST_IM_ENV) GDK_BACKEND=x11 GDK_DEBUG=gl-prefer-gl GSK_RENDERER=gl LIBGL_ALWAYS_SOFTWARE=1 node tests/run_native_gtk4_zoom_video.mjs $(GTK4_EXAMPLE_BINARY) $(PTY_HELPER_BINARY) $(BUILD_DIR)/test-results/plan13/gtk4-opengl opengl
 
 .PHONY: test-scrollbar-demo
 test: test-scrollbar-demo
@@ -6083,6 +6158,7 @@ test-gtk-sample-recognition: $(BUILD_DIR)/tests/test_gtk3_sample_recognition $(B
 	$(XVFB_RUN) -a env GDK_BACKEND=x11 LIBGL_ALWAYS_SOFTWARE=1 NO_AT_BRIDGE=1 GTK_A11Y=none $(GTK4_TEST_IM_ENV) node tests/gtk/run_sample_recognition.mjs $(FRONTEND_SAMPLE_GTK4_PROBE_BINARY)
 
 include tests/performance/phase_probe.mk
+include tests/performance/recognition.mk
 
 $(BUILD_DIR)/tests/performance/steady_recognizer: tests/performance/steady_recognizer.c \
 		tests/measure_text_workloads.c $(TEXT_MEASUREMENT_LIBRARY) | $(BUILD_DIR)/tests/performance
@@ -6162,3 +6238,65 @@ test-ascii-runs: $(BUILD_DIR)/tests/test_ascii_runs
 
 $(BUILD_DIR)/tests/test_ascii_runs: tests/test_ascii_runs.c $(CORE_HEADERS) $(LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(LIBRARY) $(SANITIZERS) -Wl,--wrap=boxrig_unicode_cluster_analyzer_accept -Wl,--wrap=malloc -o $@
+
+$(BUILD_DIR)/tests/performance/annotation_gtk_peer: tests/performance/annotation_gtk_peer.c | $(BUILD_DIR)/tests/performance
+	$(CC) $(POSIX_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< -o $@
+
+$(BUILD_DIR)/tests/performance/annotation_gtk_probe: tests/performance/annotation_gtk_probe.c | $(BUILD_DIR)/tests/performance
+	$(CC) $(POSIX_CPPFLAGS) $(X11_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(X11_LIBS) -lXtst -o $@
+
+$(BUILD_DIR)/tests/performance/annotation_gl_vendor: tests/performance/annotation_gl_vendor.c | $(BUILD_DIR)/tests/performance
+	$(CC) $(POSIX_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< -lX11 -lGL -o $@
+
+$(BUILD_DIR)/tests/performance/annotation_gtk_counted: $(GTK3_EXAMPLE_SOURCES) \
+		tests/performance/annotation_gtk_count.c $(GTK3_LIBRARY) $(NOTIFICATION_LIBRARY) \
+		$(POSIX_LIBRARY) $(SESSION_LIBRARY) $(UI_LIBRARY) $(LIBRARY) \
+		| $(BUILD_DIR)/tests/performance
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_URI_CPPFLAGS) $(POSIX_CPPFLAGS) \
+		$(GTK3_CPPFLAGS) $(CFLAGS) $(GTK3_PROJECT_CFLAGS) \
+		-DBOXRIG_ANNOTATION_COUNT_LINE_CLEAR=1 \
+		$(GTK3_EXAMPLE_SOURCES) tests/performance/annotation_gtk_count.c \
+		$(GTK3_LIBRARY) $(NOTIFICATION_LIBRARY) $(POSIX_LIBRARY) $(SESSION_LIBRARY) \
+		$(UI_LIBRARY) $(LIBRARY) $(GTK3_LIBS) -lutil $(POSIX_URI_LIBS) \
+		-Wl,--wrap=boxrig_term_text_policy_create \
+		-Wl,--wrap=boxrig_term_text_policy_resume \
+		-Wl,--wrap=boxrig_ui_view_replace_text_annotations \
+		-Wl,--wrap=boxrig_ui_view_clear_text_annotation_line \
+		-Wl,--wrap=boxrig_ui_view_clear_text_annotations \
+		-Wl,--wrap=boxrig_terminal_text_recognizer_event_peek -o $@
+
+PLAN11_BASELINE_TEXT_POLICY := $(BUILD_DIR)/tests/performance/plan11-text_policy.c
+PLAN11_BASELINE_GTK3_SOURCES := \
+	$(filter-out examples/boxrig_term/common/text_policy.c,$(GTK3_EXAMPLE_SOURCES)) \
+	$(PLAN11_BASELINE_TEXT_POLICY)
+
+$(PLAN11_BASELINE_TEXT_POLICY): | $(BUILD_DIR)/tests/performance
+	git show 2a7a682:examples/boxrig_term/common/text_policy.c > $@.tmp && mv $@.tmp $@
+
+$(BUILD_DIR)/tests/performance/annotation_gtk_counted_baseline: $(PLAN11_BASELINE_GTK3_SOURCES) \
+		tests/performance/annotation_gtk_count.c $(GTK3_LIBRARY) $(NOTIFICATION_LIBRARY) \
+		$(POSIX_LIBRARY) $(SESSION_LIBRARY) artifacts/plan11/baseline/libboxrig-ui.a \
+		artifacts/plan11/baseline/libboxrig.a | $(BUILD_DIR)/tests/performance
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_URI_CPPFLAGS) $(POSIX_CPPFLAGS) \
+		-Iexamples/boxrig_term/common \
+		$(GTK3_CPPFLAGS) $(CFLAGS) $(GTK3_PROJECT_CFLAGS) \
+		$(PLAN11_BASELINE_GTK3_SOURCES) tests/performance/annotation_gtk_count.c \
+		$(GTK3_LIBRARY) $(NOTIFICATION_LIBRARY) $(POSIX_LIBRARY) $(SESSION_LIBRARY) \
+		artifacts/plan11/baseline/libboxrig-ui.a artifacts/plan11/baseline/libboxrig.a \
+		$(GTK3_LIBS) -lutil $(POSIX_URI_LIBS) \
+		-Wl,--wrap=boxrig_term_text_policy_create \
+		-Wl,--wrap=boxrig_term_text_policy_resume \
+		-Wl,--wrap=boxrig_ui_view_replace_text_annotations \
+		-Wl,--wrap=boxrig_ui_view_clear_text_annotations \
+		-Wl,--wrap=boxrig_terminal_text_recognizer_event_peek -o $@
+
+.PHONY: test-annotation-gtk annotation-gtk-comparison annotation-gtk-stress
+test: test-annotation-gtk
+test-annotation-gtk: $(GTK3_EXAMPLE_BINARY) $(BUILD_DIR)/tests/performance/annotation_gtk_peer $(BUILD_DIR)/tests/performance/annotation_gtk_probe $(BUILD_DIR)/tests/performance/annotation_gl_vendor
+	bash tests/performance/run_annotation_gtk.sh $(GTK3_EXAMPLE_BINARY) $(BUILD_DIR)/tests/performance/annotation_gtk_peer $(BUILD_DIR)/tests/performance/annotation_gtk_probe cairo 0 idle none $(BUILD_DIR)/tests/performance/annotation-gtk-smoke
+
+annotation-gtk-comparison: $(GTK3_EXAMPLE_BINARY) $(BUILD_DIR)/tests/performance/annotation_gtk_peer $(BUILD_DIR)/tests/performance/annotation_gtk_probe $(BUILD_DIR)/tests/performance/annotation_gl_vendor $(BUILD_DIR)/tests/performance/annotation_gtk_counted $(BUILD_DIR)/tests/performance/annotation_gtk_counted_baseline
+	node tests/performance/run_annotation_gtk_matrix.mjs artifacts/plan11/gtk-matrix
+
+annotation-gtk-stress: $(BUILD_DIR)/tests/performance/annotation_gtk_peer $(BUILD_DIR)/tests/performance/annotation_gtk_probe $(BUILD_DIR)/tests/performance/annotation_gl_vendor
+	node tests/performance/run_annotation_gtk_stress.mjs artifacts/plan11/gtk-matrix

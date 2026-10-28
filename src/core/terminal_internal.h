@@ -69,7 +69,9 @@ typedef struct boxrig_hyperlink_entry {
     size_t uri_length;
     char *id;
     size_t id_length;
-    bool marked;
+    /* Live cells only; active_hyperlink is retained independently. Temporary
+     * resize copies join these counts only after the replacement is committed. */
+    size_t cell_references;
 } boxrig_hyperlink_entry;
 
 typedef struct boxrig_history_line {
@@ -373,19 +375,45 @@ void boxrig_screen_text_sync(boxrig_screen *screen);
 const boxrig_cell *boxrig_screen_text_fragment_cell(
     const boxrig_screen *screen, boxrig_text_screen text_screen,
     size_t fragment_index, size_t column);
+typedef struct boxrig_text_fragment_info {
+    size_t fragment_count;
+    boxrig_text_position position;
+    size_t projected_length;
+    bool soft_wrapped;
+} boxrig_text_fragment_info;
+/* Read one synchronized physical fragment in constant time. The projected
+ * length is for its whole logical line and is counted only at line starts. */
+boxrig_status boxrig_screen_text_fragment_info(
+    const boxrig_screen *screen, boxrig_text_screen text_screen,
+    size_t fragment_index, boxrig_text_fragment_info *info_out);
+typedef struct boxrig_text_line_projection_cursor
+    boxrig_text_line_projection_cursor;
+/* The cursor owns only its progress state; the caller owns the reusable
+ * snapshot. No terminal cell pointer survives a resume call. */
+boxrig_status boxrig_text_line_projection_cursor_create(
+    boxrig_text_line_projection_cursor **cursor_out);
+/* The caller has already found the complete logical-line extent with
+ * budgeted fragment inspection. Reset does not traverse that extent. */
+boxrig_status boxrig_text_line_projection_cursor_reset(
+    boxrig_text_line_projection_cursor *cursor,
+    const boxrig_terminal *terminal, boxrig_text_screen text_screen,
+    size_t first_fragment, size_t next_fragment);
+/* Inspect at most work_budget cells, emitted gap spaces, or UTF-8 bytes.
+ * Keep snapshot_inout and its owned snapshot stable across resume calls. The
+ * snapshot is usable for this line only after complete_out becomes true.
+ * STALE means the caller must discard this cursor state and reset it. */
+boxrig_status boxrig_text_line_projection_cursor_resume(
+    boxrig_text_line_projection_cursor *cursor,
+    const boxrig_terminal *terminal, size_t work_budget,
+    boxrig_text_snapshot **snapshot_inout, size_t *work_used_out,
+    bool *complete_out);
+void boxrig_text_line_projection_cursor_destroy(
+    boxrig_text_line_projection_cursor *cursor);
 boxrig_status boxrig_screen_text_document_size(
     const boxrig_screen *screen,
     boxrig_text_screen text_screen,
     size_t *bytes_out,
     size_t *lines_out);
-/* Read a synchronized logical line's identity and extent without projecting
- * cells. The caller must start at a logical-line boundary. */
-boxrig_status boxrig_screen_text_line_metadata(
-    const boxrig_screen *screen,
-    boxrig_text_screen text_screen,
-    size_t fragment_index,
-    boxrig_text_position *position_out,
-    size_t *next_fragment_out);
 boxrig_status boxrig_terminal_reuse_text_line_snapshot(
     const boxrig_terminal *terminal,
     boxrig_text_screen text_screen,
@@ -580,6 +608,11 @@ typedef struct boxrig_text_workload_counters {
     size_t recognizer_unbudgeted_prepare_steps;
     size_t recognizer_cursor_creations;
     size_t recognizer_match_identity_comparisons;
+    size_t recognizer_line_lookup_probes;
+    size_t recognizer_result_lookup_probes;
+    size_t recognizer_metadata_steps;
+    size_t recognizer_finalize_steps;
+    size_t hyperlink_scan_cells;
 } boxrig_text_workload_counters;
 
 void boxrig_text_workload_counters_reset(void);
@@ -591,6 +624,11 @@ void boxrig_text_workload_observe_recognizer_event_queue(size_t count);
 void boxrig_text_workload_observe_recognizer_prepare_step(bool budgeted);
 void boxrig_text_workload_observe_recognizer_cursor_creation(void);
 void boxrig_text_workload_observe_recognizer_match_identity_comparison(void);
+void boxrig_text_workload_observe_recognizer_line_lookup(void);
+void boxrig_text_workload_observe_recognizer_result_lookup(void);
+void boxrig_text_workload_observe_recognizer_metadata(size_t count);
+void boxrig_text_workload_observe_recognizer_finalize(size_t count);
+void boxrig_text_workload_observe_hyperlink_scan_cells(size_t count);
 #else
 #define boxrig_text_workload_observe_placeholder_cell() ((void)0)
 #define boxrig_text_workload_observe_ascii_batch(count) ((void)(count))
@@ -601,6 +639,11 @@ void boxrig_text_workload_observe_recognizer_match_identity_comparison(void);
 #define boxrig_text_workload_observe_recognizer_cursor_creation() ((void)0)
 #define boxrig_text_workload_observe_recognizer_match_identity_comparison() \
     ((void)0)
+#define boxrig_text_workload_observe_recognizer_line_lookup() ((void)0)
+#define boxrig_text_workload_observe_recognizer_result_lookup() ((void)0)
+#define boxrig_text_workload_observe_recognizer_metadata(count) ((void)(count))
+#define boxrig_text_workload_observe_recognizer_finalize(count) ((void)(count))
+#define boxrig_text_workload_observe_hyperlink_scan_cells(count) ((void)(count))
 #endif
 boxrig_status boxrig_terminal_queue_notification(
     boxrig_terminal *terminal,

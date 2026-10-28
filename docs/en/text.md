@@ -187,6 +187,9 @@ Matches do not overlap, and both endpoints must be grapheme boundaries that do n
 At registration, specify limits for compilation, line length, result counts, and retained data.
 The defaults from `boxrig_text_recognizer_limits_default()` allow up to 1 MiB and 1,048,576 columns per line, 4,096 matches per line, and 65,536 matches per recognizer.
 Split work with `resume_text_recognizers()` and retrieve events and current results.
+Document size limits are checked during resume after registration. A successful registration can still produce `SCOPE_INCOMPLETE` when the document exceeds those limits.
+Notified results are fully committed, but releasing the previous results may still require work. Keep resuming until `more_work_out` becomes false.
+The work budget is not a time limit. Operations such as memory allocation and materializing one capture result remain indivisible.
 
 Apply UI text annotations to recognized ranges to add colors or underlines.
 On `RESCAN_REQUIRED`, remove that recognizer's decorations and rescan.

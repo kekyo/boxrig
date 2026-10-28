@@ -183,7 +183,7 @@ try {
     cellWidth = Number(match[2]);
   command('xdotool', ['windowfocus', '--sync', id]);
   command('xdotool', ['mousemove', '1200', '1000']);
-  const width = Math.min(Number(values.WIDTH), 500),
+  const width = Math.min(Number(values.WIDTH), 1000),
     height = Math.min(Number(values.HEIGHT), 200);
   const frameBytes = width * height * 3;
   let origin;
@@ -543,6 +543,65 @@ try {
     await waitGeometry('zero-width-restored', 0, 0, gestureFrames.length);
     command('xdotool', ['mouseup', '1', 'keyup', 'Control_L']);
     await waitGeometry('empty-released', 0, 0, gestureFrames.length);
+    command('xdotool', ['key', '--clearmodifiers', 'e']);
+    const edgeDeadline = Date.now() + 15000;
+    let edgeReady;
+    while (
+      !(edgeReady = /^boxrig-selection-edge-ready-(\d+)$/.exec(readTitle()))
+    ) {
+      assert(Date.now() < edgeDeadline, 'full row preparation timeout');
+      await setTimeout(20);
+    }
+    const columns = Number(edgeReady[1]);
+    const gridRight = left + columns * cellWidth;
+    assert(gridRight <= width, 'full row fits recorded surface');
+    const edgeY = top + cellHeight * 2;
+    const markerWidth = Math.ceil(cellWidth / 4);
+    const pointer = (px, py) =>
+      command('xdotool', [
+        'mousemove',
+        String(Number(values.X) + px),
+        String(Number(values.Y) + py),
+      ]);
+    const waitEdge = async (name, selected, after) => {
+      const deadline = Date.now() + 15000;
+      let examined = after,
+        consecutive = 0;
+      while (consecutive < 3) {
+        assert(Date.now() < deadline, name + ': LF marker was not painted');
+        assert(capture.exitCode === null, captureDiagnostics);
+        while (examined < gestureFrames.length && consecutive < 3) {
+          const frame = gestureFrames[examined++];
+          let valid = true;
+          for (let py = edgeY + 2; py < edgeY + cellHeight - 2; py++) {
+            for (let px = gridRight - markerWidth; px < gridRight - 1; px++) {
+              const at = (py * width + px) * 3;
+              const expected = selected ? [46, 115, 242] : background;
+              if (!expected.every((v, c) => Math.abs(frame[at + c] - v) <= 2))
+                valid = false;
+            }
+          }
+          consecutive = valid ? consecutive + 1 : 0;
+        }
+        if (consecutive < 3) await setTimeout(20);
+      }
+      phases.push({
+        name,
+        firstSettledFrame: examined - consecutive,
+        lastSettledFrame: examined - 1,
+      });
+    };
+    pointer(gridRight - Math.ceil(cellWidth / 2), edgeY + cellHeight / 2);
+    command('xdotool', ['mousedown', '1']);
+    await waitEdge('last-character-only', false, gestureFrames.length);
+    pointer(gridRight - 1, edgeY + cellHeight / 2);
+    await waitEdge('through-edge-newline', true, gestureFrames.length);
+    pointer(left + 1, edgeY + cellHeight * 1.5);
+    await waitEdge('through-next-line', true, gestureFrames.length);
+    pointer(gridRight - Math.ceil(cellWidth / 2), edgeY + cellHeight / 2);
+    await waitEdge('edge-newline-retracted', false, gestureFrames.length);
+    command('xdotool', ['mouseup', '1']);
+    await waitEdge('edge-released', false, gestureFrames.length);
     command('xdotool', ['key', '--clearmodifiers', 'h']);
     const historyDeadline = Date.now() + 15000;
     while (readTitle() !== 'boxrig-selection-history-ready') {

@@ -173,6 +173,7 @@ struct boxrig_ui_view {
     uint64_t dirty_revisions[BOXRIG_UI_DIRTY_LAYER_COUNT];
     boxrig_ui_retained_text_annotation *annotations;
     size_t annotation_count;
+    size_t annotation_capacity;
     boxrig_ui_frame_request_callback frame_callback;
     void *frame_context;
     bool visible;
@@ -1331,31 +1332,50 @@ static boxrig_ui_status validate_text_annotation(
     return BOXRIG_UI_OK;
 }
 
-static bool text_annotation_is_current(
+static bool text_annotation_logical_interval(
     const boxrig_ui_view *view,
-    const boxrig_ui_text_annotation *annotation)
+    const boxrig_ui_text_annotation *annotation,
+    size_t row,
+    bool require_current,
+    size_t *local_column_out,
+    size_t *local_count_out)
 {
+    boxrig_text_screen screen;
     boxrig_text_fragment_view fragment;
-    size_t first;
+    size_t fragment_index;
+    size_t start;
     size_t end;
 
-    if (view == NULL || annotation == NULL || view->model == NULL ||
-        !find_line_bounds(
+    /* Registration guarantees a single logical line. Its identity can be
+     * compared directly with the visible fragment without searching history. */
+    if (annotation == NULL ||
+        !view_fragment_index(view, row, &screen, &fragment_index) ||
+        annotation->range.start.screen != screen ||
+        boxrig_terminal_get_text_fragment(
             view->model->terminal,
-            annotation->range.start.screen,
-            annotation->range.start.line_id,
-            &first,
-            &end)) {
+            screen,
+            fragment_index,
+            &fragment) != BOXRIG_STATUS_OK ||
+        !text_line_id_equal(fragment.line_id, annotation->range.start.line_id) ||
+        (require_current && fragment.line_revision !=
+             annotation->range.start.line_revision) ||
+        fragment.logical_column_offset > SIZE_MAX - view->column_count) {
         return false;
     }
-    (void)end;
-    return boxrig_terminal_get_text_fragment(
-               view->model->terminal,
-               annotation->range.start.screen,
-               first,
-               &fragment) == BOXRIG_STATUS_OK &&
-           fragment.line_revision ==
-               annotation->range.start.line_revision;
+    start = fragment.logical_column_offset;
+    end = start + view->column_count;
+    if (annotation->range.start.column > start) {
+        start = annotation->range.start.column;
+    }
+    if (annotation->range.end.column < end) {
+        end = annotation->range.end.column;
+    }
+    if (start >= end) {
+        return false;
+    }
+    *local_column_out = start - fragment.logical_column_offset;
+    *local_count_out = end - start;
+    return true;
 }
 
 static bool text_annotation_in_group(
@@ -1411,6 +1431,46 @@ static int compare_annotation_layer(
     return compare_annotation_identity(left_pointer, right_pointer);
 }
 
+static size_t annotation_insert_index(
+    const boxrig_ui_retained_text_annotation *annotations,
+    size_t count,
+    const boxrig_ui_retained_text_annotation *candidate)
+{
+    size_t first = 0u;
+    size_t end = count;
+
+    while (first < end) {
+        size_t middle = first + (end - first) / 2u;
+
+        if (compare_annotation_layer(&annotations[middle], candidate) < 0) {
+            first = middle + 1u;
+        } else {
+            end = middle;
+        }
+    }
+    return first;
+}
+
+static size_t annotation_identity_index(
+    const boxrig_ui_retained_text_annotation *annotations,
+    size_t count,
+    const boxrig_ui_retained_text_annotation *candidate)
+{
+    size_t first = 0u;
+    size_t end = count;
+
+    while (first < end) {
+        size_t middle = first + (end - first) / 2u;
+
+        if (compare_annotation_identity(&annotations[middle], candidate) < 0) {
+            first = middle + 1u;
+        } else {
+            end = middle;
+        }
+    }
+    return first;
+}
+
 static bool annotation_intersects_range(
     const boxrig_ui_text_annotation *annotation,
     const boxrig_text_range *range)
@@ -1419,6 +1479,7 @@ static bool annotation_intersects_range(
            text_line_id_equal(
                annotation->range.start.line_id,
                range->start.line_id) &&
+           annotation->range.start.line_revision == range->start.line_revision &&
            annotation->range.start.column < range->end.column &&
            annotation->range.end.column > range->start.column;
 }
@@ -1444,20 +1505,120 @@ static void merge_annotation_style(
     merged->field_mask |= addition->field_mask;
 }
 
+/* LF is a boundary between logical lines, never a soft wrap or a spare
+ * terminal cell. Keep its range separate from cell hits used by rectangles
+ * and hyperlinks. Only the final fragment can present this selection unit. */
+static bool row_newline_range(const boxrig_ui_view *view, size_t row,
+    boxrig_text_range *range_out)
+{
+    boxrig_text_screen screen;
+    size_t index;
+    boxrig_text_fragment_view fragment;
+    if (!view_fragment_index(view, row, &screen, &index) ||
+        boxrig_terminal_get_text_fragment(view->model->terminal, screen,
+            index, &fragment) != BOXRIG_STATUS_OK || fragment.soft_wrapped ||
+        fragment.projected_end_column < fragment.logical_column_offset ||
+        index + 1 >= boxrig_terminal_text_fragment_count(view->model->terminal, screen)) {
+        return false;
+    }
+    return boxrig_terminal_get_text_position(view->model->terminal, screen,
+            index, fragment.projected_end_column - fragment.logical_column_offset,
+            &range_out->start) == BOXRIG_STATUS_OK &&
+        boxrig_terminal_get_text_position(view->model->terminal, screen,
+            index + 1, 0, &range_out->end) == BOXRIG_STATUS_OK;
+}
+
+static bool row_newline_selected(const boxrig_ui_view *view, size_t row)
+{
+    boxrig_text_range newline;
+    boxrig_text_screen screen;
+    size_t index, first, end;
+    if (view == NULL || !view->selection_active ||
+        view->selection.shape != BOXRIG_UI_SELECTION_LINEAR ||
+        !row_newline_range(view, row, &newline) ||
+        !view_fragment_index(view, row, &screen, &index)) return false;
+    const boxrig_text_range *range = &view->selection.range;
+    if (range->start.screen != screen || range->end.screen != screen ||
+        text_line_id_equal(range->end.line_id, newline.start.line_id)) return false;
+    /* The current fragment's index is already known. Do not rediscover it by
+     * scanning history for each endpoint comparison. */
+    if (text_line_id_equal(range->start.line_id, newline.start.line_id)) {
+        if (range->start.column > newline.start.column) return false;
+    } else if (!find_line_bounds(view->model->terminal, screen,
+            range->start.line_id, &first, &end) || first > index) return false;
+    /* A pointer on LF ends at the next line's column zero. Its identity is
+     * available from the adjacent fragment, including after reflow. */
+    if (text_line_id_equal(range->end.line_id, newline.end.line_id)) return true;
+    return find_line_bounds(view->model->terminal, screen,
+        range->end.line_id, &first, &end) && first > index;
+}
+
+static bool row_newline_marker_geometry(const boxrig_ui_view *view,
+    size_t row, boxrig_ui_fixed *x_out, boxrig_ui_fixed *width_out)
+{
+    boxrig_text_range newline;
+    boxrig_text_fragment_view fragment;
+    boxrig_text_screen screen;
+    size_t index;
+    if (view == NULL || !view->layout_configured ||
+        view->allocation_input.cell_width <= BOXRIG_UI_FIXED_ONE ||
+        !row_newline_range(view, row, &newline) ||
+        !view_fragment_index(view, row, &screen, &index) ||
+        boxrig_terminal_get_text_fragment(view->model->terminal, screen,
+            index, &fragment) != BOXRIG_STATUS_OK ||
+        newline.start.column - fragment.logical_column_offset < view->column_count)
+        return false;
+    /* Reserve a narrow, pixel-aligned hit strip without adding grid columns.
+     * Cell metrics include output scaling and font zoom. */
+    boxrig_ui_fixed width = (view->allocation_input.cell_width / 4 +
+        BOXRIG_UI_FIXED_ONE - 1) / BOXRIG_UI_FIXED_ONE * BOXRIG_UI_FIXED_ONE;
+    if (width >= view->allocation_input.cell_width)
+        width = BOXRIG_UI_FIXED_ONE;
+    *width_out = width;
+    *x_out = view->layout_result.grid_width - width;
+    return true;
+}
+
+bool boxrig_ui_view_selection_newline_marker(const boxrig_ui_view *view,
+    size_t row, boxrig_ui_fixed *x_out, boxrig_ui_fixed *width_out)
+{
+    return x_out != NULL && width_out != NULL &&
+        row_newline_marker_geometry(view, row, x_out, width_out) &&
+        row_newline_selected(view, row);
+}
+
 static bool selected_logical_interval(
     const boxrig_ui_view *view,
     size_t row,
     size_t *local_column_out,
     size_t *local_count_out)
 {
-    return view != NULL && view->selection_active &&
+    size_t start, count, index;
+    boxrig_text_screen screen;
+    boxrig_text_fragment_view fragment;
+    if (!(view != NULL && view->selection_active &&
            view->selection.shape == BOXRIG_UI_SELECTION_LINEAR &&
            range_logical_interval(
                view,
                &view->selection.range,
                row,
-               local_column_out,
-               local_count_out);
+               &start,
+               &count)) ||
+        !view_fragment_index(view, row, &screen, &index) ||
+        boxrig_terminal_get_text_fragment(view->model->terminal, screen,
+            index, &fragment) != BOXRIG_STATUS_OK) return false;
+    size_t end = fragment.projected_end_column > fragment.logical_column_offset
+        ? fragment.projected_end_column - fragment.logical_column_offset : 0;
+    /* range_logical_interval already established document order. A range
+     * continuing beyond this logical line includes its LF; no additional
+     * history search is needed for each cell's selection paint. */
+    if (end < view->column_count && !fragment.soft_wrapped &&
+        !text_line_id_equal(fragment.line_id, view->selection.range.end.line_id)) end++;
+    if (end > start + count) end = start + count;
+    if (end <= start) return false;
+    *local_column_out = start;
+    *local_count_out = end - start;
+    return true;
 }
 
 static const boxrig_ui_selection_row_slice *rectangular_selection_row(
@@ -1570,6 +1731,65 @@ static bool search_logical_interval(
                local_count_out);
 }
 
+static void mark_logical_interval_dirty(
+    boxrig_ui_view *view,
+    size_t row,
+    size_t logical_column,
+    size_t logical_count)
+{
+    boxrig_ui_row_layout_cache *entry = &view->row_layouts[row];
+
+    if (entry->layout == NULL) {
+        /* Overlay dirty uses visual columns. Without a retained mapping,
+         * invalidate the whole row instead of forwarding logical columns. */
+        mark_dirty(
+            view,
+            BOXRIG_UI_DIRTY_OVERLAY,
+            row,
+            1,
+            0,
+            view->column_count);
+    } else {
+        size_t visual = 0;
+
+        while (visual < view->column_count) {
+            size_t mapped;
+            size_t run_start;
+
+            if (boxrig_text_layout_visual_to_logical(
+                    entry->layout,
+                    visual,
+                    &mapped) != BOXRIG_TEXT_LAYOUT_OK) {
+                break;
+            }
+            if (mapped < logical_column ||
+                mapped >= logical_column + logical_count) {
+                visual++;
+                continue;
+            }
+            run_start = visual;
+            do {
+                visual++;
+                if (visual == view->column_count ||
+                    boxrig_text_layout_visual_to_logical(
+                        entry->layout,
+                        visual,
+                        &mapped) != BOXRIG_TEXT_LAYOUT_OK) {
+                    break;
+                }
+            } while (mapped >= logical_column &&
+                     mapped < logical_column + logical_count);
+            mark_dirty(
+                view,
+                BOXRIG_UI_DIRTY_OVERLAY,
+                row,
+                1,
+                run_start,
+                visual - run_start);
+        }
+    }
+}
+
 static void mark_logical_range_dirty(
     boxrig_ui_view *view,
     const boxrig_text_range *range)
@@ -1580,66 +1800,16 @@ static void mark_logical_range_dirty(
         return;
     }
     for (row = 0; row < view->row_count; row++) {
-        boxrig_ui_row_layout_cache *entry = &view->row_layouts[row];
         size_t logical_column;
         size_t logical_count;
 
-        if (!range_logical_interval(
+        if (range_logical_interval(
                 view,
                 range,
                 row,
                 &logical_column,
                 &logical_count)) {
-            continue;
-        }
-        if (entry->layout == NULL) {
-            /* Overlay dirty uses visual columns. Without a retained mapping,
-             * invalidate the whole row instead of forwarding logical columns. */
-            mark_dirty(
-                view,
-                BOXRIG_UI_DIRTY_OVERLAY,
-                row,
-                1,
-                0,
-                view->column_count);
-        } else {
-            size_t visual = 0;
-
-            while (visual < view->column_count) {
-                size_t mapped;
-                size_t run_start;
-
-                if (boxrig_text_layout_visual_to_logical(
-                        entry->layout,
-                        visual,
-                        &mapped) != BOXRIG_TEXT_LAYOUT_OK) {
-                    break;
-                }
-                if (mapped < logical_column ||
-                    mapped >= logical_column + logical_count) {
-                    visual++;
-                    continue;
-                }
-                run_start = visual;
-                do {
-                    visual++;
-                    if (visual == view->column_count ||
-                        boxrig_text_layout_visual_to_logical(
-                            entry->layout,
-                            visual,
-                            &mapped) != BOXRIG_TEXT_LAYOUT_OK) {
-                        break;
-                    }
-                } while (mapped >= logical_column &&
-                         mapped < logical_column + logical_count);
-                mark_dirty(
-                    view,
-                    BOXRIG_UI_DIRTY_OVERLAY,
-                    row,
-                    1,
-                    run_start,
-                    visual - run_start);
-            }
+            mark_logical_interval_dirty(view, row, logical_column, logical_count);
         }
     }
 }
@@ -1649,9 +1819,20 @@ static void mark_text_annotation_dirty(
     const boxrig_ui_text_annotation *annotation,
     bool require_current)
 {
-    if (view != NULL && annotation != NULL &&
-        (!require_current || text_annotation_is_current(view, annotation))) {
-        mark_logical_range_dirty(view, &annotation->range);
+    if (view == NULL || annotation == NULL) {
+        return;
+    }
+    for (size_t row = 0; row < view->row_count; row++) {
+        size_t logical_column;
+        size_t logical_count;
+
+        /* Old decorations need erasing even when their line revision changed.
+         * Retired identities are covered by the model/viewport dirty instead. */
+        if (text_annotation_logical_interval(
+                view, annotation, row, require_current,
+                &logical_column, &logical_count)) {
+            mark_logical_interval_dirty(view, row, logical_column, logical_count);
+        }
     }
 }
 
@@ -1678,6 +1859,14 @@ static void mark_selection_dirty(boxrig_ui_view *view)
         view->accessible_selection_revision = next_revision(view->accessible_selection_revision);
         if (view->selection.shape == BOXRIG_UI_SELECTION_LINEAR) {
             mark_logical_range_dirty(view, &view->selection.range);
+            /* LF-only ranges contain no grid cell at a full row. Invalidate
+             * its visual right edge before and after changing selection. */
+            for (size_t row = 0; row < view->row_count; row++) {
+                boxrig_ui_fixed x, width;
+                if (boxrig_ui_view_selection_newline_marker(view, row, &x, &width))
+                    mark_dirty(view, BOXRIG_UI_DIRTY_OVERLAY, row, 1,
+                        view->column_count - 1, 1);
+            }
         } else if (!view->selection.stale) {
             size_t row;
 
@@ -3171,7 +3360,11 @@ boxrig_ui_status boxrig_ui_view_accept_allocation(
              * geometry immediately and supersedes that preference. */
             view->size_command_state = BOXRIG_UI_SIZE_COMMAND_IDLE;
         }
+        /* An unchanged native allocation can repeat before a requested font
+         * size is dispatched. Keep its preferred grid until that command is
+         * completed or an external allocation supersedes it. */
         command_active =
+            view->size_command_state == BOXRIG_UI_SIZE_COMMAND_READY ||
             view->size_command_state == BOXRIG_UI_SIZE_COMMAND_DISPATCHED;
         if (!command_active && !returning_to_normal) {
             view->normal_rows = fitted_rows;
@@ -3834,8 +4027,12 @@ boxrig_ui_status boxrig_ui_view_hit_test(
         size_t interval_column;
         size_t interval_count;
         boxrig_cursor_view cursor;
+        boxrig_ui_fixed marker_x, marker_width;
 
-        if ((selected_logical_interval(
+        if ((boxrig_ui_view_selection_newline_marker(view, result_out->row,
+                 &marker_x, &marker_width) && x >= marker_x &&
+             x < marker_x + marker_width) ||
+            (selected_logical_interval(
                  view,
                  result_out->row,
                  &interval_column,
@@ -3930,10 +4127,8 @@ boxrig_ui_status boxrig_ui_view_replace_text_annotations(
     const boxrig_ui_text_annotation *annotations,
     size_t annotation_count)
 {
-    boxrig_ui_retained_text_annotation *replacement = NULL;
-    boxrig_ui_retained_text_annotation *previous_annotations;
-    size_t previous_count;
-    size_t removed_count = 0;
+    boxrig_ui_retained_text_annotation *candidates = NULL;
+    size_t removed_count = 0u;
     size_t retained_count;
     size_t replacement_count;
     size_t source_index;
@@ -3955,21 +4150,36 @@ boxrig_ui_status boxrig_ui_view_replace_text_annotations(
     if (annotation_count > view->maximum_annotation_count) {
         return BOXRIG_UI_LIMIT_EXCEEDED;
     }
-    for (source_index = 0; source_index < annotation_count; source_index++) {
-        status = validate_text_annotation(
-            view,
-            source_id,
-            screen,
-            line_id,
-            line_revision,
-            &annotations[source_index],
-            NULL);
-        if (status != BOXRIG_UI_OK) {
-            return status;
+    if (annotation_count != 0u) {
+        candidates = malloc(annotation_count * sizeof(*candidates));
+        if (candidates == NULL) {
+            return BOXRIG_UI_OUT_OF_MEMORY;
+        }
+        for (source_index = 0u; source_index < annotation_count;
+             source_index++) {
+            candidates[source_index].value = annotations[source_index];
+            status = validate_text_annotation(view, source_id, screen,
+                line_id, line_revision, &annotations[source_index],
+                &candidates[source_index].value.range);
+            if (status != BOXRIG_UI_OK) {
+                free(candidates);
+                return status;
+            }
+        }
+        if (annotation_count > 1u) {
+            qsort(candidates, annotation_count, sizeof(*candidates),
+                compare_annotation_identity);
+            for (source_index = 1u; source_index < annotation_count;
+                 source_index++) {
+                if (compare_annotation_identity(&candidates[source_index - 1u],
+                        &candidates[source_index]) == 0) {
+                    free(candidates);
+                    return BOXRIG_UI_INVALID_ARGUMENT;
+                }
+            }
         }
     }
-    for (source_index = 0;
-         source_index < view->annotation_count;
+    for (source_index = 0u; source_index < view->annotation_count;
          source_index++) {
         if (text_annotation_in_group(
                 &view->annotations[source_index].value,
@@ -3977,109 +4187,134 @@ boxrig_ui_status boxrig_ui_view_replace_text_annotations(
                 screen,
                 line_id)) {
             removed_count++;
+        } else if (candidates != NULL &&
+                   view->annotations[source_index].value.source_id == source_id) {
+            boxrig_ui_retained_text_annotation key =
+                view->annotations[source_index];
+            size_t candidate_index = annotation_identity_index(
+                candidates, annotation_count, &key);
+
+            /* Candidates are sorted by identity until validation finishes. */
+            if (candidate_index < annotation_count &&
+                compare_annotation_identity(&candidates[candidate_index],
+                    &key) == 0) {
+                free(candidates);
+                return BOXRIG_UI_INVALID_ARGUMENT;
+            }
         }
     }
     retained_count = view->annotation_count - removed_count;
     if (annotation_count > SIZE_MAX - retained_count) {
+        free(candidates);
         return BOXRIG_UI_LIMIT_EXCEEDED;
     }
     replacement_count = retained_count + annotation_count;
     if (replacement_count > view->maximum_annotation_count ||
-        replacement_count > SIZE_MAX / sizeof(*replacement)) {
+        replacement_count > SIZE_MAX / sizeof(*candidates)) {
+        free(candidates);
         return BOXRIG_UI_LIMIT_EXCEEDED;
     }
-    if (removed_count == 0 && annotation_count == 0) {
+    if (removed_count == 0u && annotation_count == 0u) {
         return BOXRIG_UI_OK;
     }
-    if (replacement_count != 0) {
-        replacement = malloc(replacement_count * sizeof(*replacement));
-        if (replacement == NULL) {
-            return BOXRIG_UI_OUT_OF_MEMORY;
-        }
-    }
-    destination_index = 0;
-    for (source_index = 0;
-         source_index < view->annotation_count;
-         source_index++) {
-        if (!text_annotation_in_group(
-                &view->annotations[source_index].value,
-                source_id,
-                screen,
-                line_id)) {
-            replacement[destination_index++] =
-                view->annotations[source_index];
-        }
-    }
-    for (source_index = 0; source_index < annotation_count; source_index++) {
-        replacement[destination_index].value = annotations[source_index];
-        status = validate_text_annotation(
-            view,
-            source_id,
-            screen,
-            line_id,
-            line_revision,
-            &annotations[source_index],
-            &replacement[destination_index].value.range);
-        if (status != BOXRIG_UI_OK) {
-            free(replacement);
-            return status;
-        }
-        destination_index++;
-    }
-    if (replacement_count > 1) {
-        qsort(
-            replacement,
-            replacement_count,
-            sizeof(*replacement),
-            compare_annotation_identity);
-        for (source_index = 1;
-             source_index < replacement_count;
-             source_index++) {
-            if (compare_annotation_identity(
-                    &replacement[source_index - 1],
-                    &replacement[source_index]) == 0) {
-                free(replacement);
-                return BOXRIG_UI_INVALID_ARGUMENT;
-            }
-        }
-        qsort(
-            replacement,
-            replacement_count,
-            sizeof(*replacement),
+    if (annotation_count > 1u) {
+        qsort(candidates, annotation_count, sizeof(*candidates),
             compare_annotation_layer);
     }
-    previous_annotations = view->annotations;
-    previous_count = view->annotation_count;
-    view->annotations = replacement;
-    view->annotation_count = replacement_count;
-    advance_annotation_generation(view);
-    for (source_index = 0; source_index < previous_count; source_index++) {
-        if (text_annotation_in_group(
-                &previous_annotations[source_index].value,
-                source_id,
-                screen,
-                line_id)) {
-            mark_text_annotation_dirty(
-                view,
-                &previous_annotations[source_index].value,
-                true);
+    if (replacement_count > view->annotation_capacity) {
+        size_t capacity = view->annotation_capacity == 0u ? 8u :
+            view->annotation_capacity;
+        boxrig_ui_retained_text_annotation *expanded;
+
+        if (capacity > view->maximum_annotation_count) {
+            capacity = view->maximum_annotation_count;
         }
+        while (capacity < replacement_count) {
+            if (capacity > view->maximum_annotation_count / 2u) {
+                capacity = view->maximum_annotation_count;
+                break;
+            }
+            capacity *= 2u;
+        }
+        expanded = realloc(view->annotations, capacity * sizeof(*expanded));
+        if (expanded == NULL) {
+            free(candidates);
+            return BOXRIG_UI_OUT_OF_MEMORY;
+        }
+        view->annotations = expanded;
+        view->annotation_capacity = capacity;
     }
-    for (source_index = 0;
-         source_index < view->annotation_count;
+    for (source_index = 0u; source_index < view->annotation_count;
          source_index++) {
-        if (text_annotation_in_group(
-                &view->annotations[source_index].value,
-                source_id,
-                screen,
-                line_id)) {
-            mark_text_annotation_dirty(
-                view,
-                &view->annotations[source_index].value,
-                true);
+        if (text_annotation_in_group(&view->annotations[source_index].value,
+                source_id, screen, line_id)) {
+            mark_text_annotation_dirty(view,
+                &view->annotations[source_index].value, true);
         }
     }
-    free(previous_annotations);
+    destination_index = 0u;
+    for (source_index = 0u; source_index < view->annotation_count;
+         source_index++) {
+        if (!text_annotation_in_group(&view->annotations[source_index].value,
+                source_id, screen, line_id)) {
+            if (destination_index != source_index) {
+                view->annotations[destination_index] =
+                    view->annotations[source_index];
+            }
+            destination_index++;
+        }
+    }
+    view->annotation_count = retained_count;
+    for (source_index = 0u; source_index < annotation_count; source_index++) {
+        size_t insertion = annotation_insert_index(view->annotations,
+            view->annotation_count, &candidates[source_index]);
+
+        memmove(&view->annotations[insertion + 1u],
+            &view->annotations[insertion],
+            (view->annotation_count - insertion) * sizeof(*view->annotations));
+        view->annotations[insertion] = candidates[source_index];
+        view->annotation_count++;
+    }
+    advance_annotation_generation(view);
+    for (source_index = 0u; source_index < annotation_count; source_index++) {
+        mark_text_annotation_dirty(view, &candidates[source_index].value, true);
+    }
+    free(candidates);
+    return BOXRIG_UI_OK;
+}
+
+boxrig_ui_status boxrig_ui_view_clear_text_annotation_line(
+    boxrig_ui_view *view,
+    uint64_t source_id,
+    boxrig_text_screen screen,
+    boxrig_text_line_id line_id)
+{
+    size_t source_index;
+    size_t destination_index = 0u;
+
+    if (view == NULL || view->model == NULL || source_id == 0u ||
+        !valid_text_screen(screen) || line_id.epoch == 0u ||
+        line_id.serial == 0u) {
+        return BOXRIG_UI_INVALID_ARGUMENT;
+    }
+    for (source_index = 0u; source_index < view->annotation_count;
+         source_index++) {
+        if (!text_annotation_in_group(&view->annotations[source_index].value,
+                source_id, screen, line_id)) {
+            if (destination_index != source_index) {
+                view->annotations[destination_index] =
+                    view->annotations[source_index];
+            }
+            destination_index++;
+        } else {
+            mark_text_annotation_dirty(view,
+                &view->annotations[source_index].value, true);
+        }
+    }
+    if (destination_index != view->annotation_count) {
+        view->annotation_count = destination_index;
+        advance_annotation_generation(view);
+    }
     return BOXRIG_UI_OK;
 }
 
@@ -4087,50 +4322,29 @@ boxrig_ui_status boxrig_ui_view_clear_text_annotations(
     boxrig_ui_view *view,
     uint64_t source_id)
 {
-    boxrig_ui_retained_text_annotation *replacement = NULL;
-    boxrig_ui_retained_text_annotation *previous_annotations;
-    size_t retained_count = 0;
     size_t source_index;
-    size_t destination_index = 0;
+    size_t destination_index = 0u;
 
     if (view == NULL || source_id == 0) {
         return BOXRIG_UI_INVALID_ARGUMENT;
     }
-    for (source_index = 0; source_index < view->annotation_count;
+    for (source_index = 0u; source_index < view->annotation_count;
          source_index++) {
         if (view->annotations[source_index].value.source_id != source_id) {
-            retained_count++;
+            if (destination_index != source_index) {
+                view->annotations[destination_index] =
+                    view->annotations[source_index];
+            }
+            destination_index++;
+        } else {
+            mark_text_annotation_dirty(view,
+                &view->annotations[source_index].value, true);
         }
     }
-    if (retained_count == view->annotation_count) {
-        return BOXRIG_UI_OK;
+    if (destination_index != view->annotation_count) {
+        view->annotation_count = destination_index;
+        advance_annotation_generation(view);
     }
-    if (retained_count != 0) {
-        replacement = malloc(retained_count * sizeof(*replacement));
-        if (replacement == NULL) {
-            return BOXRIG_UI_OUT_OF_MEMORY;
-        }
-    }
-    for (source_index = 0; source_index < view->annotation_count;
-         source_index++) {
-        if (view->annotations[source_index].value.source_id != source_id) {
-            replacement[destination_index++] = view->annotations[source_index];
-        }
-    }
-    previous_annotations = view->annotations;
-    destination_index = view->annotation_count;
-    view->annotations = replacement;
-    view->annotation_count = retained_count;
-    advance_annotation_generation(view);
-    for (source_index = 0; source_index < destination_index; source_index++) {
-        if (previous_annotations[source_index].value.source_id == source_id) {
-            mark_text_annotation_dirty(
-                view,
-                &previous_annotations[source_index].value,
-                true);
-        }
-    }
-    free(previous_annotations);
     return BOXRIG_UI_OK;
 }
 
@@ -4147,11 +4361,11 @@ static size_t text_annotation_visual_ranges(
     size_t visual_column = 0;
     size_t output_count = 0;
 
-    if (!text_annotation_is_current(view, annotation) ||
-        !range_logical_interval(
+    if (!text_annotation_logical_interval(
             view,
-            &annotation->range,
+            annotation,
             row,
+            true,
             &logical_column,
             &logical_count)) {
         return 0;
@@ -4344,8 +4558,7 @@ boxrig_ui_status boxrig_ui_view_query_text_annotation_hits(
         const boxrig_ui_text_annotation *annotation =
             &view->annotations[index].value;
 
-        if (text_annotation_is_current(view, annotation) &&
-            annotation_intersects_range(annotation, &range)) {
+        if (annotation_intersects_range(annotation, &range)) {
             match_count++;
             topmost = annotation;
             merge_annotation_style(&merged, &annotation->style);
@@ -4367,8 +4580,7 @@ boxrig_ui_status boxrig_ui_view_query_text_annotation_hits(
             const boxrig_ui_text_annotation *annotation =
                 &view->annotations[index].value;
 
-            if (text_annotation_is_current(view, annotation) &&
-                annotation_intersects_range(annotation, &range)) {
+            if (annotation_intersects_range(annotation, &range)) {
                 annotations[output_index++] = *annotation;
             }
         }
@@ -4380,11 +4592,29 @@ boxrig_ui_status boxrig_ui_view_query_text_annotation_hits(
 }
 
 static boxrig_ui_status character_selection_unit(
+    const boxrig_ui_view *view,
     const boxrig_ui_hit_test_result *hit,
     boxrig_text_range *unit_out)
 {
     unit_out->start = hit->leading_position;
     unit_out->end = hit->trailing_position;
+    boxrig_ui_fixed marker_x, marker_width;
+    if (row_newline_marker_geometry(view, hit->row, &marker_x, &marker_width) &&
+        hit->x >= marker_x && hit->x < marker_x + marker_width &&
+        row_newline_range(view, hit->row, unit_out)) return BOXRIG_UI_OK;
+    boxrig_text_screen screen;
+    size_t index;
+    boxrig_text_fragment_view fragment;
+    if (view_fragment_index(view, hit->row, &screen, &index) &&
+        boxrig_terminal_get_text_fragment(view->model->terminal, screen,
+            index, &fragment) == BOXRIG_STATUS_OK && !fragment.soft_wrapped &&
+        hit->leading_position.column >= fragment.projected_end_column) {
+        if (!row_newline_range(view, hit->row, unit_out)) {
+            /* The last document line has padding but no selectable LF. */
+            unit_out->start.column = fragment.projected_end_column;
+            unit_out->end = unit_out->start;
+        }
+    }
     return BOXRIG_UI_OK;
 }
 
@@ -4970,7 +5200,7 @@ static boxrig_ui_status word_selection_unit(
     bytes = boxrig_text_snapshot_data(snapshot, &byte_length);
     if (byte_length == 0) {
         boxrig_text_snapshot_destroy(snapshot);
-        return character_selection_unit(hit, unit_out);
+        return character_selection_unit(view, hit, unit_out);
     }
     core_status = boxrig_text_snapshot_byte_offset_at_position(
         snapshot,
@@ -4978,7 +5208,7 @@ static boxrig_ui_status word_selection_unit(
         &hit_offset);
     if (core_status != BOXRIG_STATUS_OK) {
         boxrig_text_snapshot_destroy(snapshot);
-        return character_selection_unit(hit, unit_out);
+        return character_selection_unit(view, hit, unit_out);
     }
     if (byte_length > SIZE_MAX / sizeof(*codepoints) ||
         byte_length == SIZE_MAX ||
@@ -5076,7 +5306,7 @@ static boxrig_ui_status selection_unit(
     }
     switch (kind) {
     case BOXRIG_UI_SELECTION_CHARACTER:
-        return character_selection_unit(hit, unit_out);
+        return character_selection_unit(view, hit, unit_out);
     case BOXRIG_UI_SELECTION_WORD:
         return word_selection_unit(view, hit, unit_out);
     case BOXRIG_UI_SELECTION_LINE:
@@ -5485,12 +5715,19 @@ size_t boxrig_ui_view_selection_visual_ranges(
         }
         return required;
     }
-    return range_visual_ranges(
-        view,
-        &view->selection.range,
-        row,
-        ranges_out,
-        range_capacity);
+    size_t start, count;
+    if ((range_capacity != 0 && ranges_out == NULL) || row >= view->row_count ||
+        !selected_logical_interval(view, row, &start, &count)) return 0;
+    const boxrig_ui_row_layout_cache *entry = &view->row_layouts[row];
+    if (entry->layout != NULL) {
+        return boxrig_text_layout_visual_ranges(entry->layout, start, count,
+            ranges_out, range_capacity);
+    }
+    if (range_capacity != 0) {
+        ranges_out[0].column = start;
+        ranges_out[0].column_count = count;
+    }
+    return 1;
 }
 
 void boxrig_ui_view_accessible_version(const boxrig_ui_view *view,
@@ -5523,6 +5760,8 @@ void boxrig_ui_view_accessible_row(const boxrig_ui_view *view, size_t row,
         state->cell_width = view->allocation_input.cell_width;
         state->cell_height = view->allocation_input.cell_height;
     }
+    (void)row_newline_marker_geometry(view, row,
+        &state->newline_marker_x, &state->newline_marker_width);
     if (!view->selection_active) return;
     if (view->selection.shape == BOXRIG_UI_SELECTION_RECTANGULAR) {
         const boxrig_ui_selection_row_slice *slice =
@@ -5536,19 +5775,7 @@ void boxrig_ui_view_accessible_row(const boxrig_ui_view *view, size_t row,
     }
     (void)selected_logical_interval(view, row,
         &state->selection_start, &state->selection_count);
-    boxrig_text_screen screen;
-    size_t index;
-    boxrig_text_position end;
-    int from_start, to_end;
-    if (view_fragment_index(view, row, &screen, &index) &&
-        boxrig_terminal_get_text_position(view->model->terminal,
-            screen, index, view->column_count, &end) == BOXRIG_STATUS_OK &&
-        compare_text_positions(view->model->terminal,
-            &view->selection.range.start, &end, &from_start) &&
-        compare_text_positions(view->model->terminal,
-            &end, &view->selection.range.end, &to_end)) {
-        state->newline_selected = from_start <= 0 && to_end < 0;
-    }
+    state->newline_selected = row_newline_selected(view, row);
 }
 
 boxrig_ui_status boxrig_ui_view_begin_search(

@@ -573,7 +573,7 @@ bool boxrig_test_renderer_filled_cursor(
         CHECK(renderer.draw(renderer.context, view, NULL) == 0);
         uint32_t *filled = renderer.capture(renderer.context);
         CHECK(filled != NULL);
-        size_t fill_count = 0, ink_count = 0;
+        size_t fill_count = 0, ink_count = 0, underlay_ink_count = 0;
         size_t column_fill[2] = {0};
         unsigned darkest = 765;
         for (size_t at = 0; at < count; at++) {
@@ -590,6 +590,24 @@ bool boxrig_test_renderer_filled_cursor(
                 unsigned sum = ((filled[at] >> 16)&255) + ((filled[at] >> 8)&255) + (filled[at]&255);
                 if (sum < darkest) darkest = sum;
             }
+            if (inside && underlay[at] != 0x102030u) underlay_ink_count++;
+        }
+        if (sample == 4) {
+            size_t per_column[5] = {0};
+            for (unsigned y = 0; y < height; y++) {
+                for (unsigned column = 0; column < 5; column++) {
+                    for (unsigned x = column*width; x < (column+1)*width; x++) {
+                        if (underlay[y*BOXRIG_TEST_COLOR_WIDTH+x] != 0x102030u)
+                            per_column[column]++;
+                    }
+                }
+            }
+            fprintf(stderr,
+                "cursor Hebrew diagnostic: logical=%u visual=%u span=%u underlay_ink=%zu columns=%zu,%zu,%zu,%zu,%zu fill=%zu ink=%zu darkest=%u\n",
+                positions[sample]-1, columns[sample], spans[sample],
+                underlay_ink_count, per_column[0], per_column[1],
+                per_column[2], per_column[3], per_column[4],
+                fill_count, ink_count, darkest);
         }
         /* Color emoji can cover nearly all of the cursor background. */
         unsigned minimum_fill = sample == 7 ? 0 : width*height/4;
@@ -598,7 +616,12 @@ bool boxrig_test_renderer_filled_cursor(
         CHECK(fill_count > minimum_fill);
         for (unsigned column = 0; column < spans[sample]; column++)
             CHECK(column_fill[column] > minimum_fill);
-        if (sample != 0 && sample != 5) CHECK(ink_count != 0 && darkest < 400);
+        if (sample != 0 && sample != 5) {
+            if (ink_count == 0 || darkest >= 400)
+                fprintf(stderr, "cursor ink failure sample=%u fill=%zu ink=%zu darkest=%u\n",
+                    sample, fill_count, ink_count, darkest);
+            CHECK(ink_count != 0 && darkest < 400);
+        }
         else {
             if (fill_count != width*height) fprintf(stderr, "filled blank sample=%u fill=%zu area=%u\n",
                 sample, fill_count, width*height);
