@@ -67,6 +67,14 @@ test-regex-semantics: $(BUILD_DIR)/tests/performance/regex_semantics
 	cmp $(BUILD_DIR)/tests/performance/regex-budget-1.txt $(BUILD_DIR)/tests/performance/regex-budget-7.txt
 	cmp $(BUILD_DIR)/tests/performance/regex-budget-1.txt $(BUILD_DIR)/tests/performance/regex-budget-4096.txt
 
+.PHONY: test-regex-allocations
+test: test-regex-allocations
+test-regex-allocations: $(BUILD_DIR)/tests/test_regex_allocations
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
+
+$(BUILD_DIR)/tests/test_regex_allocations: tests/test_regex_allocations.c $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(LIBRARY) -Wl,--wrap=malloc -Wl,--wrap=calloc $(SANITIZERS) -o $@
+
 .PHONY: test-annotation-eviction
 test: test-annotation-eviction
 test-annotation-eviction: $(BUILD_DIR)/tests/test_annotation_eviction

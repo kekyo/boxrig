@@ -101,10 +101,52 @@ static void impossible_starts(void)
     }
 }
 
+static void whole_match_without_capture_copies(void)
+{
+    const char *pattern = "^https?://[^ ]+$";
+    const uint8_t input[] = "https://example.invalid/path";
+    const boxrig_regex_limits limits = boxrig_regex_limits_default();
+    boxrig_regex_program *program;
+    boxrig_text_regex_diagnostic diagnostic;
+    assert(boxrig_regex_compile((const uint8_t *)pattern, strlen(pattern),
+        &limits, &diagnostic, &program) == BOXRIG_STATUS_OK);
+    for (size_t budget = 1; budget <= 4096; budget *= 8) {
+        boxrig_regex_matcher *matcher;
+        size_t error;
+        assert(boxrig_regex_matcher_create(program, input, sizeof(input) - 1, 0,
+            &error, &matcher) == BOXRIG_STATUS_OK);
+        regex_observe_reset();
+        regex_observe_active = true;
+        boxrig_regex_progress progress = BOXRIG_REGEX_IN_PROGRESS;
+        while (progress == BOXRIG_REGEX_IN_PROGRESS) {
+            size_t used;
+            boxrig_regex_match match;
+            assert(boxrig_regex_matcher_resume(matcher, budget, &used, &progress,
+                &match) == BOXRIG_STATUS_OK);
+            assert(used <= budget && (used > 0 || progress != BOXRIG_REGEX_IN_PROGRESS));
+        }
+        regex_observe_active = false;
+        assert(progress == BOXRIG_REGEX_MATCH);
+        boxrig_regex_result *result;
+        boxrig_regex_capture whole;
+        assert(boxrig_regex_matcher_result(matcher, &result) == BOXRIG_STATUS_OK);
+        assert(boxrig_regex_result_get_capture(result, 0, &whole) == BOXRIG_STATUS_OK);
+        assert(whole.participated && whole.start == 0 && whole.end == sizeof(input) - 1);
+        printf("whole match budget=%zu copies=%zu bytes=%zu\n", budget,
+            regex_observe_copies, regex_observe_copy_bytes);
+        fflush(stdout);
+        assert(regex_observe_copies == 0);
+        boxrig_regex_result_destroy(result);
+        boxrig_regex_matcher_destroy(matcher);
+    }
+    boxrig_regex_program_destroy(program);
+}
+
 int main(void)
 {
     ascii_classes();
     impossible_starts();
+    whole_match_without_capture_copies();
     puts("regex work tests passed");
     return 0;
 }

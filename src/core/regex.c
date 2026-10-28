@@ -1929,7 +1929,12 @@ static void process_closure_state(boxrig_regex_cursor *cursor)
     const size_t *source = frame.source == SIZE_MAX
                               ? cursor->seed_captures
                               : bank + frame.source * cursor->register_count;
-    memcpy(captures, source, cursor->register_count * sizeof(*captures));
+    /* Group zero is derived from the winning thread's start/end. It never
+     * needs to travel through the NFA, including programs with no captures. */
+    if (cursor->register_count > 2u) {
+        memcpy(captures + 2u, source + 2u,
+               (cursor->register_count - 2u) * sizeof(*captures));
+    }
     const boxrig_regex_state *state = &cursor->program->states[state_index];
     size_t closure_position = cursor->closure_target ==
                                       BOXRIG_REGEX_CLOSURE_CURRENT
@@ -1966,8 +1971,10 @@ static void process_closure_state(boxrig_regex_cursor *cursor)
               closure_position > cursor->longest_end))) {
             cursor->longest_start = cursor->closure_start;
             cursor->longest_end = closure_position;
-            memcpy(cursor->best_captures, captures,
-                   cursor->register_count * sizeof(*captures));
+            if (cursor->register_count > 2u) {
+                memcpy(cursor->best_captures + 2u, captures + 2u,
+                       (cursor->register_count - 2u) * sizeof(*captures));
+            }
             cursor->best_captures[0] = cursor->longest_start;
             cursor->best_captures[1] = cursor->longest_end;
         }
@@ -2152,7 +2159,7 @@ boxrig_status boxrig_regex_cursor_resume(
                 cursor->boundaries[cursor->position] && possible_start(cursor)) {
                 cursor->closure_target = BOXRIG_REGEX_CLOSURE_CURRENT;
                 cursor->closure_start = cursor->position;
-                for (size_t i = 0u; i < cursor->register_count; i++) {
+                for (size_t i = 2u; i < cursor->register_count; i++) {
                     cursor->seed_captures[i] = SIZE_MAX;
                 }
                 schedule_closure(cursor, cursor->program->start_state, SIZE_MAX);
@@ -2198,10 +2205,13 @@ boxrig_status boxrig_regex_cursor_resume(
                                   cursor->scalars[cursor->position])) {
                     cursor->closure_target = BOXRIG_REGEX_CLOSURE_NEXT;
                     cursor->closure_start = thread->start;
-                    memcpy(cursor->seed_captures,
-                           cursor->current_captures +
-                               thread->state * cursor->register_count,
-                           cursor->register_count * sizeof(*cursor->seed_captures));
+                    if (cursor->register_count > 2u) {
+                        memcpy(cursor->seed_captures + 2u,
+                               cursor->current_captures +
+                                   thread->state * cursor->register_count + 2u,
+                               (cursor->register_count - 2u) *
+                                   sizeof(*cursor->seed_captures));
+                    }
                     schedule_closure(cursor, state->out, SIZE_MAX);
                     cursor->phase = BOXRIG_REGEX_CURSOR_OUTPUT_CLOSURE;
                 }
