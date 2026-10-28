@@ -1293,7 +1293,8 @@ static void transfer_reflowed_primary(
     boxrig_screen *destination,
     boxrig_reflow_rows *reflow,
     boxrig_cell_position cursors[2],
-    const bool cursor_pending_wrap[2])
+    const bool cursor_pending_wrap[2],
+    size_t source_visible_rows)
 {
     size_t visible_start = reflow->count > destination->rows
                                ? reflow->count - destination->rows
@@ -1340,6 +1341,12 @@ static void transfer_reflowed_primary(
             reflow->rows[source_row].soft_wrapped;
         destination->primary.text_fragments[row] =
             reflow->rows[source_row].text;
+    }
+    /* A source row moved by reflow may leave its copied identity on an empty
+     * destination row. Keep identities of untouched trailing source rows. */
+    for (; row < destination->rows && row < source_visible_rows; row++) {
+        boxrig_screen_text_reset_fragment(destination,
+            &destination->primary.text_fragments[row]);
     }
     for (size_t index = 0; index < 2; index++) {
         cursors[index].row = cursors[index].row < visible_start ? 0 :
@@ -1495,7 +1502,7 @@ static boxrig_status reuse_history_prefix_for_resize(
         source->history[slot].cell_storage = NULL;
     }
     transfer_reflowed_primary(destination, &combined, cursors,
-        cursor_pending_wrap);
+        cursor_pending_wrap, source_count - source->history_count);
     visible_start = combined.count > destination->rows
                         ? combined.count - destination->rows : 0;
     for (size_t index = 0; index < marker_count; index++) {
@@ -1553,7 +1560,9 @@ static boxrig_status reflow_primary_for_resize(
         destination,
         &reflow,
         cursors,
-        cursor_pending_wrap);
+        cursor_pending_wrap,
+        primary_reflow_source_count(source, markers, marker_count) -
+            source->history_count);
     if (marker_count != 0) {
         size_t visible_start = reflow.count > destination->rows
                                    ? reflow.count - destination->rows
@@ -1599,7 +1608,8 @@ static boxrig_status remeasure_alternate(boxrig_screen *destination,
     alternate_destination.history_start = 0;
     copy_buffer_state_for_resize(&alternate_destination.primary, &source->alternate,
         source->rows, source->columns, destination->rows, destination->columns);
-    transfer_reflowed_primary(&alternate_destination, &reflow, cursors, pending);
+    transfer_reflowed_primary(&alternate_destination, &reflow, cursors, pending,
+        0);
     destination->alternate = alternate_destination.primary;
     destroy_reflow_rows(&reflow);
     return BOXRIG_STATUS_OK;

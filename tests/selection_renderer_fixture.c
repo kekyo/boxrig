@@ -13,6 +13,8 @@ typedef struct selection_filter {
     size_t calls;
     bool selection_cell;
     bool selection_marker;
+    bool marker_focused;
+    bool marker_unfocused;
     boxrig_rgb marker_underlay;
 } selection_filter;
 
@@ -34,6 +36,10 @@ static boxrig_ui_color_filter_result inspect_selection(
     if (input->target == BOXRIG_UI_COLOR_SELECTION_MARKER) {
         seen->selection_marker = input->marker_source.role == BOXRIG_UI_COLOR_UI &&
             input->underlay_valid;
+        if ((input->state_flags & BOXRIG_UI_COLOR_FOCUSED) != 0)
+            seen->marker_focused = true;
+        else
+            seen->marker_unfocused = true;
         seen->marker_underlay = input->underlay.background;
     }
     boxrig_ui_color_filter_result result = input->colors;
@@ -230,6 +236,319 @@ static bool selection_history_and_ime(
     return true;
 }
 
+static bool selection_full_line_newline_marker(
+    bool (*create)(boxrig_test_color_renderer *renderer))
+{
+    boxrig_test_color_renderer renderer = {0};
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    boxrig_ui_view_config view_config = boxrig_ui_view_config_default();
+    boxrig_terminal *terminal = NULL;
+    boxrig_ui_model *model = NULL;
+    boxrig_ui_view *view = NULL;
+    config.rows = 3;
+    config.columns = 12;
+    view_config.blink.cursor_enabled = false;
+    view_config.blink.text_enabled = false;
+    CHECK(create(&renderer));
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_create(model, &view_config, &view) == BOXRIG_UI_OK);
+    unsigned width = renderer.cell_width, height = renderer.cell_height;
+    boxrig_ui_allocation_input allocation = {0};
+    allocation.allocation_width = 12 * width * BOXRIG_UI_FIXED_ONE;
+    allocation.allocation_height = 3 * height * BOXRIG_UI_FIXED_ONE;
+    allocation.cell_width = width * BOXRIG_UI_FIXED_ONE;
+    allocation.cell_height = height * BOXRIG_UI_FIXED_ONE;
+    allocation.cell_metrics_revision = 1;
+    boxrig_ui_layout_result layout;
+    CHECK(boxrig_ui_view_acquire_layout_authority(view) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_accept_allocation(view, &allocation, &layout) == BOXRIG_UI_OK);
+    const char text[] = "\033[?25l            \r\nz";
+    size_t consumed;
+    CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)text,
+        sizeof(text) - 1, &consumed) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+    CHECK(renderer.draw(renderer.context, view, NULL) == 0);
+    uint32_t *baseline = renderer.capture(renderer.context);
+    CHECK(baseline != NULL);
+    boxrig_ui_hit_test_result first, last;
+    CHECK(boxrig_ui_view_hit_test(view, BOXRIG_UI_FIXED_ONE,
+        BOXRIG_UI_FIXED_ONE, &first) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_hit_test(view, BOXRIG_UI_FIXED_ONE,
+        (height + 1) * BOXRIG_UI_FIXED_ONE, &last) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_begin_selection(view, BOXRIG_UI_SELECTION_CHARACTER,
+        &first) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_update_selection(view, &last) == BOXRIG_UI_OK);
+    boxrig_ui_selection_style style = boxrig_ui_selection_style_default();
+    style.presentation = BOXRIG_UI_SELECTION_FILL;
+    style.background_opacity = 0;
+    style.marker = (boxrig_rgb){220, 100, 60};
+    style.marker_opacity = 255;
+    CHECK(boxrig_ui_view_set_selection_style(view, &style) == BOXRIG_UI_OK);
+    CHECK(renderer.draw(renderer.context, view, NULL) == 0);
+    uint32_t *pixels = renderer.capture(renderer.context);
+    CHECK(pixels != NULL);
+    CHECK(close_rgb(pixels[(height / 2) * BOXRIG_TEST_COLOR_WIDTH +
+        12 * width - 1], rgb(style.marker)));
+    CHECK(close_rgb(pixels[(height / 2) * BOXRIG_TEST_COLOR_WIDTH +
+        12 * width - (width + 3) / 4 - 1],
+        baseline[(height / 2) * BOXRIG_TEST_COLOR_WIDTH +
+            12 * width - (width + 3) / 4 - 1]));
+    free(pixels);
+    /* The body outline and LF strip form one marker layer. Their shared
+     * right edge must not apply translucent paint twice. */
+    style.presentation = BOXRIG_UI_SELECTION_OUTLINE;
+    style.marker_opacity = 128;
+    CHECK(boxrig_ui_view_set_selection_style(view, &style) == BOXRIG_UI_OK);
+    CHECK(renderer.draw(renderer.context, view, NULL) == 0);
+    pixels = renderer.capture(renderer.context);
+    CHECK(pixels != NULL);
+    size_t overlap_pixel = (height / 2) * BOXRIG_TEST_COLOR_WIDTH + 12 * width - 1;
+    CHECK(close_rgb(pixels[overlap_pixel],
+        over(baseline[overlap_pixel], rgb(style.marker), 128)));
+    free(pixels);
+    style.presentation = BOXRIG_UI_SELECTION_FILL;
+    style.marker_opacity = 255;
+    CHECK(boxrig_ui_view_set_selection_style(view, &style) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_clear_selection(view) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_hit_test(view,
+        (12 * width - 1) * BOXRIG_UI_FIXED_ONE, BOXRIG_UI_FIXED_ONE,
+        &first) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_begin_selection(view, BOXRIG_UI_SELECTION_CHARACTER,
+        &first) == BOXRIG_UI_OK);
+    boxrig_text_snapshot *copy = NULL;
+    CHECK(boxrig_ui_view_create_selection_snapshot(view, &copy) == BOXRIG_UI_OK);
+    size_t length;
+    const uint8_t *bytes = boxrig_text_snapshot_data(copy, &length);
+    CHECK(length == 1 && bytes[0] == '\n');
+    boxrig_text_snapshot_destroy(copy);
+    selection_filter seen = {0};
+    CHECK(boxrig_ui_view_set_color_filter(view, inspect_selection, &seen) == BOXRIG_UI_OK);
+    CHECK(renderer.draw(renderer.context, view, NULL) == 0);
+    pixels = renderer.capture(renderer.context);
+    CHECK(pixels != NULL);
+    CHECK(close_rgb(pixels[(height / 2) * BOXRIG_TEST_COLOR_WIDTH +
+        12 * width - 1], rgb(shift_color(style.marker))));
+    CHECK(seen.selection_marker && seen.marker_unfocused);
+    free(pixels);
+    CHECK(boxrig_ui_view_set_focused(view, true) == BOXRIG_UI_OK);
+    CHECK(renderer.draw(renderer.context, view, NULL) == 0);
+    pixels = renderer.capture(renderer.context);
+    CHECK(pixels != NULL);
+    CHECK(seen.marker_focused);
+    CHECK(close_rgb(pixels[(height / 2) * BOXRIG_TEST_COLOR_WIDTH +
+        12 * width - 1], rgb(shift_color(style.marker))));
+    free(pixels);
+    CHECK(boxrig_ui_view_set_focused(view, false) == BOXRIG_UI_OK);
+    style.marker_opacity = 128;
+    CHECK(boxrig_ui_view_set_selection_style(view, &style) == BOXRIG_UI_OK);
+    CHECK(renderer.draw(renderer.context, view, NULL) == 0);
+    pixels = renderer.capture(renderer.context);
+    CHECK(pixels != NULL);
+    size_t marker_pixel = (height / 2) * BOXRIG_TEST_COLOR_WIDTH +
+        12 * width - 1;
+    CHECK(close_rgb(pixels[marker_pixel],
+        over(baseline[marker_pixel], rgb(shift_color(style.marker)), 128)));
+    free(pixels);
+    CHECK(boxrig_ui_view_set_color_filter(view, NULL, NULL) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_reset_selection_style(view) == BOXRIG_UI_OK);
+    boxrig_ui_selection_style default_style = boxrig_ui_selection_style_default();
+    for (size_t focused = 0; focused < 2; focused++) {
+        CHECK(boxrig_ui_view_set_focused(view, focused != 0) == BOXRIG_UI_OK);
+        CHECK(renderer.draw(renderer.context, view, NULL) == 0);
+        pixels = renderer.capture(renderer.context);
+        CHECK(pixels != NULL);
+        CHECK(close_rgb(pixels[marker_pixel], rgb(default_style.marker)));
+        free(pixels);
+    }
+    free(baseline);
+    renderer.destroy(renderer.context);
+    boxrig_ui_view_destroy(view);
+    boxrig_ui_model_destroy(model);
+    boxrig_terminal_destroy(terminal);
+    return true;
+}
+
+static bool selection_unicode_newline_placement(
+    bool (*create)(boxrig_test_color_renderer *renderer))
+{
+    const struct {
+        const char *name;
+        const char *body;
+        size_t columns;
+    } cases[] = {
+        {"ASCII", "abcdefghijkl", 12},
+        {"wide", "界abcdefghij", 12},
+        {"combining", "éabcdefghijk", 12},
+        {"emoji", "😀abcdefghij", 12},
+        {"RTL", "אבגדהוזחטיכל", 12},
+        {"mixed", "LאבRabcdefgh", 12},
+        {"short mixed", "界éאב", 5},
+        {"short RTL", "אב界é", 5}
+    };
+    for (size_t sample = 0; sample < sizeof(cases) / sizeof(cases[0]); sample++) {
+        boxrig_test_color_renderer renderer = {0};
+        boxrig_terminal_config config = boxrig_terminal_config_default();
+        boxrig_ui_view_config view_config = boxrig_ui_view_config_default();
+        boxrig_terminal *terminal = NULL;
+        boxrig_ui_model *model = NULL;
+        boxrig_ui_view *view = NULL;
+        config.rows = 3;
+        config.columns = 12;
+        view_config.blink.cursor_enabled = false;
+        view_config.blink.text_enabled = false;
+        CHECK(create(&renderer));
+        CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+        CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
+        CHECK(boxrig_ui_view_create(model, &view_config, &view) == BOXRIG_UI_OK);
+        unsigned width = renderer.cell_width, height = renderer.cell_height;
+        boxrig_ui_allocation_input allocation = {0};
+        allocation.allocation_width = 12 * width * BOXRIG_UI_FIXED_ONE;
+        allocation.allocation_height = 3 * height * BOXRIG_UI_FIXED_ONE;
+        allocation.cell_width = width * BOXRIG_UI_FIXED_ONE;
+        allocation.cell_height = height * BOXRIG_UI_FIXED_ONE;
+        allocation.cell_metrics_revision = 1;
+        boxrig_ui_layout_result layout;
+        CHECK(boxrig_ui_view_acquire_layout_authority(view) == BOXRIG_UI_OK);
+        CHECK(boxrig_ui_view_accept_allocation(view, &allocation, &layout) == BOXRIG_UI_OK);
+        char input[128];
+        int input_length = snprintf(input, sizeof(input), "\033[?25l%s\r\nz",
+            cases[sample].body);
+        CHECK(input_length > 0 && (size_t)input_length < sizeof(input));
+        size_t consumed;
+        CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)input,
+            (size_t)input_length, &consumed) == BOXRIG_STATUS_OK);
+        CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+        CHECK(renderer.draw(renderer.context, view, NULL) == 0);
+        uint32_t *baseline = renderer.capture(renderer.context);
+        CHECK(baseline != NULL);
+        boxrig_ui_selection_style style = boxrig_ui_selection_style_default();
+        style.presentation = BOXRIG_UI_SELECTION_FILL;
+        style.background = (boxrig_rgb){30, 180, 230};
+        style.background_opacity = 255;
+        style.marker = (boxrig_rgb){230, 90, 30};
+        style.marker_opacity = 255;
+        CHECK(boxrig_ui_view_set_selection_style(view, &style) == BOXRIG_UI_OK);
+        boxrig_ui_hit_test_result hit;
+        size_t hit_column = 12;
+        size_t padding_column = SIZE_MAX;
+        if (cases[sample].columns == 12) {
+            CHECK(boxrig_ui_view_hit_test(view,
+                (12 * width - 1) * BOXRIG_UI_FIXED_ONE,
+                BOXRIG_UI_FIXED_ONE, &hit) == BOXRIG_UI_OK);
+        } else {
+            bool found = false;
+            for (size_t column = 0; column < 12; column++) {
+                boxrig_ui_hit_test_result probe;
+                CHECK(boxrig_ui_view_hit_test(view,
+                    (column * width + 1) * BOXRIG_UI_FIXED_ONE,
+                    BOXRIG_UI_FIXED_ONE, &probe) == BOXRIG_UI_OK);
+                if (probe.logical_column == cases[sample].columns) {
+                    hit = probe;
+                    hit_column = column;
+                    found = true;
+                } else if (probe.logical_column > cases[sample].columns &&
+                           padding_column == SIZE_MAX) {
+                    padding_column = column;
+                }
+            }
+            CHECK(found && padding_column != SIZE_MAX);
+        }
+        CHECK(boxrig_ui_view_begin_selection(view, BOXRIG_UI_SELECTION_CHARACTER,
+            &hit) == BOXRIG_UI_OK);
+        boxrig_text_snapshot *copy = NULL;
+        CHECK(boxrig_ui_view_create_selection_snapshot(view, &copy) == BOXRIG_UI_OK);
+        size_t length;
+        const uint8_t *bytes = boxrig_text_snapshot_data(copy, &length);
+        if (!(length == 1 && bytes[0] == '\n'))
+            fprintf(stderr, "Unicode LF hit failed: %s, bytes=%zu\n",
+                cases[sample].name, length);
+        CHECK(length == 1 && bytes[0] == '\n');
+        boxrig_text_snapshot_destroy(copy);
+        if (cases[sample].columns < 12) {
+            boxrig_text_layout_range visual[2];
+            CHECK(boxrig_ui_view_selection_visual_ranges(view, 0, visual, 2) == 1);
+            CHECK(visual[0].column == hit_column && visual[0].column_count == 1);
+        }
+        CHECK(renderer.draw(renderer.context, view, NULL) == 0);
+        uint32_t *pixels = renderer.capture(renderer.context);
+        CHECK(pixels != NULL);
+        size_t marker_pixel = (height / 2) * BOXRIG_TEST_COLOR_WIDTH +
+            (cases[sample].columns == 12 ? 12 * width - 1 :
+                (hit_column * width + width / 2));
+        uint32_t expected = rgb(cases[sample].columns == 12 ?
+            style.marker : style.background);
+        if (!close_rgb(pixels[marker_pixel], expected))
+            fprintf(stderr, "Unicode LF paint failed: %s at column %zu\n",
+                cases[sample].name, hit_column);
+        CHECK(close_rgb(pixels[marker_pixel], expected));
+        for (unsigned x = 0; x < 12 * width; x++) {
+            bool lf_pixel = cases[sample].columns == 12 ?
+                x >= 12 * width - (width + 3) / 4 :
+                x >= hit_column * width && x < (hit_column + 1) * width;
+            if (!lf_pixel) {
+                size_t pixel = (height / 2) * BOXRIG_TEST_COLOR_WIDTH + x;
+                CHECK(close_rgb(pixels[pixel], baseline[pixel]));
+            }
+        }
+        free(pixels);
+        CHECK(boxrig_ui_view_clear_selection(view) == BOXRIG_UI_OK);
+        CHECK(renderer.draw(renderer.context, view, NULL) == 0);
+        pixels = renderer.capture(renderer.context);
+        CHECK(pixels != NULL);
+        CHECK(memcmp(pixels, baseline, BOXRIG_TEST_COLOR_WIDTH *
+            BOXRIG_TEST_COLOR_HEIGHT * sizeof(*pixels)) == 0);
+        free(pixels);
+        if (strcmp(cases[sample].name, "short RTL") == 0) {
+            CHECK(boxrig_ui_view_hit_test(view,
+                (padding_column * width + 1) * BOXRIG_UI_FIXED_ONE,
+                BOXRIG_UI_FIXED_ONE, &hit) == BOXRIG_UI_OK);
+            CHECK(boxrig_ui_view_begin_selection(view,
+                BOXRIG_UI_SELECTION_CHARACTER, &hit) == BOXRIG_UI_OK);
+            CHECK(boxrig_ui_view_create_selection_snapshot(view, &copy) == BOXRIG_UI_OK);
+            bytes = boxrig_text_snapshot_data(copy, &length);
+            CHECK(length == 1 && bytes[0] == '\n');
+            boxrig_text_snapshot_destroy(copy);
+            CHECK(renderer.draw(renderer.context, view, NULL) == 0);
+            pixels = renderer.capture(renderer.context);
+            CHECK(pixels != NULL);
+            size_t padding_pixel = (height / 2) * BOXRIG_TEST_COLOR_WIDTH +
+                padding_column * width + width / 2;
+            CHECK(close_rgb(pixels[padding_pixel], baseline[padding_pixel]));
+            CHECK(close_rgb(pixels[(height / 2) * BOXRIG_TEST_COLOR_WIDTH +
+                hit_column * width + width / 2], rgb(style.background)));
+            free(pixels);
+            CHECK(boxrig_ui_view_clear_selection(view) == BOXRIG_UI_OK);
+        }
+        if (cases[sample].columns == 12) {
+            style.background_opacity = 0;
+            CHECK(boxrig_ui_view_set_selection_style(view, &style) == BOXRIG_UI_OK);
+            CHECK(boxrig_ui_view_hit_test(view,
+                (12 * width - (width + 3) / 4 - 1) * BOXRIG_UI_FIXED_ONE,
+                BOXRIG_UI_FIXED_ONE, &hit) == BOXRIG_UI_OK);
+            CHECK(boxrig_ui_view_begin_selection(view,
+                BOXRIG_UI_SELECTION_CHARACTER, &hit) == BOXRIG_UI_OK);
+            CHECK(boxrig_ui_view_create_selection_snapshot(view, &copy) == BOXRIG_UI_OK);
+            bytes = boxrig_text_snapshot_data(copy, &length);
+            CHECK(length != 1 || bytes[0] != '\n');
+            boxrig_text_snapshot_destroy(copy);
+            CHECK(renderer.draw(renderer.context, view, NULL) == 0);
+            pixels = renderer.capture(renderer.context);
+            CHECK(pixels != NULL);
+            CHECK(close_rgb(pixels[(height / 2) * BOXRIG_TEST_COLOR_WIDTH +
+                12 * width - 1], baseline[(height / 2) *
+                    BOXRIG_TEST_COLOR_WIDTH + 12 * width - 1]));
+            free(pixels);
+        }
+        free(baseline);
+        renderer.destroy(renderer.context);
+        boxrig_ui_view_destroy(view);
+        boxrig_ui_model_destroy(model);
+        boxrig_terminal_destroy(terminal);
+    }
+    return true;
+}
+
 static bool selection_unvisited_unicode(
     bool (*create)(boxrig_test_color_renderer *renderer))
 {
@@ -324,6 +643,8 @@ bool boxrig_test_renderer_selection_style(
     bool (*create)(boxrig_test_color_renderer *renderer),
     unsigned int expected_stroke_x, unsigned int expected_stroke_y)
 {
+    CHECK(selection_full_line_newline_marker(create));
+    CHECK(selection_unicode_newline_placement(create));
     boxrig_terminal_config config = boxrig_terminal_config_default();
     config.rows = 4; config.columns = 12;
     boxrig_ui_view_config view_config = boxrig_ui_view_config_default();
@@ -348,8 +669,10 @@ bool boxrig_test_renderer_selection_style(
     boxrig_ui_layout_result layout;
     CHECK(boxrig_ui_view_acquire_layout_authority(view) == BOXRIG_UI_OK);
     CHECK(boxrig_ui_view_accept_allocation(view, &allocation, &layout) == BOXRIG_UI_OK);
-    /* A blank separator keeps neighboring glyph overhang out of the alpha fixture. */
+    /* Explicit spaces keep the alpha fixture selectable without glyph
+     * overhang. Unused padding is reserved for the single LF selection unit. */
     const char text[] = "\033[?25l\033[48;2;16;32;48m\033[2J"
+        "\033[1;1H        "
         "\033[3;1HX\xe7\x95\x8c" "e\xcc\x88 fi \327\220\327\221\327\222"
         "\033[3;12H\033[8mX\033[28m";
     size_t consumed;
@@ -424,7 +747,8 @@ bool boxrig_test_renderer_selection_style(
      * bidi text, while copy text and concealed cells retain their meaning. */
     CHECK(boxrig_ui_view_hit_test(view, BOXRIG_UI_FIXED_ONE,
         (2*height+1)*BOXRIG_UI_FIXED_ONE, &first) == BOXRIG_UI_OK);
-    CHECK(boxrig_ui_view_hit_test(view, (12*width-1)*BOXRIG_UI_FIXED_ONE,
+    CHECK(boxrig_ui_view_hit_test(view,
+        (12*width-(width+3)/4-1)*BOXRIG_UI_FIXED_ONE,
         (2*height+1)*BOXRIG_UI_FIXED_ONE, &last) == BOXRIG_UI_OK);
     CHECK(boxrig_ui_view_begin_selection(view, BOXRIG_UI_SELECTION_CHARACTER, &first) == BOXRIG_UI_OK);
     CHECK(boxrig_ui_view_update_selection(view, &last) == BOXRIG_UI_OK);

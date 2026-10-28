@@ -2484,6 +2484,28 @@ test-annotation-cost: $(ANNOTATION_COST_BINARY) $(ANNOTATION_COST_UNWRAPPED_BINA
 	$(ANNOTATION_COST_BINARY) 16 10 45 2 bound
 	$(ANNOTATION_COST_BINARY) 10000 10 45 2 bound
 
+$(BUILD_DIR)/tests/performance/selection_cost: \
+		tests/performance/selection_cost.c $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests/performance
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) \
+		$(PROJECT_CFLAGS) $< $(UI_LIBRARY) $(LIBRARY) \
+		-Wl,--wrap=boxrig_terminal_get_text_fragment \
+		-Wl,--wrap=boxrig_terminal_create_text_snapshot -o $@
+
+.PHONY: test-selection-cost
+test: test-selection-cost
+test-selection-cost: $(BUILD_DIR)/tests/performance/selection_cost
+	$<
+
+$(BUILD_DIR)/tests/performance/selection_cost_cairo: \
+		tests/performance/selection_cost.c src/pangocairo/renderer.c \
+		$(PANGO_CANDIDATE_OBJECT) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests/performance
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) -Isrc $(POSIX_CPPFLAGS) \
+		$(PANGO_CAIRO_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) \
+		-DBOXRIG_SELECTION_COST_CAIRO $< src/pangocairo/renderer.c \
+		$(PANGO_CANDIDATE_OBJECT) $(UI_LIBRARY) $(LIBRARY) \
+		$(PANGO_CAIRO_LIBS) -Wl,--wrap=boxrig_terminal_get_text_fragment \
+		-Wl,--wrap=boxrig_terminal_create_text_snapshot -o $@
+
 $(SELECTION_TEST_BINARY): tests/test_selection.c src/ui/word_break.h \
 		$(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) -Isrc/ui $(CFLAGS) \
@@ -3981,8 +4003,12 @@ test-win32-first-frame-fence: $(MINGW_AMD64_FIRST_FRAME_FENCE_TEST) $(MINGW_I686
 	$(WINE_RUN) $(abspath $(MINGW_AMD64_FIRST_FRAME_FENCE_TEST))
 	$(WINE_RUN) $(abspath $(MINGW_I686_FIRST_FRAME_FENCE_TEST))
 
-.PHONY: test-win32-sample-first-frame-fence
-test: test-win32-sample-first-frame-fence
+.PHONY: test-win32-sample-first-frame-fence test-win32-sample-dpi
+test: test-win32-sample-first-frame-fence test-win32-sample-dpi
+
+test-win32-sample-dpi: $(MINGW_AMD64_SAMPLE_TEST) $(MINGW_I686_SAMPLE_TEST)
+	$(WINE_RUN) $(abspath $(MINGW_AMD64_SAMPLE_TEST)) --dpi-probe
+	$(WINE_RUN) $(abspath $(MINGW_I686_SAMPLE_TEST)) --dpi-probe
 test-p2-win32: $(MINGW_AMD64_BUILD_DIR)/tests/first_frame_child.exe $(MINGW_I686_BUILD_DIR)/tests/first_frame_child.exe
 $(MINGW_AMD64_BUILD_DIR)/tests/first_frame_child.exe: tests/win32/first_frame_child.c | $(MINGW_AMD64_BUILD_DIR)/tests
 	$(MINGW_AMD64_CC) $(CPPFLAGS) $(MINGW_TERM_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< -o $@
@@ -4399,6 +4425,12 @@ test-native-scrollbar: $(EXAMPLE_BINARY) $(GTK3_EXAMPLE_BINARY) $(GTK4_EXAMPLE_B
 	$(XVFB_RUN) -a -s '-screen 0 1280x1024x24' env BOXRIG_TEST_SCROLLBAR_WAYLAND=1 LIBGL_ALWAYS_SOFTWARE=1 node tests/run_native_scrollbar.mjs $(WAYLAND_EXAMPLE_BINARY) $(PTY_HELPER_BINARY) opengl
 	$(XVFB_RUN) -a -s '-screen 0 2400x1800x24' env BOXRIG_TEST_SCROLLBAR_WAYLAND=1 BOXRIG_TEST_SCROLLBAR_SCALE=2 node tests/run_native_scrollbar.mjs $(WAYLAND_EXAMPLE_BINARY) $(PTY_HELPER_BINARY) wayland
 	$(XVFB_RUN) -a -s '-screen 0 2400x1800x24' env BOXRIG_TEST_SCROLLBAR_WAYLAND=1 BOXRIG_TEST_SCROLLBAR_SCALE=2 LIBGL_ALWAYS_SOFTWARE=1 node tests/run_native_scrollbar.mjs $(WAYLAND_EXAMPLE_BINARY) $(PTY_HELPER_BINARY) opengl
+
+.PHONY: test-native-gtk4-zoom-video
+test: test-native-gtk4-zoom-video
+test-native-gtk4-zoom-video: $(GTK4_EXAMPLE_BINARY) $(PTY_HELPER_BINARY)
+	$(XVFB_RUN) -a -s '-screen 0 1280x1024x24' env $(GTK4_TEST_IM_ENV) GDK_BACKEND=x11 GSK_RENDERER=cairo node tests/run_native_gtk4_zoom_video.mjs $(GTK4_EXAMPLE_BINARY) $(PTY_HELPER_BINARY) $(BUILD_DIR)/test-results/plan13/gtk4-cairo cairo
+	$(XVFB_RUN) -a -s '-screen 0 1280x1024x24' env $(GTK4_TEST_IM_ENV) GDK_BACKEND=x11 GDK_DEBUG=gl-prefer-gl GSK_RENDERER=gl LIBGL_ALWAYS_SOFTWARE=1 node tests/run_native_gtk4_zoom_video.mjs $(GTK4_EXAMPLE_BINARY) $(PTY_HELPER_BINARY) $(BUILD_DIR)/test-results/plan13/gtk4-opengl opengl
 
 .PHONY: test-scrollbar-demo
 test: test-scrollbar-demo

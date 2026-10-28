@@ -902,6 +902,7 @@ boxrig_status boxrig_terminal_get_text_fragment(
     fragment_out->line_id = metadata->line_id;
     fragment_out->logical_column_offset =
         metadata->logical_column_offset;
+    fragment_out->projected_end_column = metadata->projected_end_column;
     fragment_out->line_revision = metadata->line_revision;
     fragment_out->soft_wrapped = document_fragment_soft_wrapped(
         &terminal->screen,

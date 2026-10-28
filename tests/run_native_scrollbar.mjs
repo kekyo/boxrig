@@ -212,6 +212,40 @@ try {
       v.ch === originalHeight && v.columns === restoredColumns && v.rows === 24,
     "visible zoom reset",
   );
+  if (/\/gtk4\//.test(resolve(sample))) {
+    key("ctrl+plus");
+    const firstZoom = (await grid((v) =>
+      v.ch > originalHeight && v.columns === restoredColumns && v.rows === 24,
+    "GTK4 first consecutive zoom")).ch;
+    key("ctrl+plus");
+    const secondZoom = (await grid((v) =>
+      v.ch > firstZoom && v.columns === restoredColumns && v.rows === 24,
+    "GTK4 second consecutive zoom")).ch;
+    key("ctrl+shift+F9"); // AUTO can remain visible after zoom reflow.
+    await grid(
+      (v) => v.ch === secondZoom && v.columns >= restoredColumns && v.rows === 24,
+      "GTK4 zoomed auto",
+    );
+    key("ctrl+shift+F9"); // NEVER releases the reserved width.
+    const hiddenColumns = (await grid(
+      (v) => v.ch === secondZoom && v.columns > restoredColumns && v.rows === 24,
+      "GTK4 zoomed never",
+    )).columns;
+    await grid(
+      (v) => v.ch === secondZoom && v.columns === hiddenColumns && v.rows === 24,
+      "GTK4 zoomed never stable",
+    );
+    key("ctrl+shift+F9"); // ALWAYS restores the reserved width.
+    await grid(
+      (v) => v.ch === secondZoom && v.columns === restoredColumns && v.rows === 24,
+      "GTK4 zoomed always restored",
+    );
+    key("ctrl+0");
+    await grid(
+      (v) => v.ch === originalHeight && v.columns === restoredColumns && v.rows === 24,
+      "GTK4 final requested grid",
+    );
+  }
   if (!wayland && /\/x11\//.test(resolve(sample))) {
     const baseWidth = () => {
       const hints = command("xprop", ["-id", id, "WM_NORMAL_HINTS"]);

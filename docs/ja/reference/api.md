@@ -21,6 +21,10 @@
 | POSIXのfdとPTY | [posix.h](../../../include/boxrig/posix.h) | [セッション](../sessions.md) |
 | Win32の通信とPTY | [session.h](../../../include/boxrig/win32/session.h)、[pty.h](../../../include/boxrig/win32/pty.h) | [Win32](../platforms/win32.md) |
 
+端末の本文を表示する際は、`boxrig_terminal_get_text_fragment()`が返す`boxrig_text_fragment_view.projected_end_column`で論理行の本文終端を取得できます。値は論理行の列番号で、文字として出力された末尾の空白を含み、消去済みのセルを含みません。自動折り返しで分かれた各物理行には、同じ論理行の本文終端が返ります。
+
+本文の後ろに空きがある論理行では、通常選択で本文直後の1セルを選ぶと、次の論理行との間の改行を選べます。改行まで選ぶとコピーにLF（`\n`）が入り、改行だけを選ぶとLFだけが入ります。選択の塗りと輪郭は、本文の後ろの未使用セルへ広がりません。矩形選択の範囲はこの通常選択の規則とは別に扱います。
+
 ## UIと入力
 
 | 用途 | 公開ヘッダー | ガイド |
