@@ -6,7 +6,6 @@
 
 #include "terminal_internal.h"
 
-#include <assert.h>
 #include <float.h>
 #include <math.h>
 #include <stdint.h>
@@ -110,22 +109,24 @@ static void release_cell_text(boxrig_cell *cell)
 
 /* A move transfers this reference with the cell; a new handle assignment
  * retains it, and overwriting or destroying the owning cell releases it.
- * Resize temporaries use NULL and are counted together after commit. */
+ * Resize temporaries use NULL and are counted together after commit.
+ * Invalid ownership is a core invariant failure. Use portable C termination
+ * without introducing platform-specific assertion runtime dependencies. */
 static inline void retain_cell_hyperlink(boxrig_terminal *owner, uint32_t handle)
 {
     if (handle == 0u || owner == NULL) return;
-    assert(handle <= owner->hyperlink_slot_count);
+    if (handle > owner->hyperlink_slot_count) abort();
     boxrig_hyperlink_entry *entry = &owner->hyperlinks[handle - 1u];
-    assert(entry->uri != NULL);
+    if (entry->uri == NULL) abort();
     entry->cell_references++;
 }
 
 static inline void release_cell_hyperlink(boxrig_terminal *owner, uint32_t handle)
 {
     if (handle == 0u || owner == NULL) return;
-    assert(handle <= owner->hyperlink_slot_count);
+    if (handle > owner->hyperlink_slot_count) abort();
     boxrig_hyperlink_entry *entry = &owner->hyperlinks[handle - 1u];
-    assert(entry->uri != NULL && entry->cell_references != 0u);
+    if (entry->uri == NULL || entry->cell_references == 0u) abort();
     entry->cell_references--;
 }
 
