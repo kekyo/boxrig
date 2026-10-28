@@ -15,6 +15,8 @@
 #include <unistd.h>
 
 #define CHECK(value) do { if (!(value)) { fprintf(stderr, "probe:%d: %s\n", __LINE__, #value); return 1; } } while (0)
+#define REGEX_UNDERLINE_PIXEL 0xfffffful
+#define OSC8_HOVER_PIXEL 0x1abfe6ul
 
 static uint64_t now_ns(void)
 {
@@ -34,6 +36,20 @@ static bool send_key(Display *display, KeySym symbol)
     KeyCode code = XKeysymToKeycode(display, symbol);
     if (code == 0 || !XTestFakeKeyEvent(display, code, True, CurrentTime) ||
         !XTestFakeKeyEvent(display, code, False, CurrentTime)) return false;
+    XFlush(display);
+    return true;
+}
+
+static bool move_pointer(Display *display, Window window,
+    int gx, int gy, int cw, int ch, int row, int column)
+{
+    int x, y;
+    Window child;
+    int local_x = gx + (column - 1) * cw + cw / 2;
+    int local_y = gy + (row - 1) * ch + ch / 2;
+    if (!XTranslateCoordinates(display, window,
+            DefaultRootWindow(display), local_x, local_y, &x, &y, &child) ||
+        !XTestFakeMotionEvent(display, -1, x, y, CurrentTime)) return false;
     XFlush(display);
     return true;
 }
@@ -94,7 +110,8 @@ static bool grid(const XImage *image, int *x_out, int *y_out, int *cw_out, int *
     return false;
 }
 
-static int underline_run(const XImage *image, int gx, int gy, int cw, int ch, int row)
+static int underline_run(const XImage *image, int gx, int gy, int cw, int ch,
+    int row, unsigned long color)
 {
     int best = 0;
     int left = gx + 11 * cw, right = gx + 47 * cw;
@@ -103,7 +120,7 @@ static int underline_run(const XImage *image, int gx, int gy, int cw, int ch, in
         int run = 0;
         for (int x = left; x < right; x++) {
             unsigned long pixel = XGetPixel((XImage *)image, x, y) & 0xffffff;
-            if (pixel == 0xffffff) run++;
+            if (pixel == color) run++;
             else run = 0;
             if (run > best) best = run;
         }
@@ -152,7 +169,7 @@ static XImage *wait_visual(Display *display, Window window, int width, int heigh
             XDestroyImage(image);
             return NULL;
         }
-        int run = underline_run(image, gx, gy, cw, ch, row);
+        int run = underline_run(image, gx, gy, cw, ch, row, REGEX_UNDERLINE_PIXEL);
         bool matches = present ? run >= cw * 2 :
             run < cw * 2 && bright_pixels(image, gx, gy, cw, ch, row) == 0;
         if (matches && (different == NULL ||
@@ -166,11 +183,142 @@ static XImage *wait_visual(Display *display, Window window, int width, int heigh
         snprintf(path, sizeof(path), "%s/timeout-%s.ppm", directory, phase);
         (void)save_ppm(path, diagnostic);
         fprintf(stderr, "visual timeout phase=%s row=%d run=%d bright=%u\n",
-            phase, row, underline_run(diagnostic, gx, gy, cw, ch, row),
+            phase, row, underline_run(diagnostic, gx, gy, cw, ch, row,
+                REGEX_UNDERLINE_PIXEL),
             bright_pixels(diagnostic, gx, gy, cw, ch, row));
         XDestroyImage(diagnostic);
     }
     return NULL;
+}
+
+static XImage *wait_text_change(Display *display, Window window, int width, int height,
+    int gx, int gy, int cw, int ch, int row, const XImage *different,
+    bool video, const char *directory, unsigned int *frame_index, FILE *frames,
+    const char *phase)
+{
+    uint64_t deadline = now_ns() + UINT64_C(30000000000);
+    while (now_ns() < deadline) {
+        uint64_t sampled = now_ns();
+        XImage *image = capture(display, window, width, height);
+        if (image == NULL) return NULL;
+        if (video && !record_frame(directory, frame_index, frames, phase, sampled, image)) {
+            XDestroyImage(image);
+            return NULL;
+        }
+        if (bright_pixels(image, gx, gy, cw, ch, row) > 0 &&
+            (different == NULL ||
+                changed_pixels(different, image, gx, gy, cw, ch, row) > 0)) return image;
+        XDestroyImage(image);
+        pause_ms(16);
+    }
+    fprintf(stderr, "text timeout phase=%s row=%d\n", phase, row);
+    return NULL;
+}
+
+static XImage *wait_underline(Display *display, Window window, int width, int height,
+    int gx, int gy, int cw, int ch, int row, unsigned long color, bool present,
+    bool video, const char *directory, unsigned int *frame_index, FILE *frames,
+    const char *phase, uint64_t *seen_out)
+{
+    uint64_t deadline = now_ns() + UINT64_C(30000000000);
+    while (now_ns() < deadline) {
+        uint64_t sampled = now_ns();
+        XImage *image = capture(display, window, width, height);
+        if (image == NULL) return NULL;
+        if (video && !record_frame(directory, frame_index, frames, phase, sampled, image)) {
+            XDestroyImage(image);
+            return NULL;
+        }
+        int run = underline_run(image, gx, gy, cw, ch, row, color);
+        if (present ? run >= cw * 2 : run < cw * 2) {
+            if (seen_out != NULL) *seen_out = sampled;
+            return image;
+        }
+        XDestroyImage(image);
+        pause_ms(16);
+    }
+    fprintf(stderr, "underline timeout phase=%s row=%d present=%d\n",
+        phase, row, present);
+    return NULL;
+}
+
+static bool probe_footer_pointer(Display *display, Window window,
+    int width, int height, int gx, int gy, int cw, int ch,
+    bool osc8, const char *phase, FILE *report, bool video,
+    const char *directory, unsigned int *frame_index, FILE *frames)
+{
+    /* Continuous text revisions can temporarily invalidate regex annotations.
+     * Record their presence without waiting for recognition to catch up before
+     * sending keys. The stopped-output checks still require the underline. */
+    if (!osc8 && strcmp(phase, "during") == 0) {
+        bool preserved = true;
+        for (unsigned int index = 0; index < 2; index++) {
+            if (!move_pointer(display, window, gx, gy, cw, ch,
+                    24, index == 0 ? 55 : 33)) return false;
+            pause_ms(20);
+            XImage *sample = capture(display, window, width, height);
+            if (sample == NULL) return false;
+            bool recorded = !video || record_frame(directory, frame_index, frames,
+                index == 0 ? "pointer-regex-off" : "pointer-regex-on", now_ns(), sample);
+            preserved = preserved && underline_run(sample, gx, gy, cw, ch, 24,
+                REGEX_UNDERLINE_PIXEL) >= cw * 2;
+            XDestroyImage(sample);
+            if (!recorded) return false;
+        }
+        fprintf(report, "# pointer phase=during mode=regex underline_preserved=%u\n",
+            preserved ? 1u : 0u);
+        return fflush(report) == 0;
+    }
+    if (!move_pointer(display, window, gx, gy, cw, ch, 24, 55)) return false;
+    XImage *off = wait_underline(display, window, width, height,
+        gx, gy, cw, ch, 24,
+        osc8 ? OSC8_HOVER_PIXEL : REGEX_UNDERLINE_PIXEL,
+        !osc8, video, directory, frame_index, frames,
+        osc8 ? "pointer-off" : "pointer-regex-off", NULL);
+    if (off == NULL) return false;
+    XDestroyImage(off);
+    uint64_t sent = now_ns();
+    if (!move_pointer(display, window, gx, gy, cw, ch, 24, 33)) return false;
+    uint64_t seen = 0;
+    XImage *on = wait_underline(display, window, width, height,
+        gx, gy, cw, ch, 24,
+        osc8 ? OSC8_HOVER_PIXEL : REGEX_UNDERLINE_PIXEL,
+        true, video, directory, frame_index, frames,
+        osc8 ? "pointer-on" : "pointer-regex-on", &seen);
+    if (on == NULL) return false;
+    XDestroyImage(on);
+    if (osc8) {
+        fprintf(report, "# pointer phase=%s mode=osc8 sent_ns=%" PRIu64
+            " seen_ns=%" PRIu64 " latency_ms=%.3f\n",
+            phase, sent, seen, (double)(seen - sent) / 1e6);
+    } else {
+        fprintf(report, "# pointer phase=%s mode=regex underline_preserved=1\n", phase);
+    }
+    return fflush(report) == 0;
+}
+
+static XImage *hover_row(Display *display, Window window, int width, int height,
+    int gx, int gy, int cw, int ch, int row, bool video,
+    const char *directory, unsigned int *frame_index, FILE *frames,
+    const char *phase)
+{
+    if (!move_pointer(display, window, gx, gy, cw, ch, row, 16)) return NULL;
+    return wait_underline(display, window, width, height,
+        gx, gy, cw, ch, row, OSC8_HOVER_PIXEL,
+        true, video, directory, frame_index, frames,
+        phase, NULL);
+}
+
+static XImage *unhover_row(Display *display, Window window, int width, int height,
+    int gx, int gy, int cw, int ch, int row, bool video,
+    const char *directory, unsigned int *frame_index, FILE *frames,
+    const char *phase)
+{
+    if (!move_pointer(display, window, gx, gy, cw, ch, row, 55)) return NULL;
+    return wait_underline(display, window, width, height,
+        gx, gy, cw, ch, row, OSC8_HOVER_PIXEL,
+        false, video, directory, frame_index, frames,
+        phase, NULL);
 }
 
 static bool record_frame(const char *directory, unsigned int *index, FILE *frames,
@@ -257,6 +405,12 @@ int main(int argc, char **argv)
     Window window = (Window)strtoul(argv[1], NULL, 0);
     bool video = strcmp(argv[3], "video") == 0;
     CHECK(video || strcmp(argv[3], "none") == 0);
+    const char *mode_text = getenv("BOXRIG_ANNOTATION_LINK_MODE");
+    if (mode_text == NULL) mode_text = "regex";
+    CHECK(strcmp(mode_text, "regex") == 0 ||
+        strcmp(mode_text, "osc8") == 0 || strcmp(mode_text, "both") == 0);
+    bool osc_only = strcmp(mode_text, "osc8") == 0;
+    bool both = strcmp(mode_text, "both") == 0;
     Display *display = XOpenDisplay(NULL);
     CHECK(display != NULL);
     int event, error, major, minor;
@@ -296,13 +450,24 @@ int main(int argc, char **argv)
     if (frames != NULL) fprintf(frames, "frame\tphase\ttimestamp_ns\n");
     unsigned int frame_index = 0;
     fprintf(report, "key\tsent_ns\tseen_ns\tphase_id\n");
+    fprintf(report, "# grid gx=%d gy=%d cw=%d ch=%d link_mode=%s\n",
+        gx, gy, cw, ch, mode_text);
     /* A painted, recognized URL establishes that the history feed has been
      * consumed before latency sampling begins. */
     CHECK(send_key(display, XK_c));
-    XImage *ready = wait_visual(display, window, attributes.width, attributes.height,
-        gx, gy, cw, ch, 3, true, NULL, video, argv[2], &frame_index, frames, "ready");
+    XImage *ready = osc_only ?
+        wait_text_change(display, window, attributes.width, attributes.height,
+            gx, gy, cw, ch, 3, NULL, video, argv[2], &frame_index, frames, "ready-text") :
+        wait_visual(display, window, attributes.width, attributes.height,
+            gx, gy, cw, ch, 3, true, NULL, video, argv[2], &frame_index, frames, "ready");
     CHECK(ready != NULL);
     XDestroyImage(ready);
+    if (osc_only) {
+        ready = hover_row(display, window, attributes.width, attributes.height,
+            gx, gy, cw, ch, 3, video, argv[2], &frame_index, frames, "ready-hover");
+        CHECK(ready != NULL);
+        XDestroyImage(ready);
+    }
     CHECK(send_key(display, XK_z));
     XImage *ready_blank = wait_visual(display, window, attributes.width, attributes.height,
         gx, gy, cw, ch, 3, false, NULL, video, argv[2], &frame_index, frames, "ready-clear");
@@ -319,6 +484,10 @@ int main(int argc, char **argv)
         CHECK(send_key(display, XK_g));
         CHECK(capture_interval(display, window, attributes.width, attributes.height,
             argv[2], &frame_index, frames, "load-start", 100, video));
+        CHECK(probe_footer_pointer(display, window,
+            attributes.width, attributes.height, gx, gy, cw, ch,
+            osc_only || both, "during", report, video,
+            argv[2], &frame_index, frames));
     }
     for (unsigned int i = 1; i <= key_count; i++) {
         unsigned int phase = 0;
@@ -351,43 +520,146 @@ int main(int argc, char **argv)
     if (!transcript) CHECK(send_key(display, XK_x));
     CHECK(capture_interval(display, window, attributes.width, attributes.height,
         argv[2], &frame_index, frames, "load-stop", 100, video));
+    CHECK(probe_footer_pointer(display, window,
+        attributes.width, attributes.height, gx, gy, cw, ch,
+        osc_only || both, transcript ? "after" : "idle", report, video,
+        argv[2], &frame_index, frames));
     CHECK(send_key(display, XK_z));
     XImage *before = wait_visual(display, window, attributes.width, attributes.height,
         gx, gy, cw, ch, 3, false, NULL, video, argv[2], &frame_index, frames, "clear");
     CHECK(before != NULL);
     if (video) CHECK(record_frame(argv[2], &frame_index, frames, "before", now_ns(), before));
     CHECK(send_key(display, XK_c));
-    XImage *created = wait_visual(display, window, attributes.width, attributes.height,
-        gx, gy, cw, ch, 3, true, before, video, argv[2], &frame_index, frames, "create");
+    XImage *created;
+    if (osc_only) {
+        XImage *text = wait_text_change(display, window,
+            attributes.width, attributes.height, gx, gy, cw, ch, 3,
+            before, video, argv[2], &frame_index, frames, "create");
+        CHECK(text != NULL);
+        XDestroyImage(text);
+        created = hover_row(display, window, attributes.width, attributes.height,
+            gx, gy, cw, ch, 3, video, argv[2], &frame_index, frames, "hover-create");
+    } else {
+        created = wait_visual(display, window, attributes.width, attributes.height,
+            gx, gy, cw, ch, 3, true, before, video, argv[2], &frame_index, frames, "create");
+    }
     CHECK(created != NULL);
     if (video) CHECK(record_frame(argv[2], &frame_index, frames, "created", now_ns(), created));
-    int initial_run = underline_run(created, gx, gy, cw, ch, 3);
-    int blank_run = underline_run(before, gx, gy, cw, ch, 3);
+    unsigned long main_underline = osc_only ? OSC8_HOVER_PIXEL : REGEX_UNDERLINE_PIXEL;
+    int initial_run = underline_run(created, gx, gy, cw, ch, 3, main_underline);
+    int blank_run = underline_run(before, gx, gy, cw, ch, 3, main_underline);
     fprintf(report, "# underline_before=%d created=%d cell_width=%d\n", blank_run, initial_run, cw);
     CHECK(initial_run >= cw * 2 && blank_run < cw * 2);
+    if (both) {
+        XImage *osc_text = wait_text_change(display, window,
+            attributes.width, attributes.height, gx, gy, cw, ch, 5,
+            before, video, argv[2], &frame_index, frames, "osc-create");
+        CHECK(osc_text != NULL);
+        CHECK(underline_run(osc_text, gx, gy, cw, ch, 5,
+            OSC8_HOVER_PIXEL) < cw * 2);
+        XDestroyImage(osc_text);
+        XImage *osc_created = hover_row(display, window,
+            attributes.width, attributes.height, gx, gy, cw, ch, 5,
+            video, argv[2], &frame_index, frames, "osc-hover-create");
+        CHECK(osc_created != NULL);
+        if (video) CHECK(record_frame(argv[2], &frame_index, frames,
+            "osc-created", now_ns(), osc_created));
+        XDestroyImage(osc_created);
+        XImage *osc_off = unhover_row(display, window,
+            attributes.width, attributes.height, gx, gy, cw, ch, 5,
+            video, argv[2], &frame_index, frames, "osc-hover-clear");
+        CHECK(osc_off != NULL);
+        if (video) CHECK(record_frame(argv[2], &frame_index, frames,
+            "osc-hover-off", now_ns(), osc_off));
+        XDestroyImage(osc_off);
+    }
+    XImage *pre_modify = NULL;
+    if (osc_only) {
+        pre_modify = unhover_row(display, window,
+            attributes.width, attributes.height, gx, gy, cw, ch, 3,
+            video, argv[2], &frame_index, frames, "hover-off-before-modify");
+        CHECK(pre_modify != NULL);
+    }
     CHECK(send_key(display, XK_m));
-    XImage *modified = wait_visual(display, window, attributes.width, attributes.height,
-        gx, gy, cw, ch, 3, true, created, video, argv[2], &frame_index, frames, "modify");
+    XImage *modified;
+    if (osc_only) {
+        XImage *text = wait_text_change(display, window,
+            attributes.width, attributes.height, gx, gy, cw, ch, 3,
+            pre_modify, video, argv[2], &frame_index, frames, "modify");
+        CHECK(text != NULL);
+        XDestroyImage(text);
+        XDestroyImage(pre_modify);
+        modified = hover_row(display, window, attributes.width, attributes.height,
+            gx, gy, cw, ch, 3, video, argv[2], &frame_index, frames, "hover-modify");
+    } else {
+        modified = wait_visual(display, window, attributes.width, attributes.height,
+            gx, gy, cw, ch, 3, true, created, video, argv[2], &frame_index, frames, "modify");
+    }
     CHECK(modified != NULL);
     if (video) CHECK(record_frame(argv[2], &frame_index, frames, "modified", now_ns(), modified));
-    int modified_run = underline_run(modified, gx, gy, cw, ch, 3);
+    int modified_run = underline_run(modified, gx, gy, cw, ch, 3, main_underline);
     unsigned int changed = changed_pixels(created, modified, gx, gy, cw, ch, 3);
     fprintf(report, "# underline_modified=%d modified_pixels=%u\n", modified_run, changed);
     CHECK(modified_run >= cw * 2 && changed > 0);
+    if (osc_only) {
+        XImage *off = unhover_row(display, window,
+            attributes.width, attributes.height, gx, gy, cw, ch, 3,
+            video, argv[2], &frame_index, frames, "hover-off-before-scroll");
+        CHECK(off != NULL);
+        XDestroyImage(off);
+    }
     CHECK(send_key(display, XK_s));
-    XImage *scrolled = wait_visual(display, window, attributes.width, attributes.height,
-        gx, gy, cw, ch, 2, true, NULL, video, argv[2], &frame_index, frames, "scroll");
+    XImage *scrolled;
+    if (osc_only) {
+        XImage *text = wait_text_change(display, window,
+            attributes.width, attributes.height, gx, gy, cw, ch, 2,
+            before, video, argv[2], &frame_index, frames, "scroll");
+        CHECK(text != NULL);
+        XDestroyImage(text);
+        scrolled = hover_row(display, window, attributes.width, attributes.height,
+            gx, gy, cw, ch, 2, video, argv[2], &frame_index, frames, "hover-scroll");
+    } else {
+        scrolled = wait_visual(display, window, attributes.width, attributes.height,
+            gx, gy, cw, ch, 2, true, NULL, video, argv[2], &frame_index, frames, "scroll");
+    }
     CHECK(scrolled != NULL);
     if (video) CHECK(record_frame(argv[2], &frame_index, frames, "scrolled", now_ns(), scrolled));
-    int moved_run = underline_run(scrolled, gx, gy, cw, ch, 2);
+    int moved_run = underline_run(scrolled, gx, gy, cw, ch, 2, main_underline);
     fprintf(report, "# underline_scrolled=%d\n", moved_run);
     CHECK(moved_run >= cw * 2);
+    if (both) {
+        XImage *osc_text = wait_text_change(display, window,
+            attributes.width, attributes.height, gx, gy, cw, ch, 4,
+            before, video, argv[2], &frame_index, frames, "osc-scroll");
+        CHECK(osc_text != NULL);
+        XDestroyImage(osc_text);
+        XImage *osc_scrolled = hover_row(display, window,
+            attributes.width, attributes.height, gx, gy, cw, ch, 4,
+            video, argv[2], &frame_index, frames, "osc-hover-scroll");
+        CHECK(osc_scrolled != NULL);
+        if (video) CHECK(record_frame(argv[2], &frame_index, frames,
+            "osc-scrolled", now_ns(), osc_scrolled));
+        XDestroyImage(osc_scrolled);
+        XImage *osc_off = unhover_row(display, window,
+            attributes.width, attributes.height, gx, gy, cw, ch, 4,
+            video, argv[2], &frame_index, frames, "osc-hover-off-scroll");
+        CHECK(osc_off != NULL);
+        XDestroyImage(osc_off);
+        CHECK(send_key(display, XK_d));
+        XImage *osc_erased = wait_visual(display, window,
+            attributes.width, attributes.height, gx, gy, cw, ch, 4,
+            false, NULL, video, argv[2], &frame_index, frames, "osc-erase");
+        CHECK(osc_erased != NULL);
+        if (video) CHECK(record_frame(argv[2], &frame_index, frames,
+            "osc-erased", now_ns(), osc_erased));
+        XDestroyImage(osc_erased);
+    }
     CHECK(send_key(display, XK_e));
     XImage *erased = wait_visual(display, window, attributes.width, attributes.height,
         gx, gy, cw, ch, 2, false, scrolled, video, argv[2], &frame_index, frames, "erase");
     CHECK(erased != NULL);
     if (video) CHECK(record_frame(argv[2], &frame_index, frames, "erased", now_ns(), erased));
-    int erased_run = underline_run(erased, gx, gy, cw, ch, 2);
+    int erased_run = underline_run(erased, gx, gy, cw, ch, 2, main_underline);
     fprintf(report, "# underline_erased=%d\n", erased_run);
     CHECK(erased_run < cw * 2);
     XDestroyImage(before); XDestroyImage(created); XDestroyImage(modified);

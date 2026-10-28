@@ -32,12 +32,63 @@ static bool put(const char *text, size_t length)
     return true;
 }
 
-static bool line(unsigned int index, unsigned int url_period)
+typedef enum {
+    LINK_REGEX,
+    LINK_OSC8,
+    LINK_BOTH
+} link_mode;
+
+static bool use_osc8(link_mode mode, unsigned int link_index)
 {
-    char text[160];
-    int length = index % url_period == 0 ?
-        snprintf(text, sizeof(text), "history %08u https://example.org/plan11/%08u\r\n", index, index) :
-        snprintf(text, sizeof(text), "history %08u ordinary terminal text\r\n", index);
+    return mode == LINK_OSC8 || (mode == LINK_BOTH && link_index % 2u != 0u);
+}
+
+static bool line(unsigned int index, unsigned int url_period, link_mode mode)
+{
+    char text[256];
+    int length;
+    if (index % url_period != 0u) {
+        length = snprintf(text, sizeof(text),
+            "history %08u ordinary terminal text\r\n", index);
+    } else if (use_osc8(mode, index / url_period)) {
+        length = snprintf(text, sizeof(text),
+            "history %08u \033]8;;https://example.org/plan12/%08u\033\\"
+            "OSC8 history link\033]8;;\033\\\r\n", index, index);
+    } else {
+        length = snprintf(text, sizeof(text),
+            "history %08u https://example.org/plan11/%08u\r\n", index, index);
+    }
+    return length > 0 && (size_t)length < sizeof(text) && put(text, (size_t)length);
+}
+
+static bool footer_link(unsigned int row, link_mode mode)
+{
+    char text[192];
+    int length = mode == LINK_REGEX ?
+        snprintf(text, sizeof(text),
+            "\0337\033[%u;28Hhttps://example.org/f\0338", row) :
+        snprintf(text, sizeof(text),
+            "\0337\033[%u;28H\033]8;;https://example.org/plan12/footer\033\\"
+            "OSC8 footer link\033]8;;\033\\\0338", row);
+    return length > 0 && (size_t)length < sizeof(text) && put(text, (size_t)length);
+}
+
+static bool write_transcript_line(unsigned int index, unsigned int url_period, link_mode mode)
+{
+    char text[256];
+    int length;
+    if (index % url_period != 0u) {
+        length = snprintf(text, sizeof(text),
+            "transcript %08u 日本語 ▸ tool result\r\n", index);
+    } else if (use_osc8(mode, index / url_period)) {
+        length = snprintf(text, sizeof(text),
+            "transcript %08u 日本語 ▸ "
+            "\033]8;;https://example.org/plan12/update/%08u\033\\"
+            "OSC8 tool link\033]8;;\033\\\r\n", index, index);
+    } else {
+        length = snprintf(text, sizeof(text),
+            "transcript %08u 日本語 ▸ https://example.org/plan11/update\r\n", index);
+    }
     return length > 0 && (size_t)length < sizeof(text) && put(text, (size_t)length);
 }
 
@@ -55,6 +106,13 @@ int main(int argc, char **argv)
     if (argc != 5 || (strcmp(argv[3], "idle") != 0 && strcmp(argv[3], "transcript") != 0)) {
         fprintf(stderr, "usage: %s TITLE REPORT idle|transcript HISTORY\n", argv[0]);
         return 2;
+    }
+    const char *mode_text = getenv("BOXRIG_ANNOTATION_LINK_MODE");
+    link_mode mode = LINK_REGEX;
+    if (mode_text != NULL && strcmp(mode_text, "regex") != 0) {
+        if (strcmp(mode_text, "osc8") == 0) mode = LINK_OSC8;
+        else if (strcmp(mode_text, "both") == 0) mode = LINK_BOTH;
+        else return 2;
     }
     char *end = NULL;
     unsigned long history = strtoul(argv[4], &end, 10);
@@ -75,7 +133,7 @@ int main(int argc, char **argv)
     int length = snprintf(title, sizeof(title), "\033]0;%s\007", argv[1]);
     if (length <= 0 || (size_t)length >= sizeof(title) || !put(title, (size_t)length)) return 1;
     unsigned int emitted = (unsigned int)history;
-    for (unsigned int i = 0; i < emitted; i++) if (!line(i, url_period)) return 1;
+    for (unsigned int i = 0; i < emitted; i++) if (!line(i, url_period, mode)) return 1;
     char setup[160];
     length = snprintf(setup, sizeof(setup),
         "\033[?25l\033]10;#ffffff\033\\\033]11;#000000\033\\"
@@ -83,16 +141,17 @@ int main(int argc, char **argv)
         "\033[8;1H\033[48;2;64;80;80m        \033[0m"
         "\033[1;%ur\033[%u;1H", size.ws_row - 1, size.ws_row - 1);
     if (length <= 0 || (size_t)length >= sizeof(setup) || !put(setup, (size_t)length) ||
-        !marker(size.ws_row, 0)) return 1;
+        !marker(size.ws_row, 0) || !footer_link(size.ws_row, mode)) return 1;
     int timer = timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC);
     if (timer < 0) return 1;
     FILE *report = fopen(argv[2], "w");
     if (report == NULL) return 1;
     fprintf(report, "# rows=%u columns=%u requested_history=%lu emitted_lines=%u "
-        "estimated_history_rows=%u url_period=%u load=%s\n",
+        "estimated_history_rows=%u history_full=%u url_period=%u load=%s link_mode=%s\n",
         size.ws_row, size.ws_col, history, emitted,
         emitted > size.ws_row - 1u ? emitted - (size.ws_row - 1u) : 0u,
-        url_period, argv[3]);
+        emitted >= 10000u + size.ws_row - 1u ? 1u : 0u,
+        url_period, argv[3], mode_text == NULL ? "regex" : mode_text);
     fprintf(report, "key\treceived_ns\twritten_ns\n");
     fflush(report);
     unsigned int sequence = 0, transcript_line = 0;
@@ -115,13 +174,27 @@ int main(int argc, char **argv)
                         sequence, received, now_ns());
                     fflush(report);
                 } else if (input[i] == 'c') {
-                    const char *text = "\0337\033[3;12Hhttps://example.org/plan11/visible\0338";
+                    const char *text = mode == LINK_OSC8 ?
+                        "\0337\033[3;12H\033]8;;https://example.org/plan12/visible\033\\"
+                        "OSC8 visible link\033]8;;\033\\\0338" :
+                        mode == LINK_BOTH ?
+                        "\0337\033[3;12Hhttps://example.org/plan11/visible"
+                        "\033[5;12H\033]8;;https://example.org/plan12/visible\033\\"
+                        "OSC8 visible link\033]8;;\033\\\0338" :
+                        "\0337\033[3;12Hhttps://example.org/plan11/visible\0338";
                     if (!put(text, strlen(text))) return 1;
                 } else if (input[i] == 'm') {
-                    const char *text = "\0337\033[3;12H\033[38X\033[3;12Hhttps://example.org/plan11/modified\0338";
+                    const char *text = mode == LINK_OSC8 ?
+                        "\0337\033[3;12H\033[38X\033[3;12H"
+                        "\033]8;;https://example.org/plan12/modified\033\\"
+                        "OSC8 modified link\033]8;;\033\\\0338" :
+                        "\0337\033[3;12H\033[38X\033[3;12Hhttps://example.org/plan11/modified\0338";
                     if (!put(text, strlen(text))) return 1;
                 } else if (input[i] == 'e') {
                     const char *text = "\0337\033[2;12H\033[38X\0338";
+                    if (!put(text, strlen(text))) return 1;
+                } else if (input[i] == 'd') {
+                    const char *text = "\0337\033[4;12H\033[38X\0338";
                     if (!put(text, strlen(text))) return 1;
                 } else if (input[i] == 's') {
                     length = snprintf(setup, sizeof(setup), "\0337\033[%u;1H\n\0338", size.ws_row - 1);
@@ -129,7 +202,8 @@ int main(int argc, char **argv)
                 } else if (input[i] == 'z') {
                     length = snprintf(setup, sizeof(setup), "\033[2J\033[%u;1H", size.ws_row - 1);
                     if (length <= 0 || !put(setup, (size_t)length) ||
-                        !marker(size.ws_row, sequence)) return 1;
+                        !marker(size.ws_row, sequence) ||
+                        !footer_link(size.ws_row, mode)) return 1;
                 } else if (input[i] == 'g') {
                     struct itimerspec period = {{0, 10000000}, {0, 10000000}};
                     running = strcmp(argv[3], "transcript") == 0;
@@ -151,11 +225,7 @@ int main(int argc, char **argv)
             if (read(timer, &expired, sizeof(expired)) != sizeof(expired)) return 1;
             if (!put("\033[?2026h", 8)) return 1;
             for (unsigned int i = 0; i < 4; i++) {
-                char text[192];
-                length = snprintf(text, sizeof(text),
-                    "transcript %08u 日本語 ▸ %s\r\n", transcript_line,
-                    transcript_line % url_period == 0 ? "https://example.org/plan11/update" : "tool result");
-                if (length <= 0 || (size_t)length >= sizeof(text) || !put(text, (size_t)length)) return 1;
+                if (!write_transcript_line(transcript_line, url_period, mode)) return 1;
                 transcript_line++;
             }
             if (!put("\033[?2026l", 8)) return 1;

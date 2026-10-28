@@ -6222,22 +6222,33 @@ $(BUILD_DIR)/tests/performance/annotation_gtk_counted: $(GTK3_EXAMPLE_SOURCES) \
 		| $(BUILD_DIR)/tests/performance
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_URI_CPPFLAGS) $(POSIX_CPPFLAGS) \
 		$(GTK3_CPPFLAGS) $(CFLAGS) $(GTK3_PROJECT_CFLAGS) \
+		-DBOXRIG_ANNOTATION_COUNT_LINE_CLEAR=1 \
 		$(GTK3_EXAMPLE_SOURCES) tests/performance/annotation_gtk_count.c \
 		$(GTK3_LIBRARY) $(NOTIFICATION_LIBRARY) $(POSIX_LIBRARY) $(SESSION_LIBRARY) \
 		$(UI_LIBRARY) $(LIBRARY) $(GTK3_LIBS) -lutil $(POSIX_URI_LIBS) \
 		-Wl,--wrap=boxrig_term_text_policy_create \
 		-Wl,--wrap=boxrig_term_text_policy_resume \
 		-Wl,--wrap=boxrig_ui_view_replace_text_annotations \
+		-Wl,--wrap=boxrig_ui_view_clear_text_annotation_line \
 		-Wl,--wrap=boxrig_ui_view_clear_text_annotations \
 		-Wl,--wrap=boxrig_terminal_text_recognizer_event_peek -o $@
 
-$(BUILD_DIR)/tests/performance/annotation_gtk_counted_baseline: $(GTK3_EXAMPLE_SOURCES) \
+PLAN11_BASELINE_TEXT_POLICY := $(BUILD_DIR)/tests/performance/plan11-text_policy.c
+PLAN11_BASELINE_GTK3_SOURCES := \
+	$(filter-out examples/boxrig_term/common/text_policy.c,$(GTK3_EXAMPLE_SOURCES)) \
+	$(PLAN11_BASELINE_TEXT_POLICY)
+
+$(PLAN11_BASELINE_TEXT_POLICY): | $(BUILD_DIR)/tests/performance
+	git show 2a7a682:examples/boxrig_term/common/text_policy.c > $@.tmp && mv $@.tmp $@
+
+$(BUILD_DIR)/tests/performance/annotation_gtk_counted_baseline: $(PLAN11_BASELINE_GTK3_SOURCES) \
 		tests/performance/annotation_gtk_count.c $(GTK3_LIBRARY) $(NOTIFICATION_LIBRARY) \
 		$(POSIX_LIBRARY) $(SESSION_LIBRARY) artifacts/plan11/baseline/libboxrig-ui.a \
 		artifacts/plan11/baseline/libboxrig.a | $(BUILD_DIR)/tests/performance
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_URI_CPPFLAGS) $(POSIX_CPPFLAGS) \
+		-Iexamples/boxrig_term/common \
 		$(GTK3_CPPFLAGS) $(CFLAGS) $(GTK3_PROJECT_CFLAGS) \
-		$(GTK3_EXAMPLE_SOURCES) tests/performance/annotation_gtk_count.c \
+		$(PLAN11_BASELINE_GTK3_SOURCES) tests/performance/annotation_gtk_count.c \
 		$(GTK3_LIBRARY) $(NOTIFICATION_LIBRARY) $(POSIX_LIBRARY) $(SESSION_LIBRARY) \
 		artifacts/plan11/baseline/libboxrig-ui.a artifacts/plan11/baseline/libboxrig.a \
 		$(GTK3_LIBS) -lutil $(POSIX_URI_LIBS) \
