@@ -224,8 +224,11 @@ int main(int argc, char **argv)
     boxrig_text_recognizer_options options = {0};
     boxrig_text_regex_diagnostic diagnostic;
     uint64_t id = 0;
-    options.pattern = pattern;
-    options.pattern_length = sizeof(pattern) - 1;
+    /* Compare consumer rules without changing the terminal workload. A custom
+     * rule must still recognize the generated URLs and satisfy the assertions. */
+    const char *custom_pattern = getenv("BOXRIG_RECOGNITION_PATTERN");
+    options.pattern = custom_pattern == NULL ? pattern : (const uint8_t *)custom_pattern;
+    options.pattern_length = custom_pattern == NULL ? sizeof(pattern) - 1 : strlen(custom_pattern);
     options.scope = BOXRIG_TEXT_RECOGNIZER_SCOPE_BOTH;
     options.limits = boxrig_text_recognizer_limits_default();
     require(boxrig_terminal_register_text_recognizer(terminal, &options,
