@@ -871,10 +871,10 @@ static bool stationary_pointer_revalidates_text_and_clears_on_leave(void)
     return true;
 }
 
-static bool completed_recognition_drains_multiple_event_batches(void)
+static bool completed_recognition_drains_multiple_event_batches(size_t event_capacity)
 {
     text_policy_fixture fixture;
-    CHECK(create_fixture(96, 64, 512, NULL, 0, &fixture));
+    CHECK(create_fixture(96, 64, event_capacity, NULL, 0, &fixture));
     for (size_t row = 0; row < 96; row++) {
         char line[96];
         int length = snprintf(line, sizeof(line), "\033[%zu;1Hhttps://example.org/%zu", row + 1, row);
@@ -916,7 +916,8 @@ int main(void)
 
     if (original != NULL && saved == NULL) return 1;
     passed = unsetenv("BOXRIG_AUTO_URLS") == 0 &&
-        completed_recognition_drains_multiple_event_batches() &&
+        completed_recognition_drains_multiple_event_batches(512) &&
+        completed_recognition_drains_multiple_event_batches(2) &&
         url_baseline_soft_wrap_and_core_ui_hits_converge() &&
         future_results_replace_annotations_without_partial_state() &&
         queued_pointer_motion_survives_replaced_alternate_text() &&

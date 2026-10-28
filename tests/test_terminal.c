@@ -8778,6 +8778,13 @@ static bool test_text_recognition_hit_query(void)
               0u,
               NULL) == BOXRIG_STATUS_INVALID_ARGUMENT);
 
+    /* The queries above must leave notifications untouched. Consume that
+     * revision before editing so this case checks identity reuse rather than
+     * invalidation of an incompletely delivered notification set. */
+    while (boxrig_terminal_text_recognizer_event_peek(terminal, NULL)) {
+        CHECK(boxrig_terminal_text_recognizer_event_consume(terminal) ==
+              BOXRIG_STATUS_OK);
+    }
     consumed = 0u;
     CHECK(boxrig_terminal_feed(
               terminal,

@@ -95,6 +95,16 @@ typedef struct boxrig_text_recognizer_entry {
     uint64_t result_set_revision;
     uint64_t current_text_revision;
     uint64_t current_layout_revision;
+    /* A committed result set can contain more changed lines than fit in the
+     * shared application queue. Storage is bounded by the two retained line
+     * sets; consume() publishes the remainder without repeating the scan. */
+    boxrig_text_recognizer_event *pending_events;
+    size_t pending_event_capacity;
+    size_t pending_event_count;
+    size_t pending_event_index;
+    size_t queued_event_count;
+    boxrig_text_recognizer_event control_event;
+    bool control_event_pending;
     boxrig_text_recognizer_line scan_line;
     boxrig_text_recognizer_phase phase;
     bool occupied;
@@ -117,6 +127,7 @@ struct boxrig_text_recognizer_state {
     size_t event_capacity;
     size_t event_count;
     size_t dispatch_index;
+    size_t event_dispatch_index;
     uint64_t next_recognizer_id;
     uint64_t next_match_id;
     bool recognizer_id_limit;
@@ -323,6 +334,7 @@ static void destroy_recognizer(boxrig_text_recognizer_entry *recognizer)
     free(recognizer->staging_lines);
     free(recognizer->current_empty_lines);
     free(recognizer->staging_empty_lines);
+    free(recognizer->pending_events);
     memset(recognizer, 0, sizeof(*recognizer));
 }
 
@@ -447,6 +459,62 @@ static void remove_recognizer_events(
         }
     }
     state->event_count = write_index;
+    boxrig_text_recognizer_entry *recognizer =
+        find_recognizer(state, recognizer_id);
+    if (recognizer != NULL) {
+        recognizer->queued_event_count = 0u;
+    }
+}
+
+static bool has_undelivered_events(const boxrig_text_recognizer_entry *recognizer)
+{
+    return recognizer->queued_event_count != 0u ||
+        recognizer->pending_event_index < recognizer->pending_event_count ||
+        recognizer->control_event_pending;
+}
+
+static void cancel_events(boxrig_text_recognizer_state *state,
+    boxrig_text_recognizer_entry *recognizer)
+{
+    recognizer->pending_event_count = 0u;
+    recognizer->pending_event_index = 0u;
+    recognizer->control_event_pending = false;
+    remove_recognizer_events(state, recognizer->recognizer_id);
+}
+
+static void refill_events(boxrig_text_recognizer_state *state)
+{
+    size_t visited = 0u;
+
+    while (state->event_count < state->event_capacity &&
+           visited < state->recognizer_capacity) {
+        boxrig_text_recognizer_entry *recognizer =
+            &state->recognizers[state->event_dispatch_index];
+        state->event_dispatch_index =
+            (state->event_dispatch_index + 1u) % state->recognizer_capacity;
+        visited++;
+        if (!recognizer->occupied) {
+            continue;
+        }
+        boxrig_text_recognizer_event event;
+        if (recognizer->control_event_pending) {
+            event = recognizer->control_event;
+            recognizer->control_event_pending = false;
+        } else if (recognizer->pending_event_index <
+                   recognizer->pending_event_count) {
+            event = recognizer->pending_events[recognizer->pending_event_index++];
+            if (recognizer->pending_event_index == recognizer->pending_event_count) {
+                recognizer->pending_event_index = 0u;
+                recognizer->pending_event_count = 0u;
+            }
+        } else {
+            continue;
+        }
+        state->events[state->event_count++] = event;
+        recognizer->queued_event_count++;
+        boxrig_text_workload_observe_recognizer_event_queue(state->event_count);
+        visited = 0u;
+    }
 }
 
 static void mark_event_loss(
@@ -456,7 +524,7 @@ static void mark_event_loss(
 {
     boxrig_text_recognizer_event event;
 
-    remove_recognizer_events(state, recognizer->recognizer_id);
+    cancel_events(state, recognizer);
     recognizer->needs_rescan = true;
     recognizer->empty_layout_revision = 0u;
     recognizer->complete = false;
@@ -471,29 +539,35 @@ static void mark_event_loss(
     event.recognizer_id = recognizer->recognizer_id;
     event.result_set_revision = recognizer->result_set_revision;
     event.text_revision = text_revision;
-    if (state->event_count < state->event_capacity) {
-        state->events[state->event_count++] = event;
-        boxrig_text_workload_observe_recognizer_event_queue(
-            state->event_count);
-    }
+    /* Loss is a control event and needs no allocation, even when another
+     * recognizer occupies every slot in the shared queue. */
+    recognizer->control_event = event;
+    recognizer->control_event_pending = true;
+    refill_events(state);
 }
 
-static bool publish_event(
-    boxrig_text_recognizer_state *state,
-    boxrig_text_recognizer_entry *recognizer,
-    boxrig_text_recognizer_event event)
+static boxrig_status reserve_events(boxrig_text_recognizer_entry *recognizer)
 {
-    if (recognizer->needs_rescan) {
-        return false;
+    if (recognizer->current_line_count >
+        SIZE_MAX - recognizer->staging_line_count) {
+        return BOXRIG_STATUS_LIMIT_EXCEEDED;
     }
-    if (state->event_count == state->event_capacity) {
-        mark_event_loss(state, recognizer, event.text_revision);
-        return false;
+    size_t required = recognizer->current_line_count + recognizer->staging_line_count;
+    if (required > SIZE_MAX / sizeof(*recognizer->pending_events)) {
+        return BOXRIG_STATUS_LIMIT_EXCEEDED;
     }
-    state->events[state->event_count++] = event;
-    boxrig_text_workload_observe_recognizer_event_queue(
-        state->event_count);
-    return true;
+    if (required > recognizer->pending_event_capacity) {
+        boxrig_text_recognizer_event *events = realloc(recognizer->pending_events,
+            required * sizeof(*events));
+        if (events == NULL) {
+            return BOXRIG_STATUS_OUT_OF_MEMORY;
+        }
+        recognizer->pending_events = events;
+        recognizer->pending_event_capacity = required;
+    }
+    recognizer->pending_event_count = 0u;
+    recognizer->pending_event_index = 0u;
+    return BOXRIG_STATUS_OK;
 }
 
 static boxrig_status prepare_scan(
@@ -1061,6 +1135,10 @@ static boxrig_status commit_scan(
     if (recognizer->result_set_revision == UINT64_MAX) {
         return BOXRIG_STATUS_LIMIT_EXCEEDED;
     }
+    boxrig_status status = reserve_events(recognizer);
+    if (status != BOXRIG_STATUS_OK) {
+        return status;
+    }
     revision = recognizer->result_set_revision + 1u;
     for (index = 0u; index < recognizer->staging_result_count; index++) {
         boxrig_text_recognition_result *result =
@@ -1103,9 +1181,7 @@ static boxrig_status commit_scan(
             event.line_revision = line->line_revision;
             event.text_revision = recognizer->scan_text_revision;
             event.result_count = line->result_count;
-            if (!publish_event(state, recognizer, event)) {
-                return BOXRIG_STATUS_OK;
-            }
+            recognizer->pending_events[recognizer->pending_event_count++] = event;
         } else if (line->result_count == 0u && old_line != NULL &&
                    old_line->result_count != 0u) {
             boxrig_text_recognizer_event event;
@@ -1118,9 +1194,7 @@ static boxrig_status commit_scan(
             event.line_id = line->line_id;
             event.line_revision = line->line_revision;
             event.text_revision = recognizer->scan_text_revision;
-            if (!publish_event(state, recognizer, event)) {
-                return BOXRIG_STATUS_OK;
-            }
+            recognizer->pending_events[recognizer->pending_event_count++] = event;
         }
     }
     for (index = 0u; index < recognizer->current_line_count; index++) {
@@ -1143,13 +1217,8 @@ static boxrig_status commit_scan(
             event.line_id = old_line->line_id;
             event.line_revision = old_line->line_revision;
             event.text_revision = recognizer->scan_text_revision;
-            if (!publish_event(state, recognizer, event)) {
-                return BOXRIG_STATUS_OK;
-            }
+            recognizer->pending_events[recognizer->pending_event_count++] = event;
         }
-    }
-    if (recognizer->needs_rescan) {
-        return BOXRIG_STATUS_OK;
     }
     release_results(recognizer->current_results, recognizer->current_result_count);
     result_swap = recognizer->current_results;
@@ -1182,6 +1251,7 @@ static boxrig_status commit_scan(
     recognizer->incomplete = false;
     destroy_scan(recognizer);
     recognizer->phase = BOXRIG_TEXT_RECOGNIZER_COMPLETE;
+    refill_events(state);
     return BOXRIG_STATUS_OK;
 }
 
@@ -1193,6 +1263,7 @@ static void make_incomplete(
     boxrig_text_recognizer_event event;
     uint64_t revision = recognizer->result_set_revision;
 
+    cancel_events(state, recognizer);
     destroy_scan(recognizer);
     if (revision != UINT64_MAX) {
         revision++;
@@ -1204,13 +1275,19 @@ static void make_incomplete(
     recognizer->empty_layout_revision = 0u;
     recognizer->complete = false;
     recognizer->incomplete = true;
+    /* prepare_scan may reject the document before recording its revisions.
+     * A rejected document is nevertheless finished for this exact revision. */
+    recognizer->scan_text_revision = terminal->screen.text_revision;
+    recognizer->scan_layout_revision = terminal->screen.text_layout_revision;
     recognizer->phase = BOXRIG_TEXT_RECOGNIZER_COMPLETE;
     memset(&event, 0, sizeof(event));
     event.kind = BOXRIG_TEXT_RECOGNIZER_EVENT_SCOPE_INCOMPLETE;
     event.recognizer_id = recognizer->recognizer_id;
     event.result_set_revision = revision;
     event.text_revision = boxrig_terminal_text_revision(terminal);
-    (void)publish_event(state, recognizer, event);
+    recognizer->control_event = event;
+    recognizer->control_event_pending = true;
+    refill_events(state);
 }
 
 static boxrig_status resume_recognizer(
@@ -1572,6 +1649,7 @@ boxrig_status boxrig_terminal_unregister_text_recognizer(
     state->pattern_length -= recognizer->pattern_length;
     destroy_recognizer(recognizer);
     state->recognizer_count--;
+    refill_events(state);
     if (state->dispatch_index >= state->recognizer_capacity) {
         state->dispatch_index = 0u;
     }
@@ -1621,6 +1699,13 @@ boxrig_status boxrig_terminal_resume_text_recognizers(
                 terminal->screen.text_revision ||
             recognizer->scan_layout_revision !=
                 terminal->screen.text_layout_revision) {
+            /* A partly delivered revision cannot be replaced by a normal
+             * delta: cancelled evictions may no longer exist in current_lines.
+             * Ask the consumer to clear its annotations before rebuilding. */
+            if (has_undelivered_events(recognizer)) {
+                mark_event_loss(state, recognizer, terminal->screen.text_revision);
+                continue;
+            }
             status = prepare_scan(terminal, recognizer);
             if (status == BOXRIG_STATUS_LIMIT_EXCEEDED) {
                 make_incomplete(terminal, recognizer);
@@ -1686,6 +1771,20 @@ boxrig_status boxrig_terminal_text_recognizer_event_consume(
         return BOXRIG_STATUS_INVALID_ARGUMENT;
     }
     state = terminal->text_recognizer_state;
+    boxrig_text_recognizer_entry *recognizer =
+        find_recognizer(state, state->events[0].recognizer_id);
+    if (recognizer != NULL) {
+        /* Some clients drain notifications before the next resume call. Keep
+         * a loss marker even when this was the final stale event, otherwise
+         * a later normal delta cannot repair cancelled line evictions. */
+        if (!recognizer->needs_rescan &&
+            (recognizer->scan_text_revision != terminal->screen.text_revision ||
+             recognizer->scan_layout_revision != terminal->screen.text_layout_revision)) {
+            mark_event_loss(state, recognizer, terminal->screen.text_revision);
+            return BOXRIG_STATUS_OK;
+        }
+        recognizer->queued_event_count--;
+    }
     state->event_count--;
     if (state->event_count != 0u) {
         memmove(
@@ -1693,6 +1792,7 @@ boxrig_status boxrig_terminal_text_recognizer_event_consume(
             &state->events[1],
             state->event_count * sizeof(*state->events));
     }
+    refill_events(state);
     return BOXRIG_STATUS_OK;
 }
 
@@ -1985,7 +2085,8 @@ boxrig_status boxrig_terminal_rescan_text_recognizer(
     if (status != BOXRIG_STATUS_OK) {
         return status;
     }
-    remove_recognizer_events(state, recognizer_id);
+    cancel_events(state, recognizer);
     recognizer->needs_rescan = false;
+    refill_events(state);
     return BOXRIG_STATUS_OK;
 }

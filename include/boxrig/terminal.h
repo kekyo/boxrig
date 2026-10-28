@@ -309,7 +309,8 @@ typedef struct boxrig_text_recognizer_limits {
     /** Maximum matched bytes and capture records per current/staging set.
      * Both sets may coexist; externally retained results are caller-owned. */
     size_t result_byte_capacity;
-    /** Maximum logical lines retained by current result bookkeeping. */
+    /** Maximum logical lines retained by current result bookkeeping.
+     * Committed notification storage is bounded by twice this many events. */
     size_t dirty_line_capacity;
     /** Maximum projected bytes captured by one immutable baseline. */
     size_t snapshot_byte_capacity;
@@ -335,7 +336,8 @@ typedef enum boxrig_text_recognizer_event_kind {
     BOXRIG_TEXT_RECOGNIZER_EVENT_LINE_REPLACED = 0,
     /** A line with previous results left retention. */
     BOXRIG_TEXT_RECOGNIZER_EVENT_LINE_EVICTED,
-    /** Event or dirty-line bookkeeping was lost and a rescan is required. */
+    /** Undelivered notifications were invalidated by a text/layout change;
+     * clear application annotations and explicitly request a current rescan. */
     BOXRIG_TEXT_RECOGNIZER_EVENT_RESCAN_REQUIRED,
     /** A scan limit prevented publication of any partial current set. */
     BOXRIG_TEXT_RECOGNIZER_EVENT_SCOPE_INCOMPLETE
@@ -539,7 +541,9 @@ typedef struct boxrig_terminal_config {
     size_t text_recognizer_capacity;
     /** Aggregate copied recognizer-pattern bytes. The default is 256 KiB. */
     size_t text_recognizer_pattern_capacity;
-    /** Application-visible recognizer events. The default is 4,096. */
+    /** Application-visible recognizer events. The default is 4,096.
+     * Additional committed notifications wait in bounded per-recognizer
+     * storage and become visible as application events are consumed. */
     size_t text_recognizer_event_capacity;
     /**
      * Maximum aggregate bytes of committed normalized RGBA image pixels.
@@ -1967,6 +1971,11 @@ size_t boxrig_terminal_text_recognizer_count(
  * @param more_work_out Receives whether another dispatch is required.
  * @return BOXRIG_STATUS_OK, BOXRIG_STATUS_INVALID_ARGUMENT, or
  *         BOXRIG_STATUS_OUT_OF_MEMORY while preparing a bounded rescan.
+ *
+ * @remarks more_work_out concerns scanning, not delivery of committed events.
+ * Drain events with peek/consume even when more_work_out is false. If text or
+ * layout changes before all prior notifications are consumed, this call
+ * replaces them with RESCAN_REQUIRED; no incomplete delta is published.
  */
 boxrig_status boxrig_terminal_resume_text_recognizers(
     boxrig_terminal *terminal,
@@ -1991,6 +2000,13 @@ bool boxrig_terminal_text_recognizer_event_peek(
  *
  * @param terminal Terminal whose event is removed.
  * @return BOXRIG_STATUS_OK or BOXRIG_STATUS_INVALID_ARGUMENT when empty.
+ *
+ * @remarks A vacant queue slot is filled from committed pending notifications
+ * in round-robin recognizer order. No additional recognition dispatch is
+ * required to drain a result set larger than the visible event capacity.
+ * Consuming an event invalidated by a text/layout change cancels the rest of
+ * that recognizer's notifications and leaves a new RESCAN_REQUIRED event.
+ * This also covers consumers that drain events before calling resume again.
  */
 boxrig_status boxrig_terminal_text_recognizer_event_consume(
     boxrig_terminal *terminal);
