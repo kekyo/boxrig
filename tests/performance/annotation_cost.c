@@ -109,17 +109,18 @@ static bool bounded(phase_measurement value, size_t annotations,
 
 static void print_measurement(const char *phase, size_t iteration,
     size_t history, size_t annotations, size_t rows, size_t visible,
-    uint64_t revision, phase_measurement value)
+    uint64_t revision, bool all_visible, phase_measurement value)
 {
     printf("MEASURE annotation instrumented=%d phase=%s iteration=%zu history=%zu "
-           "annotations=%zu rows=%zu visible=%zu revision=%" PRIu64
+           "annotations=%zu rows=%zu visible=%zu distribution=%s revision=%" PRIu64
            " wall_ns=%" PRIu64 " cpu_ns=%" PRIu64 " fragments=%zu\n",
-        instrumented ? 1 : 0, phase, iteration, history, annotations, rows, visible, revision,
+        instrumented ? 1 : 0, phase, iteration, history, annotations, rows, visible,
+        all_visible ? "visible" : "hidden", revision,
         value.wall_ns, value.cpu_ns, value.fragments);
 }
 
 static void run_case(size_t history, size_t annotations, size_t rows,
-    size_t iterations, bool check_bound)
+    size_t iterations, bool check_bound, bool all_visible)
 {
     boxrig_terminal_config config = boxrig_terminal_config_default();
     boxrig_ui_view_config view_config = boxrig_ui_view_config_default();
@@ -130,8 +131,14 @@ static void run_case(size_t history, size_t annotations, size_t rows,
     boxrig_ui_layout_result layout = {0};
     phase_measurement registration;
     uint64_t wall, cpu;
+    size_t expected_visible = all_visible ? annotations : (annotations != 0 ? 1 : 0);
+    size_t capacity = annotations != 0 ? annotations : 1;
+    boxrig_ui_text_annotation *items = calloc(capacity, sizeof(*items));
+    boxrig_ui_text_annotation *hit_items = calloc(capacity, sizeof(*hit_items));
+    boxrig_ui_text_annotation_visual_range *ranges = calloc(capacity, sizeof(*ranges));
 
-    require(rows >= 2 && iterations != 0 && annotations <= history + 1,
+    require(items != NULL && hit_items != NULL && ranges != NULL, "allocate outputs");
+    require(rows >= 2 && iterations != 0 && (all_visible || annotations <= history + 1),
         "invalid case dimensions");
     config.rows = rows;
     config.columns = 193;
@@ -165,7 +172,7 @@ static void run_case(size_t history, size_t annotations, size_t rows,
 
     measure_begin(PHASE_REGISTRATION, &wall, &cpu);
     for (size_t index = 0; index < annotations; index++) {
-        size_t fragment = annotations == 1 ? history :
+        size_t fragment = all_visible || annotations == 1 ? history :
             index == annotations - 1 ? history :
             index * history / (annotations - 1);
         boxrig_ui_text_annotation item = {0};
@@ -181,22 +188,31 @@ static void run_case(size_t history, size_t annotations, size_t rows,
             "resolve annotation end");
         item.style.field_mask = BOXRIG_UI_ANNOTATION_UNDERLINE_STYLE;
         item.style.underline_style = BOXRIG_UNDERLINE_SINGLE;
+        if (all_visible) {
+            items[index] = item;
+        } else {
+            require(boxrig_ui_view_replace_text_annotations(view, 1,
+                BOXRIG_TEXT_SCREEN_PRIMARY, item.range.start.line_id,
+                item.range.start.line_revision, &item, 1) == BOXRIG_UI_OK,
+                "register annotation");
+        }
+    }
+    if (all_visible && annotations != 0) {
         require(boxrig_ui_view_replace_text_annotations(view, 1,
-            BOXRIG_TEXT_SCREEN_PRIMARY, item.range.start.line_id,
-            item.range.start.line_revision, &item, 1) == BOXRIG_UI_OK,
-            "register annotation");
+            BOXRIG_TEXT_SCREEN_PRIMARY, items[0].range.start.line_id,
+            items[0].range.start.line_revision, items, annotations) == BOXRIG_UI_OK,
+            "register visible annotations");
     }
     registration = measure_end(PHASE_REGISTRATION, wall, cpu);
     print_measurement("registration", 0, history, annotations, rows,
-        annotations == 0 ? 0 : 1, boxrig_terminal_text_revision(terminal),
-        registration);
+        expected_visible, boxrig_terminal_text_revision(terminal),
+        all_visible, registration);
 
     for (size_t iteration = 0; iteration < iterations; iteration++) {
         char input[64];
         uint64_t prior_revision = boxrig_terminal_text_revision(terminal);
         phase_measurement sync, query, hit;
         boxrig_ui_hit_test_result hit_result = {0};
-        boxrig_ui_text_annotation hit_items[1] = {{0}};
         size_t hit_count = 0;
         size_t visible = 0;
 
@@ -213,22 +229,24 @@ static void run_case(size_t history, size_t annotations, size_t rows,
 
         measure_begin(PHASE_QUERY, &wall, &cpu);
         for (size_t row = 0; row < rows; row++) {
-            boxrig_ui_text_annotation_visual_range ranges[1];
             size_t count = 0;
             require(boxrig_ui_view_query_text_annotation_visual_ranges(
-                view, row, ranges, 1, &count) == BOXRIG_UI_OK,
+                view, row, ranges, capacity, &count) == BOXRIG_UI_OK,
                 "query complete visual ranges");
             if (count != 0) {
-                require(row == 0 && count == 1 &&
-                    ranges[0].annotation.item_id == annotations &&
-                    ranges[0].visual_range.column == 0 &&
-                    ranges[0].visual_range.column_count == 24,
-                    "visible annotation is exact");
+                require(row == 0 && count == expected_visible, "visible row count");
+                for (size_t index = 0; index < count; index++) {
+                    require(ranges[index].annotation.item_id ==
+                        (all_visible ? index + 1 : annotations) &&
+                        ranges[index].visual_range.column == 0 &&
+                        ranges[index].visual_range.column_count == 24,
+                        "visible annotation is exact");
+                }
             }
             visible += count;
         }
         query = measure_end(PHASE_QUERY, wall, cpu);
-        require(visible == (annotations == 0 ? 0u : 1u),
+        require(visible == expected_visible,
             "expected visible annotation count");
 
         measure_begin(PHASE_HIT, &wall, &cpu);
@@ -239,22 +257,24 @@ static void run_case(size_t history, size_t annotations, size_t rows,
             "hit visible first cell");
         require(boxrig_ui_view_query_text_annotation_hits(view,
             &hit_result, BOXRIG_UI_ANNOTATION_HIT_ALL,
-            hit_items, 1, &hit_count, NULL) == BOXRIG_UI_OK,
+            hit_items, capacity, &hit_count, NULL) == BOXRIG_UI_OK,
             "query complete hit set");
         hit = measure_end(PHASE_HIT, wall, cpu);
-        require(hit_count == visible &&
-            (hit_count == 0 || hit_items[0].item_id == annotations),
-            "hit matches visible annotation");
+        require(hit_count == visible, "hit matches visible annotation count");
+        for (size_t index = 0; index < hit_count; index++) {
+            require(hit_items[index].item_id == (all_visible ? index + 1 : annotations),
+                "hit matches visible annotation identity and order");
+        }
         require(boxrig_terminal_scrollback_rows(terminal) == history,
             "history remains unchanged");
 
         uint64_t revision = boxrig_terminal_text_revision(terminal);
         print_measurement("sync", iteration, history, annotations, rows,
-            visible, revision, sync);
+            visible, revision, all_visible, sync);
         print_measurement("query", iteration, history, annotations, rows,
-            visible, revision, query);
+            visible, revision, all_visible, query);
         print_measurement("hit", iteration, history, annotations, rows,
-            visible, revision, hit);
+            visible, revision, all_visible, hit);
         if (check_bound &&
             (!bounded(sync, annotations, rows) ||
              !bounded(query, annotations, rows) ||
@@ -268,28 +288,35 @@ static void run_case(size_t history, size_t annotations, size_t rows,
     boxrig_ui_view_destroy(view);
     boxrig_ui_model_destroy(model);
     boxrig_terminal_destroy(terminal);
+    free(ranges);
+    free(hit_items);
+    free(items);
 }
 
 int main(int argc, char **argv)
 {
     if (argc == 2 && strcmp(argv[1], "self-test") == 0) {
-        run_case(0, 0, 3, 2, false);
-        run_case(0, 1, 3, 2, false);
-        run_case(16, 2, 3, 2, false);
+        run_case(0, 0, 3, 2, false, false);
+        run_case(0, 1, 3, 2, false, false);
+        run_case(16, 2, 3, 2, false, false);
+        run_case(0, 0, 3, 2, false, true);
+        run_case(0, 8, 3, 2, false, true);
         puts("PASS annotation cost driver functional checks");
         return 0;
     }
-    require(argc == 6,
-        "usage: annotation_cost HISTORY ANNOTATIONS ROWS ITERATIONS measure|bound");
+    require(argc == 6 || argc == 7,
+        "usage: annotation_cost HISTORY ANNOTATIONS ROWS ITERATIONS measure|bound [hidden|visible]");
     size_t history = number(argv[1], 10000);
-    size_t annotations = number(argv[2], 1000);
+    size_t annotations = number(argv[2], 10000);
     size_t rows = number(argv[3], 100);
     size_t iterations = number(argv[4], 10000);
     require(strcmp(argv[5], "measure") == 0 ||
         strcmp(argv[5], "bound") == 0, "invalid mode");
     require(instrumented || strcmp(argv[5], "bound") != 0,
         "bound mode requires instrumented driver");
+    require(argc == 6 || strcmp(argv[6], "hidden") == 0 || strcmp(argv[6], "visible") == 0,
+        "invalid distribution");
     run_case(history, annotations, rows, iterations,
-        strcmp(argv[5], "bound") == 0);
+        strcmp(argv[5], "bound") == 0, argc == 7 && strcmp(argv[6], "visible") == 0);
     return 0;
 }
