@@ -1918,6 +1918,19 @@ static bool test_widget_zoom_commits_complete_resize_presentation(void)
     CHECK(boxrig_gtk4_terminal_widget_frame(widget, &frame_result) ==
           BOXRIG_UI_OK);
     CHECK(frame_result.additional_dispatch);
+    /* GTK may allocate the existing pixel extent again while the new font's
+     * content-size request is ready but has not been dispatched. */
+    gtk_widget_allocate(GTK_WIDGET(widget), initial_width, initial_height,
+        -1, NULL);
+    CHECK(boxrig_gtk4_terminal_widget_frame(widget, &frame_result) ==
+          BOXRIG_UI_OK);
+    size_t preferred_rows, preferred_columns;
+    CHECK(boxrig_gtk4_terminal_widget_get_preferred_grid(widget,
+          &preferred_rows, &preferred_columns) == BOXRIG_UI_OK);
+    CHECK(preferred_rows == terminal_config.rows &&
+          preferred_columns == terminal_config.columns);
+    CHECK(boxrig_gtk4_terminal_widget_presentation_generation(widget) ==
+          initial_generation);
     CHECK(take_content_size_action(widget, &command));
     CHECK(!take_content_size_action(widget, &command));
     CHECK(boxrig_gtk4_terminal_widget_get_size_command_state(
@@ -1977,6 +1990,36 @@ static bool test_widget_zoom_commits_complete_resize_presentation(void)
     CHECK(layout.columns == terminal_config.columns);
     CHECK(boxrig_gtk4_terminal_widget_frame(widget, &frame_result) ==
           BOXRIG_UI_OK);
+    bool expired = false;
+    guint guard = g_timeout_add_seconds(30, expire_layout_boundary_wait,
+        &expired);
+    size_t grid_completions = 0;
+    for (size_t attempt = 0;
+         attempt < 8 && !expired &&
+             (frame_result.frame_pending || frame_result.additional_dispatch);
+         attempt++) {
+        boxrig_ui_layout_action action;
+        if (boxrig_gtk4_terminal_widget_take_layout_action(widget, &action)) {
+            CHECK(action.kind == BOXRIG_UI_LAYOUT_ACTION_GRID_RESIZE);
+            CHECK(boxrig_terminal_resize(terminal,
+                action.value.grid_resize.rows,
+                action.value.grid_resize.columns) == BOXRIG_STATUS_OK);
+            CHECK(boxrig_gtk4_terminal_widget_complete_grid_resize(widget,
+                action.revision, true) == BOXRIG_UI_OK);
+            CHECK(++grid_completions <= 2);
+        } else if (!frame_result.additional_dispatch) {
+            (void)g_main_context_iteration(NULL, true);
+        }
+        CHECK(boxrig_gtk4_terminal_widget_frame(widget, &frame_result) ==
+              BOXRIG_UI_OK);
+    }
+    CHECK(!expired);
+    CHECK(g_source_remove(guard));
+    CHECK(!frame_result.frame_pending && !frame_result.additional_dispatch);
+    size_t final_rows, final_columns;
+    boxrig_terminal_size(terminal, &final_rows, &final_columns);
+    CHECK(final_rows == terminal_config.rows &&
+          final_columns == terminal_config.columns);
     CHECK(boxrig_gtk4_terminal_widget_get_size_command_state(
               widget,
               &command_state) == BOXRIG_UI_OK);

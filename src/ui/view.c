@@ -3360,7 +3360,11 @@ boxrig_ui_status boxrig_ui_view_accept_allocation(
              * geometry immediately and supersedes that preference. */
             view->size_command_state = BOXRIG_UI_SIZE_COMMAND_IDLE;
         }
+        /* An unchanged native allocation can repeat before a requested font
+         * size is dispatched. Keep its preferred grid until that command is
+         * completed or an external allocation supersedes it. */
         command_active =
+            view->size_command_state == BOXRIG_UI_SIZE_COMMAND_READY ||
             view->size_command_state == BOXRIG_UI_SIZE_COMMAND_DISPATCHED;
         if (!command_active && !returning_to_normal) {
             view->normal_rows = fitted_rows;

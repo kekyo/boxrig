@@ -1674,6 +1674,13 @@ static void boxrig_gtk4_terminal_widget_size_allocate(
             &layout) != BOXRIG_UI_OK) {
         return;
     }
+    if (preserve_candidate &&
+        (widget->surface_candidate_width != layout.grid_width ||
+         widget->surface_candidate_height != layout.grid_height)) {
+        /* The pixel extent stayed fixed, but the new font changed the grid
+         * that fits there. The previous complete presentation remains live. */
+        abort_surface_candidate(widget);
+    }
     widget->output_width = output_width;
     widget->output_height = output_height;
     widget->output_scale = scale;
