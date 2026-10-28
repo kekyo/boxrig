@@ -2499,6 +2499,24 @@ static bool owned_child_moves_between_windows(void)
     CHECK(GetParent(child) == first);
     CHECK(boxrig_win32_terminal_component_get_input_state(component, &after) == BOXRIG_UI_OK);
     CHECK(after.generation > before.generation + 1);
+    const uint8_t *previous_output = NULL;
+    size_t previous_length = boxrig_terminal_output_peek(terminal, &previous_output);
+    CHECK(boxrig_terminal_output_consume(terminal, previous_length) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_win32_terminal_component_dispatch_message(component, child,
+        WM_LBUTTONUP, 0, MAKELPARAM(4, 4), &message_result) !=
+        BOXRIG_UI_COMPONENT_EVENT_FAILURE);
+    CHECK(boxrig_terminal_output_peek(terminal, &previous_output) == 0);
+    CHECK(boxrig_win32_terminal_component_dispatch_message(component, child,
+        WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(4, 4), &message_result) !=
+        BOXRIG_UI_COMPONENT_EVENT_FAILURE);
+    size_t press_length = boxrig_terminal_output_peek(terminal, &previous_output);
+    CHECK(press_length > 0);
+    CHECK(boxrig_win32_terminal_component_dispatch_message(component, child,
+        WM_LBUTTONUP, 0, MAKELPARAM(4, 4), &message_result) !=
+        BOXRIG_UI_COMPONENT_EVENT_FAILURE);
+    previous_length = boxrig_terminal_output_peek(terminal, &previous_output);
+    CHECK(previous_length > press_length);
+    CHECK(boxrig_terminal_output_consume(terminal, previous_length) == BOXRIG_STATUS_OK);
     boxrig_ui_component_allocation allocation = {0};
     boxrig_ui_layout_result layout;
     allocation.width = 320;

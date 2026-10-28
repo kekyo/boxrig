@@ -297,3 +297,6 @@ examples/win32/transfer.cはF6で二つの親を往復するConPTYドライバ�
 SetParentとDPI awarenessの制約は[Microsoftの公式資料](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setparent)とMinGW SDKの宣言を確認しました。警告をエラーとして扱うamd64・i686のビルドは成功しています。Win32段階の全体テストとの統合確認は、段階4で行います。
 
 追加の境界試験では、移設後のフォーカス再取得、親のクライアント領域に対する配置の保持、旧WM_CHAR・WM_IME_CHARの破棄を確認しました。未確定入力と未完の貼り付けがある場合の移設はBUSYとなり、入力が落ち着いた後は往復を継続できます。
+
+移設後に遅れて届いたマウスボタンの解放通知も検証しました。新しい親で押下を受けていないWM_LBUTTONUPが端末へ送られるREDを再現し、入力世代をまたいだ解放を捨てる処理を追加しました。新しい押下と、それに対応する解放は通常どおり送信します。
+amd64・i686の通常ビルドで全optional-interface構成が成功しました。REDはwin32-release-red.log、修正後はwin32-release-green.logに保存しています。

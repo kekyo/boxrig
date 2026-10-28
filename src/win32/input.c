@@ -105,6 +105,7 @@ struct boxrig_win32_input_adapter {
     void *mouse_router_context;
     uint32_t application_buttons;
     uint32_t pressed_mouse_buttons;
+    uint32_t stale_mouse_buttons;
     DWORD last_click_time;
     boxrig_mouse_button last_click_button;
     int last_click_x;
@@ -2264,10 +2265,15 @@ static int process_mouse_button(
                                             : BOXRIG_MOUSE_PRESS;
     event.button = message_button(message, word_parameter);
     event.pressed_buttons = mouse_buttons(word_parameter);
-    if (event.action == BOXRIG_MOUSE_PRESS)
+    if (event.action == BOXRIG_MOUSE_PRESS) {
+        adapter->stale_mouse_buttons &= ~button_mask(event.button);
         adapter->pressed_mouse_buttons |= button_mask(event.button);
-    else
+    } else {
+        /* Ignore releases without a press in the new input generation. */
+        if ((adapter->stale_mouse_buttons & button_mask(event.button)) != 0)
+            return 0;
         adapter->pressed_mouse_buttons &= ~button_mask(event.button);
+    }
     event.modifiers = mouse_modifiers(adapter, word_parameter);
     translate_coordinates(
         adapter,
@@ -3213,6 +3219,7 @@ void boxrig_win32_input_adapter_complete_reparent(
     adapter->horizontal_wheel_delta = 0;
     memset(&adapter->character, 0, sizeof(adapter->character));
     adapter->high_surrogate = 0;
+    adapter->stale_mouse_buttons = UINT32_MAX;
     for (size_t slot = 0; slot < KEY_SLOT_COUNT; slot++)
         adapter->stale_character[slot] = true;
 }
