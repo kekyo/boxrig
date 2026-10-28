@@ -1,5 +1,5 @@
 /* boxrig - Under MIT. */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
@@ -16,8 +16,7 @@ const baselineCounted = join(root, 'build/tests/performance/annotation_gtk_count
 const script = join(root, 'tests/performance/run_annotation_gtk.sh');
 mkdirSync(output, { recursive: true });
 const manifest = join(output, 'cases.json');
-const cases = existsSync(manifest) ? JSON.parse(readFileSync(manifest, 'utf8'))
-  .filter((item) => item.exit_code === 0) : [];
+const cases = [];
 const countReferenceRoot = dirname(output);
 for (const [frontend, period] of [['baseline', 100], ['patched', 100], ['patched', 10]]) {
   const directory = join(countReferenceRoot,
@@ -34,7 +33,6 @@ for (const [frontend, period] of [['baseline', 100], ['patched', 100], ['patched
 const run = (frontend, renderer, history, load, capture, period, round, keys) => {
   const name = `${round}-${frontend}-${renderer}-h${history}-${load}-${capture}-a${period}`;
   const directory = join(output, name);
-  if (cases.some((item) => item.directory === directory)) return;
   console.log(`START ${name}`);
   const result = spawnSync('bash', [script, binaries[frontend], peer, probe,
     renderer, String(history), load, capture, directory], {
