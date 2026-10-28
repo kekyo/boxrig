@@ -241,3 +241,12 @@ APIがUNAVAILABLEを返す未実装状態で、往復テストの失敗を確認
 操作可能なドライバーはexamples/x11/transfer.cです。make build/examples/x11_transferで生成し、build/examples/x11_transferを起動すると、F6で二つのウインドウ間を移動できます。ウインドウのサイズ変更は既存のallocateとセッションのリサイズへ接続します。
 
 make test-x11-transferは成功しました。PTY子プロセスの可視テキストを描画してから移設し、同じPTYへ入力して応答を受信します。復帰後も入力と応答を確認します。各段階は子プロセスの通知で進み、60秒の上限は停止検出にだけ使います。段階1の往復移設、入力継続、状態保持、操作可能な成果物という完了条件を満たしました。
+
+
+### 段階2のX11 OpenGL検証
+
+X11のOpenGLファクトリーも、段階1で実装した親変更APIを使えます。移設前後で子Window、view、EGL contextとwindow surfaceが保持されることを検証しました。GPUの描画バッファーから読み出した色も往復の各回で一致しています。共通経路で動作するため、OpenGL用に親変更処理を追加する必要はありませんでした。
+
+make test-x11-transfer-openglで、OpenGL版の対話ドライバーとPTY往復試験を実行できます。生成されるbuild/examples/x11_transfer_openglは、ソフトウェア版と同じF6操作に対応します。この試験と、test_x11_opengl_componentのOpenGL ESおよびdesktop-context構成は成功しました。XvfbとMesa llvmpipe上で実行し、警告、AddressSanitizer・UndefinedBehaviorSanitizerのエラー、リークはありません。物理GPU上の確認を示す結果ではありません。
+
+段階2の残りはWin32、Wayland、GTK3・GTK4です。段階3の障害・資源寿命の追加試験と、段階4の公開文書・全体テストも未完了です。

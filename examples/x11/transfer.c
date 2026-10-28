@@ -6,6 +6,9 @@
 
 #include "boxrig/posix.h"
 #include "boxrig/x11.h"
+#ifdef BOXRIG_TRANSFER_OPENGL
+#include "boxrig/x11/opengl_component.h"
+#endif
 
 #include <X11/Xlib.h>
 #include <poll.h>
@@ -264,7 +267,12 @@ int main(int argc, char **argv)
     component_config.view.blink.text_enabled = false;
     component_config.view.blink.cursor_enabled = false;
     stage = "component";
-    boxrig_ui_status create_status = boxrig_x11_terminal_component_create_child(
+    boxrig_ui_status create_status =
+#ifdef BOXRIG_TRANSFER_OPENGL
+        boxrig_x11_opengl_terminal_component_create_child(
+#else
+        boxrig_x11_terminal_component_create_child(
+#endif
         app.display, app.parents[0], app.model, &component_config, &app.component);
     if (create_status != BOXRIG_UI_OK) {
         fprintf(stderr, "component create status: %d\n", (int)create_status);

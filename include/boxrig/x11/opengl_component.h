@@ -65,7 +65,8 @@ boxrig_x11_opengl_terminal_component_get_window_requirements(
  * Creates an EGL/OpenGL terminal child inside a caller-owned parent Window.
  *
  * @param display Caller-owned X11 connection that outlives the component.
- * @param parent Caller-owned parent that outlives the component.
+ * @param parent Caller-owned initial parent, kept alive until a successful
+ * reparent or component destruction.
  * @param model Caller-owned model that outlives the component and its view.
  * @param config Portable component configuration copied during creation.
  * @param component_out Receives the transactional component result.
@@ -77,6 +78,8 @@ boxrig_x11_opengl_terminal_component_get_window_requirements(
  * dispatches or waits for X11 events. The regular X11 factory remains the
  * default software renderer. Creation tries OpenGL ES 3.0 first, then OpenGL
  * 3.3 core when ES configuration, context or renderer setup is unavailable.
+ * boxrig_x11_terminal_component_reparent() retains the child, EGL context,
+ * window surface and GPU resources when moving within the same X11 screen.
  */
 boxrig_ui_status boxrig_x11_opengl_terminal_component_create_child(
     Display *display,
@@ -89,7 +92,8 @@ boxrig_ui_status boxrig_x11_opengl_terminal_component_create_child(
  * Creates a configured EGL/OpenGL terminal child.
  *
  * @param display Caller-owned X11 connection that outlives the component.
- * @param parent Caller-owned parent that outlives the component.
+ * @param parent Caller-owned initial parent, kept alive until a successful
+ * reparent or component destruction.
  * @param model Caller-owned model that outlives the component and its view.
  * @param config Portable component configuration copied during creation.
  * @param opengl_config EGL presentation configuration copied during creation.
