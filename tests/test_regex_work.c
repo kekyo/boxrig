@@ -65,9 +65,46 @@ static void ascii_classes(void)
     assert(categories == 0);
 }
 
+static void impossible_starts(void)
+{
+    const char *patterns[] = {"^needle[ab]+$", "needle[ab]+$"};
+    uint8_t input[1024];
+    memset(input, 'x', sizeof(input));
+    const boxrig_regex_limits limits = boxrig_regex_limits_default();
+    for (size_t i = 0; i < 2; i++) {
+        boxrig_regex_program *program;
+        boxrig_text_regex_diagnostic diagnostic;
+        assert(boxrig_regex_compile((const uint8_t *)patterns[i], strlen(patterns[i]),
+            &limits, &diagnostic, &program) == BOXRIG_STATUS_OK);
+        for (size_t budget = 1; budget <= 9; budget += 4) {
+            boxrig_regex_matcher *matcher;
+            size_t error;
+            assert(boxrig_regex_matcher_create(program, input, sizeof(input), 0,
+                &error, &matcher) == BOXRIG_STATUS_OK);
+            size_t total = 0;
+            boxrig_regex_progress progress = BOXRIG_REGEX_IN_PROGRESS;
+            while (progress == BOXRIG_REGEX_IN_PROGRESS) {
+                size_t used;
+                boxrig_regex_match match;
+                assert(boxrig_regex_matcher_resume(matcher, budget, &used,
+                    &progress, &match) == BOXRIG_STATUS_OK);
+                assert(used <= budget && (used > 0 || progress != BOXRIG_REGEX_IN_PROGRESS));
+                total += used;
+            }
+            assert(progress == BOXRIG_REGEX_NOT_FOUND);
+            printf("impossible starts pattern=%s budget=%zu work=%zu\n", patterns[i], budget, total);
+            fflush(stdout);
+            assert(total <= (i == 0 ? 2u : sizeof(input) + 1u));
+            boxrig_regex_matcher_destroy(matcher);
+        }
+        boxrig_regex_program_destroy(program);
+    }
+}
+
 int main(void)
 {
     ascii_classes();
+    impossible_starts();
     puts("regex work tests passed");
     return 0;
 }

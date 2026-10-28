@@ -48,6 +48,16 @@ typedef enum boxrig_regex_node_type {
     BOXRIG_REGEX_NODE_CAPTURE
 } boxrig_regex_node_type;
 
+/* A small, conservative prefix keeps candidate checks bounded for any budget.
+ * exact means the whole subtree consumes this fixed sequence (assertions may
+ * still reject it). Longer or variable subtrees retain only a required prefix. */
+typedef struct boxrig_regex_start_hint {
+    int32_t prefix[8];
+    size_t length;
+    bool exact;
+    bool anchored;
+} boxrig_regex_start_hint;
+
 typedef struct boxrig_regex_node {
     boxrig_regex_node_type type;
     size_t left;
@@ -58,6 +68,7 @@ typedef struct boxrig_regex_node {
     size_t class_index;
     size_t capture_index;
     bool nullable;
+    boxrig_regex_start_hint start_hint;
 } boxrig_regex_node;
 
 typedef enum boxrig_regex_token_type {
@@ -159,6 +170,7 @@ struct boxrig_regex_program {
     size_t pattern_length;
     char **group_names;
     size_t group_count;
+    boxrig_regex_start_hint start_hint;
 };
 
 typedef enum boxrig_regex_cursor_phase {
@@ -1574,6 +1586,62 @@ static bool limits_valid(const boxrig_regex_limits *limits)
            limits->capture_byte_capacity <= BOXRIG_REGEX_CAPTURE_BYTE_CAPACITY_MAX;
 }
 
+static void derive_start_hints(boxrig_regex_node *nodes, size_t count)
+{
+    /* AST children precede their parents, including expanded repetitions.
+     * This pass needs no recursion or allocation for deeply nested patterns. */
+    for (size_t index = 0u; index < count; index++) {
+        boxrig_regex_node *node = &nodes[index];
+        boxrig_regex_start_hint *hint = &node->start_hint;
+        if (node->type == BOXRIG_REGEX_NODE_LITERAL) {
+            hint->prefix[0] = node->scalar;
+            hint->length = 1u;
+            hint->exact = true;
+        } else if (node->type == BOXRIG_REGEX_NODE_EMPTY ||
+                   node->type == BOXRIG_REGEX_NODE_BEGIN ||
+                   node->type == BOXRIG_REGEX_NODE_END) {
+            hint->exact = true;
+            hint->anchored = node->type == BOXRIG_REGEX_NODE_BEGIN;
+        } else if (node->type == BOXRIG_REGEX_NODE_CONCAT ||
+                   node->type == BOXRIG_REGEX_NODE_ALTERNATE) {
+            const boxrig_regex_start_hint *left = &nodes[node->left].start_hint;
+            const boxrig_regex_start_hint *right = &nodes[node->right].start_hint;
+            if (node->type == BOXRIG_REGEX_NODE_CONCAT) {
+                *hint = *left;
+                if (left->exact) {
+                    for (size_t i = 0u; i < right->length && hint->length < 8u; i++)
+                        hint->prefix[hint->length++] = right->prefix[i];
+                }
+                hint->exact = left->exact && right->exact &&
+                    left->length + right->length <= 8u;
+                hint->anchored = left->anchored ||
+                    (left->exact && left->length == 0u && right->anchored);
+            } else {
+                while (hint->length < left->length && hint->length < right->length &&
+                       left->prefix[hint->length] == right->prefix[hint->length]) {
+                    hint->prefix[hint->length] = left->prefix[hint->length];
+                    hint->length++;
+                }
+                hint->exact = left->exact && right->exact &&
+                    hint->length == left->length && hint->length == right->length;
+                hint->anchored = left->anchored && right->anchored;
+            }
+        } else if (node->type == BOXRIG_REGEX_NODE_CAPTURE ||
+                   node->type == BOXRIG_REGEX_NODE_PLUS ||
+                   node->type == BOXRIG_REGEX_NODE_OPTIONAL ||
+                   node->type == BOXRIG_REGEX_NODE_STAR) {
+            *hint = nodes[node->left].start_hint;
+            if (node->type != BOXRIG_REGEX_NODE_CAPTURE)
+                hint->exact = hint->exact && hint->length == 0u;
+            if (node->type == BOXRIG_REGEX_NODE_OPTIONAL ||
+                node->type == BOXRIG_REGEX_NODE_STAR) {
+                hint->length = 0u;
+                hint->anchored = false;
+            }
+        }
+    }
+}
+
 static inline bool class_contains(
     const boxrig_regex_class *class_value,
     const boxrig_regex_range *ranges,
@@ -1680,6 +1748,8 @@ boxrig_status boxrig_regex_compile(
     program->references = 1u;
     program->limits = *limits;
     program->pattern_length = pattern_length;
+    derive_start_hints(nodes, node_count);
+    program->start_hint = nodes[root].start_hint;
     program->states = calloc(limits->state_capacity, sizeof(*program->states));
     if (program->states == NULL) {
         goto cleanup;
@@ -2043,6 +2113,15 @@ static void clear_match(boxrig_regex_match *match)
     match->end = 0u;
 }
 
+static bool possible_start(const boxrig_regex_cursor *cursor)
+{
+    const boxrig_regex_start_hint *hint = &cursor->program->start_hint;
+    return (!hint->anchored || cursor->position == 0u) &&
+        hint->length <= cursor->scalar_count - cursor->position &&
+        (hint->length == 0u || memcmp(cursor->scalars + cursor->position,
+            hint->prefix, hint->length * sizeof(*hint->prefix)) == 0);
+}
+
 boxrig_status boxrig_regex_cursor_resume(
     boxrig_regex_cursor *cursor,
     size_t work_budget,
@@ -2070,7 +2149,7 @@ boxrig_status boxrig_regex_cursor_resume(
              * once at this input position, even for long unmatched suffixes. */
             if (cursor->longest_start == SIZE_MAX &&
                 cursor->position < cursor->scalar_count &&
-                cursor->boundaries[cursor->position]) {
+                cursor->boundaries[cursor->position] && possible_start(cursor)) {
                 cursor->closure_target = BOXRIG_REGEX_CLOSURE_CURRENT;
                 cursor->closure_start = cursor->position;
                 for (size_t i = 0u; i < cursor->register_count; i++) {
@@ -2086,6 +2165,8 @@ boxrig_status boxrig_regex_cursor_resume(
                 work_used++;
             } else if (cursor->phase == BOXRIG_REGEX_CURSOR_START_CLOSURE) {
                 if (cursor->position == cursor->scalar_count ||
+                    (cursor->program->start_hint.anchored &&
+                     cursor->position != 0u && cursor->current_count == 0u) ||
                     (cursor->longest_start != SIZE_MAX &&
                      (cursor->current_count == 0u ||
                       cursor->current_states[0].start > cursor->longest_start))) {
