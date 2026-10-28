@@ -13,6 +13,8 @@ typedef struct selection_filter {
     size_t calls;
     bool selection_cell;
     bool selection_marker;
+    bool marker_focused;
+    bool marker_unfocused;
     boxrig_rgb marker_underlay;
 } selection_filter;
 
@@ -34,6 +36,10 @@ static boxrig_ui_color_filter_result inspect_selection(
     if (input->target == BOXRIG_UI_COLOR_SELECTION_MARKER) {
         seen->selection_marker = input->marker_source.role == BOXRIG_UI_COLOR_UI &&
             input->underlay_valid;
+        if ((input->state_flags & BOXRIG_UI_COLOR_FOCUSED) != 0)
+            seen->marker_focused = true;
+        else
+            seen->marker_unfocused = true;
         seen->marker_underlay = input->underlay.background;
     }
     boxrig_ui_color_filter_result result = input->colors;
@@ -323,8 +329,17 @@ static bool selection_full_line_newline_marker(
     CHECK(pixels != NULL);
     CHECK(close_rgb(pixels[(height / 2) * BOXRIG_TEST_COLOR_WIDTH +
         12 * width - 1], rgb(shift_color(style.marker))));
-    CHECK(seen.selection_marker);
+    CHECK(seen.selection_marker && seen.marker_unfocused);
     free(pixels);
+    CHECK(boxrig_ui_view_set_focused(view, true) == BOXRIG_UI_OK);
+    CHECK(renderer.draw(renderer.context, view, NULL) == 0);
+    pixels = renderer.capture(renderer.context);
+    CHECK(pixels != NULL);
+    CHECK(seen.marker_focused);
+    CHECK(close_rgb(pixels[(height / 2) * BOXRIG_TEST_COLOR_WIDTH +
+        12 * width - 1], rgb(shift_color(style.marker))));
+    free(pixels);
+    CHECK(boxrig_ui_view_set_focused(view, false) == BOXRIG_UI_OK);
     style.marker_opacity = 128;
     CHECK(boxrig_ui_view_set_selection_style(view, &style) == BOXRIG_UI_OK);
     CHECK(renderer.draw(renderer.context, view, NULL) == 0);
@@ -335,6 +350,17 @@ static bool selection_full_line_newline_marker(
     CHECK(close_rgb(pixels[marker_pixel],
         over(baseline[marker_pixel], rgb(shift_color(style.marker)), 128)));
     free(pixels);
+    CHECK(boxrig_ui_view_set_color_filter(view, NULL, NULL) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_reset_selection_style(view) == BOXRIG_UI_OK);
+    boxrig_ui_selection_style default_style = boxrig_ui_selection_style_default();
+    for (size_t focused = 0; focused < 2; focused++) {
+        CHECK(boxrig_ui_view_set_focused(view, focused != 0) == BOXRIG_UI_OK);
+        CHECK(renderer.draw(renderer.context, view, NULL) == 0);
+        pixels = renderer.capture(renderer.context);
+        CHECK(pixels != NULL);
+        CHECK(close_rgb(pixels[marker_pixel], rgb(default_style.marker)));
+        free(pixels);
+    }
     free(baseline);
     renderer.destroy(renderer.context);
     boxrig_ui_view_destroy(view);
@@ -350,16 +376,15 @@ static bool selection_unicode_newline_placement(
         const char *name;
         const char *body;
         size_t columns;
-        size_t visual_newline_column;
     } cases[] = {
-        {"ASCII", "abcdefghijkl", 12, 12},
-        {"wide", "界abcdefghij", 12, 12},
-        {"combining", "éabcdefghijk", 12, 12},
-        {"emoji", "😀abcdefghij", 12, 12},
-        {"RTL", "אבגדהוזחטיכל", 12, 12},
-        {"mixed", "LאבRabcdefgh", 12, 12},
-        {"short mixed", "界éאב", 5, 5},
-        {"short RTL", "אב界é", 5, 6}
+        {"ASCII", "abcdefghijkl", 12},
+        {"wide", "界abcdefghij", 12},
+        {"combining", "éabcdefghijk", 12},
+        {"emoji", "😀abcdefghij", 12},
+        {"RTL", "אבגדהוזחטיכל", 12},
+        {"mixed", "LאבRabcdefgh", 12},
+        {"short mixed", "界éאב", 5},
+        {"short RTL", "אב界é", 5}
     };
     for (size_t sample = 0; sample < sizeof(cases) / sizeof(cases[0]); sample++) {
         boxrig_test_color_renderer renderer = {0};
@@ -405,15 +430,29 @@ static bool selection_unicode_newline_placement(
         style.marker_opacity = 255;
         CHECK(boxrig_ui_view_set_selection_style(view, &style) == BOXRIG_UI_OK);
         boxrig_ui_hit_test_result hit;
-        size_t hit_column = cases[sample].visual_newline_column;
+        size_t hit_column = 12;
+        size_t padding_column = SIZE_MAX;
         if (cases[sample].columns == 12) {
             CHECK(boxrig_ui_view_hit_test(view,
                 (12 * width - 1) * BOXRIG_UI_FIXED_ONE,
                 BOXRIG_UI_FIXED_ONE, &hit) == BOXRIG_UI_OK);
         } else {
-            CHECK(boxrig_ui_view_hit_test(view,
-                (hit_column * width + 1) * BOXRIG_UI_FIXED_ONE,
-                BOXRIG_UI_FIXED_ONE, &hit) == BOXRIG_UI_OK);
+            bool found = false;
+            for (size_t column = 0; column < 12; column++) {
+                boxrig_ui_hit_test_result probe;
+                CHECK(boxrig_ui_view_hit_test(view,
+                    (column * width + 1) * BOXRIG_UI_FIXED_ONE,
+                    BOXRIG_UI_FIXED_ONE, &probe) == BOXRIG_UI_OK);
+                if (probe.logical_column == cases[sample].columns) {
+                    hit = probe;
+                    hit_column = column;
+                    found = true;
+                } else if (probe.logical_column > cases[sample].columns &&
+                           padding_column == SIZE_MAX) {
+                    padding_column = column;
+                }
+            }
+            CHECK(found && padding_column != SIZE_MAX);
         }
         CHECK(boxrig_ui_view_begin_selection(view, BOXRIG_UI_SELECTION_CHARACTER,
             &hit) == BOXRIG_UI_OK);
@@ -462,7 +501,7 @@ static bool selection_unicode_newline_placement(
         free(pixels);
         if (strcmp(cases[sample].name, "short RTL") == 0) {
             CHECK(boxrig_ui_view_hit_test(view,
-                (5 * width + 1) * BOXRIG_UI_FIXED_ONE,
+                (padding_column * width + 1) * BOXRIG_UI_FIXED_ONE,
                 BOXRIG_UI_FIXED_ONE, &hit) == BOXRIG_UI_OK);
             CHECK(boxrig_ui_view_begin_selection(view,
                 BOXRIG_UI_SELECTION_CHARACTER, &hit) == BOXRIG_UI_OK);
@@ -474,10 +513,10 @@ static bool selection_unicode_newline_placement(
             pixels = renderer.capture(renderer.context);
             CHECK(pixels != NULL);
             size_t padding_pixel = (height / 2) * BOXRIG_TEST_COLOR_WIDTH +
-                5 * width + width / 2;
+                padding_column * width + width / 2;
             CHECK(close_rgb(pixels[padding_pixel], baseline[padding_pixel]));
             CHECK(close_rgb(pixels[(height / 2) * BOXRIG_TEST_COLOR_WIDTH +
-                6 * width + width / 2], rgb(style.background)));
+                hit_column * width + width / 2], rgb(style.background)));
             free(pixels);
             CHECK(boxrig_ui_view_clear_selection(view) == BOXRIG_UI_OK);
         }
