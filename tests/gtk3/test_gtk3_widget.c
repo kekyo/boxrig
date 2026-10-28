@@ -2707,7 +2707,13 @@ static bool test_clipboard_actions(void)
     return true;
 }
 
-static bool test_delayed_clipboard_callback(bool dispose)
+typedef enum clipboard_lifecycle {
+    CLIPBOARD_INHIBIT,
+    CLIPBOARD_DISPOSE,
+    CLIPBOARD_REPARENT
+} clipboard_lifecycle;
+
+static bool test_delayed_clipboard_callback(clipboard_lifecycle mode)
 {
     static const unsigned char delayed_text[] = "late";
     boxrig_terminal_config terminal_config = boxrig_terminal_config_default();
@@ -2717,6 +2723,7 @@ static bool test_delayed_clipboard_callback(bool dispose)
     boxrig_ui_model *model = NULL;
     BoxrigGtk3TerminalWidget *widget = NULL;
     GtkWindow *window = NULL;
+    GtkWindow *second_window = NULL;
     GtkClipboard *clipboard;
     Display *selection_display = NULL;
     Window selection_owner = None;
@@ -2728,9 +2735,23 @@ static bool test_delayed_clipboard_callback(bool dispose)
     boxrig_ui_layout_result layout;
     boxrig_ui_component_diagnostic diagnostic;
     boxrig_ui_view_action action;
+    boxrig_ui_input_state input_before;
+    boxrig_ui_input_state input_after;
+    boxrig_composition *composition;
+    boxrig_composition_view composition_view;
+    boxrig_composition_event preedit = {
+        .type = BOXRIG_COMPOSITION_PREEDIT_UPDATE,
+        .text = "draft",
+        .text_length = 5,
+        .caret_offset = 5,
+        .caret_visible = true};
 
     if (gdk_display_get_default_seat(gdk_display_get_default()) == NULL) {
         return true;
+    }
+    if (mode == CLIPBOARD_REPARENT) {
+        terminal_config.output_capacity = 4;
+        widget_config.paste_chunk_size = 2;
     }
     CHECK(boxrig_terminal_create(&terminal_config, &terminal) ==
           BOXRIG_STATUS_OK);
@@ -2797,12 +2818,34 @@ static bool test_delayed_clipboard_callback(bool dispose)
           BOXRIG_UI_OK);
     CHECK(diagnostic.active_clipboard_transfers == 1);
 
-    if (dispose) {
+    if (mode == CLIPBOARD_DISPOSE) {
         CHECK(boxrig_gtk3_terminal_widget_quiesce(widget) == BOXRIG_UI_OK);
         gtk_container_remove(GTK_CONTAINER(window), GTK_WIDGET(widget));
         gtk_widget_destroy(GTK_WIDGET(window));
         g_object_unref(window);
         g_object_unref(widget);
+    } else if (mode == CLIPBOARD_REPARENT) {
+        CHECK(boxrig_gtk3_terminal_widget_get_input_state(widget, &input_before) == BOXRIG_UI_OK);
+        composition = boxrig_gtk3_terminal_widget_composition(widget);
+        CHECK(composition != NULL);
+        CHECK(boxrig_composition_apply_event(composition, &preedit) == BOXRIG_COMPOSITION_OK);
+        CHECK(boxrig_composition_get_view(composition, &composition_view) == BOXRIG_COMPOSITION_OK);
+        CHECK(composition_view.active);
+        second_window = GTK_WINDOW(gtk_window_new(GTK_WINDOW_TOPLEVEL));
+        CHECK(second_window != NULL);
+        g_object_ref_sink(second_window);
+        gtk_container_remove(GTK_CONTAINER(window), GTK_WIDGET(widget));
+        CHECK(!gtk_widget_get_mapped(GTK_WIDGET(widget)));
+        gtk_container_add(GTK_CONTAINER(second_window), GTK_WIDGET(widget));
+        gtk_widget_show_all(GTK_WIDGET(second_window));
+        while (!gtk_widget_get_mapped(GTK_WIDGET(widget))) {
+            (void)g_main_context_iteration(NULL, true);
+        }
+        CHECK(boxrig_gtk3_terminal_widget_get_input_state(widget, &input_after) == BOXRIG_UI_OK);
+        CHECK(input_after.generation > input_before.generation);
+        CHECK(boxrig_composition_get_view(composition, &composition_view) == BOXRIG_COMPOSITION_OK);
+        CHECK(!composition_view.active);
+        CHECK(composition_view.last_event == BOXRIG_COMPOSITION_CANCEL);
     } else {
         CHECK(boxrig_gtk3_terminal_widget_set_input_enabled(widget, false) == BOXRIG_UI_OK);
         CHECK(boxrig_gtk3_terminal_widget_apply_view_action(widget, &action) == BOXRIG_UI_UNAVAILABLE);
@@ -2838,7 +2881,7 @@ static bool test_delayed_clipboard_callback(bool dispose)
     while (g_main_context_pending(NULL)) {
         (void)g_main_context_iteration(NULL, false);
     }
-    if (!dispose) {
+    if (mode != CLIPBOARD_DISPOSE) {
         do {
             CHECK(boxrig_gtk3_terminal_widget_get_diagnostic(widget, &diagnostic) == BOXRIG_UI_OK);
             if (diagnostic.active_clipboard_transfers == 0) break;
@@ -2848,6 +2891,38 @@ static bool test_delayed_clipboard_callback(bool dispose)
         const uint8_t *output;
         CHECK(boxrig_gtk3_terminal_widget_frame(widget, &frame) == BOXRIG_UI_OK);
         CHECK(boxrig_terminal_output_peek(terminal, &output) == 0);
+        if (mode == CLIPBOARD_REPARENT) {
+            CHECK(boxrig_gtk3_terminal_widget_queue_paste(
+                      widget,
+                      (const uint8_t *)"new",
+                      3) == BOXRIG_UI_OK);
+            CHECK(boxrig_gtk3_terminal_widget_frame(widget, &frame) == BOXRIG_UI_OK);
+            CHECK(boxrig_terminal_output_peek(terminal, &output) == 3);
+            CHECK(memcmp(output, "new", 3) == 0);
+            CHECK(boxrig_terminal_output_consume(terminal, 3) == BOXRIG_STATUS_OK);
+            CHECK(boxrig_gtk3_terminal_widget_queue_paste(
+                      widget,
+                      (const uint8_t *)"abcdef",
+                      6) == BOXRIG_UI_OK);
+            CHECK(boxrig_gtk3_terminal_widget_frame(widget, &frame) == BOXRIG_UI_OK);
+            CHECK(frame.input_blocked);
+            CHECK(boxrig_terminal_output_peek(terminal, &output) == 4);
+            CHECK(memcmp(output, "abcd", 4) == 0);
+            gtk_container_remove(GTK_CONTAINER(second_window), GTK_WIDGET(widget));
+            gtk_container_add(GTK_CONTAINER(window), GTK_WIDGET(widget));
+            gtk_widget_show_all(GTK_WIDGET(window));
+            while (!gtk_widget_get_mapped(GTK_WIDGET(widget))) {
+                (void)g_main_context_iteration(NULL, true);
+            }
+            CHECK(boxrig_terminal_output_consume(terminal, 4) == BOXRIG_STATUS_OK);
+            CHECK(boxrig_gtk3_terminal_widget_frame(widget, &frame) == BOXRIG_UI_OK);
+            CHECK(!frame.input_blocked);
+            CHECK(boxrig_terminal_output_peek(terminal, &output) == 2);
+            CHECK(memcmp(output, "ef", 2) == 0);
+            CHECK(boxrig_terminal_output_consume(terminal, 2) == BOXRIG_STATUS_OK);
+            gtk_widget_destroy(GTK_WIDGET(second_window));
+            g_object_unref(second_window);
+        }
         CHECK(boxrig_gtk3_terminal_widget_quiesce(widget) == BOXRIG_UI_OK);
         gtk_container_remove(GTK_CONTAINER(window), GTK_WIDGET(widget));
         gtk_widget_destroy(GTK_WIDGET(window));
@@ -3404,7 +3479,9 @@ int main(int argc, char **argv)
                   test_grid_resize_tracks_runtime_output_scale() &&
                   test_layout_frame_and_geometry_hints() &&
                   test_clipboard_actions() &&
-                  test_delayed_clipboard_callback(false) && test_delayed_clipboard_callback(true));
+                  test_delayed_clipboard_callback(CLIPBOARD_INHIBIT) &&
+                  test_delayed_clipboard_callback(CLIPBOARD_DISPOSE) &&
+                  test_delayed_clipboard_callback(CLIPBOARD_REPARENT));
 
     while (g_main_context_pending(NULL)) {
         (void)g_main_context_iteration(NULL, false);

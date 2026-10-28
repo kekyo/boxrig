@@ -2979,12 +2979,33 @@ void boxrig_gtk4_input_map(boxrig_gtk4_input *input)
 void boxrig_gtk4_input_unmap(boxrig_gtk4_input *input)
 {
     if (input != NULL) {
+        if (input->mapped) {
+            if (input->control.state.generation == UINT64_MAX) {
+                fail_input(input, BOXRIG_UI_COMPONENT_FAILURE_INPUT);
+            } else {
+                input->control.state.generation++;
+                /* A paste whose BEGIN reached the terminal must retain its
+                 * matching END across a temporary widget move. */
+                for (size_t i = 0; i < input->queue_count; i++) {
+                    input_item *item = &input->items[
+                        (input->queue_head + i) % input->queue_capacity];
+                    if (item->kind == INPUT_ITEM_PASTE &&
+                        item->value.paste.state != PASTE_ITEM_BEGIN) {
+                        item->generation = input->control.state.generation;
+                    }
+                }
+            }
+        }
         focus_ibus(input, false, false);
         input->focus_epoch++;
         input->im_focused = false;
         input->im_blocked = true;
         (void)boxrig_ui_editable_document_invalidate_input(input->document);
         input->mapped = false;
+        (void)boxrig_composition_cancel_pending_commit(input->composition);
+        boxrig_composition_event cancel = {.type = BOXRIG_COMPOSITION_CANCEL};
+        (void)boxrig_composition_apply_event(input->composition, &cancel);
+        (void)boxrig_ui_view_set_composition_active(input->view, false);
         cancel_clipboard_transfers(input, NULL);
     }
 }

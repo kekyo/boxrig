@@ -300,3 +300,20 @@ SetParentとDPI awarenessの制約は[Microsoftの公式資料](https://learn.mi
 
 移設後に遅れて届いたマウスボタンの解放通知も検証しました。新しい親で押下を受けていないWM_LBUTTONUPが端末へ送られるREDを再現し、入力世代をまたいだ解放を捨てる処理を追加しました。新しい押下と、それに対応する解放は通常どおり送信します。
 amd64・i686の通常ビルドで全optional-interface構成が成功しました。REDはwin32-release-red.log、修正後はwin32-release-green.logに保存しています。
+
+
+### 段階2・3のGTK3とGTK4
+
+GTK3・GTK4は、同じウィジェットの参照を保持し、標準コンテナーAPIで別のウィンドウへ移す構成にしました。CairoとOpenGLを切り替えずに移設し、同じwidget、view、選択、フォント設定とPTYを保持します。OpenGLのネイティブ資源は、unrealize後の既存の再生成処理で接続し直します。
+
+examples/gtk/transfer.cを両GTK向けにビルドできます。F6操作に加え、--verifyでは子プロセスの準備通知、1回目の移設への応答、復帰後の応答を順に確認します。移設後に旧ウィンドウを破棄し、その後の表示と通信も検証しました。X11・Wayland、GTK3・GTK4、Cairo・OpenGLの8構成で往復が成功しています。make test-gtk-transferで実行できます。
+
+既存の入力ライフサイクル試験を別ウィンドウ間の移設へ拡張したところ、GTK4で旧IME確定のキューが再配置後に送られる問題を再現しました。取り外し時に入力世代を進め、未開始の貼り付けと古い確定入力を破棄する修正でGREENとなりました。取り外した後も未確定文字が残る問題も、REDを確認してから取消処理を追加しています。
+
+開始済みの貼り付けは、残りの本文と終了通知を新しい配置先で継続します。入力世代を更新する際、この貼り付けだけを引き継ぎます。GTK3とGTK4の試験で、送信容量が埋まった状態から移設し、残りの本文を欠落なく送ることを確認しました。旧クリップボード応答の破棄、移設先の新しい入力とフォーカスも検証しています。
+
+widget試験は、GTK3・GTK4それぞれのX11 Cairo、X11 OpenGL、Wayland Cairoの6構成で成功しました。GTK3のWayland試験ではseatがないため、X11の遅延クリップボードケースを省略しています。同ケースはX11で成功しました。描画方式と通信継続は、上記8構成のドライバーでも確認しています。警告をエラーとして扱うビルドに新しい警告はありません。
+
+標準操作は[GTK3 Container.remove](https://docs.gtk.org/gtk3/method.Container.remove.html)、[GTK4 Window.set_child](https://docs.gtk.org/gtk4/method.Window.set_child.html)とSDKの宣言・コメントを確認しました。quiesceは終了操作のため移設には使いません。公開コメントと利用文書には、参照、入力、再配置、OpenGL資源の扱いを記載しました。全体テストと最終的な完了条件の照合は次の段階で行います。
+
+最終のGTK4試験では、ブラケット付き貼り付けの開始通知を送った後に移設し、残り本文と終了通知までバイト列で確認しました。GTK3・GTK4のX11 Cairo試験はASan・UBSan付きで成功しています。GTK3のリーク検査には、既存ランナーと同じ[倍率変更時の限定除外](../../../tests/gtk3/gdk_scale_leaks.supp)を適用しました。[GTK 3.24.41の該当コード](https://github.com/GNOME/gtk/blob/3.24.41/gdk/x11/gdkscreen-x11.c#L1131-L1160)から割り当てたリスト240バイトだけが対象で、設定の追加・変更はありません。ログはgtk3-final-green.logとgtk4-final-green.logです。
