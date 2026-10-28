@@ -2,7 +2,7 @@
 
 作成日：2026年10月28日
 
-状態：2026年10月29日の実施依頼に基づき、案1の実装を開始しました。以下の調査記録に続く「実施時の契約と進捗」で、採用範囲と検証結果を管理します。
+状態：案1をX11、Win32、Wayland、GTK3、GTK4へ実装し、計画した検証を完了しました。全体テストには今回の変更と独立して再現するWine上の失敗が2種類残っています。以下の調査記録に続く「実施時の契約と進捗」で、採用範囲、検証結果、未実測の条件を記録します。調査記録は実装前の状態を示します。
 
 ## 目的と対象
 
@@ -324,3 +324,47 @@ widget試験は、GTK3・GTK4それぞれのX11 Cairo、X11 OpenGL、Wayland Cai
 全体テストの隔離プロトコルビルドで、追加したtransfer.mkが作業コピーに含まれず失敗しました。Makefile本体を共有する試験用コピーには、参照するMakefile部品も必要です。tests/wayland/test_protocol_build.shのコピー一覧へ4環境の部品を加え、make test-wayland-protocol-buildの成功を確認しました。製品の移設処理を変更する必要はありません。REDはfull-test.log、GREENはwayland-protocol-build-green.logに保存しています。
 
 Win32のPE依存監査でも、新規に使ったIsChildとSetParentが許可一覧に未登録であることを検出しました。[IsChild](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-ischild)と[SetParent](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setparent)はWindows 2000以降の公開APIで、既存のVista基準を満たします。MinGWの宣言も確認し、amd64・i686の監査一覧へ追加しました。make test-win32-ui-artifactsの6件が成功し、結果はwin32-ui-imports-green.logに保存しています。対応OSや製品コードの変更はありません。
+
+最上位の試験を再開した際には、公開APIの分類監査で移設APIの登録漏れを検出しました。Wayland、Win32、X11の3操作を、tests/frontend_public_contracts.defの既存のFRONTEND_PRESENTATIONへ登録しました。この分類は各環境のコンポーネント試験を参照し、追加した移設の動作試験にも対応します。72ヘッダーの1075項目を監査し、成功しました。REDはfull-test-remaining.log、GREENはpublic-contract-audit-green.logです。
+
+### 段階4で補った失敗時の検証
+
+X11では、既存のXIMテストに入力コンテキストの生成失敗を追加しました。移設を拒否したときに、旧親、旧入力コンテキスト、入力世代を保持します。そのまま旧接続でキー入力でき、生成失敗を解除して再試行すると移設できます。make test-xim-editableはASan・UBSan付きで成功しました。既に実装済みの回復経路を直接検証する追加で、製品コードの変更はありません。ログはx11-xic-failure-green.logです。
+
+全体テストではWin32のカーソル描画試験が失敗しました。amd64とi686の両方で、ヘブライ文字上のカーソル内に描かれた文字を検出するassertが失敗します。別のWine環境でも同じ失敗を再現しました。対象のテスト、Win32レンダラー、共通描画コードは実装前の1f0ceeeから変更していません。この実行ファイルは今回変更したコンポーネントと入力アダプターもリンクしておらず、plan15とは独立した失敗として記録します。Wine固有の不具合かどうかは未確定です。
+
+この失敗で中断したtest-native-blinkの残りのコマンドを別途実行し、両アーキテクチャーのアニメーション試験は成功しました。依存先の失敗により未実行となったtest-blinkの6コマンドも補い、共通の点滅制御とX11の動画試験が成功しています。テストの期待値や恒久的な除外設定は変更していません。ログはwin32-blink-isolated.log、win32-blink-i686-isolated.log、win32-animation-amd64-isolated.log、win32-animation-i686-isolated.log、blink-remaining-green.logです。
+
+最後のWin32終了検証用サンプルでは、マウスボタンを押したまま拡大したときの下端の画素判定が失敗しました。amd64とi686で同じ失敗を再現しています。移設APIを使わない場面ですが、共通の描画処理への影響を確認するため、別のWine環境でも再実行しました。さらに、1f0ceeeのWin32 component.cとinput.cだけを別のライブラリーへ差し替え、同じ終了検証用サンプルを別出力へリンクしました。この変更前の実装でも、座標と画素ハッシュが一致する失敗を再現しました。今回の移設処理や描画の再入防止を外しても発生する既存の失敗です。Wine固有かどうかは未確定で、製品コードやテストの期待値は変更していません。
+
+比較用サンプルの初回起動は、隣接するランチャーが不足して失敗しました。既存のboxrig_term_launcher.exeを配置した後に、起動とConPTYの初期処理を通過し、同じ画素判定まで到達することを確認しています。比較結果はmodal-shutdown-probe-rerun.logとmodal-shutdown-probe-baseline.logです。元の作業ツリーとビルド出力は変更していません。終了時の入力処理は画素判定の前に成功し、後続の通知処理も同じ引数による別の試験で成功しています。
+
+### 実行環境と未実測の条件
+
+X11とWaylandのOpenGL検証はXvfb、Weston、Mesaのソフトウェア描画環境で実施しました。物理GPUの動作確認を示す結果ではありません。EGLのDRI3・デバイス情報取得、xkbcompのキー名、合成入力、IBusに関する実行時通知が記録されています。対象ビルドは警告をエラーとして扱い、コンパイラーの警告は出ていません。
+
+WineでスキップされたD3D11の移設検証は、実Windowsのamd64・i686、hardware・WARPで補いました。最終ソースによる実機試験は、D3D11の8構成とConPTY移設の2構成、合計10件が成功しています。実機は試験後に解放しました。ログはwin32-p2-final.logです。異なるDPIの物理モニター間の移動は未実測で、DPI更新はホストから1.5倍を指定する試験で確認しました。
+
+Wineの既存サンプル試験では、BOXRIG_TEST_ALLOW_CONPTY_NORMALIZATION=wineを使用しました。対話的なサイズ照会、GPU描画の拡大中の画面取得、端末応答、Kitty画像、OSC titleなどにSKIPの記録があります。判定条件は[Win32サンプル試験](../../../tests/win32/test_win32_sample.c)にあり、結果はfull-test-tail.logへ保存しています。今回の実機確認は前述の10件です。
+
+追加のGTK共有ライブラリーを指定する試験は、BOXRIG_TEST_GTK_SUPPORTED_LIBS未設定のためスキップしました。GTK3の実ウインドウマネージャーで最大化・復元を録画する試験も、BOXRIG_GTK3_REAL_WM_ARTIFACT_DIR未指定の通常設定ではスキップします。この条件はtests/gtk3/gestament/src/gtk3-real-wm.test.tsにあります。GTK3のWayland試験ではseatがないため、遅延クリップボードのケースをX11で検証しました。
+
+Waylandでsubsurfaceの生成そのものを失敗させる試験は未実施です。受理済みの要求を保持する処理は実装し、親commit後の同期資源確保の失敗と再試行を直接検証しました。この結果を、すべての資源確保失敗を試験したものとは扱いません。
+
+既存のtests/gtk3/gestamentに対するnpm ciは成功しましたが、依存監査では中程度2件・高2件の通知がありました。package.jsonとpackage-lock.jsonは1f0ceeeから変更していません。読み取り実行したnpm auditの結果をgtk3-gestament-audit.jsonへ保存しました。出自は[Viteの勧告](https://github.com/advisories/GHSA-vfpm-58rq-9qcg)、[Vitest mockerの勧告](https://github.com/advisories/GHSA-qxg6-89mg-rqv8)、[source-map-jsの勧告](https://github.com/advisories/GHSA-68fv-2mgg-jv7q)などで、全URLは監査結果に記録しています。既存テスト基盤の依存更新はplan15の範囲外として残しました。
+
+### 全体テストの実行結果と完了条件の照合
+
+make -k testを最後まで実行しました。依存先の失敗により保留された最上位の試験は、実行済みの346個の直接依存先をmakeの-oで指定して続行しました。公開API監査の修正後は、元のMakefileにある監査から最後までのコマンドをそのまま一時ターゲットへ移して再開しています。最後のamd64サンプルの失敗で保留されたi686のコマンドも別途実行しました。製品のMakefileに除外や継続用の変更は残していません。
+
+全体テストのログはartifacts/plan15/のfull-test.log、full-test-remaining.log、full-test-tail.log、full-test-final-i686.logです。今回の変更に伴う3件の統合不備は修正後に成功しました。移設関連の試験も成功しています。全体テストの成功を示す終了コードは得られていません。残る失敗は前述のWin32カーソル描画と、拡大操作中の下端描画の2種類で、どちらもamd64・i686のWine上で再現します。
+
+| 段階 | 完了条件との照合 |
+| --- | --- |
+| 0 対応範囲と契約 | 案1と5環境を明記し、保持状態、入力の扱い、旧親の寿命、同期・非同期の完了条件を公開APIと利用文書へ反映しました。 |
+| 1 X11の往復移設 | 操作例とPTY往復、入力、状態保持、失敗時の旧親維持を検証しました。RED/GREEN、警告のないビルド、段階ごとのコミットを確認しました。 |
+| 2 環境と描画方式の追加 | X11・Win32・Wayland・GTK3・GTK4と既存の描画方式を検証しました。各環境に操作可能な例があります。既存の共通経路で動く描画方式は状態保持を検証し、新規APIと入力の修正ではRED/GREENを確認しました。 |
+| 3 入力・失敗・寿命 | IME、貼り付け、古い入力通知、描画・コールバック中の拒否、旧親の破棄、再試行、ホストからのDPI更新を検証しました。資源の解放後の使用や二重送信は検出されていません。直接注入していない失敗条件と未実測の環境は前節に記載しました。 |
+| 4 全体確認と説明 | 全体テストと中断後の残りを実行し、統合不備を修正しました。日本語の利用文書と英訳、公開コメントを更新し、警告、スキップ、既存失敗を記録しました。 |
+
+採用した案1の実装をfeature/plan15へ段階ごとにコミットしました。mainへのマージは行っていません。
