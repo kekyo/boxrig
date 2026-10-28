@@ -2484,6 +2484,18 @@ test-annotation-cost: $(ANNOTATION_COST_BINARY) $(ANNOTATION_COST_UNWRAPPED_BINA
 	$(ANNOTATION_COST_BINARY) 16 10 45 2 bound
 	$(ANNOTATION_COST_BINARY) 10000 10 45 2 bound
 
+$(BUILD_DIR)/tests/performance/selection_cost: \
+		tests/performance/selection_cost.c $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests/performance
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) \
+		$(PROJECT_CFLAGS) $< $(UI_LIBRARY) $(LIBRARY) \
+		-Wl,--wrap=boxrig_terminal_get_text_fragment \
+		-Wl,--wrap=boxrig_terminal_create_text_snapshot -o $@
+
+.PHONY: test-selection-cost
+test: test-selection-cost
+test-selection-cost: $(BUILD_DIR)/tests/performance/selection_cost
+	$<
+
 $(SELECTION_TEST_BINARY): tests/test_selection.c src/ui/word_break.h \
 		$(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) -Isrc/ui $(CFLAGS) \
