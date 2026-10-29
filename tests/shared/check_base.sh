@@ -23,7 +23,7 @@ for language in c c++; do
         '-Wl,-rpath,$ORIGIN/../lib64' -o "$sdk/bin/consumer-$language"
     env -u LD_LIBRARY_PATH LD_BIND_NOW=1 "$sdk/bin/consumer-$language"
 done
-for driver in selection_history selection_layout_provider; do
+for driver in selection_history selection_layout_provider annotation_eviction; do
     cc -std=c99 -Wall -Wextra -Wpedantic -Werror \
         "$repository/tests/test_$driver.c" $(pkg-config --cflags --libs boxrig-ui) \
         '-Wl,-rpath,$ORIGIN/../lib64' -o "$sdk/bin/$driver"
