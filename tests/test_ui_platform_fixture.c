@@ -2284,6 +2284,78 @@ static bool opengl_composition_text_fixture(void)
     return true;
 }
 
+typedef struct partial_frame_operation {
+    platform_renderer_fixture *renderer;
+    boxrig_ui_view *view;
+    bool fail;
+} partial_frame_operation;
+
+static bool draw_partial_frame_operation(void *context)
+{
+    partial_frame_operation *operation = context;
+    if (operation->fail)
+        boxrig_ogl_renderer_fail_next(operation->renderer->renderer, BOXRIG_OGL_FAILURE_DRAW);
+    int result = boxrig_ogl_renderer_draw_view(operation->renderer->renderer, operation->view);
+    return operation->fail ? result == -1 : result == 0;
+}
+
+static bool opengl_partial_frame_work_fixture(void)
+{
+    platform_renderer_fixture renderer;
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    boxrig_ui_view_config view_config = boxrig_ui_view_config_default();
+    boxrig_terminal *terminal = NULL;
+    boxrig_ui_model *model = NULL;
+    boxrig_ui_view *view = NULL;
+    config.rows = 5;
+    config.columns = 8;
+    CHECK(create_platform_renderer(&renderer));
+    CHECK(size_platform_renderer(&renderer, config.rows, config.columns));
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_create(model, &view_config, &view) == BOXRIG_UI_OK);
+    CHECK(feed_bytes(terminal, "\033[?25l", 6));
+    CHECK(draw_platform_view(&renderer, view, NULL));
+    static const char update[] = "\033[1;1H\033[41m  \033[3;1H\033[42m  \033[5;1H\033[44m  ";
+    CHECK(feed_bytes(terminal, update, sizeof(update) - 1));
+    CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+    partial_frame_operation operation = {&renderer, view, false};
+    opengl_host_work before = opengl_host_get_work(renderer.host);
+    CHECK(opengl_host_test_operation_state(renderer.host,
+        draw_partial_frame_operation, &operation));
+    opengl_host_work after = opengl_host_get_work(renderer.host);
+    fprintf(stderr, "OpenGL partial frame target checks: %zu\n",
+        after.target_checks - before.target_checks);
+    CHECK(after.target_checks - before.target_checks == 1);
+    /* Separated dirty rows must not erase the untouched rows between them. */
+    for (size_t row = 0; row < config.rows; row++) {
+        platform_rgb color;
+        CHECK(get_platform_pixel(&renderer, renderer.cell_width / 2,
+            row * renderer.cell_height + renderer.cell_height / 2, &color));
+        if (row == 0) CHECK(color.red > color.green && color.red > color.blue);
+        else if (row == 2) CHECK(color.green > color.red && color.green > color.blue);
+        else if (row == 4) CHECK(color.blue > color.red && color.blue > color.green);
+        else CHECK(color.red == color.green && color.green == color.blue);
+    }
+    boxrig_ui_dirty dirty = {0};
+    dirty.row_count = config.rows;
+    dirty.column_count = config.columns;
+    CHECK(boxrig_ui_view_invalidate(view, BOXRIG_UI_DIRTY_PRESENT, dirty) == BOXRIG_UI_OK);
+    operation.fail = true;
+    CHECK(opengl_host_test_operation_state(renderer.host,
+        draw_partial_frame_operation, &operation));
+    CHECK(boxrig_ui_view_frame_requested(view));
+    operation.fail = false;
+    CHECK(opengl_host_test_operation_state(renderer.host,
+        draw_partial_frame_operation, &operation));
+    CHECK(!boxrig_ui_view_frame_requested(view));
+    boxrig_ui_view_destroy(view);
+    boxrig_ui_model_destroy(model);
+    boxrig_terminal_destroy(terminal);
+    destroy_platform_renderer(&renderer);
+    return true;
+}
+
 static bool opengl_glyph_position_reuse_fixture(void)
 {
     boxrig_terminal_config terminal_config = boxrig_terminal_config_default();
@@ -2752,7 +2824,8 @@ int main(void)
     if (!pango_cairo_retained_presentation_fixture()) return 1;
 #endif
 #if defined(BOXRIG_TEST_FRONTEND_OPENGL)
-    if (!opengl_multiline_image_alpha_fixture() ||
+    if (!opengl_partial_frame_work_fixture() ||
+        !opengl_multiline_image_alpha_fixture() ||
         !opengl_composition_text_fixture() ||
         !opengl_glyph_position_reuse_fixture() ||
         !opengl_glyph_cache_pressure_fixture() ||

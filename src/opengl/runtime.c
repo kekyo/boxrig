@@ -132,6 +132,8 @@ struct boxrig_gl_runtime {
     GLuint texture;
     GLuint sampler;
     uint64_t target_generation;
+    uint32_t target_width;
+    uint32_t target_height;
     bool target_active;
     bool srgb_write_control;
 };
@@ -1275,6 +1277,8 @@ boxrig_gl_status boxrig_gl_runtime_begin_target(
             error);
         return BOXRIG_GL_API_FAILURE;
     }
+    runtime->target_width = target->width;
+    runtime->target_height = target->height;
     runtime->target_active = true;
     set_diagnostic(
         diagnostic_out,
@@ -1282,6 +1286,34 @@ boxrig_gl_status boxrig_gl_runtime_begin_target(
         0,
         0,
         "borrowed target is active");
+    return BOXRIG_GL_OK;
+}
+
+boxrig_gl_status boxrig_gl_runtime_set_clip(
+    boxrig_gl_runtime *runtime,
+    const boxrig_gl_clip *clip,
+    boxrig_gl_diagnostic *diagnostic_out)
+{
+    if (runtime == NULL || !runtime->target_active || clip == NULL ||
+        clip->width == 0 || clip->height == 0 ||
+        clip->x > runtime->target_width || clip->y > runtime->target_height ||
+        clip->width > runtime->target_width - clip->x ||
+        clip->height > runtime->target_height - clip->y) {
+        set_diagnostic(diagnostic_out, BOXRIG_GL_INVALID_ARGUMENT, 0, 0,
+            "an active target and bounded nonempty clip are required");
+        return BOXRIG_GL_INVALID_ARGUMENT;
+    }
+    runtime->gl.Scissor((GLint)clip->x,
+        (GLint)(runtime->target_height - clip->y - clip->height),
+        (GLsizei)clip->width, (GLsizei)clip->height);
+    runtime->counters.change_count++;
+    GLenum error = runtime->gl.GetError();
+    if (error != GL_NO_ERROR) {
+        set_diagnostic(diagnostic_out, BOXRIG_GL_API_FAILURE, error, 0,
+            "OpenGL clip change failed");
+        return BOXRIG_GL_API_FAILURE;
+    }
+    set_diagnostic(diagnostic_out, BOXRIG_GL_OK, 0, 0, "target clip changed");
     return BOXRIG_GL_OK;
 }
 

@@ -295,6 +295,22 @@ boxrig_gl_status boxrig_gl_runtime_begin_target(
     boxrig_gl_diagnostic *diagnostic_out);
 
 /**
+ * Changes the clip within an active borrowed target without saving caller state.
+ *
+ * Submit pending draws before changing the clip. The matching end_target call
+ * restores the caller's original scissor along with the other saved state.
+ *
+ * @param runtime Runtime with an active target on its current context.
+ * @param clip Nonempty top-left-origin rectangle within the active target.
+ * @param diagnostic_out Optional bounded failure diagnostic.
+ * @return A borrowed-context OpenGL status; invalid clips leave state unchanged.
+ */
+boxrig_gl_status boxrig_gl_runtime_set_clip(
+    boxrig_gl_runtime *runtime,
+    const boxrig_gl_clip *clip,
+    boxrig_gl_diagnostic *diagnostic_out);
+
+/**
  * Restores the caller state saved by the matching begin call.
  *
  * @param runtime Runtime with an active target transaction.
