@@ -7,3 +7,6 @@ $(BUILD_DIR)/tests/performance/plan18_region_bench: tests/performance/plan18_reg
 
 $(BUILD_DIR)/tests/performance/plan18_cairo_region_bench: tests/performance/plan18_region_bench.c tests/test_ui_platform_fixture.c src/pangocairo/renderer.c $(PANGO_CANDIDATE_OBJECT) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests/performance
 	$(CC) $(CPPFLAGS) -DBOXRIG_PLAN18_CAIRO=1 -Isrc $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(PANGO_CAIRO_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< src/pangocairo/renderer.c $(PANGO_CANDIDATE_OBJECT) $(UI_LIBRARY) $(LIBRARY) $(PANGO_CAIRO_LIBS) -o $@
+
+$(BUILD_DIR)/tests/performance/plan18_gtk_large_copy: tests/performance/plan18_gtk_large_copy.c src/gtk/gl_surface.c src/gtk/gl_area.c $(OPENGL_RENDERER_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests/performance
+	$(CC) $(CPPFLAGS) -DBOXRIG_PLAN18_TRACE_BUILD=1 -Iinclude -Isrc $(GTK3_CPPFLAGS) $$(pkg-config --cflags epoxy) $(CFLAGS) $(PROJECT_CFLAGS) $< src/gtk/gl_area.c src/gtk/gl_surface.c $(OPENGL_RENDERER_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK3_LIBS) $$(pkg-config --libs epoxy) -lm -o $@
