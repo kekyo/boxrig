@@ -1,0 +1,12 @@
+prefix={{prefix}}
+libdir={{libdir}}
+includedir={{includedir}}
+
+Name: boxrig-x11
+Description: X11 retained terminal presentation for boxrig
+Version: {{version}}
+Requires: boxrig-ui, x11, xrender
+Requires.private: xcomposite, xfixes, gio-2.0, pango >= 1.50, pangocairo, pangoft2, cairo >= 1.18, fontconfig
+Libs: -L${libdir} -lboxrig-x11
+Libs.private: -lm
+Cflags: -I${includedir}

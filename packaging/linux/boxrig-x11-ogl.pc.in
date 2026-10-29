@@ -1,0 +1,12 @@
+prefix={{prefix}}
+libdir={{libdir}}
+includedir={{includedir}}
+
+Name: boxrig-x11-ogl
+Description: EGL/OpenGL X11 terminal component for boxrig
+Version: {{version}}
+Requires: boxrig-x11
+Requires.private: boxrig-render-ogl, egl, gl
+Libs: -L${libdir} -lboxrig-x11-ogl
+Libs.private: -lpthread -lm
+Cflags: -I${includedir}

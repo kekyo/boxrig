@@ -1,0 +1,11 @@
+prefix={{prefix}}
+libdir={{libdir}}
+includedir={{includedir}}
+
+Name: boxrig-background-gtk4
+Description: Optional GTK 4 toplevel background effects for boxrig
+Version: {{version}}
+Requires: gtk4 >= 4.18
+Requires.private: boxrig-background-wayland
+Libs: -L${libdir} -lboxrig-background-gtk4
+Cflags: -I${includedir}

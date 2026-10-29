@@ -1,0 +1,10 @@
+prefix={{prefix}}
+libdir={{libdir}}
+includedir={{includedir}}
+
+Name: boxrig-background-wayland
+Description: Host-owned Wayland background effects for boxrig
+Version: {{version}}
+Requires: wayland-client >= 1.22
+Libs: -L${libdir} -lboxrig-background-wayland
+Cflags: -I${includedir}

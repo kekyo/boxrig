@@ -81,12 +81,12 @@ for specification in \
     'boxrig-wayland-ogl:wayland/test_wayland_opengl_package.c'; do
     package=${specification%%:*}
     source=${specification#*:}
-    # The other frontends remain static and need their private dependencies.
-    mode=()
-    if [[ "$package" != boxrig-gtk* ]]; then mode=(--static); fi
+    # Consume each Linux frontend through its shared-library metadata.
     "$compiler" -std=c99 -Wall -Wextra -Werror "$repository/tests/$source" \
-        $(pkg-config --cflags --libs "${mode[@]}" "$package") \
+        $(pkg-config --cflags --libs "$package") \
         '-Wl,-rpath,$ORIGIN/../lib' -o "$sdk/bin/$package-consumer"
+    readelf -d "$sdk/bin/$package-consumer" > "$root/$package.dynamic"
+    grep -Fq "[lib$package.so.0]" "$root/$package.dynamic"
     env -u LD_LIBRARY_PATH LD_BIND_NOW=1 "$sdk/bin/$package-consumer"
 done
 PKG_CONFIG_PATH="$sdk/lib/pkgconfig" pkg-config --exists \
