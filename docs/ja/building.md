@@ -109,11 +109,39 @@ pkg-config --cflags --libs boxrig-ui boxrig-posix
 公開APIはインストールしたヘッダーに宣言された関数です。`BOXRIG_PRIVATE_0`のシンボルはアプリケーションから使用しません。
 同梱のlibpng・zlib・utf8procは公開されず、アプリケーションやGTKが使うcodecと独立しています。
 
-GTKも共有版にする場合は`make shared`、インストールには`make install-shared`を使います。
-GTK3だけなら`shared-gtk3`と`install-shared-gtk3`、GTK4だけなら末尾を`gtk4`に置き換えます。
-いずれも基礎4ライブラリを含みます。`GTK_OPENGL=0`でCairoだけの構成も選択できます。
-配布パッケージのLinux SDKには、この6つの共有ライブラリと静的ライブラリが含まれます。
-生成される6つの`.pc`の版は`BOXRIG_VERSION`で指定でき、配布パッケージでは`screw-up`が取得した版になります。
+Linux向けの全15種類を共有版で使う場合は、次を実行します。
+
+```sh
+make shared
+make install-shared PREFIX="$HOME/.local"
+PKG_CONFIG_PATH="$HOME/.local/lib/pkgconfig" pkg-config --cflags --libs boxrig-x11-ogl
+```
+
+`make native`単独では静的版を生成します。共有版には上記の`shared`を指定してください。
+配布パッケージのLinux SDKには、次の全15種類の共有ライブラリと静的ライブラリが入ります。
+表の名前には`lib`と`.so.0`が付きます。リンク時に使う`.so`も同梱します。
+
+| 用途 | ライブラリ名 |
+| --- | --- |
+| 基礎 | `boxrig`、`boxrig-ui`、`boxrig-session`、`boxrig-posix` |
+| GTKウィジェット | `boxrig-gtk3`、`boxrig-gtk4` |
+| X11・Wayland | `boxrig-x11`、`boxrig-wayland` |
+| OpenGL描画 | `boxrig-render-ogl`、`boxrig-x11-ogl`、`boxrig-wayland-ogl` |
+| 通知・背景効果 | `boxrig-notification`、`boxrig-background-wayland`、`boxrig-background-gtk3`、`boxrig-background-gtk4` |
+
+一部の構成だけを使う場合は、次のターゲットを指定します。必要なboxrigの依存ライブラリも含まれます。
+
+| 必要な構成 | ビルド | インストール |
+| --- | --- | --- |
+| 基礎4種類 | `shared-base` | `install-shared-base` |
+| GTK3またはGTK4 | `shared-gtk3`または`shared-gtk4` | `install-shared-gtk3`または`install-shared-gtk4` |
+| X11・Wayland | `shared-native` | `install-shared-native` |
+| OpenGLとX11・Wayland | `shared-opengl` | `install-shared-opengl` |
+| 通知・背景効果とX11・Wayland | `shared-effects` | `install-shared-effects` |
+
+GTKウィジェットは`GTK_OPENGL=0`でCairoだけの構成も選択できます。
+生成する`.pc`のバージョンは`BOXRIG_VERSION`で指定でき、配布パッケージでは`screw-up`が取得したバージョンになります。
+pkg-config名は上のライブラリ名と同じです。共有リンクには`pkg-config --cflags --libs`、静的リンクに必要な依存も取得する場合には`--static`を追加します。
 
 ## Windows向けにクロスビルドする
 
