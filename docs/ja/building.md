@@ -264,9 +264,10 @@ export PKG_CONFIG_PATH="$PWD/build/sdk-gtk4/lib/pkgconfig${PKG_CONFIG_PATH:+:$PK
 pkg-config --cflags --libs --static boxrig-gtk4
 ```
 
-現在のboxrigライブラリの多くは静的アーカイブです。
-`--static`を付けると、アーカイブに必要な依存ライブラリも取得できます。
+上記の個別インストールターゲットは静的アーカイブを配置します。
+`--static`を付けると、アーカイブに必要な依存ライブラリも取得できます。Linuxで共有版も使う場合は`install-shared`を選んでください。
 コマンドに表示されるシステムライブラリの開発パッケージも必要です。
+Ubuntu 24.04でGTKなどの静的依存をリンクする場合は、D-Busが指定する`libsystemd`を解決するため、[`libsystemd-dev`](https://packages.ubuntu.com/noble/libsystemd-dev)も導入してください。
 
 Windows向けはホスト側のライブラリを混ぜないよう、対象のインストール先だけを指定します。
 

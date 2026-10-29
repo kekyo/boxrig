@@ -263,9 +263,10 @@ export PKG_CONFIG_PATH="$PWD/build/sdk-gtk4/lib/pkgconfig${PKG_CONFIG_PATH:+:$PK
 pkg-config --cflags --libs --static boxrig-gtk4
 ```
 
-Most current boxrig libraries are static archives.
-Use `--static` to include the dependencies those archives require.
+The individual installation targets above install static archives.
+Use `--static` to include the dependencies those archives require. Choose `install-shared` to also install shared libraries on Linux.
 You also need development packages for the system libraries listed by the command.
+When linking static dependencies for GTK and related libraries on Ubuntu 24.04, also install [`libsystemd-dev`](https://packages.ubuntu.com/noble/libsystemd-dev) to resolve the `libsystemd` dependency specified by D-Bus.
 
 For Windows, point pkg-config only at the target installation to avoid mixing in host libraries.
 
