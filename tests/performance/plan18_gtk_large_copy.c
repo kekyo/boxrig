@@ -46,6 +46,14 @@ static gboolean render(GtkGLArea *area, GdkGLContext *context, gpointer data)
     CHECK(boxrig_gtk_gl_surface_create(&config, &surface, &state) == BOXRIG_UI_OK);
     CHECK(boxrig_gtk_gl_surface_draw(surface, test->view, NULL, &state) == BOXRIG_UI_OK);
     CHECK(boxrig_gtk_gl_surface_present(surface, &destination, &state) == BOXRIG_UI_OK);
+    /* Settle the first edited row before collecting one-row samples. */
+    feed(test, "\033[23;2HP");
+    CHECK(boxrig_gtk_gl_surface_draw(surface, test->view, NULL, &state) == BOXRIG_UI_OK);
+    CHECK(boxrig_gtk_gl_surface_present(surface, &destination, &state) == BOXRIG_UI_OK);
+    unsigned char primer_pixel[4];
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, destination.draw_framebuffer);
+    glReadPixels(0, 0, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, primer_pixel);
+    CHECK(glGetError() == GL_NO_ERROR);
     puts("case\titeration\tdraw_cpu_us\tcopy_cpu_us\trows\tcells");
     for (unsigned int kind = 0; kind < 3; kind++) {
         for (unsigned int iteration = 0; iteration < 20; iteration++) {
@@ -74,6 +82,14 @@ static gboolean render(GtkGLArea *area, GdkGLContext *context, gpointer data)
             CHECK(boxrig_gtk_gl_surface_present(surface, &destination, &state) == BOXRIG_UI_OK);
             gint64 copy_us = g_get_monotonic_time() - started;
             CHECK(boxrig_gtk_gl_surface_get_statistics(surface, &after) == 0);
+            if ((kind == 0 && (after.row_raster_count - before.row_raster_count != 1 ||
+                    after.cell_raster_count - before.cell_raster_count != 193)) ||
+                (kind != 0 && (after.row_raster_count - before.row_raster_count != 45 ||
+                    after.cell_raster_count - before.cell_raster_count != 8685))) {
+                fprintf(stderr, "plan18 large_copy unexpected raster work kind=%u iteration=%u\n",
+                    kind, iteration);
+                abort();
+            }
             printf("%s\t%u\t%" G_GINT64_FORMAT "\t%" G_GINT64_FORMAT "\t%zu\t%zu\n",
                 kind == 0 ? "one_row" : kind == 1 ? "all_rows_dirty" : "full_frame",
                 iteration,
