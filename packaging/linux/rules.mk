@@ -32,7 +32,7 @@ shared-base: $(if $(BOXRIG_PREGENERATED_PKGCONFIG),,codegen-tools)
 	+$(MAKE) BUILD_DIR="$(BUILD_DIR)/shared" CODEGEN_DIR="$(CODEGEN_DIR)" BOXRIG_NATIVE_SHARED=1 _shared-base
 
 _shared-base: $(SHARED_BASE_LINKS) $(SHARED_BASE_METADATA)
-shared: shared-base
+shared: shared-opengl shared-effects
 	+$(MAKE) BUILD_DIR="$(BUILD_DIR)/shared" CODEGEN_DIR="$(CODEGEN_DIR)" BOXRIG_NATIVE_SHARED=1 _shared-gtk3 _shared-gtk4
 shared-gtk3 shared-gtk4: shared-%: shared-base
 	+$(MAKE) BUILD_DIR="$(BUILD_DIR)/shared" CODEGEN_DIR="$(CODEGEN_DIR)" BOXRIG_NATIVE_SHARED=1 _shared-$*
@@ -152,7 +152,7 @@ define install_shared_gtk
 	$(INSTALL) -m 644 $(SHARED_INSTALL_PKGCONFIG_DIR)/boxrig-$(1).pc $(DESTDIR)$(PKGCONFIGDIR)
 endef
 
-install-shared: shared install-shared-base
+install-shared: shared install-shared-opengl install-shared-effects
 	$(call install_shared_gtk,gtk3)
 	$(call install_shared_gtk,gtk4)
 install-shared-gtk3 install-shared-gtk4: install-shared-%: shared-% install-shared-base
@@ -217,3 +217,8 @@ test-shared-gtk:
 test: test-shared-prebuilt
 test-shared-prebuilt:
 	bash tests/shared/check_prebuilt.sh "$(MAKE)"
+
+.PHONY: test-shared-release
+test: test-shared-release
+test-shared-release:
+	bash tests/shared/check_release.sh "$(MAKE)"

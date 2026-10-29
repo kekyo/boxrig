@@ -50,7 +50,9 @@ if [ -n "$destination" ]; then
         "$sdk/share/licenses/boxrig" "$sdk/share/boxrig/examples"
     printf 'library\n' > "$sdk/lib/libboxrig.a"
     if [[ " $* " == *' install-shared '* ]]; then
-        for name in boxrig boxrig-ui boxrig-session boxrig-posix boxrig-gtk3 boxrig-gtk4; do
+        for name in boxrig boxrig-ui boxrig-session boxrig-posix boxrig-gtk3 boxrig-gtk4 \
+            boxrig-x11 boxrig-wayland boxrig-render-ogl boxrig-x11-ogl boxrig-wayland-ogl \
+            boxrig-notification boxrig-background-wayland boxrig-background-gtk3 boxrig-background-gtk4; do
             printf 'library\n' > "$sdk/lib/lib$name.a"
             printf 'shared library\n' > "$sdk/lib/lib$name.so.0"
             ln -s "lib$name.so.0" "$sdk/lib/lib$name.so"
@@ -106,6 +108,11 @@ test -x "$root/$linux_name/bin/boxrig_emitter"
 test -s "$root/$linux_name/lib/libboxrig-session.a"
 test -s "$root/$linux_name/lib/libboxrig-gtk3.so.0"
 test -L "$root/$linux_name/lib/libboxrig.so"
+for name in x11 wayland render-ogl x11-ogl wayland-ogl notification \
+    background-wayland background-gtk3 background-gtk4; do
+    test -s "$root/$linux_name/lib/libboxrig-$name.so.0"
+    test -L "$root/$linux_name/lib/libboxrig-$name.so"
+done
 test ! -e "$root/$linux_name/share/boxrig/examples"
 test ! -e "$root/$linux_name/share/licenses/boxrig/README_ja.md"
 test ! -e "$project/artifacts/boxrig-0.1.0-win32-amd64.zip"

@@ -17,11 +17,12 @@ WAYLAND_LICENSE_XMLS := $(WAYLAND_PROTOCOL_XMLS) $(BACKGROUND_WAYLAND_XML)
 WAYLAND_LICENSE_NOTICES := $(BUILD_DIR)/generated/licenses/Wayland-protocols-NOTICES.md
 CODEGEN_DIR := $(BUILD_DIR)/tools/codegen
 CODEGEN_TOOLS := $(addprefix $(CODEGEN_DIR)/,generate-wayland-notices.mjs generate-shift-jis.mjs generate-linux-metadata.mjs)
+LINUX_PACKAGE_METADATA := $(patsubst packaging/linux/%.pc.in,%,$(wildcard packaging/linux/*.pc.in))
 
 .PHONY: codegen-tools package-codegen
 codegen-tools: $(CODEGEN_TOOLS)
 package-codegen: codegen-tools $(WAYLAND_LICENSE_NOTICES)
-	BOXRIG_GTK_OPENGL=1 node $(CODEGEN_DIR)/generate-linux-metadata.mjs "$(BUILD_DIR)/generated/pkgconfig" "$(or $(BOXRIG_VERSION),0.0.0)" /usr /usr/lib /usr/include /usr/lib/pkgconfig boxrig boxrig-ui boxrig-session boxrig-posix boxrig-gtk3 boxrig-gtk4
+	BOXRIG_GTK_OPENGL=1 node $(CODEGEN_DIR)/generate-linux-metadata.mjs "$(BUILD_DIR)/generated/pkgconfig" "$(or $(BOXRIG_VERSION),0.0.0)" /usr /usr/lib /usr/include /usr/lib/pkgconfig $(LINUX_PACKAGE_METADATA)
 
 $(CODEGEN_TOOLS) &: $(wildcard tools/codegen/src/*.ts) tools/codegen/vite.config.ts tools/codegen/tsconfig.json tools/codegen/package.json tools/codegen/package-lock.json
 	@test -d tools/codegen/node_modules || { echo 'Run npm ci --prefix tools/codegen to install code generation dependencies.' >&2; exit 1; }
