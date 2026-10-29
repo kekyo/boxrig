@@ -4,6 +4,7 @@
 
 #if defined(BOXRIG_TEST_RENDER_OGL)
 #include <boxrig/render/opengl.h>
+#include <boxrig/render/runtime.h>
 
 int main(void)
 {
@@ -15,6 +16,8 @@ int main(void)
            BOXRIG_GL_INVALID_ARGUMENT);
     assert(renderer == NULL);
     assert(diagnostic.status == BOXRIG_GL_INVALID_ARGUMENT);
+    assert(boxrig_gl_runtime_set_clip(NULL, NULL, NULL) ==
+           BOXRIG_GL_INVALID_ARGUMENT);
     puts("PASS installed OpenGL renderer diagnostics without a context");
     return 0;
 }
