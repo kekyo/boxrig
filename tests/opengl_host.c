@@ -28,6 +28,7 @@ typedef enum host_wsi {
 } host_wsi;
 
 struct opengl_host {
+    opengl_host_work work;
     host_wsi wsi;
     bool is_gles;
     bool srgb_write_control;
@@ -780,6 +781,30 @@ void opengl_host_destroy(opengl_host *host)
     free(host);
 }
 
+opengl_host_work opengl_host_get_work(opengl_host *host)
+{
+    return host->work;
+}
+
+static GLenum APIENTRY counted_framebuffer_status(GLenum target)
+{
+    active_host->work.target_checks++;
+    return glCheckFramebufferStatus(target);
+}
+
+static void APIENTRY counted_attribute_pointer(GLuint index, GLint size,
+    GLenum type, GLboolean normalized, GLsizei stride, const void *pointer)
+{
+    active_host->work.attribute_pointers++;
+    glVertexAttribPointer(index, size, type, normalized, stride, pointer);
+}
+
+static GLint APIENTRY counted_uniform_location(GLuint program, const GLchar *name)
+{
+    active_host->work.uniform_lookups++;
+    return glGetUniformLocation(program, name);
+}
+
 boxrig_gl_function opengl_host_resolve(void *context, const char *name)
 {
     opengl_host *host = context;
@@ -789,6 +814,12 @@ boxrig_gl_function opengl_host_resolve(void *context, const char *name)
          strcmp(host->blocked_function, name) == 0)) {
         return NULL;
     }
+    if (strcmp(name, "glCheckFramebufferStatus") == 0)
+        return (boxrig_gl_function)counted_framebuffer_status;
+    if (strcmp(name, "glVertexAttribPointer") == 0)
+        return (boxrig_gl_function)counted_attribute_pointer;
+    if (strcmp(name, "glGetUniformLocation") == 0)
+        return (boxrig_gl_function)counted_uniform_location;
     if (strcmp(name, "glGetString") == 0) {
         return generic_function_pointer((void (*)(void))overridden_gl_get_string);
     }
@@ -1146,6 +1177,23 @@ static void destroy_sentinel_state(
     glDeleteFramebuffers(1, &draw_framebuffer);
 }
 
+bool opengl_host_test_operation_state(opengl_host *host,
+    bool (*operation)(void *context), void *context)
+{
+    GLuint draw_framebuffer, read_framebuffer, program, vertex_array;
+    GLuint buffers[2], textures[2], samplers[2];
+    host_gl_state before, after;
+    if (!prepare_sentinel_state(host, &draw_framebuffer, &read_framebuffer,
+            &program, &vertex_array, buffers, textures, samplers)) return false;
+    capture_state(host, &before);
+    bool success = operation(context);
+    capture_state(host, &after);
+    success = success && same_state(&before, &after);
+    destroy_sentinel_state(draw_framebuffer, read_framebuffer, program,
+        vertex_array, buffers, textures, samplers);
+    return success;
+}
+
 bool opengl_host_test_state_contract(
     opengl_host *host,
     boxrig_gl_runtime *runtime,
@@ -1188,6 +1236,12 @@ bool opengl_host_test_state_contract(
             &diagnostic) != BOXRIG_GL_OK) {
         goto done;
     }
+    boxrig_gl_clip invalid_clip = {target->width, 0, 1, 1};
+    if (boxrig_gl_runtime_set_clip(runtime, &invalid_clip, NULL) !=
+            BOXRIG_GL_INVALID_ARGUMENT) goto done;
+    clip = (boxrig_gl_clip){2, 3, 11, 7};
+    if (boxrig_gl_runtime_set_clip(runtime, &clip, &diagnostic) != BOXRIG_GL_OK)
+        goto done;
     glGetIntegerv(GL_SCISSOR_BOX, current_scissor);
     if (current_scissor[0] != (GLint)clip.x ||
         current_scissor[1] !=

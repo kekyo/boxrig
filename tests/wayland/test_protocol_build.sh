@@ -48,7 +48,7 @@ pinned_revision=$(git -C "$source_root" rev-parse HEAD)
 
 for path in Makefile tools/codegen/rules.mk packaging/licenses/licenses.mk \
     tests/headers/rules.mk tests/performance/phase_probe.mk \
-    tests/performance/recognition.mk tests/x11/transfer.mk \
+    tests/performance/recognition.mk tests/performance/plan18.mk tests/x11/transfer.mk \
     tests/wayland/transfer.mk tests/win32/transfer.mk tests/gtk/transfer.mk \
     packaging/linux/rules.mk; do
     mkdir -p "$project_root/$(dirname "$path")"

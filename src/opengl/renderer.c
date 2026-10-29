@@ -178,6 +178,7 @@ struct boxrig_ogl_renderer {
     bool full_redraw;
     bool composition_state_valid;
     bool frame_active;
+    bool target_active;
     bool frame_drew_commands;
 };
 
@@ -3028,16 +3029,17 @@ static int begin_clip(
     boxrig_ogl_renderer *renderer,
     const boxrig_gl_clip *clip)
 {
-    renderer->batch.active = false;
-    renderer->batch.count = 0;
-    return boxrig_gl_runtime_begin_target(
-               renderer->runtime,
-               renderer->config.runtime.context_generation,
-               &renderer->target,
-               clip,
-               NULL) == BOXRIG_GL_OK
-               ? 0
-               : -1;
+    /* Each clip is flushed before switching scissor. Borrow caller state once
+     * for the whole frame, including the scrollbar and candidate overlay. */
+    if (renderer->target_active) {
+        return boxrig_gl_runtime_set_clip(renderer->runtime, clip, NULL) ==
+            BOXRIG_GL_OK ? 0 : -1;
+    }
+    if (boxrig_gl_runtime_begin_target(renderer->runtime,
+            renderer->config.runtime.context_generation, &renderer->target,
+            clip, NULL) != BOXRIG_GL_OK) return -1;
+    renderer->target_active = true;
+    return 0;
 }
 
 static int end_clip(boxrig_ogl_renderer *renderer, bool discard_batch)
@@ -3049,12 +3051,6 @@ static int end_clip(boxrig_ogl_renderer *renderer, bool discard_batch)
     }
     renderer->batch.count = 0;
     renderer->batch.active = false;
-    if (boxrig_gl_runtime_end_target(
-            renderer->runtime,
-            renderer->config.runtime.context_generation,
-            NULL) != BOXRIG_GL_OK) {
-        result = -1;
-    }
     return result;
 }
 
@@ -3434,6 +3430,14 @@ begin_frame:
     result = 0;
 
 cleanup:
+    renderer->batch.count = 0;
+    renderer->batch.active = false;
+    if (renderer->target_active) {
+        if (boxrig_gl_runtime_end_target(renderer->runtime,
+                renderer->config.runtime.context_generation, NULL) != BOXRIG_GL_OK)
+            result = -1;
+        renderer->target_active = false;
+    }
     free(candidate.rgba);
     free(placements);
     return result;

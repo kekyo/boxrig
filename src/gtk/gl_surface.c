@@ -7,6 +7,7 @@
 #include "gl_area.h"
 
 #include <epoxy/gl.h>
+#include <glib.h>
 #include <limits.h>
 #include <stdlib.h>
 
@@ -21,7 +22,74 @@ struct boxrig_gtk_gl_surface {
     bool srgb_write_control;
     bool pending;
     bool complete;
+#ifdef BOXRIG_PLAN18_TRACE_BUILD
+    bool trace_initialized;
+    GLuint trace_queries[16];
+    const char *trace_phases[8];
+    size_t trace_serials[8];
+    size_t trace_serial;
+#endif
 };
+
+#ifdef BOXRIG_PLAN18_TRACE_BUILD
+/* Timestamp results are read only after availability, never by waiting. A full
+ * ring drops a sample rather than reusing a query still owned by the GPU. */
+static void trace_collect(boxrig_gtk_gl_surface *surface)
+{
+    GLint previous_buffer = 0;
+    bool query_buffers = epoxy_gl_version() >= 44 ||
+        epoxy_has_gl_extension("GL_ARB_query_buffer_object");
+    if (query_buffers) {
+        glGetIntegerv(GL_QUERY_BUFFER_BINDING, &previous_buffer);
+        glBindBuffer(GL_QUERY_BUFFER, 0);
+    }
+    for (size_t i = 0; i < 8; i++) {
+        if (surface->trace_phases[i] == NULL) continue;
+        GLint available = GL_FALSE;
+        glGetQueryObjectiv(surface->trace_queries[i * 2 + 1],
+            GL_QUERY_RESULT_AVAILABLE, &available);
+        if (!available) continue;
+        GLuint64 start, end;
+        glGetQueryObjectui64v(surface->trace_queries[i * 2], GL_QUERY_RESULT, &start);
+        glGetQueryObjectui64v(surface->trace_queries[i * 2 + 1], GL_QUERY_RESULT, &end);
+        g_printerr("plan18 gpu_phase=%s gpu_serial=%zu gpu_elapsed_ns=%" G_GUINT64_FORMAT "\n",
+            surface->trace_phases[i], surface->trace_serials[i], (guint64)(end - start));
+        surface->trace_phases[i] = NULL;
+    }
+    if (query_buffers) glBindBuffer(GL_QUERY_BUFFER, (GLuint)previous_buffer);
+}
+
+static int trace_begin(boxrig_gtk_gl_surface *surface, const char *phase)
+{
+    if (g_getenv("BOXRIG_PLAN18_TRACE") == NULL) return -1;
+    if (!surface->trace_initialized) {
+        surface->trace_initialized = true;
+        g_printerr("plan18 gl_vendor=%s gl_renderer=%s gl_version=%s\n",
+            glGetString(GL_VENDOR), glGetString(GL_RENDERER), glGetString(GL_VERSION));
+        GLint bits = 0;
+        if (epoxy_is_desktop_gl() && epoxy_gl_version() >= 33)
+            glGetQueryiv(GL_TIMESTAMP, GL_QUERY_COUNTER_BITS, &bits);
+        if (bits == 64) glGenQueries(16, surface->trace_queries);
+        else g_printerr("plan18 gpu_time=unavailable timestamp_bits=%d\n", bits);
+    }
+    if (surface->trace_queries[0] == 0) return -1;
+    trace_collect(surface);
+    for (int i = 0; i < 8; i++) {
+        if (surface->trace_phases[i] != NULL) continue;
+        surface->trace_phases[i] = phase;
+        surface->trace_serials[i] = ++surface->trace_serial;
+        glQueryCounter(surface->trace_queries[i * 2], GL_TIMESTAMP);
+        return i;
+    }
+    g_printerr("plan18 gpu_time=dropped_busy\n");
+    return -1;
+}
+
+static void trace_end(boxrig_gtk_gl_surface *surface, int slot)
+{
+    if (slot >= 0) glQueryCounter(surface->trace_queries[slot * 2 + 1], GL_TIMESTAMP);
+}
+#endif
 
 static bool current(const boxrig_gtk_gl_surface *surface)
 {
@@ -53,6 +121,15 @@ void boxrig_gtk_gl_surface_destroy(boxrig_gtk_gl_surface **surface_pointer)
     (void)boxrig_ogl_renderer_destroy(&surface->renderer,
         surface->runtime.context_generation, NULL);
     if (can_delete) {
+#ifdef BOXRIG_PLAN18_TRACE_BUILD
+        if (surface->trace_queries[0] != 0) {
+            trace_collect(surface);
+            for (size_t i = 0; i < 8; i++)
+                if (surface->trace_phases[i] != NULL)
+                    g_printerr("plan18 gpu_time=uncollected_at_destroy\n");
+            glDeleteQueries(16, surface->trace_queries);
+        }
+#endif
         glDeleteFramebuffers(1, &surface->target.draw_framebuffer);
         glDeleteTextures(1, &surface->texture);
     }
@@ -256,8 +333,19 @@ boxrig_ui_status boxrig_gtk_gl_surface_draw(boxrig_gtk_gl_surface *surface,
             "Could not apply the terminal surface alpha policy", GL_NO_ERROR);
     }
     surface->complete = false;
-    if (boxrig_renderer_lifecycle_prepare_frame(surface->lifecycle, view, composition,
-            surface->target.generation, &surface->token) != BOXRIG_RENDERER_OK) {
+#ifdef BOXRIG_PLAN18_TRACE_BUILD
+    int trace_slot = trace_begin(surface, "draw");
+    gint64 draw_started = g_get_monotonic_time();
+#endif
+    boxrig_renderer_status prepared = boxrig_renderer_lifecycle_prepare_frame(
+        surface->lifecycle, view, composition, surface->target.generation, &surface->token);
+#ifdef BOXRIG_PLAN18_TRACE_BUILD
+    if (g_getenv("BOXRIG_PLAN18_TRACE") != NULL)
+        g_printerr("plan18 draw_cpu_us=%" G_GINT64_FORMAT "\n",
+            g_get_monotonic_time() - draw_started);
+    trace_end(surface, trace_slot);
+#endif
+    if (prepared != BOXRIG_RENDERER_OK) {
         return failure(state, BOXRIG_GTK_RENDER_REASON_DRAW,
             "Retained GL frame preparation failed", GL_NO_ERROR);
     }
@@ -310,8 +398,19 @@ boxrig_ui_status boxrig_gtk_gl_surface_present(boxrig_gtk_gl_surface *surface,
             if (destination->format == BOXRIG_GL_TARGET_SRGB8_ALPHA8) glEnable(GL_FRAMEBUFFER_SRGB);
             else glDisable(GL_FRAMEBUFFER_SRGB);
         }
+#ifdef BOXRIG_PLAN18_TRACE_BUILD
+        int trace_slot = trace_begin(surface, "copy");
+        gint64 blit_started = g_get_monotonic_time();
+#endif
         glBlitFramebuffer(0, 0, (GLint)surface->target.width, (GLint)surface->target.height,
             0, 0, (GLint)destination->width, (GLint)destination->height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+#ifdef BOXRIG_PLAN18_TRACE_BUILD
+        trace_end(surface, trace_slot);
+        if (g_getenv("BOXRIG_PLAN18_TRACE") != NULL)
+            g_printerr("plan18 blit_call_us=%" G_GINT64_FORMAT " pixels=%u\n",
+                g_get_monotonic_time() - blit_started,
+                surface->target.width * surface->target.height);
+#endif
     }
     GLenum error = glGetError();
     if (scissor) glEnable(GL_SCISSOR_TEST);

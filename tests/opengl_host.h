@@ -39,6 +39,16 @@ bool opengl_host_create(
 
 void opengl_host_destroy(opengl_host *host);
 
+/** Observed calls made through the runtime resolver. */
+typedef struct opengl_host_work {
+    size_t target_checks;
+    size_t attribute_pointers;
+    size_t uniform_lookups;
+} opengl_host_work;
+
+/** Returns cumulative runtime work for this context. */
+opengl_host_work opengl_host_get_work(opengl_host *host);
+
 boxrig_gl_function opengl_host_resolve(void *context, const char *name);
 
 bool opengl_host_query_current(
@@ -83,6 +93,10 @@ bool opengl_host_test_state_contract(
     opengl_host *host,
     boxrig_gl_runtime *runtime,
     const boxrig_gl_target *target);
+
+/** Checks caller GL state around a rendering operation, including failures. */
+bool opengl_host_test_operation_state(opengl_host *host,
+    bool (*operation)(void *context), void *context);
 
 bool opengl_host_test_destroy_state(
     opengl_host *host,

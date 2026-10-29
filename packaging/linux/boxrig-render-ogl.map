@@ -12,6 +12,7 @@ BOXRIG_0 {
         boxrig_gl_runtime_get_state_counters;
         boxrig_gl_runtime_insert_fence;
         boxrig_gl_runtime_poll_fence;
+        boxrig_gl_runtime_set_clip;
         boxrig_gl_runtime_set_target_generation;
         boxrig_gl_runtime_upload_texture;
         boxrig_ogl_renderer_apply_transparency_state;
