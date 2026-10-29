@@ -64,6 +64,7 @@ int main(void)
     boxrig_font_specification font = boxrig_font_specification_default();
     boxrig_font_rendering_policy policy = boxrig_font_rendering_policy_default();
     font.size_dip = 23;
+    policy.antialias = BOXRIG_FONT_ANTIALIAS_GRAYSCALE;
     if (boxrig_pango_cairo_renderer_set_font(renderer.renderer, &font, &policy) !=
         BOXRIG_FONT_CATALOG_OK) return 1;
     renderer.cell_width = boxrig_pango_cairo_renderer_cell_width(renderer.renderer);
@@ -75,6 +76,19 @@ int main(void)
         boxrig_ui_view_create(model, &view_config, &view) != BOXRIG_UI_OK ||
         !feed_bytes(terminal, "\033[?25l", 6) ||
         !draw_platform_view(&renderer, view, NULL)) return 1;
+#ifdef BOXRIG_PLAN18_CAIRO
+    fprintf(stderr, "plan18 backend=cairo font_dip=23 antialias=grayscale cell=%ux%u pixels=%zux%zu\n",
+        renderer.cell_width, renderer.cell_height,
+        config.columns * renderer.cell_width, config.rows * renderer.cell_height);
+#else
+    boxrig_gl_capabilities capabilities;
+    if (plan18_runtime == NULL || boxrig_gl_runtime_get_capabilities(
+            plan18_runtime, &capabilities) != BOXRIG_GL_OK) return 1;
+    fprintf(stderr, "plan18 backend=opengl font_dip=23 antialias=grayscale cell=%ux%u pixels=%zux%zu vendor=%s renderer=%s version=%s\n",
+        renderer.cell_width, renderer.cell_height,
+        config.columns * renderer.cell_width, config.rows * renderer.cell_height,
+        capabilities.vendor, capabilities.renderer, capabilities.version);
+#endif
 #ifdef BOXRIG_PLAN18_CAIRO
     puts("case\titeration\tcpu_ns\trows\tcells");
 #else

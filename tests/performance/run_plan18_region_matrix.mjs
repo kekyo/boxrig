@@ -4,6 +4,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 const output = resolve(process.argv[2] ?? 'artifacts/plan18/region-matrix');
+const variants = resolve(process.env.BOXRIG_PLAN18_VARIANTS ?? 'artifacts/plan18');
 const cairo = process.env.BOXRIG_PLAN18_CAIRO === '1';
 mkdirSync(output, { recursive: true });
 const versions = ['baseline', 'step2', 'step3'];
@@ -17,11 +18,12 @@ const median = (values) => {
 for (let round = 0; round < 3; round++) {
   const order = round % 2 === 0 ? versions : [...versions].reverse();
   for (const version of order) {
-    const binary = resolve(`artifacts/plan18/${version}/${cairo ? 'cairo_' : ''}region_bench`);
+    const binary = join(variants, version, `${cairo ? 'cairo_' : ''}region_bench`);
     const path = join(output, `${round}-${version}.tsv`);
     const result = spawnSync(binary, [], { encoding: 'utf8' });
     if (result.status !== 0) throw new Error(`${version} round ${round}: ${result.stderr}`);
     writeFileSync(path, result.stdout);
+    writeFileSync(join(output, `${round}-${version}.stderr.log`), result.stderr);
     const [header, ...lines] = result.stdout.trim().split('\n');
     const keys = header.split('\t');
     for (const line of lines) {

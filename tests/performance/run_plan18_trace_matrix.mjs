@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path';
 
 const root = process.cwd();
 const output = resolve(process.argv[2] ?? 'artifacts/plan18/trace-gpu');
+const variants = resolve(process.env.BOXRIG_PLAN18_VARIANTS ?? 'artifacts/plan18');
 const versions = ['baseline', 'step2', 'step3'];
 const revisions = { baseline: '89548bf', step2: 'e1909c5', step3: 'aae9d33' };
 const peer = join(root, 'build/tests/performance/annotation_gtk_peer');
@@ -18,7 +19,7 @@ for (let round = 0; round < 2; round++) {
       for (const frontend of round === 0 ? versions : [...versions].reverse()) {
         const name = `${round}-${load}-h${history}-${renderer}-${frontend}`;
         const directory = join(output, name);
-        const binary = join(root, `artifacts/plan18/${frontend}/boxrig_term_traced`);
+        const binary = join(variants, frontend, 'boxrig_term_traced');
         const result = spawnSync('bash', [script, binary, peer, probe,
           renderer, String(history), load, 'none', directory], {
           cwd: root,
