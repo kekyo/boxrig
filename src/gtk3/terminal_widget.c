@@ -3466,6 +3466,9 @@ boxrig_ui_status boxrig_gtk3_terminal_widget_frame(
         } else
 #endif
         {
+#ifdef BOXRIG_PLAN18_TRACE_BUILD
+            gint64 cairo_started = g_get_monotonic_time();
+#endif
             if (boxrig_pango_cairo_renderer_draw_view_composition(
                     widget->renderer,
                     widget->view,
@@ -3477,6 +3480,11 @@ boxrig_ui_status boxrig_gtk3_terminal_widget_frame(
                 widget->in_frame = false;
                 return BOXRIG_UI_UNAVAILABLE;
             }
+#ifdef BOXRIG_PLAN18_TRACE_BUILD
+            if (g_getenv("BOXRIG_PLAN18_TRACE") != NULL)
+                g_printerr("plan18 cairo_draw_cpu_us=%" G_GINT64_FORMAT "\n",
+                    g_get_monotonic_time() - cairo_started);
+#endif
             candidate = create_presentation_surface(
                 widget,
                 widget->output_width,
