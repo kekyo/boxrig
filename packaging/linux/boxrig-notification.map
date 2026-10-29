@@ -1,0 +1,11 @@
+BOXRIG_0 {
+    global:
+        boxrig_freedesktop_notifications_create;
+        boxrig_freedesktop_notifications_destroy;
+        boxrig_freedesktop_notifications_dispatch_poll;
+        boxrig_freedesktop_notifications_prepare_poll;
+        boxrig_freedesktop_notifications_process;
+        boxrig_freedesktop_notifications_set_window_state;
+        boxrig_freedesktop_notifications_source_new;
+    local: *;
+};

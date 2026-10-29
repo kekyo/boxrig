@@ -11,11 +11,17 @@ SHARED_GTK_NAMES := boxrig-gtk3 boxrig-gtk4
 SHARED_GTK_LINKS := $(addprefix $(BUILD_DIR)/lib,$(addsuffix .so,$(SHARED_GTK_NAMES)))
 SHARED_GTK_METADATA := $(addprefix $(SHARED_PKGCONFIG_DIR)/,$(addsuffix .pc,$(SHARED_GTK_NAMES)))
 SHARED_NATIVE_NAMES := boxrig-x11 boxrig-wayland
+SHARED_NATIVE_DEPENDENCY_NAMES := boxrig-notification boxrig-background-wayland
 SHARED_NATIVE_LINKS := $(addprefix $(BUILD_DIR)/lib,$(addsuffix .so,$(SHARED_NATIVE_NAMES)))
-SHARED_NATIVE_METADATA := $(addprefix $(SHARED_PKGCONFIG_DIR)/,$(addsuffix .pc,$(SHARED_NATIVE_NAMES)))
+SHARED_NATIVE_METADATA := $(addprefix $(SHARED_PKGCONFIG_DIR)/,$(addsuffix .pc,$(SHARED_NATIVE_NAMES) $(SHARED_NATIVE_DEPENDENCY_NAMES)))
 SHARED_OPENGL_NAMES := boxrig-render-ogl boxrig-x11-ogl boxrig-wayland-ogl
 SHARED_OPENGL_LINKS := $(addprefix $(BUILD_DIR)/lib,$(addsuffix .so,$(SHARED_OPENGL_NAMES)))
 SHARED_OPENGL_METADATA := $(addprefix $(SHARED_PKGCONFIG_DIR)/,$(addsuffix .pc,$(SHARED_OPENGL_NAMES)))
+SHARED_EFFECT_NAMES := boxrig-notification boxrig-background-wayland boxrig-background-gtk3 boxrig-background-gtk4
+SHARED_EFFECT_LINKS := $(addprefix $(BUILD_DIR)/lib,$(addsuffix .so,$(SHARED_EFFECT_NAMES)))
+SHARED_BACKGROUND_GTK4_METADATA_NAME := $(if $(filter pkgconfig/gtk4-legacy/%,$(BACKGROUND_GTK4_PKG_CONFIG)),boxrig-background-gtk4-legacy,boxrig-background-gtk4)
+SHARED_EFFECT_METADATA_NAMES := $(filter-out boxrig-background-gtk4,$(SHARED_EFFECT_NAMES)) $(SHARED_BACKGROUND_GTK4_METADATA_NAME)
+SHARED_EFFECT_METADATA := $(addprefix $(SHARED_PKGCONFIG_DIR)/,$(addsuffix .pc,$(SHARED_EFFECT_METADATA_NAMES)))
 SHARED_LDFLAGS := -shared -Wl,-z,defs,-z,text,--no-undefined-version,-z,origin -Wl,-rpath,'$$ORIGIN'
 SHARED_MAP_FLAGS = -Wl,--version-script=packaging/linux/$(patsubst lib%.so.$(BOXRIG_SOVERSION),%,$(@F)).map -Wl,-soname,$(@F)
 SHARED_ARCHIVE_FLAGS = -Wl,--whole-archive $< -Wl,--no-whole-archive
@@ -43,6 +49,11 @@ shared-opengl: shared-native
 	+$(MAKE) BUILD_DIR="$(BUILD_DIR)/shared" CODEGEN_DIR="$(CODEGEN_DIR)" BOXRIG_NATIVE_SHARED=1 _shared-opengl
 _shared-opengl: $(SHARED_OPENGL_LINKS) $(SHARED_OPENGL_METADATA)
 
+.PHONY: shared-effects _shared-effects install-shared-effects test-shared-effects
+shared-effects: shared-native
+	+$(MAKE) BUILD_DIR="$(BUILD_DIR)/shared" CODEGEN_DIR="$(CODEGEN_DIR)" BOXRIG_NATIVE_SHARED=1 _shared-effects
+_shared-effects: $(SHARED_EFFECT_LINKS) $(SHARED_EFFECT_METADATA)
+
 ifeq ($(BOXRIG_NATIVE_SHARED),1)
 override CFLAGS += -fPIC
 SHARED_COMPILE_SIGNATURE := $(CC) | $(CPPFLAGS) | $(CFLAGS) | $(LDFLAGS) | $(GTK_OPENGL)
@@ -53,6 +64,7 @@ endif
 $(BUILD_DIR)/shared-compile.config: | $(BUILD_DIR)
 	@printf '%s\n' '$(SHARED_COMPILE_SIGNATURE)' > $@
 $(CORE_OBJECTS) $(UTF8PROC_OBJECT) $(LIBPNG_OBJECTS) $(ZLIB_OBJECTS) $(UI_OBJECTS) $(SESSION_OBJECTS) $(POSIX_OBJECTS) $(GTK3_OBJECTS) $(GTK4_OBJECTS) $(X11_OBJECTS) $(WAYLAND_OBJECTS) $(OPENGL_RENDERER_OBJECTS) $(X11_OPENGL_OBJECTS) $(WAYLAND_OPENGL_OBJECTS): $(BUILD_DIR)/shared-compile.config packaging/linux/rules.mk
+$(NOTIFICATION_OBJECTS) $(BUILD_DIR)/background_effect/gtk3.o $(BUILD_DIR)/background_effect/gtk4.o: $(BUILD_DIR)/shared-compile.config packaging/linux/rules.mk
 endif
 
 ifeq ($(BOXRIG_PREGENERATED_PKGCONFIG),)
@@ -67,7 +79,7 @@ $(BUILD_DIR)/shared-metadata.config: | $(BUILD_DIR)
 $(SHARED_BASE_METADATA) &: $(addprefix packaging/linux/,$(addsuffix .pc.in,$(SHARED_BASE_NAMES))) $(CODEGEN_DIR)/generate-linux-metadata.mjs $(BUILD_DIR)/shared-metadata.config
 	node $(CODEGEN_DIR)/generate-linux-metadata.mjs "$(BUILD_DIR)/pkgconfig" "$(BOXRIG_VERSION)" "$(PREFIX)" "$(LIBDIR)" "$(INCLUDEDIR)" "$(PKGCONFIGDIR)" $(SHARED_BASE_NAMES)
 
-$(SHARED_GTK_METADATA) $(SHARED_NATIVE_METADATA) $(SHARED_OPENGL_METADATA): $(BUILD_DIR)/pkgconfig/%.pc: packaging/linux/%.pc.in $(CODEGEN_DIR)/generate-linux-metadata.mjs $(BUILD_DIR)/shared-metadata.config
+$(sort $(SHARED_GTK_METADATA) $(SHARED_NATIVE_METADATA) $(SHARED_OPENGL_METADATA) $(SHARED_EFFECT_METADATA)): $(BUILD_DIR)/pkgconfig/%.pc: packaging/linux/%.pc.in $(CODEGEN_DIR)/generate-linux-metadata.mjs $(BUILD_DIR)/shared-metadata.config
 	BOXRIG_GTK_OPENGL=$(GTK_OPENGL) node $(CODEGEN_DIR)/generate-linux-metadata.mjs "$(BUILD_DIR)/pkgconfig" "$(BOXRIG_VERSION)" "$(PREFIX)" "$(LIBDIR)" "$(INCLUDEDIR)" "$(PKGCONFIGDIR)" $*
 endif
 
@@ -83,7 +95,7 @@ $(BUILD_DIR)/libboxrig-session.so.$(BOXRIG_SOVERSION): $(SESSION_LIBRARY) packag
 $(BUILD_DIR)/libboxrig-posix.so.$(BOXRIG_SOVERSION): $(POSIX_LIBRARY) packaging/linux/boxrig-posix.map $(BUILD_DIR)/libboxrig-session.so packaging/linux/rules.mk
 	$(CC) $(CFLAGS) $(LDFLAGS) $(SHARED_LDFLAGS) $(SHARED_MAP_FLAGS) $(SHARED_ARCHIVE_FLAGS) -L$(BUILD_DIR) -lboxrig-session -lutil -o $@
 
-$(SHARED_BASE_LINKS) $(SHARED_GTK_LINKS) $(SHARED_NATIVE_LINKS) $(SHARED_OPENGL_LINKS): %.so: %.so.$(BOXRIG_SOVERSION)
+$(SHARED_BASE_LINKS) $(SHARED_GTK_LINKS) $(SHARED_NATIVE_LINKS) $(SHARED_OPENGL_LINKS) $(SHARED_EFFECT_LINKS): %.so: %.so.$(BOXRIG_SOVERSION)
 	ln -sfn $(<F) $@
 
 $(BUILD_DIR)/libboxrig-gtk3.so.$(BOXRIG_SOVERSION): $(GTK3_LIBRARY) packaging/linux/boxrig-gtk3.map $(BUILD_DIR)/libboxrig-ui.so packaging/linux/rules.mk
@@ -92,11 +104,11 @@ $(BUILD_DIR)/libboxrig-gtk3.so.$(BOXRIG_SOVERSION): $(GTK3_LIBRARY) packaging/li
 $(BUILD_DIR)/libboxrig-gtk4.so.$(BOXRIG_SOVERSION): $(GTK4_LIBRARY) packaging/linux/boxrig-gtk4.map $(BUILD_DIR)/libboxrig-ui.so packaging/linux/rules.mk
 	$(CC) $(CFLAGS) $(LDFLAGS) $(SHARED_LDFLAGS) $(SHARED_MAP_FLAGS) $(SHARED_ARCHIVE_FLAGS) -L$(BUILD_DIR) -lboxrig-ui -lboxrig $(GTK4_LIBS) $(if $(filter 1,$(GTK_OPENGL)),$(OPENGL_RENDERER_LIBS)) -o $@
 
-$(BUILD_DIR)/libboxrig-x11.so.$(BOXRIG_SOVERSION): $(X11_LIBRARY) packaging/linux/boxrig-x11.map $(BUILD_DIR)/libboxrig-ui.so packaging/linux/rules.mk
-	$(CC) $(CFLAGS) $(LDFLAGS) $(SHARED_LDFLAGS) $(SHARED_MAP_FLAGS) $(SHARED_ARCHIVE_FLAGS) -L$(BUILD_DIR) -lboxrig-ui -lboxrig $(X11_LIBS) -lm -o $@
+$(BUILD_DIR)/libboxrig-x11.so.$(BOXRIG_SOVERSION): $(X11_LIBRARY) packaging/linux/boxrig-x11.map $(BUILD_DIR)/libboxrig-ui.so $(BUILD_DIR)/libboxrig-posix.so $(BUILD_DIR)/libboxrig-notification.so packaging/linux/rules.mk
+	$(CC) $(CFLAGS) $(LDFLAGS) $(SHARED_LDFLAGS) $(SHARED_MAP_FLAGS) $(filter-out $(BUILD_DIR)/notification/freedesktop.o $(BUILD_DIR)/posix/graphics_transport.o,$(X11_OBJECTS)) -L$(BUILD_DIR) -lboxrig-notification -lboxrig-posix -lboxrig-ui -lboxrig $(X11_LIBS) -lm -o $@
 
-$(BUILD_DIR)/libboxrig-wayland.so.$(BOXRIG_SOVERSION): $(WAYLAND_LIBRARY) packaging/linux/boxrig-wayland.map $(BUILD_DIR)/libboxrig-ui.so packaging/linux/rules.mk
-	$(CC) $(CFLAGS) $(LDFLAGS) $(SHARED_LDFLAGS) $(SHARED_MAP_FLAGS) $(SHARED_ARCHIVE_FLAGS) -L$(BUILD_DIR) -lboxrig-ui -lboxrig $(WAYLAND_CLIENT_LIBS) $(PANGO_CAIRO_LIBS) -lm -o $@
+$(BUILD_DIR)/libboxrig-wayland.so.$(BOXRIG_SOVERSION): $(WAYLAND_LIBRARY) packaging/linux/boxrig-wayland.map $(BUILD_DIR)/libboxrig-ui.so $(BUILD_DIR)/libboxrig-background-wayland.so packaging/linux/rules.mk
+	$(CC) $(CFLAGS) $(LDFLAGS) $(SHARED_LDFLAGS) $(SHARED_MAP_FLAGS) $(filter-out $(BUILD_DIR)/background_effect/wayland.o $(BUILD_DIR)/background_effect/protocol.o,$(WAYLAND_OBJECTS)) -L$(BUILD_DIR) -lboxrig-background-wayland -lboxrig-ui -lboxrig $(WAYLAND_CLIENT_LIBS) $(PANGO_CAIRO_LIBS) -lm -o $@
 
 $(BUILD_DIR)/libboxrig-render-ogl.so.$(BOXRIG_SOVERSION): $(OPENGL_RENDERER_LIBRARY) packaging/linux/boxrig-render-ogl.map $(BUILD_DIR)/libboxrig-ui.so packaging/linux/rules.mk
 	$(CC) $(CFLAGS) $(LDFLAGS) $(SHARED_LDFLAGS) $(SHARED_MAP_FLAGS) $(SHARED_ARCHIVE_FLAGS) -L$(BUILD_DIR) -lboxrig-ui -lboxrig $(OPENGL_RENDERER_LIBS) -o $@
@@ -106,6 +118,18 @@ $(BUILD_DIR)/libboxrig-x11-ogl.so.$(BOXRIG_SOVERSION): $(X11_OPENGL_LIBRARY) pac
 
 $(BUILD_DIR)/libboxrig-wayland-ogl.so.$(BOXRIG_SOVERSION): $(WAYLAND_OPENGL_LIBRARY) packaging/linux/boxrig-wayland-ogl.map $(BUILD_DIR)/libboxrig-wayland.so $(BUILD_DIR)/libboxrig-render-ogl.so packaging/linux/rules.mk
 	$(CC) $(CFLAGS) $(LDFLAGS) $(SHARED_LDFLAGS) $(SHARED_MAP_FLAGS) $(SHARED_ARCHIVE_FLAGS) -L$(BUILD_DIR) -lboxrig-wayland -lboxrig-render-ogl -lboxrig-ui $(WAYLAND_OPENGL_LIBS) -o $@
+
+$(BUILD_DIR)/libboxrig-notification.so.$(BOXRIG_SOVERSION): $(NOTIFICATION_LIBRARY) packaging/linux/boxrig-notification.map $(BUILD_DIR)/libboxrig-ui.so packaging/linux/rules.mk
+	$(CC) $(CFLAGS) $(LDFLAGS) $(SHARED_LDFLAGS) $(SHARED_MAP_FLAGS) $(SHARED_ARCHIVE_FLAGS) -L$(BUILD_DIR) -lboxrig-ui $(NOTIFICATION_LIBS) -o $@
+
+$(BUILD_DIR)/libboxrig-background-wayland.so.$(BOXRIG_SOVERSION): $(BACKGROUND_WAYLAND_LIBRARY) packaging/linux/boxrig-background-wayland.map packaging/linux/rules.mk
+	$(CC) $(CFLAGS) $(LDFLAGS) $(SHARED_LDFLAGS) $(SHARED_MAP_FLAGS) $(SHARED_ARCHIVE_FLAGS) $(shell pkg-config --libs wayland-client) -o $@
+
+$(BUILD_DIR)/libboxrig-background-gtk3.so.$(BOXRIG_SOVERSION): $(BACKGROUND_GTK3_LIBRARY) packaging/linux/boxrig-background-gtk3.map $(BUILD_DIR)/libboxrig-background-wayland.so $(BUILD_DIR)/libboxrig-x11.so packaging/linux/rules.mk
+	$(CC) $(CFLAGS) $(LDFLAGS) $(SHARED_LDFLAGS) $(SHARED_MAP_FLAGS) $(BUILD_DIR)/background_effect/gtk3.o -L$(BUILD_DIR) -lboxrig-background-wayland -lboxrig-x11 $(GTK3_LIBS) -o $@
+
+$(BUILD_DIR)/libboxrig-background-gtk4.so.$(BOXRIG_SOVERSION): $(BACKGROUND_GTK4_LIBRARY) packaging/linux/boxrig-background-gtk4.map $(BUILD_DIR)/libboxrig-background-wayland.so packaging/linux/rules.mk
+	$(CC) $(CFLAGS) $(LDFLAGS) $(SHARED_LDFLAGS) $(SHARED_MAP_FLAGS) $(SHARED_ARCHIVE_FLAGS) -L$(BUILD_DIR) -lboxrig-background-wayland $(GTK4_LIBS) -o $@
 
 install-shared-base: shared-base install-common-licenses
 	$(INSTALL) -d $(DESTDIR)$(LIBDIR) $(DESTDIR)$(INCLUDEDIR)/boxrig/ui $(DESTDIR)$(PKGCONFIGDIR)
@@ -135,12 +159,14 @@ install-shared-gtk3 install-shared-gtk4: install-shared-%: shared-% install-shar
 	$(call install_shared_gtk,$*)
 
 install-shared-native: shared-native install-shared-base
-	$(INSTALL) -d $(DESTDIR)$(INCLUDEDIR)/boxrig/x11 $(DESTDIR)$(PREFIX)/share/boxrig/examples/x11 $(DESTDIR)$(PREFIX)/share/boxrig/examples/wayland
+	$(INSTALL) -d $(DESTDIR)$(INCLUDEDIR)/boxrig/x11 $(DESTDIR)$(INCLUDEDIR)/boxrig/notification $(DESTDIR)$(INCLUDEDIR)/boxrig/wayland $(DESTDIR)$(PREFIX)/share/boxrig/examples/x11 $(DESTDIR)$(PREFIX)/share/boxrig/examples/wayland
 	$(INSTALL) -m 644 include/boxrig/x11.h include/boxrig/wayland.h include/boxrig/ime.h $(DESTDIR)$(INCLUDEDIR)/boxrig
 	$(INSTALL) -m 644 $(filter-out include/boxrig/x11/opengl_component.h,$(wildcard include/boxrig/x11/*.h)) $(DESTDIR)$(INCLUDEDIR)/boxrig/x11
+	$(INSTALL) -m 644 $(NOTIFICATION_HEADERS) $(DESTDIR)$(INCLUDEDIR)/boxrig/notification
+	$(INSTALL) -m 644 include/boxrig/wayland/background_effect.h $(DESTDIR)$(INCLUDEDIR)/boxrig/wayland
 	$(INSTALL) -m 644 examples/x11/external_scrollbar.h $(DESTDIR)$(PREFIX)/share/boxrig/examples/x11
 	$(INSTALL) -m 644 examples/wayland/external_scrollbar.h $(DESTDIR)$(PREFIX)/share/boxrig/examples/wayland
-	@set -e; for name in $(SHARED_NATIVE_NAMES); do \
+	@set -e; for name in $(SHARED_NATIVE_NAMES) $(SHARED_NATIVE_DEPENDENCY_NAMES); do \
 		$(INSTALL) -m 644 "$(BUILD_DIR)/shared/lib$$name.a" "$(BUILD_DIR)/shared/lib$$name.so.$(BOXRIG_SOVERSION)" "$(DESTDIR)$(LIBDIR)"; \
 		ln -sfn "lib$$name.so.$(BOXRIG_SOVERSION)" "$(DESTDIR)$(LIBDIR)/lib$$name.so"; \
 		$(INSTALL) -m 644 "$(SHARED_INSTALL_PKGCONFIG_DIR)/$$name.pc" "$(DESTDIR)$(PKGCONFIGDIR)"; \
@@ -164,6 +190,22 @@ install-shared-opengl: shared-opengl install-shared-native
 test: test-shared-opengl
 test-shared-opengl:
 	bash tests/shared/check_opengl.sh "$(MAKE)"
+
+install-shared-effects: shared-effects install-shared-native
+	$(INSTALL) -d $(DESTDIR)$(INCLUDEDIR)/boxrig/gtk3 $(DESTDIR)$(INCLUDEDIR)/boxrig/gtk4
+	$(INSTALL) -m 644 include/boxrig/gtk3/background_effect.h $(DESTDIR)$(INCLUDEDIR)/boxrig/gtk3
+	$(INSTALL) -m 644 include/boxrig/gtk4/background_effect.h $(DESTDIR)$(INCLUDEDIR)/boxrig/gtk4
+	@set -e; for name in boxrig-background-gtk3 boxrig-background-gtk4; do \
+		$(INSTALL) -m 644 "$(BUILD_DIR)/shared/lib$$name.a" "$(BUILD_DIR)/shared/lib$$name.so.$(BOXRIG_SOVERSION)" "$(DESTDIR)$(LIBDIR)"; \
+		ln -sfn "lib$$name.so.$(BOXRIG_SOVERSION)" "$(DESTDIR)$(LIBDIR)/lib$$name.so"; \
+		metadata=$$name; \
+		if [ "$$name" = boxrig-background-gtk4 ]; then metadata=$(SHARED_BACKGROUND_GTK4_METADATA_NAME); fi; \
+		$(INSTALL) -m 644 "$(SHARED_INSTALL_PKGCONFIG_DIR)/$$metadata.pc" "$(DESTDIR)$(PKGCONFIGDIR)/$$name.pc"; \
+	done
+
+test: test-shared-effects
+test-shared-effects:
+	bash tests/shared/check_effects.sh "$(MAKE)"
 
 test: test-shared-base
 test-shared-base:

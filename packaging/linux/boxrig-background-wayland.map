@@ -1,0 +1,9 @@
+BOXRIG_0 {
+    global:
+        boxrig_wayland_background_effect_create;
+        boxrig_wayland_background_effect_destroy;
+        boxrig_wayland_background_effect_get_state;
+        boxrig_wayland_background_effect_ready;
+        boxrig_wayland_background_effect_set;
+    local: *;
+};

@@ -1,0 +1,8 @@
+BOXRIG_0 {
+    global:
+        boxrig_gtk4_background_effect_create;
+        boxrig_gtk4_background_effect_destroy;
+        boxrig_gtk4_background_effect_get_state;
+        boxrig_gtk4_background_effect_set;
+    local: *;
+};

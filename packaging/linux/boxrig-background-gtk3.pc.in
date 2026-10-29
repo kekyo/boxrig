@@ -1,0 +1,11 @@
+prefix={{prefix}}
+libdir={{libdir}}
+includedir={{includedir}}
+
+Name: boxrig-background-gtk3
+Description: Optional GTK 3 toplevel background effects for boxrig
+Version: {{version}}
+Requires: gtk+-3.0 >= 3.24
+Requires.private: boxrig-background-wayland, boxrig-x11
+Libs: -L${libdir} -lboxrig-background-gtk3
+Cflags: -I${includedir}
