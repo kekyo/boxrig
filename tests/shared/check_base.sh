@@ -42,9 +42,14 @@ find "$build" -type f -printf '%P %T@\n' | sort > "$root/after"
 cmp "$root/before" "$root/after"
 # The same metadata supports a distribution containing only static archives.
 find "$sdk/lib64" -name '*.so*' -delete
-cc -std=c99 -Wall -Wextra -Wpedantic -Werror -DBOXRIG_TEST_STATIC \
-    "$repository/tests/shared/consumer.c" \
-    $(pkg-config --cflags --static --libs boxrig-ui boxrig-posix) \
-    -o "$sdk/bin/consumer-static"
-"$sdk/bin/consumer-static"
+for language in c c++; do
+    compiler=cc
+    standard=c99
+    if [ "$language" = c++ ]; then compiler=c++; standard=c++20; fi
+    "$compiler" -x "$language" -std="$standard" -Wall -Wextra -Wpedantic -Werror \
+        -DBOXRIG_TEST_STATIC "$repository/tests/shared/consumer.c" \
+        $(pkg-config --cflags --static --libs boxrig-ui boxrig-posix) \
+        -o "$sdk/bin/consumer-static-$language"
+    "$sdk/bin/consumer-static-$language"
+done
 printf '%s\n' 'PASS shared base SDK, relocation, private codecs, static linking and incremental build'
