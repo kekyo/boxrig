@@ -34,5 +34,3 @@ for frontend in x11 gtk3 gtk4 wayland; do
     package_check_elf "build/boxrig_term/$frontend/boxrig_term" "$arch"
 done
 package_check_elf build/boxrig_emitter/posix/boxrig_emitter "$arch"
-bash tests/shared/check_release_archive.sh \
-    "/output/boxrig-$version-linux-$distro-$release-$arch.tar.gz" "$version" "$arch"

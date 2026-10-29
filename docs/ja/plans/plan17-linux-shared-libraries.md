@@ -171,3 +171,11 @@ Debian trixieのGTK4 4.18.6でも、生成した0.9.27の共有SDKを使って�
 個別の共有インストールを含む試験でも、修正前はGTK3共有SDKの通知不足で失敗しました（[個別インストールのRED](../../../artifacts/plan17/shared-notices-red.log)）。既存の`install-linux-licenses`を共有版の各インストールターゲットへ適用すると、静的版と6種類の共有インストール構成で通知の内容確認が成功しました（[GREEN](../../../artifacts/plan17/shared-notices-green.log)）。既存の通知生成処理と元の文書をそのまま使っています。
 
 [実パッケージの再検証](../../../artifacts/plan17/packages-notices-green.log)ではLinuxとWindowsのSDK生成・利用が成功し、Linuxの各フロントエンドが共有版を読み込むことも確認しました。[事前生成とアーカイブの再検証](../../../artifacts/plan17/notices-prebuilt-release-green.log)では、通知を含めてNode.jsなしでインストールでき、実際のアーカイブから全15種類をC99・C++20で共有・静的利用できました。
+
+### 第5段階のアーカイブ展開環境
+
+Ubuntu 26.04 arm64ではSDKの生成後、検証用のアーカイブ展開が`Function not implemented`で失敗しました。入れ子のディレクトリと相対シンボリックリンクを含む小さなアーカイブでも同じ失敗を再現しています（[QEMUの実行記録](../../../artifacts/plan17/qemu-tar-nested-red.log)）。記録にあるシステムコール437は、[Linuxのシステムコール定義](https://github.com/torvalds/linux/blob/v6.8/include/uapi/asm-generic/unistd.h)で`openat2`に対応します。
+
+既存の`build_package.sh`は、同じ制約に対してソースアーカイブをホストで展開しています。SDKの検証にもこの方針を適用し、実際のリリースアーカイブをホストで展開・移動した後、対象CPUのコンテナへ戻して全15種類のコンパイル・リンク・実行を検証します。検証の失敗時に以前の配布物を置き換えないことも試験へ追加し、変更前のスクリプトで失敗を確認しました（[スクリプトのRED](../../../artifacts/plan17/host-extraction-scripts-red.log)）。
+
+ホストで展開した同じ小さなアーカイブは、Ubuntu 26.04 arm64で内容と相対リンクを読み取れました（[QEMU上のGREEN](../../../artifacts/plan17/qemu-host-extraction-green.log)）。[展開済みSDKの検証](../../../artifacts/plan17/host-extracted-sdk-green.log)でも全15種類が成功しています。[配布スクリプトと実アーカイブの再検証](../../../artifacts/plan17/host-extraction-release-green.log)も成功し、検証失敗時に以前の配布物を維持することを確認しました。

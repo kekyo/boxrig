@@ -106,12 +106,20 @@ if [ -n "$selected" ]; then
         work=$(mktemp -d "$stage/source.XXXXXX")
         tar -xf "$snapshot" -C "$work"
         printf 'Building %s (%s)\n' "$name" "$platform"
-        "$podman_command" run --rm --pull=never --platform "$platform" --userns=keep-id \
-            --volume "$work:/workspace:Z" --volume "$output:/output:Z" --workdir /workspace \
-            --env "BOXRIG_PACKAGE_VERSION=$version" --env "BOXRIG_PACKAGE_DISTRO=$distro" \
-            --env "BOXRIG_PACKAGE_RELEASE=$release" --env "BOXRIG_PACKAGE_ARCH=$arch" \
-            --env "JOBS=$jobs" "$image" bash packaging/build_linux_container.sh
+        container=("$podman_command" run --rm --pull=never --platform "$platform" --userns=keep-id
+            --volume "$work:/workspace:Z" --volume "$output:/output:Z" --workdir /workspace
+            --env "BOXRIG_PACKAGE_VERSION=$version" --env "BOXRIG_PACKAGE_DISTRO=$distro"
+            --env "BOXRIG_PACKAGE_RELEASE=$release" --env "BOXRIG_PACKAGE_ARCH=$arch"
+            --env "JOBS=$jobs" "$image")
+        "${container[@]}" bash packaging/build_linux_container.sh
         [ -s "$output/$name.tar.gz" ] || package_fail "Container did not create $name.tar.gz"
+        # Use the host for SDK extraction for the same QEMU/openat2 reason as
+        # source extraction above; all consumer programs still run on the target.
+        mkdir "$work/release-check"
+        tar -xzf "$output/$name.tar.gz" -C "$work/release-check"
+        mv "$work/release-check/$name" "$work/release-check/relocated"
+        "${container[@]}" bash tests/shared/check_release_archive.sh \
+            "/output/$name.tar.gz" "$version" "$arch" /workspace/release-check/relocated
         archives+=("$output/$name.tar.gz")
         rm -rf "$work"
     done <<< "$selected"

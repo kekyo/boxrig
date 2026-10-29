@@ -2,8 +2,8 @@
 # Inspect and run the SDK exactly as it appears in a Linux release archive.
 set -euo pipefail
 export LC_ALL=C
-if [ "$#" -ne 3 ]; then
-    echo 'Usage: check_release_archive.sh <archive.tar.gz> <version> <arch>' >&2
+if [[ "$#" -ne 3 && "$#" -ne 4 ]]; then
+    echo 'Usage: check_release_archive.sh <archive.tar.gz> <version> <arch> [extracted-sdk]' >&2
     exit 2
 fi
 repository=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
@@ -15,11 +15,18 @@ name=${archive##*/}
 name=${name%.tar.gz}
 root=$(mktemp -d)
 trap 'rm -rf "$root"' EXIT
-mkdir "$root/staged"
-tar -xzf "$archive" -C "$root/staged"
-test -d "$root/staged/$name"
-mv "$root/staged/$name" "$root/relocated"
-sdk="$root/relocated"
+if [ "$#" -eq 4 ]; then
+    # The host has already extracted and relocated this scratch SDK. It is
+    # consumed in place so foreign tar versions never need openat2 under QEMU.
+    sdk=$(realpath -- "$4")
+    test -d "$sdk"
+else
+    mkdir "$root/staged"
+    tar -xzf "$archive" -C "$root/staged"
+    test -d "$root/staged/$name"
+    mv "$root/staged/$name" "$root/relocated"
+    sdk="$root/relocated"
+fi
 export PKG_CONFIG_PATH="$sdk/lib/pkgconfig"
 mkdir -p "$sdk/bin"
 
