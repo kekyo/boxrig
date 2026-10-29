@@ -156,6 +156,7 @@ BOXRIG_0 {
         boxrig_ui_view_clear_hyperlink_hover;
         boxrig_ui_view_clear_search;
         boxrig_ui_view_clear_selection;
+        boxrig_ui_view_clear_text_annotation_line;
         boxrig_ui_view_clear_text_annotations;
         boxrig_ui_view_color_revision;
         boxrig_ui_view_commit_cell_metrics;
