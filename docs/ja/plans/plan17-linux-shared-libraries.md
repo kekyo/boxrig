@@ -149,3 +149,13 @@ Debian trixieのGTK4 4.18.6でも、生成した0.9.27の共有SDKを使って�
 各ライブラリの公開APIをC99とC++20から呼び、実行時の共有依存も確認しました。GTK3とGTK4は別プロセスで実行します。OpenGLの診断とGTK背景効果の無効引数は画面を使わずに検証し、実描画と対応機能の詳細は第2・第3段階の試験で検証しています。共有ファイルを外した後の静的利用も全種類で成功しました。
 
 [事前生成SDKのGREEN](../../../artifacts/plan17/prebuilt-green.log)では、ターゲット側のNode.jsとnpmを実行できない状態でも全15種類をインストールできました。[パッケージスクリプトの試験](../../../artifacts/plan17/package-scripts.log)も成功しています。第4段階のホスト環境での完了条件は満たしました。Linuxの9配布対象については、第5段階で同じアーカイブ検証を実行します。
+
+### 第5段階で判明したビルド環境の不足
+
+初回の配布検証ではDebianの5対象が成功しました。Ubuntu 24.04のx86_64でも全15種類の共有SDKをC99・C++20から利用できましたが、GTK3の静的リンクで`-lsystemd`が見つからず停止しています（[初回の配布検証ログ](../../../artifacts/plan17/linux-release-matrix-before-systemd.log)）。
+
+対象コンテナの`dbus-1.pc`には`Libs.private: -lsystemd`があり、GTK3の静的リンク設定にもこの依存が含まれます。実行時ライブラリは存在しましたが、リンクに使う開発ファイルがありませんでした。D-Busの静的リンク設定だけを使った最小プログラムでも同じ失敗を再現しています（[依存調査](../../../artifacts/plan17/ubuntu-systemd-diagnosis.log)、[リンクのRED](../../../artifacts/plan17/ubuntu-systemd-link-red.log)）。開発ファイルはUbuntuの[`libsystemd-dev`パッケージ](https://packages.ubuntu.com/noble/libsystemd-dev)で提供されます。
+
+第5段階で確認する静的SDKの利用に必要なコンテナ依存が不足していたため、配布コンテナの開発依存に`libsystemd-dev`を追加します。Ubuntuのイメージを更新して同じアーカイブ検証を再実行します。
+
+コンテナ定義へ依存を追加してUbuntu 24.04のx86_64イメージを作り直すと、同じ最小プログラムがリンク・実行に成功しました（[リンクのGREEN](../../../artifacts/plan17/ubuntu-systemd-link-green.log)）。[パッケージスクリプトの再検証](../../../artifacts/plan17/package-scripts-systemd.log)も成功しました。全配布対象のアーカイブ検証は、更新した定義で改めて実行します。
