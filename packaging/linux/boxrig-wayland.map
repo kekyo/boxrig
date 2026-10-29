@@ -65,3 +65,10 @@ BOXRIG_0 {
         boxrig_wayland_terminal_component_visual_zoom_reset;
     local: *;
 };
+
+# Intra-SDK renderer adoption and IME coordination; not an application API.
+BOXRIG_PRIVATE_0 {
+    global:
+        boxrig_wayland_input_update_cursor_rectangle;
+        boxrig_wayland_terminal_component_adopt_renderer;
+} BOXRIG_0;

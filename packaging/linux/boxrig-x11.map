@@ -163,3 +163,10 @@ BOXRIG_0 {
         boxrig_x11_wait_for_activity;
     local: *;
 };
+
+# Intra-SDK renderer adoption; not an application API.
+BOXRIG_PRIVATE_0 {
+    global:
+        boxrig_x11_terminal_component_create_adopted_child;
+        boxrig_x11_terminal_component_create_on_target_with_renderer;
+} BOXRIG_0;
