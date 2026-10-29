@@ -23,6 +23,14 @@ sdk="$root/relocated"
 export PKG_CONFIG_PATH="$sdk/lib/pkgconfig"
 mkdir -p "$sdk/bin"
 
+for notice in cardio-LICENSE Wayland-protocols-COPYING Wayland-protocols-NOTICES.md \
+    LGPL-2.1.txt GPL-3.0.txt GCC-Runtime-Library-Exception.txt; do
+    test -s "$sdk/share/licenses/boxrig/$notice" || {
+        echo "FAIL missing Linux distribution notice: $notice" >&2
+        exit 1
+    }
+done
+
 libraries=(boxrig boxrig-ui boxrig-session boxrig-posix boxrig-gtk3 boxrig-gtk4
     boxrig-x11 boxrig-wayland boxrig-render-ogl boxrig-x11-ogl boxrig-wayland-ogl
     boxrig-notification boxrig-background-wayland boxrig-background-gtk3
