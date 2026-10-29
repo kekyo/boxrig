@@ -35,12 +35,13 @@ for variant in baseline step2 step3; do
     printf 'renderer_revision=%s\nworktree_revision=%s\n' \
         "$revision" "$(git -C "$scratch" rev-parse HEAD)" > "$destination/provenance.txt"
     for flavor in plain trace; do
-        build_dir="build-$variant-$flavor"
+        build_dir="build-$flavor"
         flags=
         if [[ $flavor == trace ]]; then flags=-DBOXRIG_PLAN18_TRACE_BUILD=1; fi
         targets=("$build_dir/boxrig_term/gtk3/boxrig_term")
         if [[ $flavor == plain ]]; then
-            targets+=("$build_dir/tests/performance/plan18_region_bench")
+            targets+=("$build_dir/tests/performance/plan18_region_bench"
+                "$build_dir/tests/performance/plan18_cairo_region_bench")
         fi
         make -C "$scratch" -j2 BUILD_DIR="$build_dir" \
             CFLAGS='-O2 -g -ffunction-sections -fdata-sections' \
@@ -49,11 +50,14 @@ for variant in baseline step2 step3; do
             cp "$scratch/$build_dir/boxrig_term/gtk3/boxrig_term" "$destination/boxrig_term"
             cp "$scratch/$build_dir/tests/performance/plan18_region_bench" \
                 "$destination/region_bench"
+            cp "$scratch/$build_dir/tests/performance/plan18_cairo_region_bench" \
+                "$destination/cairo_region_bench"
         else
             cp "$scratch/$build_dir/boxrig_term/gtk3/boxrig_term" \
                 "$destination/boxrig_term_traced"
         fi
     done
     sha256sum "$destination/boxrig_term" "$destination/boxrig_term_traced" \
-        "$destination/region_bench" > "$destination/sha256.txt"
+        "$destination/region_bench" "$destination/cairo_region_bench" \
+        > "$destination/sha256.txt"
 done
