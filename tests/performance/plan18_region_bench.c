@@ -69,6 +69,10 @@ int main(void)
         BOXRIG_FONT_CATALOG_OK) return 1;
     renderer.cell_width = boxrig_pango_cairo_renderer_cell_width(renderer.renderer);
     renderer.cell_height = boxrig_pango_cairo_renderer_cell_height(renderer.renderer);
+    if (boxrig_pango_cairo_renderer_set_composited_scrollbar(
+            renderer.renderer, true, 2) != 0 ||
+        boxrig_pango_cairo_renderer_set_composited_scrollbar_interaction(
+            renderer.renderer, true, false) != 0) return 1;
 #endif
     if (!size_platform_renderer(&renderer, config.rows, config.columns) ||
         boxrig_terminal_create(&config, &terminal) != BOXRIG_STATUS_OK ||
