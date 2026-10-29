@@ -54,7 +54,8 @@ boxrig_wayland_opengl_component_config_default(void);
  * Creates an EGL/OpenGL terminal component on a managed child wl_surface.
  *
  * @param context Existing Wayland context owning protocol dispatch and input.
- * @param parent Caller-owned parent wl_surface that outlives the component.
+ * @param parent Caller-owned parent wl_surface, retained until an accepted
+ * reparent request or component destruction.
  * @param model Caller-owned model that outlives the component and its view.
  * @param config Portable component configuration copied during creation.
  * @param component_out Receives the transactional component result.
@@ -76,7 +77,8 @@ boxrig_ui_status boxrig_wayland_opengl_terminal_component_create(
  * Creates a configured EGL/OpenGL terminal component.
  *
  * @param context Existing Wayland context owning protocol dispatch and input.
- * @param parent Caller-owned parent wl_surface that outlives the component.
+ * @param parent Caller-owned parent wl_surface, retained until an accepted
+ * reparent request or component destruction.
  * @param model Caller-owned model that outlives the component and its view.
  * @param config Portable component configuration copied during creation.
  * @param opengl_config EGL presentation configuration copied during creation.

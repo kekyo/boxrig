@@ -473,6 +473,8 @@ typedef struct boxrig_wayland_terminal_component_config {
 
 /** Native child state whose application requires a caller-owned parent commit. */
 typedef struct boxrig_wayland_host_action {
+    /** Borrowed surface that must be committed for this action. */
+    struct wl_surface *parent;
     /** Nonzero generation echoed after the parent is committed. */
     uint64_t revision;
     /** Whether applying this action requires wl_surface.commit(parent). */
@@ -489,6 +491,12 @@ typedef struct boxrig_wayland_component_diagnostic {
     bool running;
     /** Whether a host parent commit is waiting for completion. */
     bool parent_commit_pending;
+    /** Whether a requested move awaits preparation or server acknowledgement. */
+    bool reparent_pending;
+    /** Latest accepted move revision, or zero before any move. */
+    uint64_t reparent_revision;
+    /** Last move acknowledged after the matching parent commit. */
+    uint64_t effective_reparent_revision;
     /** Latest candidate parent-state revision. */
     uint64_t parent_state_revision;
     /** Last parent-state revision completed by the host. */
@@ -776,7 +784,8 @@ boxrig_wayland_terminal_component_config_default(void);
  * Creates one child surface and desynchronized subsurface transactionally.
  *
  * @param context READY context that outlives the component.
- * @param parent Caller-owned parent surface that outlives the component.
+ * @param parent Caller-owned parent surface, retained until an accepted
+ * reparent request or component destruction.
  * @param model Caller-owned model that outlives the component.
  * @param config Optional bounded configuration, or NULL for defaults.
  * @param component_out Receives the component on success.
@@ -794,6 +803,38 @@ boxrig_ui_status boxrig_wayland_terminal_component_create(
     boxrig_ui_model *model,
     const boxrig_wayland_terminal_component_config *config,
     boxrig_wayland_terminal_component **component_out);
+
+/**
+ * Accepts an asynchronous move to a caller-owned parent on the same connection.
+ *
+ * @param component Running, allocated component on its owning event thread.
+ * @param parent Live parent surface from the component's wl_display. It must
+ * not be the child or any of its descendants.
+ * @param revision_out Receives a nonzero move revision on acceptance.
+ * @return OK on acceptance; BUSY during input, rendering, layout or another
+ * move; INVALID_ARGUMENT for invalid arguments; LIMIT_EXCEEDED on revision
+ * exhaustion; UNAVAILABLE for a failed connection.
+ * @remarks Retains surface, view, terminal, renderer and geometry. The old
+ * subsurface is removed on acceptance and the child is temporarily unmapped.
+ * The old parent can then be released. Keep the new parent alive through move
+ * completion and until the next accepted move or component destruction.
+ * Call frame() to prepare the new relation, then commit action.parent from
+ * take_host_action() and call complete_parent_commit(). Completion is reported
+ * by diagnostic.effective_reparent_revision after regular context dispatch
+ * receives the server acknowledgement. This is not a presentation fence.
+ * A frame preparation allocation failure retains the accepted move for retry;
+ * failures before acceptance leave the original attachment unchanged. Fatal
+ * display errors use the ordinary connection-failure path.
+ * Input is suspended during the move; active keys, buttons, IME and paste must
+ * settle before requesting it. Keyboard fallback after a move matches the
+ * explicit parent only. Focus entering that parent while completion is pending
+ * resumes on acknowledgement; intervening input is discarded. Otherwise the
+ * host must arrange destination focus separately. Allocate after its layout.
+ * See https://wayland.freedesktop.org/docs/html/apa.html#protocol-spec-wl_subsurface .
+ */
+boxrig_ui_status boxrig_wayland_terminal_component_request_reparent(
+    boxrig_wayland_terminal_component *component, struct wl_surface *parent,
+    uint64_t *revision_out);
 
 /**
  * Stops new component work and unmaps its owned child without blocking.
@@ -1357,11 +1398,11 @@ boxrig_ui_status boxrig_wayland_terminal_component_complete_grid_resize(
  * Takes the newest parent-commit request exactly once.
  *
  * @param component Component to inspect.
- * @param action_out Receives the candidate position and revision. An action
+ * @param action_out Receives the parent, candidate position and revision. An action
  * can be returned for a visible allocation whose position did not change.
  * @return True only when an untaken action was returned.
  *
- * @remarks The host must commit the borrowed parent surface before completing
+ * @remarks The host must commit action_out->parent before completing
  * the returned revision so synchronized child allocation state is published
  * with the matching parent state.
  */
@@ -1378,7 +1419,9 @@ bool boxrig_wayland_terminal_component_take_host_action(
  * @return A portable UI status.
  *
  * @remarks A matching completion restores desynchronized child presentation
- * after any synchronized visible-allocation transaction.
+ * after any synchronized visible-allocation transaction. During reparenting,
+ * OUT_OF_MEMORY leaves the action pending; retain its revision and retry this
+ * call. The reparent acknowledgement is delivered by later context dispatch.
  */
 boxrig_ui_status boxrig_wayland_terminal_component_complete_parent_commit(
     boxrig_wayland_terminal_component *component,

@@ -109,6 +109,10 @@ struct boxrig_wayland_seat {
     struct xkb_state *xkb_state;
     struct xkb_compose_state *compose_state;
     boxrig_wayland_terminal_component *keyboard_component;
+    /* Explicit destination focus received while its move awaits sync. */
+    boxrig_wayland_terminal_component *reparent_keyboard_component;
+    boxrig_wayland_terminal_component *reparent_text_component;
+    uint32_t reparent_keyboard_serial;
     boxrig_wayland_terminal_component *pointer_component;
     boxrig_wayland_terminal_component *text_component;
     boxrig_wayland_terminal_component *repeat_component;
@@ -208,6 +212,14 @@ boxrig_ui_status boxrig_wayland_input_initialize_component(
     boxrig_wayland_terminal_component *component);
 
 void boxrig_wayland_input_quiesce_component(
+    boxrig_wayland_terminal_component *component);
+
+/* Detach idle native input without terminating the retained composition. */
+void boxrig_wayland_input_reparent_component(
+    boxrig_wayland_terminal_component *component);
+
+/* Resume explicit destination focus after the matching parent acknowledgement. */
+void boxrig_wayland_input_complete_reparent(
     boxrig_wayland_terminal_component *component);
 
 void boxrig_wayland_input_destroy_component(

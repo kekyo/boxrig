@@ -67,6 +67,12 @@ struct boxrig_wayland_terminal_component {
     struct wl_surface *surface;
     struct wl_subsurface *subsurface;
     struct wl_callback *frame_callback;
+    struct wl_callback *reparent_sync;
+    uint64_t reparent_revision;
+    uint64_t effective_reparent_revision;
+    bool reparent_pending;
+    bool explicit_parent_input;
+    bool native_operation_active;
     struct wp_viewport *viewport;
     struct wp_fractional_scale_v1 *fractional_scale;
     boxrig_ui_model *model;

@@ -72,6 +72,40 @@ boxrigが借用中の親を勝手にcommitすることはありません。
 トップレベルの装飾はアプリ側の仕事です。
 付属デモは利用可能な環境でlibdecorを使いますが、boxrigのコンポーネントを使うための必須条件ではありません。
 
+## 別の親surfaceへ移す
+
+`boxrig_wayland_terminal_component_request_reparent(component, parent, &revision)`で、同じ接続の親surfaceへ移設を要求できます。
+初回の配置を終えたコンポーネントが対象です。
+共有メモリー描画とOpenGLの両方で、子surface、view、選択、表示設定、端末と通信セッションを保持します。
+親には有効なsurfaceを渡し、自身や子孫を指定しないでください。
+
+`OK`は要求の受理を表します。
+受理時に旧親との関係を解除するため、旧親はこの時点で破棄できます。
+新しい親は、移設完了後も次の移設要求の受理かコンポーネントの破棄まで生存させてください。
+子surfaceは移設中に一時的に非表示になります。
+親子関係とcommitの条件は、[Waylandのsubsurface仕様](https://wayland.freedesktop.org/docs/html/apa.html#protocol-spec-wl_subsurface)に従います。
+
+通常の`frame()`を進め、`take_host_action()`が返した`action.parent`をcommitします。
+その要求のrevisionを`complete_parent_commit()`へ返し、キューとcontextのdispatchを続けてください。
+診断の`effective_reparent_revision`が要求時のrevisionに一致すると、サーバーが親変更を処理済みです。
+画面への提示完了とは区別してください。
+古いrevisionの完了通知では、新しい移設は完了しません。
+
+入力・描画・配置処理中や別の移設中は`BUSY`を返し、旧状態を保持します。
+キーやマウスの押下、未確定入力、貼り付けが終わってから再試行してください。
+受理前の失敗では旧親を保持します。
+受理後に新しい関係の準備が資源不足で失敗した場合は、要求を保持したまま`frame()`で再試行します。
+接続切断時は通常の終了処理へ進んでください。
+
+移設中の入力は破棄し、アプリが保留した旧世代の入力も再送しません。
+完了を待つ間に指定した親へキーボードフォーカスが入った場合は、完了後に入力を再開します。
+それ以外の場合は、アプリ側で移動先のフォーカスを設定してください。
+移設後は、親への入力転送も明示的に指定した親だけを対象にします。
+移動先の配置が決まったら`allocate()`へ渡し、行列数の変更を通信先へ反映します。
+
+[往復移設の例](../../../examples/wayland/transfer.c)はF6で移動します。
+`make build/examples/wayland_transfer`で共有メモリー版、`make build/examples/wayland_transfer_opengl`でOpenGL版を生成できます。
+
 ## 入力とクリップボード
 
 既定のAUTOは、候補方針がCLIENT以外でtext-input-v3 version 2が利用できる場合に、コンポジター経由の入力を優先します。

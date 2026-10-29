@@ -47,6 +47,7 @@ typedef struct fixture {
 
 static native_context native_contexts[128];
 static size_t native_count;
+static bool reject_new_input_context;
 static bool advertised = true;
 static bool query_rejected;
 static bool registration_rejected;
@@ -121,6 +122,7 @@ char *__wrap_XGetIMValues(XIM im, ...)
 XIC __wrap_XCreateIC(XIM im, ...)
 {
     (void)im;
+    if (reject_new_input_context) return NULL;
     CHECK(native_count < sizeof(native_contexts) / sizeof(native_contexts[0]));
     native_context *context = &native_contexts[native_count++];
     memset(context, 0, sizeof(*context));
@@ -615,6 +617,78 @@ static void test_component_document(void)
     puts("PASS X11 component connects its view document to native XIM input");
 }
 
+static void test_component_reparent_xic_creation_failure(void)
+{
+    Display *display = XOpenDisplay(NULL);
+    CHECK(display != NULL);
+    Window first = XCreateSimpleWindow(display, DefaultRootWindow(display),
+                                       0, 0, 320, 180, 0, 0, 0);
+    Window second = XCreateSimpleWindow(display, DefaultRootWindow(display),
+                                        340, 0, 320, 180, 0, 0, 0);
+    CHECK(first != None && second != None);
+    boxrig_terminal_config terminal_config = boxrig_terminal_config_default();
+    boxrig_terminal *terminal = NULL;
+    boxrig_ui_model *model = NULL;
+    boxrig_x11_terminal_component *component = NULL;
+    CHECK(boxrig_terminal_create(&terminal_config, &terminal) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
+    boxrig_x11_terminal_component_config config = boxrig_x11_terminal_component_config_default();
+    config.view.blink.text_enabled = config.view.blink.cursor_enabled = false;
+    CHECK(boxrig_x11_terminal_component_create_child(display, first, model,
+              &config, &component) == BOXRIG_UI_OK);
+    Window child = boxrig_x11_terminal_component_owned_window(component);
+    native_context *old = &native_contexts[native_count - 1];
+    size_t old_count = native_count;
+    boxrig_ui_input_state before, after;
+    CHECK(boxrig_x11_terminal_component_get_input_state(component, &before) == BOXRIG_UI_OK);
+    CHECK(boxrig_x11_terminal_component_set_visible(component, true) == BOXRIG_UI_OK);
+
+    reject_new_input_context = true;
+    CHECK(boxrig_x11_terminal_component_reparent(component, second) == BOXRIG_UI_UNAVAILABLE);
+    reject_new_input_context = false;
+    Window root, actual_parent, *children = NULL;
+    unsigned int child_count;
+    CHECK(XQueryTree(display, child, &root, &actual_parent, &children, &child_count));
+    if (children != NULL) XFree(children);
+    CHECK(actual_parent == first && native_count == old_count && !old->destroyed);
+    CHECK(boxrig_x11_terminal_component_get_input_state(component, &after) == BOXRIG_UI_OK);
+    CHECK(after.generation == before.generation);
+
+    XEvent event = {0};
+    event.xfocus.type = FocusIn;
+    event.xfocus.display = display;
+    event.xfocus.window = child;
+    event.xfocus.mode = NotifyNormal;
+    CHECK(boxrig_x11_terminal_component_dispatch_event(component, &event) == BOXRIG_UI_COMPONENT_EVENT_HANDLED);
+    event.xkey.type = KeyPress;
+    event.xkey.keycode = XKeysymToKeycode(display, XK_a);
+    lookup_text = "a";
+    CHECK(boxrig_x11_terminal_component_dispatch_event(component, &event) == BOXRIG_UI_COMPONENT_EVENT_HANDLED);
+    lookup_text = NULL;
+    event.xkey.type = KeyRelease;
+    CHECK(boxrig_x11_terminal_component_dispatch_event(component, &event) == BOXRIG_UI_COMPONENT_EVENT_HANDLED);
+    const uint8_t *output;
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 1 && output[0] == 'a');
+    CHECK(boxrig_terminal_output_consume(terminal, 1) == BOXRIG_STATUS_OK);
+
+    CHECK(boxrig_x11_terminal_component_reparent(component, second) == BOXRIG_UI_OK);
+    children = NULL;
+    CHECK(XQueryTree(display, child, &root, &actual_parent, &children, &child_count));
+    if (children != NULL) XFree(children);
+    CHECK(actual_parent == second && native_count == old_count + 1 && old->destroyed);
+    CHECK(!native_contexts[native_count - 1].destroyed);
+    CHECK(boxrig_x11_terminal_component_get_input_state(component, &after) == BOXRIG_UI_OK);
+    CHECK(after.generation == before.generation + 1);
+
+    boxrig_x11_terminal_component_destroy(component);
+    boxrig_ui_model_destroy(model);
+    boxrig_terminal_destroy(terminal);
+    XDestroyWindow(display, second);
+    XDestroyWindow(display, first);
+    XCloseDisplay(display);
+    puts("PASS X11 XIC creation failure preserves parent and input until retry");
+}
+
 int main(void)
 {
     CHECK(setlocale(LC_CTYPE, "C.UTF-8") != NULL);
@@ -626,6 +700,7 @@ int main(void)
     test_allocation_failure();
     test_window_and_cancellation();
     test_pending_commit_destinations();
+    test_component_reparent_xic_creation_failure();
     test_component_document();
     return 0;
 }

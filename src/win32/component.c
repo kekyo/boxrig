@@ -21,6 +21,13 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef BOXRIG_TEST_REPARENT_FAILURE
+extern HWND WINAPI boxrig_test_set_parent(HWND child, HWND parent);
+#define BOXRIG_SET_PARENT boxrig_test_set_parent
+#else
+#define BOXRIG_SET_PARENT SetParent
+#endif
+
 #define BOXRIG_WIN32_DEFAULT_PASTE_CAPACITY (8U * 1024U * 1024U)
 #define BOXRIG_WIN32_DEFAULT_PASTE_CHUNK_SIZE 4096U
 
@@ -96,6 +103,11 @@ struct boxrig_win32_terminal_component {
     bool composited_scrollbar_dragging;
     bool composited_scrollbar_button_down;
     bool composited_scrollbar_captured;
+    bool native_operation_active;
+    bool frame_active;
+    bool callback_active;
+    boxrig_ui_frame_request_callback frame_request_callback;
+    void *frame_request_context;
     int composited_scrollbar_drag_anchor;
     int composited_scrollbar_wheel_delta;
 };
@@ -893,6 +905,85 @@ boxrig_ui_status boxrig_win32_terminal_component_create_child(
 {
     return boxrig_win32_terminal_component_create_child_with_renderer(instance, parent, model, config,
         0, NULL, NULL, component_out);
+}
+
+static bool parent_dpi_compatible(HWND child, HWND parent)
+{
+    HMODULE user32 = GetModuleHandleW(L"user32.dll");
+    typedef DPI_AWARENESS_CONTEXT (WINAPI *context_fn)(HWND);
+    typedef BOOL (WINAPI *equal_fn)(DPI_AWARENESS_CONTEXT, DPI_AWARENESS_CONTEXT);
+    context_fn context_of = NULL;
+    equal_fn equal = NULL;
+    FARPROC procedure;
+
+    if (user32 == NULL) return false;
+    procedure = GetProcAddress(user32, "GetWindowDpiAwarenessContext");
+    if (sizeof(context_of) == sizeof(procedure))
+        memcpy(&context_of, &procedure, sizeof(procedure));
+    procedure = GetProcAddress(user32, "AreDpiAwarenessContextsEqual");
+    if (sizeof(equal) == sizeof(procedure))
+        memcpy(&equal, &procedure, sizeof(procedure));
+    if (context_of == NULL || equal == NULL) return true;
+    DPI_AWARENESS_CONTEXT child_context = context_of(child);
+    DPI_AWARENESS_CONTEXT parent_context = context_of(parent);
+    return child_context != NULL && parent_context != NULL &&
+        equal(child_context, parent_context) != 0;
+}
+
+boxrig_ui_status boxrig_win32_terminal_component_reparent(
+    boxrig_win32_terminal_component *component, HWND parent)
+{
+    DWORD parent_process = 0;
+    DWORD child_process = 0;
+    DWORD parent_thread;
+    DWORD child_thread;
+    boxrig_ui_status status;
+    HWND previous_parent;
+
+    if (component == NULL || parent == NULL || !IsWindow(parent) ||
+        !boxrig_ui_lifecycle_accepts_events(&component->lifecycle))
+        return BOXRIG_UI_INVALID_ARGUMENT;
+    if (component->native_hosting != BOXRIG_UI_COMPONENT_OWNED_CHILD)
+        return BOXRIG_UI_UNAVAILABLE;
+    if (component->native_operation_active || component->frame_active ||
+        component->callback_active || component->allocation_transition_pending ||
+        component->surface_candidate_ready || component->zoom_generation_active ||
+        component->scrollbar_visibility.state.pending ||
+        component->composited_scrollbar_dragging ||
+        component->composited_scrollbar_button_down ||
+        component->composited_scrollbar_captured)
+        return BOXRIG_UI_BUSY;
+    parent_thread = GetWindowThreadProcessId(parent, &parent_process);
+    child_thread = GetWindowThreadProcessId(component->window, &child_process);
+    if (parent_thread == 0 || child_thread == 0 ||
+        parent_thread != child_thread || parent_thread != GetCurrentThreadId() ||
+        parent_process != GetCurrentProcessId() ||
+        child_process != GetCurrentProcessId() ||
+        parent == component->window || IsChild(component->window, parent) ||
+        !parent_dpi_compatible(component->window, parent))
+        return BOXRIG_UI_UNAVAILABLE;
+    status = boxrig_win32_input_adapter_check_reparent(component->input);
+    if (status != BOXRIG_UI_OK) return status;
+    HWND captured = GetCapture();
+    if (captured != NULL &&
+        (captured == component->window || captured == component->input_window ||
+         captured == component->scrollbar)) return BOXRIG_UI_BUSY;
+    if (parent == component->parent) return BOXRIG_UI_OK;
+
+    component->native_operation_active = true;
+    SetLastError(0);
+    previous_parent = BOXRIG_SET_PARENT(component->window, parent);
+    if (previous_parent == NULL) {
+        component->native_operation_active = false;
+        return BOXRIG_UI_UNAVAILABLE;
+    }
+    component->parent = parent;
+    boxrig_win32_input_adapter_complete_reparent(component->input);
+    (void)boxrig_ui_view_set_focused(component->view, false);
+    component->focused = false;
+    component->native_operation_active = false;
+    InvalidateRect(component->window, NULL, FALSE);
+    return BOXRIG_UI_OK;
 }
 
 boxrig_ui_status boxrig_win32_terminal_component_create_child_with_renderer(
@@ -2161,18 +2252,33 @@ boxrig_win32_terminal_component_text_direction(
                              : component->direction_policy;
 }
 
+static void dispatch_frame_request(void *context)
+{
+    boxrig_win32_terminal_component *component = context;
+    boxrig_ui_frame_request_callback callback = component->frame_request_callback;
+    void *callback_context = component->frame_request_context;
+    bool previous = component->callback_active;
+    component->callback_active = true;
+    callback(callback_context);
+    component->callback_active = previous;
+}
+
 boxrig_ui_status
 boxrig_win32_terminal_component_set_frame_request_callback(
     boxrig_win32_terminal_component *component,
     boxrig_ui_frame_request_callback callback,
     void *context)
 {
-    return component == NULL
-               ? BOXRIG_UI_INVALID_ARGUMENT
-               : boxrig_ui_view_set_frame_request_callback(
-                     component->view,
-                     callback,
-                     context);
+    if (component == NULL || (callback == NULL && context != NULL))
+        return BOXRIG_UI_INVALID_ARGUMENT;
+    boxrig_ui_status status = boxrig_ui_view_set_frame_request_callback(
+        component->view, callback != NULL ? dispatch_frame_request : NULL,
+        callback != NULL ? component : NULL);
+    if (status == BOXRIG_UI_OK) {
+        component->frame_request_callback = callback;
+        component->frame_request_context = context;
+    }
+    return status;
 }
 
 boxrig_ui_status boxrig_win32_terminal_component_set_visible(
@@ -3023,7 +3129,7 @@ static LRESULT CALLBACK component_window_procedure(
         long_parameter);
 }
 
-boxrig_ui_status boxrig_win32_terminal_component_frame(
+static boxrig_ui_status component_frame_impl(
     boxrig_win32_terminal_component *component,
     boxrig_ui_component_frame_result *result_out)
 {
@@ -3145,6 +3251,18 @@ boxrig_ui_status boxrig_win32_terminal_component_frame(
         result_out->animation_deadline_milliseconds = blink_deadline;
     }
     return BOXRIG_UI_OK;
+}
+
+boxrig_ui_status boxrig_win32_terminal_component_frame(
+    boxrig_win32_terminal_component *component,
+    boxrig_ui_component_frame_result *result_out)
+{
+    if (component == NULL) return BOXRIG_UI_INVALID_ARGUMENT;
+    if (component->frame_active) return BOXRIG_UI_BUSY;
+    component->frame_active = true;
+    boxrig_ui_status status = component_frame_impl(component, result_out);
+    component->frame_active = false;
+    return status;
 }
 
 boxrig_win32_ime_placement_status

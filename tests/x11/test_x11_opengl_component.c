@@ -308,6 +308,7 @@ int main(int argument_count, char **arguments)
     boxrig_x11_terminal_borrowed_target borrowed_target;
     Display *display = NULL;
     Window parent = None;
+    Window transfer_parent = None;
     Window borrowed = None;
     Window incompatible = None;
     XSetWindowAttributes parent_attributes;
@@ -575,6 +576,39 @@ int main(int argument_count, char **arguments)
     CHECK(captured_swap_pixel[0] == 0x12);
     CHECK(captured_swap_pixel[1] == 0x34);
     CHECK(captured_swap_pixel[2] == 0x56);
+
+    /* Reparent keeps the EGL target and its committed pixels on the same child. */
+    transfer_parent = XCreateSimpleWindow(display, DefaultRootWindow(display),
+        450, 100, 320, 160, 0, 0, 0);
+    CHECK(transfer_parent != None);
+    XMapWindow(display, transfer_parent);
+    contexts_before = context_create_count;
+    surface_creates_before = surface_create_count;
+    surface_destroys_before = surface_destroy_count;
+    Window retained_child = boxrig_x11_terminal_component_owned_window(component);
+    for (unsigned int step = 0; step < 4; step++) {
+        Window destination = step % 2 == 0 ? transfer_parent : parent;
+        CHECK(boxrig_x11_terminal_component_reparent(component, destination) == BOXRIG_UI_OK);
+        CHECK(boxrig_x11_terminal_component_owned_window(component) == retained_child);
+        CHECK(boxrig_x11_terminal_component_view(component) == view);
+        CHECK(boxrig_ui_view_is_layout_authority(view));
+        Window root, actual_parent, *children = NULL;
+        unsigned int count;
+        CHECK(XQueryTree(display, retained_child, &root, &actual_parent, &children, &count));
+        if (children != NULL) XFree(children);
+        CHECK(actual_parent == destination);
+        captured_swap_pixel_valid = false;
+        capture_next_swap = true;
+        CHECK(boxrig_x11_terminal_component_frame(component, &frame_result) == BOXRIG_UI_OK);
+        CHECK(captured_swap_pixel_valid);
+        CHECK(captured_swap_pixel[0] == 0x12 && captured_swap_pixel[1] == 0x34 &&
+              captured_swap_pixel[2] == 0x56);
+        CHECK(context_create_count == contexts_before);
+        CHECK(surface_create_count == surface_creates_before);
+        CHECK(surface_destroy_count == surface_destroys_before);
+    }
+    XDestroyWindow(display, transfer_parent);
+    transfer_parent = None;
 
     /* The ordinary owned allocation changes both dimensions in one request. */
     for (unsigned int step = 0; step < 2; step++) {
@@ -904,6 +938,7 @@ int main(int argument_count, char **arguments)
 cleanup:
     boxrig_x11_terminal_component_destroy(borrowed_component);
     boxrig_x11_terminal_component_destroy(component);
+    if (transfer_parent != None) XDestroyWindow(display, transfer_parent);
     boxrig_ui_model_destroy(model);
     boxrig_terminal_destroy(terminal);
     if (incompatible != None && display != NULL) {

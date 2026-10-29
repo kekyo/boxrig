@@ -3879,6 +3879,20 @@ static void test_paste_reads_validated_text_once_and_retries(void)
               model,
               &component_config,
               &component) == BOXRIG_UI_OK);
+    boxrig_font_effective_metrics paste_metrics;
+    boxrig_ui_component_allocation paste_allocation = {0};
+    boxrig_ui_layout_result paste_layout;
+    boxrig_wayland_host_action paste_parent_action;
+    bool paste_parent_applied;
+    CHECK(boxrig_wayland_terminal_component_get_effective_metrics(component, &paste_metrics) == BOXRIG_FONT_CATALOG_OK);
+    paste_allocation.width = 32u * paste_metrics.cell_width;
+    paste_allocation.height = paste_metrics.cell_height;
+    paste_allocation.window_state = BOXRIG_UI_WINDOW_EMBEDDED;
+    CHECK(boxrig_wayland_terminal_component_allocate(component, &paste_allocation, &paste_layout) == BOXRIG_UI_OK);
+    CHECK(boxrig_wayland_terminal_component_take_host_action(component, &paste_parent_action));
+    wl_surface_commit(paste_parent_action.parent);
+    CHECK(boxrig_wayland_terminal_component_complete_parent_commit(component,
+        paste_parent_action.revision, &paste_parent_applied) == BOXRIG_UI_OK && paste_parent_applied);
     pump(&server);
     pump(&server);
     send_keymap(&server, 0);
@@ -3903,6 +3917,10 @@ static void test_paste_reads_validated_text_once_and_retries(void)
               seat_name,
               NULL,
               &action) == BOXRIG_UI_BUSY);
+    uint64_t paste_move_revision;
+    CHECK(boxrig_wayland_terminal_component_request_reparent(component, parent,
+        &paste_move_revision) == BOXRIG_UI_BUSY);
+    CHECK(server.subsurface_destroy_count == 0);
     CHECK(boxrig_wayland_context_prepare_wait_sources(
               context,
               sources,
@@ -4666,6 +4684,37 @@ static void test_visible_resize_commits_child_with_parent(void)
     }
     free(expected);
     puts("PASS Wayland resized buffers initialize on presentation and preserve busy buffers");
+
+    /* An output change must not replace a child buffer staged for an
+     * outstanding parent commit. The scale belongs to the following frame. */
+    allocation.width = 112;
+    allocation.height = 56;
+    CHECK(boxrig_wayland_terminal_component_allocate(component, &allocation, &layout) == BOXRIG_UI_OK);
+    CHECK(boxrig_wayland_terminal_component_take_layout_action(component, &layout_action));
+    CHECK(boxrig_terminal_resize(terminal, layout_action.value.grid_resize.rows,
+        layout_action.value.grid_resize.columns) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_wayland_terminal_component_complete_grid_resize(component,
+        layout_action.revision, true) == BOXRIG_UI_OK);
+    pump(&server);
+    wl_surface_send_enter(server.child_resource, server.output_resource);
+    pump(&server);
+    boxrig_wayland_dispatch_result scale_dispatch;
+    CHECK(boxrig_wayland_context_dispatch(context, BOXRIG_WAYLAND_WORK_ITEMS_DEFAULT,
+        &scale_dispatch) == BOXRIG_UI_OK);
+    CHECK(boxrig_wayland_terminal_component_frame(component, &frame_result) == BOXRIG_UI_OK);
+    boxrig_wayland_component_diagnostic scale_diagnostic;
+    CHECK(boxrig_wayland_terminal_component_get_diagnostic(component, &scale_diagnostic) == BOXRIG_UI_OK);
+    CHECK(scale_diagnostic.scale_numerator == 120);
+    CHECK(scale_diagnostic.buffer_width == 112 && scale_diagnostic.buffer_height == 56);
+    CHECK(scale_diagnostic.parent_commit_pending);
+    CHECK(boxrig_wayland_terminal_component_take_host_action(component, &action));
+    wl_surface_commit(action.parent);
+    CHECK(boxrig_wayland_terminal_component_complete_parent_commit(component,
+        action.revision, &applied) == BOXRIG_UI_OK && applied);
+    CHECK(boxrig_wayland_terminal_component_frame(component, &frame_result) == BOXRIG_UI_OK);
+    CHECK(boxrig_wayland_terminal_component_get_diagnostic(component, &scale_diagnostic) == BOXRIG_UI_OK);
+    CHECK(scale_diagnostic.scale_numerator == 240);
+    CHECK(scale_diagnostic.buffer_width == 224 && scale_diagnostic.buffer_height == 112);
 
     boxrig_wayland_terminal_component_destroy(component);
     wl_surface_destroy(parent);
@@ -5835,6 +5884,218 @@ static void test_seat_keyboard_routing_and_removal(void)
     boxrig_ui_model_destroy(model);
     boxrig_terminal_destroy(terminal);
     destroy_server(&server);
+}
+
+typedef struct reparent_callback_state {
+    boxrig_wayland_terminal_component *component;
+    struct wl_surface *parent;
+    size_t calls;
+} reparent_callback_state;
+
+static bool fail_reparent_sync;
+void *__real_wl_proxy_create_wrapper(void *proxy);
+void *__wrap_wl_proxy_create_wrapper(void *proxy)
+{
+    if (fail_reparent_sync) {
+        fail_reparent_sync = false;
+        return NULL;
+    }
+    return __real_wl_proxy_create_wrapper(proxy);
+}
+
+static void reparent_frame_requested(void *data)
+{
+    reparent_callback_state *state = data;
+    if (state->component != NULL) {
+        uint64_t revision;
+        CHECK(boxrig_wayland_terminal_component_request_reparent(state->component,
+            state->parent, &revision) == BOXRIG_UI_BUSY);
+        state->calls++;
+    }
+}
+
+static void test_reparent_input_generation_and_pending_focus(void)
+{
+    fake_server server;
+    host_registry_state host;
+    boxrig_terminal_config terminal_config = boxrig_terminal_config_default();
+    boxrig_wayland_terminal_component_config config = boxrig_wayland_terminal_component_config_default();
+    boxrig_terminal *terminal = NULL;
+    boxrig_ui_model *model = NULL;
+    boxrig_wayland_context *context = NULL;
+    boxrig_wayland_terminal_component *component = NULL;
+    boxrig_ui_component_allocation allocation = {0};
+    boxrig_ui_layout_result layout;
+    boxrig_ui_layout_action layout_action;
+    boxrig_wayland_host_action action;
+    boxrig_ui_component_frame_result frame;
+    boxrig_wayland_component_diagnostic diagnostic;
+    reparent_callback_state callback = {0};
+    struct wl_array keys;
+    const uint8_t *output;
+    uint64_t revision, rejected_revision;
+    bool applied;
+    size_t consumed;
+    create_server(&server, true, false, true);
+    struct wl_registry *registry = create_host_registry(&server, &host);
+    CHECK(boxrig_terminal_create(&terminal_config, &terminal) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)"\033[?1004h", 8, &consumed) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
+    CHECK(create_protocol_context(server.client_display, server.client_queue, NULL, &context) == BOXRIG_UI_OK);
+    pump(&server);
+    pump(&server);
+    struct wl_surface *parent = wl_compositor_create_surface(host.compositor);
+    CHECK(parent != NULL);
+    config.keyboard_focus_fallback = true;
+    config.frame_request_callback = reparent_frame_requested;
+    config.frame_request_context = &callback;
+    CHECK(create_steady_component(context, parent, model, &config, &component) == BOXRIG_UI_OK);
+    allocation.width = 80;
+    allocation.height = 40;
+    allocation.window_state = BOXRIG_UI_WINDOW_EMBEDDED;
+    CHECK(boxrig_wayland_terminal_component_allocate(component, &allocation, &layout) == BOXRIG_UI_OK);
+    CHECK(boxrig_wayland_terminal_component_take_layout_action(component, &layout_action));
+    CHECK(boxrig_terminal_resize(terminal, layout_action.value.grid_resize.rows,
+        layout_action.value.grid_resize.columns) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_wayland_terminal_component_complete_grid_resize(component,
+        layout_action.revision, true) == BOXRIG_UI_OK);
+    CHECK(boxrig_wayland_terminal_component_take_host_action(component, &action));
+    wl_surface_commit(action.parent);
+    CHECK(boxrig_wayland_terminal_component_complete_parent_commit(component, action.revision, &applied) == BOXRIG_UI_OK && applied);
+    pump(&server);
+    struct wl_resource *child_resource = server.child_resource;
+    struct wl_surface *destination = wl_compositor_create_surface(host.compositor);
+    CHECK(destination != NULL);
+    pump(&server);
+    struct wl_resource *destination_resource = server.child_resource;
+    CHECK(child_resource != destination_resource);
+    send_keymap(&server, 0);
+    wl_array_init(&keys);
+    wl_keyboard_send_enter(server.keyboard_resources[0], 10, server.parent_resource, &keys);
+    pump(&server);
+    dispatch_context(context);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 3 && memcmp(output, "\033[I", 3) == 0);
+    CHECK(boxrig_terminal_output_consume(terminal, 3) == BOXRIG_STATUS_OK);
+    wl_keyboard_send_key(server.keyboard_resources[0], 11, 1, KEY_A, WL_KEYBOARD_KEY_STATE_PRESSED);
+    pump(&server);
+    dispatch_context(context);
+    CHECK(boxrig_wayland_terminal_component_request_reparent(component, destination, &revision) == BOXRIG_UI_BUSY);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 1 && output[0] == 'a');
+    CHECK(boxrig_terminal_output_consume(terminal, 1) == BOXRIG_STATUS_OK);
+    wl_keyboard_send_key(server.keyboard_resources[0], 12, 2, KEY_A, WL_KEYBOARD_KEY_STATE_RELEASED);
+    pump(&server);
+    dispatch_context(context);
+    wl_pointer_send_enter(server.pointer_resources[0], 21, child_resource,
+        wl_fixed_from_int(2), wl_fixed_from_int(2));
+    wl_pointer_send_button(server.pointer_resources[0], 22, 9, BTN_LEFT, WL_POINTER_BUTTON_STATE_PRESSED);
+    pump(&server);
+    dispatch_context(context);
+    CHECK(boxrig_wayland_terminal_component_request_reparent(component, destination, &revision) == BOXRIG_UI_BUSY);
+    wl_pointer_send_button(server.pointer_resources[0], 23, 10, BTN_LEFT, WL_POINTER_BUTTON_STATE_RELEASED);
+    pump(&server);
+    dispatch_context(context);
+    boxrig_composition *composition = boxrig_wayland_terminal_component_composition(component);
+    boxrig_composition_event preedit = {.type = BOXRIG_COMPOSITION_PREEDIT_UPDATE,
+        .text = "x", .text_length = 1, .caret_offset = 1, .caret_visible = true};
+    CHECK(boxrig_composition_apply_event(composition, &preedit) == BOXRIG_COMPOSITION_OK);
+    CHECK(boxrig_wayland_terminal_component_request_reparent(component, destination, &revision) == BOXRIG_UI_BUSY);
+    preedit = (boxrig_composition_event){.type = BOXRIG_COMPOSITION_CANCEL};
+    CHECK(boxrig_composition_apply_event(composition, &preedit) == BOXRIG_COMPOSITION_OK);
+    CHECK(boxrig_wayland_terminal_component_get_diagnostic(component, &diagnostic) == BOXRIG_UI_OK);
+    boxrig_ui_input_state input_state;
+    CHECK(boxrig_wayland_terminal_component_get_input_state(component, &input_state) == BOXRIG_UI_OK);
+    uint64_t input_generation = input_state.generation;
+    callback.component = component;
+    callback.parent = destination;
+    CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)"\033[>3u", 5, &consumed) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_wayland_terminal_component_request_reparent(component, destination, &revision) == BOXRIG_UI_OK);
+    CHECK(callback.calls > 0);
+    CHECK(boxrig_wayland_terminal_component_request_reparent(component, parent, &rejected_revision) == BOXRIG_UI_BUSY);
+    dispatch_context(context);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 3 && memcmp(output, "\033[O", 3) == 0);
+    CHECK(boxrig_terminal_output_consume(terminal, 3) == BOXRIG_STATUS_OK);
+    /* Old focus and keys cannot enter the new input generation. */
+    wl_keyboard_send_enter(server.keyboard_resources[0], 13, server.parent_resource, &keys);
+    wl_keyboard_send_key(server.keyboard_resources[0], 14, 3, KEY_E, WL_KEYBOARD_KEY_STATE_PRESSED);
+    wl_keyboard_send_key(server.keyboard_resources[0], 15, 4, KEY_E, WL_KEYBOARD_KEY_STATE_RELEASED);
+    pump(&server);
+    dispatch_context(context);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 0);
+    /* Acceptance already detached the old parent, before the new commit. */
+    wl_surface_destroy(parent);
+    /* The destination may receive focus before the server acknowledges the
+     * move. Its keys are suspended, then input resumes without a second enter. */
+    wl_keyboard_send_enter(server.keyboard_resources[0], 16, destination_resource, &keys);
+    zwp_text_input_v3_send_enter(server.text_input_resources[0], destination_resource);
+    wl_keyboard_send_key(server.keyboard_resources[0], 17, 5, KEY_E, WL_KEYBOARD_KEY_STATE_PRESSED);
+    pump(&server);
+    dispatch_context(context);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 0);
+    CHECK(boxrig_wayland_terminal_component_frame(component, &frame) == BOXRIG_UI_OK);
+    CHECK(boxrig_wayland_terminal_component_take_host_action(component, &action));
+    CHECK(action.parent == destination);
+    wl_surface_commit(action.parent);
+    fail_reparent_sync = true;
+    CHECK(boxrig_wayland_terminal_component_complete_parent_commit(component,
+        action.revision, &applied) == BOXRIG_UI_OUT_OF_MEMORY && !applied);
+    CHECK(!fail_reparent_sync);
+    CHECK(boxrig_wayland_terminal_component_get_diagnostic(component, &diagnostic) == BOXRIG_UI_OK);
+    CHECK(diagnostic.reparent_pending && diagnostic.effective_reparent_revision < revision);
+    CHECK(boxrig_wayland_terminal_component_complete_parent_commit(component, action.revision, &applied) == BOXRIG_UI_OK && applied);
+    pump(&server);
+    dispatch_context(context);
+    CHECK(boxrig_wayland_terminal_component_get_diagnostic(component, &diagnostic) == BOXRIG_UI_OK);
+    CHECK(!diagnostic.reparent_pending && diagnostic.effective_reparent_revision == revision);
+    CHECK(boxrig_wayland_terminal_component_get_input_state(component, &input_state) == BOXRIG_UI_OK);
+    CHECK(input_state.generation > input_generation && diagnostic.keyboard_focus_count == 1);
+    CHECK(diagnostic.text_input_focus_count == 1);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 3 && memcmp(output, "\033[I", 3) == 0);
+    CHECK(boxrig_terminal_output_consume(terminal, 3) == BOXRIG_STATUS_OK);
+    /* A press discarded during the move must not produce a release report
+     * after acknowledgement, even when Kitty release reporting is enabled. */
+    CHECK(boxrig_wayland_terminal_component_request_reparent(component, destination, &rejected_revision) == BOXRIG_UI_BUSY);
+    wl_keyboard_send_key(server.keyboard_resources[0], 18, 6, KEY_E, WL_KEYBOARD_KEY_STATE_RELEASED);
+    pump(&server);
+    dispatch_context(context);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 0);
+    CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)"\033[<u", 4, &consumed) == BOXRIG_STATUS_OK);
+    pump(&server);
+    uint32_t destination_text_serial = server.text_input_commit_serials[0];
+    CHECK(destination_text_serial != 0);
+    zwp_text_input_v3_send_commit_string(server.text_input_resources[0], "stale");
+    zwp_text_input_v3_send_done(server.text_input_resources[0], destination_text_serial - 1);
+    pump(&server);
+    dispatch_context(context);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 0);
+    zwp_text_input_v3_send_commit_string(server.text_input_resources[0], "fresh");
+    zwp_text_input_v3_send_done(server.text_input_resources[0], destination_text_serial);
+    pump(&server);
+    dispatch_context(context);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 5 && memcmp(output, "fresh", 5) == 0);
+    CHECK(boxrig_terminal_output_consume(terminal, 5) == BOXRIG_STATUS_OK);
+    wl_keyboard_send_key(server.keyboard_resources[0], 19, 7, KEY_E, WL_KEYBOARD_KEY_STATE_PRESSED);
+    wl_keyboard_send_key(server.keyboard_resources[0], 20, 8, KEY_E, WL_KEYBOARD_KEY_STATE_RELEASED);
+    pump(&server);
+    dispatch_context(context);
+    size_t resumed_length = boxrig_terminal_output_peek(terminal, &output);
+    if (resumed_length != 1 || output[0] != 'e') {
+        fprintf(stderr, "Resumed input length=%zu bytes=", resumed_length);
+        for (size_t index = 0; index < resumed_length; index++) fprintf(stderr, "%02x ", output[index]);
+        fputc('\n', stderr);
+    }
+    CHECK(resumed_length == 1 && output[0] == 'e');
+    callback.component = NULL;
+    boxrig_wayland_terminal_component_destroy(component);
+    wl_surface_destroy(destination);
+    wl_compositor_destroy(host.compositor);
+    wl_registry_destroy(registry);
+    pump(&server);
+    boxrig_wayland_context_destroy(context);
+    boxrig_ui_model_destroy(model);
+    boxrig_terminal_destroy(terminal);
+    wl_array_release(&keys);
+    destroy_server(&server);
+    puts("PASS Wayland reparent rejects old input and resumes destination focus");
 }
 
 static void test_host_keyboard_focus_routes_to_fallback_component(void)
@@ -9944,6 +10205,7 @@ int main(int argc, char **argv)
     test_missing_argb_policy();
     test_seat_keyboard_routing_and_removal();
     test_host_keyboard_focus_routes_to_fallback_component();
+    test_reparent_input_generation_and_pending_focus();
     test_pointer_scale_batch_and_click_wrap();
     test_text_input_editable_document();
     test_text_input_batch_and_compose_fallback();

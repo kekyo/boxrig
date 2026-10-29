@@ -124,6 +124,28 @@ boxrig_ui_status boxrig_win32_terminal_component_create_child(
     boxrig_win32_terminal_component **component_out);
 
 /**
+ * Moves an owned child control to another caller-owned parent HWND.
+ *
+ * @param component Running owned-child component on its UI thread.
+ * @param parent Live same-process, same-thread parent with compatible DPI awareness.
+ * @return OK after SetParent succeeds; BUSY during input or layout work;
+ * INVALID_ARGUMENT for invalid arguments; UNAVAILABLE for incompatible
+ * parents, borrowed targets, or a failed native move.
+ * @remarks The child HWND, view, renderer, terminal, and session stay intact.
+ * The host keeps both parents alive during the call and the destination alive
+ * until the next move or component destruction. Geometry and terminal grid do
+ * not change here. If output DPI changes, update the font rendering policy,
+ * then call allocate after the destination is laid out and complete its layout
+ * actions. Request focus separately when the destination should receive input. Old input
+ * generations must be discarded by the host. A successful move invalidates
+ * old input and focus state. SetParent does not change WS_CHILD/WS_POPUP styles.
+ * See https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setparent .
+ */
+boxrig_ui_status boxrig_win32_terminal_component_reparent(
+    boxrig_win32_terminal_component *component,
+    HWND parent);
+
+/**
  * Creates a terminal component on caller-owned Win32 targets.
  *
  * @param instance Module instance used by renderer resources.

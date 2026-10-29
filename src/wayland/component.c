@@ -818,6 +818,16 @@ void boxrig_wayland_terminal_components_process_output_changes(
     }
 }
 
+static void component_request_frame(void *context)
+{
+    boxrig_wayland_terminal_component *component = context;
+    bool was_active = component->native_operation_active;
+    component->native_operation_active = true;
+    if (component->config.frame_request_callback != NULL)
+        component->config.frame_request_callback(component->config.frame_request_context);
+    component->native_operation_active = was_active;
+}
+
 static void schedule_parent_commit(
     boxrig_wayland_terminal_component *component)
 {
@@ -836,8 +846,7 @@ void boxrig_wayland_component_schedule_input_commit(
 {
     if (parent) schedule_parent_commit(component);
     else component->presentation_pending = true;
-    if (component->config.frame_request_callback != NULL)
-        component->config.frame_request_callback(component->config.frame_request_context);
+    component_request_frame(component);
 }
 
 static bool schedule_position(
@@ -1057,8 +1066,8 @@ boxrig_ui_status boxrig_wayland_terminal_component_create(
     if (status == BOXRIG_UI_OK) {
         status = boxrig_ui_view_set_frame_request_callback(
             component->view,
-            effective.frame_request_callback,
-            effective.frame_request_context);
+            component_request_frame,
+            component);
     }
     if (status == BOXRIG_UI_OK) {
         status = boxrig_ui_view_set_visible(component->view, false);
@@ -1201,6 +1210,81 @@ boxrig_ui_status boxrig_wayland_terminal_component_adopt_renderer(
     return BOXRIG_UI_OK;
 }
 
+boxrig_ui_status boxrig_wayland_terminal_component_request_reparent(
+    boxrig_wayland_terminal_component *component, struct wl_surface *parent,
+    uint64_t *revision_out)
+{
+    if (component == NULL || parent == NULL || revision_out == NULL ||
+        !component->running || !component->allocated || parent == component->surface)
+        return BOXRIG_UI_INVALID_ARGUMENT;
+    *revision_out = 0;
+    if (component->context->state != BOXRIG_WAYLAND_CONTEXT_READY ||
+        wl_display_get_error(component->context->display) != 0)
+        return BOXRIG_UI_UNAVAILABLE;
+    if (component->native_operation_active || component->reparent_pending ||
+        component->processing_input || component->input_control.state.phase == BOXRIG_UI_INPUT_STOPPING ||
+        component->pressed_key_count || component->pressed_button_count ||
+        component->input_queue_depth || component->input_blocked || component->ime_waiting ||
+        component->scrollbar_dragging || component->scrollbar_visibility.state.pending ||
+        component->layout_presentation_barrier || component->allocation_sync_pending ||
+        component->parent_state_revision != component->effective_parent_state_revision ||
+        boxrig_wayland_clipboard_input_pending(component)) return BOXRIG_UI_BUSY;
+    boxrig_composition_view composition;
+    if (boxrig_composition_get_view(component->composition, &composition) != BOXRIG_COMPOSITION_OK)
+        return BOXRIG_UI_UNAVAILABLE;
+    if (composition.active || composition.commit_pending) return BOXRIG_UI_BUSY;
+    for (boxrig_wayland_seat *seat = component->context->seats; seat != NULL; seat = seat->next) {
+        if (seat->keyboard_component == component) {
+            for (size_t key = 0; key < 256; key++)
+                if (seat->native_pressed[key]) return BOXRIG_UI_BUSY;
+        }
+        if ((seat->text_component == component &&
+             (seat->pending_preedit_set || seat->pending_commit_set || seat->pending_delete_set || seat->text_state_deferred)) ||
+            (seat->keyboard_component == component && seat->compose_state != NULL &&
+             xkb_compose_state_get_status(seat->compose_state) == XKB_COMPOSE_COMPOSING))
+            return BOXRIG_UI_BUSY;
+    }
+    /* The host is responsible for external ancestry. Detect cycles through
+     * other components owned by this context before sending any requests. */
+    struct wl_surface *ancestor = parent;
+    for (size_t depth = 0; depth <= component->context->component_count; depth++) {
+        if (ancestor == component->surface) return BOXRIG_UI_INVALID_ARGUMENT;
+        boxrig_wayland_terminal_component *owner = component->context->components;
+        while (owner != NULL && owner->surface != ancestor) owner = owner->next;
+        if (owner == NULL) break;
+        ancestor = owner->parent;
+    }
+    if (component->reparent_revision == UINT64_MAX || component->parent_state_revision == UINT64_MAX ||
+        component->input_generation == UINT64_MAX || component->input_control.state.generation == UINT64_MAX ||
+        boxrig_ui_editable_document_input_generation(boxrig_ui_view_editable_document(component->view)) == UINT64_MAX)
+        return BOXRIG_UI_LIMIT_EXCEEDED;
+    component->native_operation_active = true;
+    component->reparent_pending = true;
+    component->explicit_parent_input = true;
+    component->reparent_revision++;
+    boxrig_wayland_input_reparent_component(component);
+    if (component->frame_callback != NULL) {
+        wl_callback_destroy(component->frame_callback);
+        component->frame_callback = NULL;
+    }
+    wl_subsurface_destroy(component->subsurface);
+    component->subsurface = NULL;
+    component->parent = parent;
+    component->parent_state_revision++;
+    component->parent_action_taken = false;
+    component->presentation_pending = true;
+    component->presentation_immediate = true;
+    component->context->flush_required = true;
+    size_t rows, columns;
+    boxrig_terminal_size(component->terminal, &rows, &columns);
+    boxrig_ui_dirty dirty = {0, rows, 0, columns};
+    (void)boxrig_ui_view_invalidate(component->view, BOXRIG_UI_DIRTY_PRESENT, dirty);
+    component_request_frame(component);
+    *revision_out = component->reparent_revision;
+    component->native_operation_active = false;
+    return BOXRIG_UI_OK;
+}
+
 boxrig_ui_status boxrig_wayland_terminal_component_quiesce(
     boxrig_wayland_terminal_component *component)
 {
@@ -1211,6 +1295,10 @@ boxrig_ui_status boxrig_wayland_terminal_component_quiesce(
         return BOXRIG_UI_OK;
     }
     component->running = false;
+    if (component->reparent_sync != NULL) {
+        wl_callback_destroy(component->reparent_sync);
+        component->reparent_sync = NULL;
+    }
     boxrig_ui_scrollbar_visibility_cancel(&component->scrollbar_visibility);
     boxrig_ui_animation_runtime_detach(component->view);
     if (component->input_generation != UINT64_MAX) {
@@ -1419,6 +1507,20 @@ boxrig_wayland_terminal_component_get_effective_metrics(
         metrics_out);
 }
 
+static boxrig_ui_status prepare_reparent_relation(boxrig_wayland_terminal_component *component)
+{
+    if (component->subsurface != NULL) return BOXRIG_UI_OK;
+    if (!component->reparent_pending) return BOXRIG_UI_UNAVAILABLE;
+    component->subsurface = wl_subcompositor_get_subsurface(component->context->subcompositor,
+        component->surface, component->parent);
+    if (component->subsurface == NULL) return BOXRIG_UI_OUT_OF_MEMORY;
+    wl_proxy_set_queue((struct wl_proxy *)component->subsurface, component->context->queue);
+    wl_subsurface_set_position(component->subsurface, component->candidate_x, component->candidate_y);
+    wl_subsurface_set_desync(component->subsurface);
+    component->context->flush_required = true;
+    return BOXRIG_UI_OK;
+}
+
 static bool can_reuse_allocation(
     const boxrig_wayland_terminal_component *component,
     const boxrig_ui_component_allocation *allocation,
@@ -1475,6 +1577,8 @@ boxrig_ui_status boxrig_wayland_terminal_component_allocate(
         allocation->height == 0) {
         return BOXRIG_UI_INVALID_ARGUMENT;
     }
+    status = prepare_reparent_relation(component);
+    if (status != BOXRIG_UI_OK) return status;
     if (component->scrollbar_visibility.state.pending && !component->scrollbar_committing)
         return BOXRIG_UI_BUSY;
     width = ((uint64_t)allocation->width * component->scale_numerator + 119) /
@@ -2963,7 +3067,7 @@ static void set_layout_wait_frame_result(
     set_animation_deadline(component, terminal, result_out);
 }
 
-boxrig_ui_status boxrig_wayland_terminal_component_frame(
+static boxrig_ui_status component_frame(
     boxrig_wayland_terminal_component *component,
     boxrig_ui_component_frame_result *result_out)
 {
@@ -2984,6 +3088,8 @@ boxrig_ui_status boxrig_wayland_terminal_component_frame(
         !component->allocated) {
         return BOXRIG_UI_INVALID_ARGUMENT;
     }
+    status = prepare_reparent_relation(component);
+    if (status != BOXRIG_UI_OK) return status;
     terminal = boxrig_ui_model_terminal(component->model);
     if (terminal == NULL) {
         return BOXRIG_UI_UNAVAILABLE;
@@ -3004,6 +3110,12 @@ boxrig_ui_status boxrig_wayland_terminal_component_frame(
     if (layout_transaction_waiting(component, &layout_ready)) {
         set_layout_wait_frame_result(
             component, terminal, layout_ready, result_out);
+        return BOXRIG_UI_OK;
+    }
+    if (component->allocation_sync_pending) {
+        /* The compositor still caches this allocation's buffer. Publish it
+         * with its parent before replacing resources for a new output scale. */
+        set_layout_wait_frame_result(component, terminal, false, result_out);
         return BOXRIG_UI_OK;
     }
     if (boxrig_terminal_synchronized_output(terminal)) {
@@ -3592,6 +3704,8 @@ bool boxrig_wayland_terminal_component_take_host_action(
         component->parent_action_taken) {
         return false;
     }
+    if (component->subsurface == NULL) return false;
+    action_out->parent = component->parent;
     action_out->revision = component->parent_state_revision;
     action_out->parent_commit_required = true;
     action_out->x = component->candidate_x;
@@ -3599,6 +3713,21 @@ bool boxrig_wayland_terminal_component_take_host_action(
     component->parent_action_taken = true;
     return true;
 }
+
+static void reparent_done(void *data, struct wl_callback *callback, uint32_t serial)
+{
+    boxrig_wayland_terminal_component *component = data;
+    (void)serial;
+    if (callback != component->reparent_sync) return;
+    wl_callback_destroy(callback);
+    component->reparent_sync = NULL;
+    component->effective_reparent_revision = component->reparent_revision;
+    component->reparent_pending = false;
+    boxrig_wayland_input_complete_reparent(component);
+    component_request_frame(component);
+}
+
+static const struct wl_callback_listener reparent_listener = {.done = reparent_done};
 
 boxrig_ui_status boxrig_wayland_terminal_component_complete_parent_commit(
     boxrig_wayland_terminal_component *component,
@@ -3612,6 +3741,21 @@ boxrig_ui_status boxrig_wayland_terminal_component_complete_parent_commit(
     if (!component->running || !component->parent_action_taken ||
         revision != component->parent_state_revision) {
         return BOXRIG_UI_OK;
+    }
+    if (component->reparent_pending && component->reparent_sync == NULL) {
+        void *wrapper = wl_proxy_create_wrapper(component->context->display);
+        if (wrapper == NULL) return BOXRIG_UI_OUT_OF_MEMORY;
+        wl_proxy_set_queue(wrapper, component->context->queue);
+        component->reparent_sync = wl_display_sync(wrapper);
+        wl_proxy_wrapper_destroy(wrapper);
+        if (component->reparent_sync == NULL) return BOXRIG_UI_OUT_OF_MEMORY;
+        wl_proxy_set_queue((struct wl_proxy *)component->reparent_sync, component->context->queue);
+        if (wl_callback_add_listener(component->reparent_sync, &reparent_listener, component) != 0) {
+            wl_callback_destroy(component->reparent_sync);
+            component->reparent_sync = NULL;
+            return BOXRIG_UI_UNAVAILABLE;
+        }
+        component->context->flush_required = true;
     }
     component->effective_parent_state_revision = revision;
     component->effective_x = component->candidate_x;
@@ -3662,6 +3806,9 @@ boxrig_ui_status boxrig_wayland_terminal_component_get_diagnostic(
     }
     memset(diagnostic_out, 0, sizeof(*diagnostic_out));
     diagnostic_out->running = component->running;
+    diagnostic_out->reparent_pending = component->reparent_pending;
+    diagnostic_out->reparent_revision = component->reparent_revision;
+    diagnostic_out->effective_reparent_revision = component->effective_reparent_revision;
     diagnostic_out->parent_commit_pending =
         component->parent_state_revision !=
         component->effective_parent_state_revision;
@@ -3798,4 +3945,15 @@ boxrig_ui_status boxrig_wayland_terminal_component_get_diagnostic(
         }
     }
     return BOXRIG_UI_OK;
+}
+
+boxrig_ui_status boxrig_wayland_terminal_component_frame(
+    boxrig_wayland_terminal_component *component, boxrig_ui_component_frame_result *result_out)
+{
+    if (component == NULL || result_out == NULL) return BOXRIG_UI_INVALID_ARGUMENT;
+    if (component->native_operation_active) return BOXRIG_UI_BUSY;
+    component->native_operation_active = true;
+    boxrig_ui_status status = component_frame(component, result_out);
+    component->native_operation_active = false;
+    return status;
 }
