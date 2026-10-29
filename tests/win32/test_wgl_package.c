@@ -40,6 +40,7 @@ int main(int count, char **arguments)
     boxrig_ui_model_destroy(model);
     boxrig_terminal_destroy(terminal);
     assert(renderer_config.limits.maximum_glyph_entries > 0);
+    assert(boxrig_gl_runtime_set_clip(NULL, NULL, NULL) == BOXRIG_GL_INVALID_ARGUMENT);
     assert(boxrig_ogl_renderer_create(&renderer_config, &renderer, &diagnostic) == BOXRIG_GL_INVALID_ARGUMENT);
     assert(renderer == NULL && diagnostic.status == BOXRIG_GL_INVALID_ARGUMENT);
     assert(boxrig_wgl_binding_create(1, 1, &binding, &runtime, &diagnostic) == BOXRIG_GL_CONTEXT_MISMATCH);

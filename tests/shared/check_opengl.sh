@@ -38,7 +38,7 @@ for library in x11-ogl wayland-ogl; do
         standard=c99
         if [ "$language" = c++ ]; then compiler=c++; standard=c++20; fi
         "$compiler" -x "$language" -std="$standard" -Wall -Wextra -Wpedantic -Werror \
-            "$source" $(pkg-config --cflags --libs "boxrig-$library") \
+            "$source" $(pkg-config --cflags --libs "boxrig-$library" boxrig-render-ogl) \
             '-Wl,-rpath,$ORIGIN/../lib64' -o "$sdk/bin/$library-$language"
         env -u LD_LIBRARY_PATH LD_BIND_NOW=1 "$sdk/bin/$library-$language"
         readelf -d "$sdk/bin/$library-$language" > "$root/$library-$language-consumer-dynamic"

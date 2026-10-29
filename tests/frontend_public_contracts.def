@@ -1330,6 +1330,7 @@ BOXRIG_PUBLIC_CONTRACT(
     OPERATION, "include/boxrig/render/runtime.h", RENDERER_MEANING, 31u,
     "boxrig_gl_runtime_create "
     "boxrig_gl_runtime_get_capabilities "
+    "boxrig_gl_runtime_set_clip "
     "boxrig_gl_runtime_set_target_generation "
     "boxrig_gl_runtime_begin_target "
     "boxrig_gl_runtime_end_target "
