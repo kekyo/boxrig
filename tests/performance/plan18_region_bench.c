@@ -120,7 +120,7 @@ int main(void)
                 if (!feed_bytes(terminal, sequence, strlen(sequence))) return 1;
             } else if (kind == 3) {
                 boxrig_ui_dirty dirty = {0, config.rows, 0, config.columns};
-                if (boxrig_ui_view_invalidate(view, BOXRIG_UI_DIRTY_PRESENT, dirty) != BOXRIG_UI_OK)
+                if (boxrig_ui_view_invalidate(view, BOXRIG_UI_DIRTY_OVERLAY, dirty) != BOXRIG_UI_OK)
                     return 1;
             } else {
 #ifdef BOXRIG_PLAN18_CAIRO
@@ -157,6 +157,10 @@ int main(void)
             cairo_surface_flush(surface);
             if (boxrig_pango_cairo_renderer_get_render_statistics(renderer.renderer, &after) != 0)
                 return 1;
+            if (kind == 3 && after.row_raster_count - before.row_raster_count != config.rows) {
+                fprintf(stderr, "plan18 all_rows_dirty did not raster all rows\n");
+                return 1;
+            }
             printf("%s\t%u\t%" PRIu64 "\t%zu\t%zu\n", name, iteration, elapsed,
                 after.row_raster_count - before.row_raster_count,
                 after.cell_raster_count - before.cell_raster_count);
@@ -168,6 +172,10 @@ int main(void)
             if (boxrig_gl_runtime_get_state_counters(plan18_runtime, &state_after) != BOXRIG_GL_OK)
                 return 1;
             if (boxrig_ogl_renderer_get_render_statistics(renderer.renderer, &after) != 0) return 1;
+            if (kind == 3 && after.row_raster_count - before.row_raster_count != config.rows) {
+                fprintf(stderr, "plan18 all_rows_dirty did not raster all rows\n");
+                return 1;
+            }
             printf("%s\t%u\t%" PRIu64 "\t%zu\t%zu\t%zu\t%zu\t%zu\t%zu\t%zu\t%zu\t%zu\t%zu\t%zu\t%zu\n",
                 name, iteration, elapsed,
                 after.row_raster_count - before.row_raster_count,
