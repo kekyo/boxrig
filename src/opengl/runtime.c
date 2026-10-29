@@ -610,6 +610,37 @@ static boxrig_gl_status create_resources(
         delete_resources(runtime);
         return BOXRIG_GL_API_FAILURE;
     }
+    /* Attribute formats and the sampler unit belong to our VAO/program and
+     * survive BufferData storage replacement. Rebuild them with these objects. */
+    GLint previous_vertex_array, previous_array_buffer, previous_program;
+    runtime->gl.GetIntegerv(GL_VERTEX_ARRAY_BINDING, &previous_vertex_array);
+    runtime->gl.GetIntegerv(GL_ARRAY_BUFFER_BINDING, &previous_array_buffer);
+    runtime->gl.GetIntegerv(GL_CURRENT_PROGRAM, &previous_program);
+    runtime->gl.BindVertexArray(runtime->vertex_array);
+    runtime->gl.BindBuffer(GL_ARRAY_BUFFER, runtime->buffers[0]);
+#define INSTANCE_ATTRIBUTE(index, count, member)                               \
+    do {                                                                        \
+        runtime->gl.VertexAttribPointer(                                        \
+            (index),                                                            \
+            (count),                                                            \
+            GL_FLOAT,                                                           \
+            GL_FALSE,                                                           \
+            (GLsizei)sizeof(boxrig_gl_quad_instance),                           \
+            (const void *)offsetof(boxrig_gl_quad_instance, member));            \
+        runtime->gl.EnableVertexAttribArray(index);                             \
+        runtime->gl.VertexAttribDivisor(index, 1);                              \
+    } while (0)
+    INSTANCE_ATTRIBUTE(0, 4, destination);
+    INSTANCE_ATTRIBUTE(1, 4, texture_coordinates);
+    INSTANCE_ATTRIBUTE(2, 4, color);
+    INSTANCE_ATTRIBUTE(3, 1, source_kind);
+#undef INSTANCE_ATTRIBUTE
+    runtime->gl.UseProgram(runtime->program);
+    GLint sampler_location = runtime->gl.GetUniformLocation(runtime->program, "atlas");
+    if (sampler_location >= 0) runtime->gl.Uniform1i(sampler_location, 0);
+    runtime->gl.UseProgram((GLuint)previous_program);
+    runtime->gl.BindVertexArray((GLuint)previous_vertex_array);
+    runtime->gl.BindBuffer(GL_ARRAY_BUFFER, (GLuint)previous_array_buffer);
     runtime->gl.GetIntegerv(GL_ACTIVE_TEXTURE, &active_texture);
     runtime->gl.ActiveTexture(GL_TEXTURE0);
     runtime->gl.GetIntegerv(GL_TEXTURE_BINDING_2D, &texture_binding);
@@ -1531,7 +1562,6 @@ boxrig_gl_status boxrig_gl_runtime_draw_quads(
     boxrig_gl_blend blend,
     boxrig_gl_diagnostic *diagnostic_out)
 {
-    GLint sampler_location;
     GLenum error;
     size_t byte_count;
 
@@ -1565,32 +1595,12 @@ boxrig_gl_status boxrig_gl_runtime_draw_quads(
         (GLsizeiptr)byte_count,
         instances,
         GL_STREAM_DRAW);
-#define INSTANCE_ATTRIBUTE(index, count, member)                               \
-    do {                                                                        \
-        runtime->gl.VertexAttribPointer(                                        \
-            (index),                                                            \
-            (count),                                                            \
-            GL_FLOAT,                                                           \
-            GL_FALSE,                                                           \
-            (GLsizei)sizeof(boxrig_gl_quad_instance),                           \
-            (const void *)offsetof(boxrig_gl_quad_instance, member));            \
-        runtime->gl.EnableVertexAttribArray(index);                             \
-        runtime->gl.VertexAttribDivisor(index, 1);                              \
-    } while (0)
-    INSTANCE_ATTRIBUTE(0, 4, destination);
-    INSTANCE_ATTRIBUTE(1, 4, texture_coordinates);
-    INSTANCE_ATTRIBUTE(2, 4, color);
-    INSTANCE_ATTRIBUTE(3, 1, source_kind);
-#undef INSTANCE_ATTRIBUTE
+
     runtime->gl.ActiveTexture(GL_TEXTURE0);
     runtime->gl.BindTexture(
         GL_TEXTURE_2D,
         texture == 0 ? runtime->texture : texture);
     runtime->gl.BindSampler(0, runtime->sampler);
-    sampler_location = runtime->gl.GetUniformLocation(runtime->program, "atlas");
-    if (sampler_location >= 0) {
-        runtime->gl.Uniform1i(sampler_location, 0);
-    }
     runtime->gl.BlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
     if (blend == BOXRIG_GL_BLEND_BEHIND) {
         runtime->gl.BlendFuncSeparate(

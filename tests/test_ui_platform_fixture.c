@@ -2327,6 +2327,11 @@ static bool opengl_partial_frame_work_fixture(void)
     fprintf(stderr, "OpenGL partial frame target checks: %zu\n",
         after.target_checks - before.target_checks);
     CHECK(after.target_checks - before.target_checks == 1);
+    fprintf(stderr, "OpenGL partial frame attributes/uniform queries: %zu/%zu\n",
+        after.attribute_pointers - before.attribute_pointers,
+        after.uniform_lookups - before.uniform_lookups);
+    CHECK(after.attribute_pointers == before.attribute_pointers);
+    CHECK(after.uniform_lookups == before.uniform_lookups);
     /* Separated dirty rows must not erase the untouched rows between them. */
     for (size_t row = 0; row < config.rows; row++) {
         platform_rgb color;
