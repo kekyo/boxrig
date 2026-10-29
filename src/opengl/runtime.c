@@ -132,6 +132,8 @@ struct boxrig_gl_runtime {
     GLuint texture;
     GLuint sampler;
     uint64_t target_generation;
+    uint32_t target_width;
+    uint32_t target_height;
     bool target_active;
     bool srgb_write_control;
 };
@@ -608,6 +610,37 @@ static boxrig_gl_status create_resources(
         delete_resources(runtime);
         return BOXRIG_GL_API_FAILURE;
     }
+    /* Attribute formats and the sampler unit belong to our VAO/program and
+     * survive BufferData storage replacement. Rebuild them with these objects. */
+    GLint previous_vertex_array, previous_array_buffer, previous_program;
+    runtime->gl.GetIntegerv(GL_VERTEX_ARRAY_BINDING, &previous_vertex_array);
+    runtime->gl.GetIntegerv(GL_ARRAY_BUFFER_BINDING, &previous_array_buffer);
+    runtime->gl.GetIntegerv(GL_CURRENT_PROGRAM, &previous_program);
+    runtime->gl.BindVertexArray(runtime->vertex_array);
+    runtime->gl.BindBuffer(GL_ARRAY_BUFFER, runtime->buffers[0]);
+#define INSTANCE_ATTRIBUTE(index, count, member)                               \
+    do {                                                                        \
+        runtime->gl.VertexAttribPointer(                                        \
+            (index),                                                            \
+            (count),                                                            \
+            GL_FLOAT,                                                           \
+            GL_FALSE,                                                           \
+            (GLsizei)sizeof(boxrig_gl_quad_instance),                           \
+            (const void *)offsetof(boxrig_gl_quad_instance, member));            \
+        runtime->gl.EnableVertexAttribArray(index);                             \
+        runtime->gl.VertexAttribDivisor(index, 1);                              \
+    } while (0)
+    INSTANCE_ATTRIBUTE(0, 4, destination);
+    INSTANCE_ATTRIBUTE(1, 4, texture_coordinates);
+    INSTANCE_ATTRIBUTE(2, 4, color);
+    INSTANCE_ATTRIBUTE(3, 1, source_kind);
+#undef INSTANCE_ATTRIBUTE
+    runtime->gl.UseProgram(runtime->program);
+    GLint sampler_location = runtime->gl.GetUniformLocation(runtime->program, "atlas");
+    if (sampler_location >= 0) runtime->gl.Uniform1i(sampler_location, 0);
+    runtime->gl.UseProgram((GLuint)previous_program);
+    runtime->gl.BindVertexArray((GLuint)previous_vertex_array);
+    runtime->gl.BindBuffer(GL_ARRAY_BUFFER, (GLuint)previous_array_buffer);
     runtime->gl.GetIntegerv(GL_ACTIVE_TEXTURE, &active_texture);
     runtime->gl.ActiveTexture(GL_TEXTURE0);
     runtime->gl.GetIntegerv(GL_TEXTURE_BINDING_2D, &texture_binding);
@@ -1275,6 +1308,8 @@ boxrig_gl_status boxrig_gl_runtime_begin_target(
             error);
         return BOXRIG_GL_API_FAILURE;
     }
+    runtime->target_width = target->width;
+    runtime->target_height = target->height;
     runtime->target_active = true;
     set_diagnostic(
         diagnostic_out,
@@ -1282,6 +1317,34 @@ boxrig_gl_status boxrig_gl_runtime_begin_target(
         0,
         0,
         "borrowed target is active");
+    return BOXRIG_GL_OK;
+}
+
+boxrig_gl_status boxrig_gl_runtime_set_clip(
+    boxrig_gl_runtime *runtime,
+    const boxrig_gl_clip *clip,
+    boxrig_gl_diagnostic *diagnostic_out)
+{
+    if (runtime == NULL || !runtime->target_active || clip == NULL ||
+        clip->width == 0 || clip->height == 0 ||
+        clip->x > runtime->target_width || clip->y > runtime->target_height ||
+        clip->width > runtime->target_width - clip->x ||
+        clip->height > runtime->target_height - clip->y) {
+        set_diagnostic(diagnostic_out, BOXRIG_GL_INVALID_ARGUMENT, 0, 0,
+            "an active target and bounded nonempty clip are required");
+        return BOXRIG_GL_INVALID_ARGUMENT;
+    }
+    runtime->gl.Scissor((GLint)clip->x,
+        (GLint)(runtime->target_height - clip->y - clip->height),
+        (GLsizei)clip->width, (GLsizei)clip->height);
+    runtime->counters.change_count++;
+    GLenum error = runtime->gl.GetError();
+    if (error != GL_NO_ERROR) {
+        set_diagnostic(diagnostic_out, BOXRIG_GL_API_FAILURE, error, 0,
+            "OpenGL clip change failed");
+        return BOXRIG_GL_API_FAILURE;
+    }
+    set_diagnostic(diagnostic_out, BOXRIG_GL_OK, 0, 0, "target clip changed");
     return BOXRIG_GL_OK;
 }
 
@@ -1499,7 +1562,6 @@ boxrig_gl_status boxrig_gl_runtime_draw_quads(
     boxrig_gl_blend blend,
     boxrig_gl_diagnostic *diagnostic_out)
 {
-    GLint sampler_location;
     GLenum error;
     size_t byte_count;
 
@@ -1533,32 +1595,12 @@ boxrig_gl_status boxrig_gl_runtime_draw_quads(
         (GLsizeiptr)byte_count,
         instances,
         GL_STREAM_DRAW);
-#define INSTANCE_ATTRIBUTE(index, count, member)                               \
-    do {                                                                        \
-        runtime->gl.VertexAttribPointer(                                        \
-            (index),                                                            \
-            (count),                                                            \
-            GL_FLOAT,                                                           \
-            GL_FALSE,                                                           \
-            (GLsizei)sizeof(boxrig_gl_quad_instance),                           \
-            (const void *)offsetof(boxrig_gl_quad_instance, member));            \
-        runtime->gl.EnableVertexAttribArray(index);                             \
-        runtime->gl.VertexAttribDivisor(index, 1);                              \
-    } while (0)
-    INSTANCE_ATTRIBUTE(0, 4, destination);
-    INSTANCE_ATTRIBUTE(1, 4, texture_coordinates);
-    INSTANCE_ATTRIBUTE(2, 4, color);
-    INSTANCE_ATTRIBUTE(3, 1, source_kind);
-#undef INSTANCE_ATTRIBUTE
+
     runtime->gl.ActiveTexture(GL_TEXTURE0);
     runtime->gl.BindTexture(
         GL_TEXTURE_2D,
         texture == 0 ? runtime->texture : texture);
     runtime->gl.BindSampler(0, runtime->sampler);
-    sampler_location = runtime->gl.GetUniformLocation(runtime->program, "atlas");
-    if (sampler_location >= 0) {
-        runtime->gl.Uniform1i(sampler_location, 0);
-    }
     runtime->gl.BlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
     if (blend == BOXRIG_GL_BLEND_BEHIND) {
         runtime->gl.BlendFuncSeparate(

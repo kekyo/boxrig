@@ -51,7 +51,7 @@ static boxrig_wayland_terminal_component *find_component(
     for (component = context->components;
          component != NULL;
          component = component->next) {
-        if (component->running && component->surface == surface) {
+        if (component->running && !component->reparent_pending && component->surface == surface) {
             return component;
         }
     }
@@ -72,7 +72,7 @@ static boxrig_wayland_terminal_component *find_keyboard_component(
     for (component = context->components;
          component != NULL;
          component = component->next) {
-        if (component->running && component->config.keyboard_focus_fallback &&
+        if (component->running && !component->reparent_pending && component->config.keyboard_focus_fallback &&
             component->parent == surface) {
             return component;
         }
@@ -80,7 +80,8 @@ static boxrig_wayland_terminal_component *find_keyboard_component(
     for (component = context->components;
          component != NULL;
          component = component->next) {
-        if (component->running && component->config.keyboard_focus_fallback) {
+        if (component->running && !component->reparent_pending && !component->explicit_parent_input &&
+            component->config.keyboard_focus_fallback) {
             /* Decoration libraries may own focusable subsurfaces without
              * exposing their wl_surface objects through a public API. */
             return component;
@@ -704,6 +705,18 @@ static void keyboard_keymap(
     }
 }
 
+static boxrig_wayland_terminal_component *find_reparent_destination(
+    boxrig_wayland_context *context, struct wl_surface *surface)
+{
+    for (boxrig_wayland_terminal_component *component = context->components;
+         component != NULL; component = component->next) {
+        if (component->running && component->reparent_pending &&
+            component->config.keyboard_focus_fallback && component->parent == surface)
+            return component;
+    }
+    return NULL;
+}
+
 static void keyboard_enter(
     void *data,
     struct wl_keyboard *keyboard,
@@ -718,6 +731,8 @@ static void keyboard_enter(
 
     (void)keyboard;
     (void)keys;
+    seat->reparent_keyboard_component = find_reparent_destination(seat->context, surface);
+    seat->reparent_keyboard_serial = serial;
     set_serial(
         seat,
         BOXRIG_WAYLAND_SERIAL_KEYBOARD_ENTER,
@@ -764,6 +779,11 @@ static void keyboard_leave(
 
     (void)keyboard;
     (void)serial;
+    if (seat->reparent_keyboard_component != NULL &&
+        seat->reparent_keyboard_component->parent == surface) {
+        clear_seat_keys(seat);
+        seat->reparent_keyboard_component = NULL;
+    }
     if (component == NULL || seat->keyboard_component != component) {
         return;
     }
@@ -800,6 +820,16 @@ static void keyboard_key(
     uint32_t changed_modifier;
 
     (void)keyboard;
+    if (component == NULL && seat->reparent_keyboard_component != NULL &&
+        native_code < 248 &&
+        (state == WL_KEYBOARD_KEY_STATE_PRESSED || state == WL_KEYBOARD_KEY_STATE_RELEASED)) {
+        /* Remember a suppressed press until its release, including when the
+         * parent acknowledgement arrives between the two native events. */
+        bool pressed = state == WL_KEYBOARD_KEY_STATE_PRESSED;
+        seat->native_pressed[native_code] = pressed;
+        seat->inhibited_key[native_code] = pressed;
+        return;
+    }
     if (component == NULL || !seat->keymap_available || native_code >= 248 ||
         (state != WL_KEYBOARD_KEY_STATE_PRESSED &&
          state != WL_KEYBOARD_KEY_STATE_RELEASED)) {
@@ -1923,6 +1953,7 @@ static void text_input_enter(
         surface);
 
     (void)text_input;
+    seat->reparent_text_component = find_reparent_destination(seat->context, surface);
     if (component == NULL) {
         return;
     }
@@ -1950,6 +1981,9 @@ static void text_input_leave(
         surface);
 
     (void)text_input;
+    if (seat->reparent_text_component != NULL &&
+        seat->reparent_text_component->parent == surface)
+        seat->reparent_text_component = NULL;
     if (component != NULL && seat->text_component == component) {
         if (seat->text_enabled) queue_composition_cancel(seat, component);
         zwp_text_input_v3_disable(seat->text_input);
@@ -2735,8 +2769,8 @@ boxrig_ui_status boxrig_wayland_terminal_component_get_input_state(
     return BOXRIG_UI_OK;
 }
 
-void boxrig_wayland_input_quiesce_component(
-    boxrig_wayland_terminal_component *component)
+static void detach_component_input(
+    boxrig_wayland_terminal_component *component, bool terminating)
 {
     boxrig_wayland_seat *seat;
 
@@ -2749,6 +2783,10 @@ void boxrig_wayland_input_quiesce_component(
     for (seat = component->context->seats;
          seat != NULL;
          seat = seat->next) {
+        if (seat->reparent_keyboard_component == component)
+            seat->reparent_keyboard_component = NULL;
+        if (seat->reparent_text_component == component)
+            seat->reparent_text_component = NULL;
         if (seat->keyboard_component == component) {
             clear_seat_keys(seat);
             seat->keyboard_component = NULL;
@@ -2774,8 +2812,58 @@ void boxrig_wayland_input_quiesce_component(
     component->pointer_focus_count = 0;
     component->pressed_key_count = 0;
     component->pressed_button_count = 0;
-    if (component->composition != NULL) {
+    if (component->composition != NULL && terminating) {
         (void)boxrig_composition_terminate(component->composition);
+    }
+}
+
+void boxrig_wayland_input_quiesce_component(
+    boxrig_wayland_terminal_component *component)
+{
+    detach_component_input(component, true);
+}
+
+void boxrig_wayland_input_reparent_component(
+    boxrig_wayland_terminal_component *component)
+{
+    bool was_focused = component->keyboard_focus_count != 0;
+    component->input_generation++;
+    component->input_control.state.generation++;
+    detach_component_input(component, false);
+    (void)boxrig_composition_focus_changed(component->composition, false);
+    (void)boxrig_ui_view_set_focused(component->view, false);
+    if (was_focused) {
+        /* The document and IME were invalidated by detach_component_input.
+         * Keep the terminal focus report ordered in the retained input queue. */
+        boxrig_wayland_input_item item = {0};
+        item.type = BOXRIG_WAYLAND_INPUT_FOCUS;
+        item.value.focus.focused = false;
+        (void)boxrig_wayland_input_enqueue(component, &item);
+    }
+    for (boxrig_wayland_seat *seat = component->context->seats; seat != NULL; seat = seat->next) {
+        for (size_t index = 0; index < 4; index++) {
+            if (seat->serial_components[index] == component) {
+                seat->serial_valid[index] = false;
+                seat->serial_components[index] = NULL;
+            }
+        }
+    }
+}
+
+void boxrig_wayland_input_complete_reparent(
+    boxrig_wayland_terminal_component *component)
+{
+    for (boxrig_wayland_seat *seat = component->context->seats; seat != NULL; seat = seat->next) {
+        if (seat->reparent_keyboard_component == component) {
+            struct wl_array keys = {0};
+            uint32_t serial = seat->reparent_keyboard_serial;
+            seat->reparent_keyboard_component = NULL;
+            keyboard_enter(seat, seat->keyboard, serial, component->parent, &keys);
+        }
+        if (seat->reparent_text_component == component) {
+            seat->reparent_text_component = NULL;
+            text_input_enter(seat, seat->text_input, component->parent);
+        }
     }
 }
 

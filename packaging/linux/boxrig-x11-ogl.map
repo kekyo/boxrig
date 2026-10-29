@@ -1,0 +1,9 @@
+BOXRIG_0 {
+    global:
+        boxrig_x11_opengl_component_config_default;
+        boxrig_x11_opengl_terminal_component_create_child;
+        boxrig_x11_opengl_terminal_component_create_child_with_config;
+        boxrig_x11_opengl_terminal_component_create_on_target;
+        boxrig_x11_opengl_terminal_component_get_window_requirements;
+    local: *;
+};

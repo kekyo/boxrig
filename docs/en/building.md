@@ -108,11 +108,39 @@ When shared libraries are present in the same search path, selecting static link
 Public APIs are the functions declared in installed headers. Applications must not use symbols in `BOXRIG_PRIVATE_0`.
 Bundled libpng, zlib, and utf8proc symbols are not exported and remain independent of the codecs used by the application or GTK.
 
-Use `make shared` and `make install-shared` to include shared GTK libraries.
-For GTK3 alone, use `shared-gtk3` and `install-shared-gtk3`; replace the suffix with `gtk4` for GTK4 alone.
-Each includes the four base libraries. `GTK_OPENGL=0` selects a Cairo-only build.
-Linux distribution SDKs include these six shared libraries alongside static archives.
-Set `BOXRIG_VERSION` to control the version of the six generated `.pc` files; distribution packages use the version obtained from `screw-up`.
+To use all 15 Linux libraries as shared libraries, run:
+
+```sh
+make shared
+make install-shared PREFIX="$HOME/.local"
+PKG_CONFIG_PATH="$HOME/.local/lib/pkgconfig" pkg-config --cflags --libs boxrig-x11-ogl
+```
+
+`make native` alone builds static libraries. Use `shared` for shared libraries.
+Linux distribution SDKs include shared and static versions of all 15 libraries below.
+Add `lib` and `.so.0` to each name for the shared library file. The `.so` link used at link time is also included.
+
+| Purpose | Library names |
+| --- | --- |
+| Base | `boxrig`, `boxrig-ui`, `boxrig-session`, `boxrig-posix` |
+| GTK widgets | `boxrig-gtk3`, `boxrig-gtk4` |
+| X11 and Wayland | `boxrig-x11`, `boxrig-wayland` |
+| OpenGL rendering | `boxrig-render-ogl`, `boxrig-x11-ogl`, `boxrig-wayland-ogl` |
+| Notifications and background effects | `boxrig-notification`, `boxrig-background-wayland`, `boxrig-background-gtk3`, `boxrig-background-gtk4` |
+
+For a subset, select one of the following targets. Required boxrig dependencies are included.
+
+| Configuration | Build | Install |
+| --- | --- | --- |
+| Four base libraries | `shared-base` | `install-shared-base` |
+| GTK3 or GTK4 | `shared-gtk3` or `shared-gtk4` | `install-shared-gtk3` or `install-shared-gtk4` |
+| X11 and Wayland | `shared-native` | `install-shared-native` |
+| OpenGL, X11, and Wayland | `shared-opengl` | `install-shared-opengl` |
+| Notifications, background effects, X11, and Wayland | `shared-effects` | `install-shared-effects` |
+
+Set `GTK_OPENGL=0` for Cairo-only GTK widgets.
+Set `BOXRIG_VERSION` to control generated `.pc` versions; distribution packages use the version obtained from `screw-up`.
+The pkg-config names match the library names above. Use `pkg-config --cflags --libs` for shared linkage; add `--static` to include the dependencies needed for static linkage.
 
 ## Cross-build for Windows
 
@@ -235,9 +263,10 @@ export PKG_CONFIG_PATH="$PWD/build/sdk-gtk4/lib/pkgconfig${PKG_CONFIG_PATH:+:$PK
 pkg-config --cflags --libs --static boxrig-gtk4
 ```
 
-Most current boxrig libraries are static archives.
-Use `--static` to include the dependencies those archives require.
+The individual installation targets above install static archives.
+Use `--static` to include the dependencies those archives require. Choose `install-shared` to also install shared libraries on Linux.
 You also need development packages for the system libraries listed by the command.
+When linking static dependencies for GTK and related libraries on Ubuntu 24.04, also install [`libsystemd-dev`](https://packages.ubuntu.com/noble/libsystemd-dev) to resolve the `libsystemd` dependency specified by D-Bus.
 
 For Windows, point pkg-config only at the target installation to avoid mixing in host libraries.
 

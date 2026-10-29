@@ -42,9 +42,7 @@ archives=()
 for name in "${names[@]}"; do
     sdk="$stage/$name"
     if [ "$family" = linux ]; then
-        targets=(install-gtk3 install-gtk4 install-wayland install-render-ogl \
-            install-x11-opengl install-wayland-opengl install-notification \
-            install-background-gtk3 install-background-gtk4 install-shared)
+        targets=(install-shared)
     else
         arch=${name##*-}
         targets=("install-core-win32-$arch" "install-win32-opengl-$arch" \

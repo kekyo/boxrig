@@ -1,0 +1,45 @@
+BOXRIG_0 {
+    global:
+        boxrig_gl_runtime_begin_target;
+        boxrig_gl_runtime_create;
+        boxrig_gl_runtime_create_texture;
+        boxrig_gl_runtime_delete_fence;
+        boxrig_gl_runtime_delete_texture;
+        boxrig_gl_runtime_destroy;
+        boxrig_gl_runtime_draw_quads;
+        boxrig_gl_runtime_end_target;
+        boxrig_gl_runtime_get_capabilities;
+        boxrig_gl_runtime_get_state_counters;
+        boxrig_gl_runtime_insert_fence;
+        boxrig_gl_runtime_poll_fence;
+        boxrig_gl_runtime_set_clip;
+        boxrig_gl_runtime_set_target_generation;
+        boxrig_gl_runtime_upload_texture;
+        boxrig_ogl_renderer_apply_transparency_state;
+        boxrig_ogl_renderer_bind_view;
+        boxrig_ogl_renderer_cell_height;
+        boxrig_ogl_renderer_cell_width;
+        boxrig_ogl_renderer_config_default;
+        boxrig_ogl_renderer_create;
+        boxrig_ogl_renderer_destroy;
+        boxrig_ogl_renderer_draw_view;
+        boxrig_ogl_renderer_draw_view_composition;
+        boxrig_ogl_renderer_fail_next;
+        boxrig_ogl_renderer_get_render_statistics;
+        boxrig_ogl_renderer_layout_line;
+        boxrig_ogl_renderer_lifecycle_create;
+        boxrig_ogl_renderer_set_composited_scrollbar;
+        boxrig_ogl_renderer_set_composited_scrollbar_interaction;
+        boxrig_ogl_renderer_set_direction_policy;
+        boxrig_ogl_renderer_set_target;
+        boxrig_ogl_renderer_target_lost;
+    local: *;
+};
+
+# Intra-SDK text-provider ownership; not an application API.
+BOXRIG_PRIVATE_0 {
+    global:
+        boxrig_ogl_renderer_create_with_provider;
+        boxrig_ogl_text_provider_create;
+        boxrig_ogl_text_provider_destroy;
+} BOXRIG_0;

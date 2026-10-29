@@ -127,6 +127,15 @@ bool boxrig_gtk3_terminal_widget_get_accessibility_enabled(
  * @remarks The widget borrows model and terminal. It owns its view, private
  * renderer, immutable presentation surface, adjustments, native event
  * connections, input method, and clipboard transactions.
+ * To move the same widget to another window, hold a strong reference across
+ * gtk_container_remove() and gtk_container_add(). The destination container
+ * owns its reference after add; release the temporary reference after the
+ * widget is attached to its destination. Removal invalidates queued native
+ * input, cancels unfinished preedit and clipboard reads, and reconnects input
+ * after realization. A paste already begun at the terminal completes after the
+ * widget is remapped. OpenGL resources are recreated after unrealize.
+ * See https://docs.gtk.org/gtk3/method.Container.remove.html and
+ * https://docs.gtk.org/gtk3/method.Container.add.html.
  */
 boxrig_ui_status boxrig_gtk3_terminal_widget_create(
     boxrig_ui_model *model,

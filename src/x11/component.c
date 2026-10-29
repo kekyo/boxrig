@@ -12,6 +12,7 @@
 #include "boxrig/x11/renderer.h"
 #include "boxrig/x11/scrollbar.h"
 #include "component_private.h"
+#include "input_private.h"
 #include "../ui/view_private.h"
 #include "renderer_private.h"
 
@@ -93,6 +94,10 @@ struct boxrig_x11_terminal_component {
     bool allocated;
     bool visible;
     bool focused;
+    bool native_operation_active;
+    boxrig_ui_frame_request_callback frame_callback;
+    void *frame_context;
+    unsigned long input_serial_floor;
     bool composited_scrollbar_dragging;
     int composited_scrollbar_drag_anchor;
     Colormap owned_colormap;
@@ -1500,6 +1505,57 @@ boxrig_ui_status boxrig_x11_terminal_component_create_on_target(
         component_out);
 }
 
+boxrig_ui_status boxrig_x11_terminal_component_reparent(
+    boxrig_x11_terminal_component *component, Window parent)
+{
+    if (component == NULL || parent == None ||
+        !boxrig_ui_lifecycle_accepts_events(&component->lifecycle))
+        return BOXRIG_UI_INVALID_ARGUMENT;
+    if (component->native_hosting != BOXRIG_UI_COMPONENT_OWNED_CHILD)
+        return BOXRIG_UI_UNAVAILABLE;
+    if (component->native_operation_active ||
+        component->allocation_transition_pending || component->surface_candidate_ready ||
+        component->zoom_generation_active || component->scrollbar_visibility.state.pending ||
+        component->composited_scrollbar_dragging)
+        return BOXRIG_UI_BUSY;
+    XWindowAttributes destination, child;
+    if (!XGetWindowAttributes(component->display, parent, &destination) ||
+        !XGetWindowAttributes(component->display, component->window, &child) ||
+        destination.class != InputOutput || destination.screen != child.screen)
+        return BOXRIG_UI_UNAVAILABLE;
+    /* Reject a cycle before changing either the XIC or the native hierarchy.
+     * Both caller-owned parents must remain live throughout this operation. */
+    for (Window ancestor = parent; ancestor != None;) {
+        if (ancestor == component->window) return BOXRIG_UI_UNAVAILABLE;
+        Window root, next, *children = NULL;
+        unsigned int count;
+        if (!XQueryTree(component->display, ancestor, &root, &next, &children, &count))
+            return BOXRIG_UI_UNAVAILABLE;
+        if (children != NULL) XFree(children);
+        ancestor = next;
+    }
+    Window pointer_root, pointer_child;
+    int root_x, root_y, window_x, window_y;
+    unsigned int buttons = 0;
+    (void)XQueryPointer(component->display, component->window, &pointer_root,
+        &pointer_child, &root_x, &root_y, &window_x, &window_y, &buttons);
+    if (buttons & (Button1Mask | Button2Mask | Button3Mask | Button4Mask | Button5Mask))
+        return BOXRIG_UI_BUSY;
+    component->native_operation_active = true;
+    boxrig_ui_status status = boxrig_x11_input_adapter_reparent_client(component->input, parent);
+    if (status == BOXRIG_UI_OK && parent != component->input_client_window) {
+        component->input_serial_floor = NextRequest(component->display);
+        XReparentWindow(component->display, component->window, parent, child.x, child.y);
+        XSync(component->display, False);
+        component->input_client_window = parent;
+        /* Expose is not guaranteed for every retained region after reparent. */
+        (void)component_renderer_expose(component, 0, 0,
+            (unsigned int)child.width, (unsigned int)child.height);
+    }
+    component->native_operation_active = false;
+    return status;
+}
+
 boxrig_ui_status boxrig_x11_terminal_component_quiesce(
     boxrig_x11_terminal_component *component)
 {
@@ -2600,6 +2656,15 @@ boxrig_x11_terminal_component_text_direction(
                              : component->direction_policy;
 }
 
+static void component_request_frame(void *context)
+{
+    boxrig_x11_terminal_component *component = context;
+    bool was_active = component->native_operation_active;
+    component->native_operation_active = true;
+    component->frame_callback(component->frame_context);
+    component->native_operation_active = was_active;
+}
+
 boxrig_ui_status
 boxrig_x11_terminal_component_set_frame_request_callback(
     boxrig_x11_terminal_component *component,
@@ -2609,10 +2674,16 @@ boxrig_x11_terminal_component_set_frame_request_callback(
     if (component == NULL) {
         return BOXRIG_UI_INVALID_ARGUMENT;
     }
-    return boxrig_ui_view_set_frame_request_callback(
+    if (callback == NULL && context != NULL) return BOXRIG_UI_INVALID_ARGUMENT;
+    boxrig_ui_status status = boxrig_ui_view_set_frame_request_callback(
         component->view,
-        callback,
-        context);
+        callback != NULL ? component_request_frame : NULL,
+        callback != NULL ? component : NULL);
+    if (status == BOXRIG_UI_OK) {
+        component->frame_callback = callback;
+        component->frame_context = context;
+    }
+    return status;
 }
 
 boxrig_ui_status boxrig_x11_terminal_component_request_focus(
@@ -2953,8 +3024,8 @@ static boxrig_ui_status synchronize_animation_composition(
         composition.active && composition.focused);
 }
 
-boxrig_ui_component_event_result
-boxrig_x11_terminal_component_dispatch_event(
+static boxrig_ui_component_event_result
+component_dispatch_event(
     boxrig_x11_terminal_component *component,
     const XEvent *event)
 {
@@ -3050,7 +3121,7 @@ boxrig_x11_terminal_component_dispatch_event(
     return BOXRIG_UI_COMPONENT_EVENT_UNRELATED;
 }
 
-boxrig_ui_status boxrig_x11_terminal_component_frame(
+static boxrig_ui_status component_frame(
     boxrig_x11_terminal_component *component,
     boxrig_ui_component_frame_result *result_out)
 {
@@ -3128,4 +3199,35 @@ boxrig_ui_status boxrig_x11_terminal_component_frame(
         result_out->animation_deadline_milliseconds = blink_deadline;
     }
     return BOXRIG_UI_OK;
+}
+
+boxrig_ui_component_event_result boxrig_x11_terminal_component_dispatch_event(
+    boxrig_x11_terminal_component *component, const XEvent *event)
+{
+    if (component == NULL || event == NULL) return BOXRIG_UI_COMPONENT_EVENT_FAILURE;
+    if (component->native_operation_active) return BOXRIG_UI_COMPONENT_EVENT_BLOCKED;
+    /* Queued native input predating the move belongs to the old attachment.
+     * Clipboard and expose events still refer to the retained child resources. */
+    if (component->input_serial_floor != 0 &&
+        event->xany.serial < component->input_serial_floor &&
+        (event->type == KeyPress || event->type == KeyRelease ||
+         event->type == ButtonPress || event->type == ButtonRelease ||
+         event->type == MotionNotify || event->type == FocusIn || event->type == FocusOut))
+        return BOXRIG_UI_COMPONENT_EVENT_UNRELATED;
+    component->native_operation_active = true;
+    boxrig_ui_component_event_result result = component_dispatch_event(component, event);
+    component->native_operation_active = false;
+    return result;
+}
+
+boxrig_ui_status boxrig_x11_terminal_component_frame(
+    boxrig_x11_terminal_component *component,
+    boxrig_ui_component_frame_result *result_out)
+{
+    if (component == NULL || result_out == NULL) return BOXRIG_UI_INVALID_ARGUMENT;
+    if (component->native_operation_active) return BOXRIG_UI_BUSY;
+    component->native_operation_active = true;
+    boxrig_ui_status status = component_frame(component, result_out);
+    component->native_operation_active = false;
+    return status;
 }

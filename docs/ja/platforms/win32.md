@@ -77,10 +77,38 @@ boxrig_ui_status create_terminal_child(HINSTANCE instance, HWND parent,
 この間、アプリは借用元のコンテキストを生存させ、関連付けを変更しないでください。
 この借用条件は[ImmAssociateContextの寿命契約](https://learn.microsoft.com/en-us/windows/win32/api/imm/nf-imm-immassociatecontext)に従います。
 
+## 別の親ウィンドウへ移す
+
+`boxrig_win32_terminal_component_reparent(component, parent)`で、所有する子ウィンドウを別の親へ移せます。
+標準描画、OpenGL、Direct3D 11で同じAPIを使います。
+子HWND、view、選択、表示設定、端末と通信セッションを保持します。
+
+親は同じプロセス・UIスレッドで作成し、子と同じDPI awarenessにしてください。
+自身や子孫、借用先を使う`create_on_target()`は対象外です。
+OSによる親変更とDPI awarenessの制約は、[SetParentの仕様](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setparent)を参照してください。
+
+キーやマウスの押下中、入力の捕捉中、IMEの未確定入力中、貼り付け中、描画・入力コールバック中などは`BUSY`を返します。
+その処理を終えてからイベントループで再試行してください。
+アプリが保留した入力は、`get_input_state()`の世代が変わった時点で破棄します。
+
+`OK`なら親の交換が完了しており、旧親を破棄できます。
+失敗時は旧親を保持します。
+新親は、次の移設かコンポーネントの破棄まで生存させてください。
+配置と行列数は変わらないため、移動先の領域を`allocate()`へ渡します。
+フォーカスは`request_focus()`で別に指定します。
+移動先のDPIが変わる場合は、次節のフォント寸法更新も必要です。
+
+[往復移設の例](../../../examples/win32/transfer.c)は、F6で同じConPTYセッションを二つのウィンドウ間で移します。
+`make build/win32/amd64/examples/win32_transfer.exe`で生成できます。
+32ビット版はパスの`amd64`を`i686`に置き換えてください。
+
 ## DPIとリサイズ
 
 実際のクライアント領域を`allocate()`へ渡し、確定した行列数を端末とPTYへ反映します。
 DPIやフォント変更によりセル寸法も変わるため、古い寸法から列数を計算し続けないでください。
+出力DPIが変わったら、`get_font_rendering_policy()`で取得した設定の`dpi_x`と`dpi_y`を更新し、`set_font_rendering_policy()`へ渡します。
+続いて新しい領域を`allocate()`へ渡し、レイアウト要求を通常どおり完了させてください。
+移設API自身はDPIを取得せず、フォント設定を保持します。
 モデルに対する行列数の決定役は一つです。
 
 親が画面上を移動した場合は、候補ウィンドウの位置にも反映します。

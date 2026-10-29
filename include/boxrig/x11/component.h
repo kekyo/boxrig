@@ -103,6 +103,30 @@ boxrig_ui_status boxrig_x11_terminal_component_create_child(
     boxrig_x11_terminal_component **component_out);
 
 /**
+ * Moves an owned child to another caller-owned parent on the same screen.
+ *
+ * @param component Running owned-child component on its owning event thread.
+ * @param parent Live InputOutput parent on the component's Display and screen.
+ * @return OK after the server processes the move; BUSY during input, rendering,
+ * or layout transactions; INVALID_ARGUMENT for invalid arguments; UNAVAILABLE
+ * for borrowed targets, incompatible parents or XIM preparation failure;
+ * LIMIT_EXCEEDED if the input generation cannot advance.
+ * @remarks Keeps the child Window, view, selection, settings and terminal.
+ * Geometry and terminal dimensions stay unchanged; use allocate afterwards.
+ * The parent cannot be the child or its descendant. Keep both parents alive
+ * during the call; the old parent may be destroyed after success. Keep the new
+ * parent alive until the next successful move or component destruction.
+ * Pending keys, buttons, preedit and incoming paste must finish before retry.
+ * Failures leave the old attachment intact. Connection loss is not recoverable
+ * through this operation. Forward events as before, discard caller-retained
+ * input from older input generations, and request focus after moving.
+ * XIM is recreated because XNClientWindow cannot be changed after creation.
+ * See https://www.x.org/releases/X11R7.6/doc/libX11/specs/libX11/libX11.html .
+ */
+boxrig_ui_status boxrig_x11_terminal_component_reparent(
+    boxrig_x11_terminal_component *component, Window parent);
+
+/**
  * Creates a terminal component on caller-owned X11 targets.
  *
  * @param display Caller-owned connection that outlives the component.

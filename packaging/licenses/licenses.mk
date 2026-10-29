@@ -21,6 +21,7 @@ install-win32-licenses: install-common-licenses
 	$(INSTALL) -m 644 packaging/licenses/MinGW-w64-LICENSE.txt packaging/licenses/GPL-3.0.txt packaging/licenses/GCC-Runtime-Library-Exception.txt $(LICENSE_INSTALL_DIR)
 
 install-gtk3 install-gtk4 install-wayland install-render-ogl install-x11-opengl install-wayland-opengl install-notification install-background-wayland install-background-gtk3 install-background-gtk4: install-linux-licenses
+install-shared install-shared-gtk3 install-shared-gtk4 install-shared-native install-shared-opengl install-shared-effects: install-linux-licenses
 install-core-win32-amd64 install-win32-amd64 install-win32-opengl-amd64 install-render-d3d11-amd64 install-win32-d3d11-amd64 install-core-win32-i686 install-win32-i686 install-win32-opengl-i686 install-render-d3d11-i686 install-win32-d3d11-i686: install-win32-licenses
 
 CONPTY_RUNTIME_DIRECTORIES := $(BUILD_DIR)/boxrig_term/win32/amd64 $(BUILD_DIR)/boxrig_term/win32/i686 \

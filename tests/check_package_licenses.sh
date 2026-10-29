@@ -44,23 +44,31 @@ test -s "$root/amd64/opt/boxrig/bin/boxrig-win32-ogl.dll"
 cmp data/encoding/whatwg/LICENSE "$root/amd64/opt/boxrig/share/licenses/boxrig/WHATWG-Encoding-LICENSE"
 test ! -e "$root/no-conpty"
 
-"$make_command" --no-print-directory install-gtk3 install-gtk4 install-wayland \
-    install-render-ogl install-x11-opengl install-wayland-opengl \
-    install-notification install-background-gtk3 install-background-gtk4 \
-    DESTDIR="$root/linux" PREFIX=/opt/boxrig > "$root/install-linux.log" 2>&1 || {
-    cat "$root/install-linux.log"
-    exit 1
-}
-licenses="$root/linux/opt/boxrig/share/licenses/boxrig"
-cmp deps/cardio/LICENSE "$licenses/cardio-LICENSE"
-cmp deps/wayland-protocols/COPYING "$licenses/Wayland-protocols-COPYING"
-cmp packaging/licenses/LGPL-2.1.txt "$licenses/LGPL-2.1.txt"
-test -s "$licenses/README_ja.md"
-test -s "$licenses/README.md"
-# These owners and the text-input permission are absent from the common COPYING.
-rg -q 'Kenny Levinsen' "$licenses/Wayland-protocols-NOTICES.md"
-rg -q 'Purism SPC' "$licenses/Wayland-protocols-NOTICES.md"
-rg -q 'Xaver Hugl' "$licenses/Wayland-protocols-NOTICES.md"
-rg -q 'written prior permission' "$licenses/Wayland-protocols-NOTICES.md"
-test ! -e "$licenses/MinGW-w64-LICENSE.txt"
+for configuration in static shared-gtk3 shared-gtk4 shared-native shared-opengl shared-effects shared; do
+    if [ "$configuration" = static ]; then
+        set -- install-gtk3 install-gtk4 install-wayland install-render-ogl \
+            install-x11-opengl install-wayland-opengl install-notification \
+            install-background-gtk3 install-background-gtk4
+    else
+        set -- "install-$configuration"
+    fi
+    "$make_command" --no-print-directory "$@" \
+        DESTDIR="$root/linux-$configuration" PREFIX=/opt/boxrig \
+        > "$root/install-linux-$configuration.log" 2>&1 || {
+        cat "$root/install-linux-$configuration.log"
+        exit 1
+    }
+    licenses="$root/linux-$configuration/opt/boxrig/share/licenses/boxrig"
+    cmp deps/cardio/LICENSE "$licenses/cardio-LICENSE"
+    cmp deps/wayland-protocols/COPYING "$licenses/Wayland-protocols-COPYING"
+    cmp packaging/licenses/LGPL-2.1.txt "$licenses/LGPL-2.1.txt"
+    test -s "$licenses/README_ja.md"
+    test -s "$licenses/README.md"
+    # These owners and the text-input permission are absent from the common COPYING.
+    rg -q 'Kenny Levinsen' "$licenses/Wayland-protocols-NOTICES.md"
+    rg -q 'Purism SPC' "$licenses/Wayland-protocols-NOTICES.md"
+    rg -q 'Xaver Hugl' "$licenses/Wayland-protocols-NOTICES.md"
+    rg -q 'written prior permission' "$licenses/Wayland-protocols-NOTICES.md"
+    test ! -e "$licenses/MinGW-w64-LICENSE.txt"
+done
 printf '%s\n' 'PASS installed third-party licenses (Linux, Windows amd64/i686)'

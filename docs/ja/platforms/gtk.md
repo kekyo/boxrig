@@ -85,6 +85,34 @@ OpenGLを希望する設定と、OpenGLを必須にする設定があります�
 切り替え中の`pending`が解消するまで、フレームとGTKイベントを処理してください。
 失敗した切り替えでは、利用可能な以前の描画方式を保持する場合があります。
 
+## 別のウィンドウへ移す
+
+同じ端末ウィジェットを別のコンテナーへ移すと、view、選択、表示設定、端末と通信セッションを保持できます。
+CairoとOpenGLの両方で、GTKの標準的な取り外し・追加操作を使います。
+移設は入力や描画のコールバックが戻った後、GTKのメインループから実行してください。
+
+取り外す前に`g_object_ref_sink()`などでウィジェットの参照を保持します。
+GTK3の直接の親がGtkWindowなら、`gtk_container_remove()`と`gtk_container_add()`で移します。
+GTK4のGtkWindowなら、旧親の`gtk_window_set_child(window, NULL)`で外し、新親の同じ関数で追加します。
+GtkBoxやGtkScrolledWindowなどを使う場合は、それぞれのコンテナーの取り外し・追加APIを使ってください。
+取り付け後はアプリが保持した参照を解放し、必要ならウィジェットへフォーカスを設定します。
+参照の扱いは[GObjectのfloating reference](https://docs.gtk.org/gobject/floating-refs.html)、親子関係の変更は[GTK3のremove](https://docs.gtk.org/gtk3/method.Container.remove.html)と[GTK4のset_child](https://docs.gtk.org/gtk4/method.Window.set_child.html)を参照してください。
+
+取り外し時に入力接続と未確定入力を終了し、再配置後に新しいウィンドウへ接続します。
+アプリが保留した入力は`get_input_state()`の世代と照合し、旧世代の入力を再送しないでください。
+未開始の貼り付けと古いクリップボード応答は破棄します。
+端末へ送信を始めた貼り付けは、移設後も残りの本文と終了通知を送ります。
+移設のために`quiesce()`を呼ぶと終了状態になり、再開できません。
+新しい配置はGTKから受け取り、行列数の変更を通信先へ反映します。
+
+OpenGLの描画資源は、取り外し時に解放される場合があります。
+新しい親でrealizeされた後もフレーム処理を続け、`get_render_state()`で描画方式と準備完了を確認してください。
+同じウィジェットを保つことと、同じGLコンテキストを保つことは別の条件です。
+
+[往復移設の例](../../../examples/gtk/transfer.c)はF6で移動します。
+`make build/examples/gtk3_transfer`または`make build/examples/gtk4_transfer`で生成し、OpenGL版は起動時に`--gl`を指定します。
+この例では、同じPTYへの入力と応答、選択と設定の保持、旧ウィンドウの解放を確認できます。
+
 ## 支援技術から本文を取得する
 
 GTK 3のウィジェットは`AtkText`、GTK 4のウィジェットは`GtkAccessibleText`を実装しています。

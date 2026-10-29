@@ -1,0 +1,12 @@
+prefix={{prefix}}
+libdir={{libdir}}
+includedir={{includedir}}
+
+Name: boxrig-wayland-ogl
+Description: EGL/OpenGL native Wayland terminal component for boxrig
+Version: {{version}}
+Requires: boxrig-wayland
+Requires.private: boxrig-render-ogl, wayland-egl, egl, gl
+Libs: -L${libdir} -lboxrig-wayland-ogl
+Libs.private: -lpthread -lm
+Cflags: -I${includedir}

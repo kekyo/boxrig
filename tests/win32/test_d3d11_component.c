@@ -129,6 +129,22 @@ static void dirty_present_fallback(HINSTANCE instance, HWND window,
     assert(boxrig_win32_d3d11_terminal_component_get_diagnostics(component, &diagnostics) == BOXRIG_UI_OK);
     assert(diagnostics.available && !diagnostics.dirty_present && diagnostics.result == S_OK);
     assert(diagnostics.accepted_frames == 1);
+    HWND destination = CreateWindowExW(0, L"STATIC", L"D3D11 transfer",
+        WS_OVERLAPPEDWINDOW | WS_VISIBLE, 760, 100, 640, 400,
+        NULL, NULL, instance, NULL);
+    HWND child = boxrig_win32_terminal_component_owned_window(component);
+    boxrig_ui_view *retained_view = boxrig_win32_terminal_component_view(component);
+    uint64_t device_generation = diagnostics.device_generation;
+    assert(destination != NULL);
+    assert(boxrig_win32_terminal_component_reparent(component, destination) == BOXRIG_UI_OK);
+    assert(GetParent(child) == destination &&
+        boxrig_win32_terminal_component_owned_window(component) == child &&
+        boxrig_win32_terminal_component_view(component) == retained_view);
+    assert(boxrig_win32_d3d11_terminal_component_get_diagnostics(component, &diagnostics) == BOXRIG_UI_OK);
+    assert(diagnostics.device_generation == device_generation);
+    assert(boxrig_win32_terminal_component_reparent(component, window) == BOXRIG_UI_OK);
+    assert(GetParent(child) == window);
+    assert(DestroyWindow(destination));
     boxrig_win32_terminal_component_destroy(component);
     puts("PASS rejected dirty Present uses complete ordinary presentation and reports effective capability");
 }

@@ -238,6 +238,23 @@ int main(void)
                 assert(row[column * 4 + 3] == 255);
         }
         assert(release_gpu_capture());
+        if (i == 0) {
+            HWND destination = CreateWindowExW(0, L"STATIC", L"WGL transfer",
+                WS_OVERLAPPEDWINDOW | WS_VISIBLE, 760, 100, 640, 400,
+                NULL, NULL, instance, NULL);
+            HWND child = boxrig_win32_terminal_component_owned_window(component);
+            boxrig_ui_view *retained_view = boxrig_win32_terminal_component_view(component);
+            assert(destination != NULL);
+            assert(boxrig_win32_terminal_component_reparent(component, destination) == BOXRIG_UI_OK);
+            assert(GetParent(child) == destination);
+            assert(boxrig_win32_terminal_component_owned_window(component) == child);
+            assert(boxrig_win32_terminal_component_view(component) == retained_view);
+            capture = capture_gpu_component(component);
+            assert(capture != NULL && release_gpu_capture());
+            assert(boxrig_win32_terminal_component_reparent(component, parent) == BOXRIG_UI_OK);
+            assert(GetParent(child) == parent);
+            assert(DestroyWindow(destination));
+        }
         if (base_directwrite) assert(omitted_bitmap_queries > 0);
         boxrig_win32_terminal_component_destroy(component);
         component = NULL;

@@ -1,5 +1,7 @@
 # boxrig SDK
 
+[boxrig project repository](https://github.com/kekyo/boxrig/)
+
 [![Project Status: WIP – Initial development is in progress, but there has not yet been a stable, usable release suitable for the public.](https://www.repostatus.org/badges/latest/wip.svg)](https://www.repostatus.org/#wip)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -76,7 +78,7 @@ Preserve the directory structure when moving an SDK, and do not mix SDKs with di
 
 ## Files required for execution and distribution
 
-Linux SDKs include shared and static core, UI, session, POSIX, GTK3, and GTK4 libraries.
+Linux SDKs include shared and static versions of all 15 libraries: core, UI, session, POSIX, GTK3, GTK4, X11, Wayland, the OpenGL renderer, X11 and Wayland OpenGL components, notifications, and Wayland, GTK3, and GTK4 background effects.
 For shared linkage, distribute the required boxrig `.so.0` files together and configure your application's RUNPATH or library search path to find them.
 Keep boxrig libraries at the same SDK version. System shared libraries for the selected UI must also be available at runtime.
 When using a DLL for Windows OpenGL, distribute that DLL as well.

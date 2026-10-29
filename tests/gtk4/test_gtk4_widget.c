@@ -2808,12 +2808,22 @@ static bool test_widget_input_lifecycle_releases_context(void)
     boxrig_ui_model *model = NULL;
     BoxrigGtk4TerminalWidget *widget = NULL;
     GtkWindow *window;
+    GtkWindow *second_window;
     GtkEventControllerKey *key_controller;
     GtkIMContext *im_context;
     boxrig_composition *composition;
     boxrig_composition_view composition_before;
     boxrig_composition_view composition_after;
+    boxrig_composition_event preedit = {
+        .type = BOXRIG_COMPOSITION_PREEDIT_UPDATE,
+        .text = "draft",
+        .text_length = 5,
+        .caret_offset = 5,
+        .caret_visible = true};
     boxrig_ui_layout_result layout;
+    boxrig_ui_component_frame_result frame_result;
+    boxrig_ui_input_state input_before;
+    boxrig_ui_input_state input_after;
     const uint8_t *output = NULL;
     const char *expected_context_id;
     const char *context_id;
@@ -2822,6 +2832,8 @@ static bool test_widget_input_lifecycle_releases_context(void)
 
     terminal_config.rows = 2;
     terminal_config.columns = 8;
+    terminal_config.output_capacity = 8;
+    widget_config.paste_chunk_size = 2;
     CHECK(boxrig_terminal_create(&terminal_config, &terminal) ==
           BOXRIG_STATUS_OK);
     CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
@@ -2833,6 +2845,10 @@ static bool test_widget_input_lifecycle_releases_context(void)
     window = GTK_WINDOW(gtk_window_new());
     CHECK(window != NULL);
     g_object_ref_sink(window);
+    second_window = GTK_WINDOW(gtk_window_new());
+    CHECK(second_window != NULL);
+    g_object_ref_sink(second_window);
+    gtk_window_set_default_size(second_window, 160, 80);
     gtk_window_set_decorated(window, false);
     gtk_window_set_default_size(window, 160, 80);
     gtk_window_set_child(window, GTK_WIDGET(widget));
@@ -2866,29 +2882,73 @@ static bool test_widget_input_lifecycle_releases_context(void)
         GTK_IM_MULTICONTEXT(im_context));
     CHECK(expected_context_id != NULL && expected_context_id[0] != '\0');
     CHECK(context_id != NULL && strcmp(context_id, expected_context_id) == 0);
+    CHECK(boxrig_gtk4_terminal_widget_get_input_state(widget, &input_before) == BOXRIG_UI_OK);
 
-    gtk_window_set_focus(window, NULL);
-    while (g_main_context_iteration(NULL, false)) {
-    }
-    CHECK(gtk_window_get_focus(window) != GTK_WIDGET(widget));
-    CHECK(!boxrig_ui_view_focused(boxrig_gtk4_terminal_widget_view(widget)));
+    CHECK(boxrig_composition_apply_event(composition, &preedit) == BOXRIG_COMPOSITION_OK);
+    CHECK(boxrig_composition_get_view(composition, &composition_before) == BOXRIG_COMPOSITION_OK);
+    CHECK(composition_before.active);
+    g_signal_emit_by_name(im_context, "commit", "old");
     gtk_window_set_child(window, NULL);
     while (g_main_context_iteration(NULL, false)) {
     }
     CHECK(gtk_widget_get_root(GTK_WIDGET(widget)) == NULL);
+    CHECK(boxrig_gtk4_terminal_widget_get_input_state(widget, &input_after) == BOXRIG_UI_OK);
+    CHECK(input_after.generation > input_before.generation);
+    CHECK(!boxrig_ui_view_focused(boxrig_gtk4_terminal_widget_view(widget)));
+    CHECK(boxrig_composition_get_view(composition, &composition_after) == BOXRIG_COMPOSITION_OK);
+    CHECK(!composition_after.active);
+    CHECK(composition_after.last_event == BOXRIG_COMPOSITION_CANCEL);
+    gtk_window_set_focus(window, NULL);
+    g_signal_emit_by_name(im_context, "commit", "stale");
+    CHECK(boxrig_gtk4_terminal_widget_frame(widget, &frame_result) ==
+          BOXRIG_UI_OK);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 0);
 
+    gtk_window_set_child(second_window, GTK_WIDGET(widget));
+    gtk_window_present(second_window);
+    while (!gtk_widget_get_mapped(GTK_WIDGET(widget))) {
+        (void)g_main_context_iteration(NULL, true);
+    }
+    gtk_window_set_focus(second_window, GTK_WIDGET(widget));
+    while (g_main_context_iteration(NULL, false)) {
+    }
+    CHECK(gtk_window_get_focus(second_window) == GTK_WIDGET(widget));
+    im_context = latest_im_context;
+    CHECK(GTK_IS_IM_MULTICONTEXT(im_context));
+    g_signal_emit_by_name(im_context, "commit", "fresh");
+    CHECK(boxrig_gtk4_terminal_widget_frame(widget, &frame_result) ==
+          BOXRIG_UI_OK);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 5);
+    CHECK(memcmp(output, "fresh", 5) == 0);
+    CHECK(boxrig_terminal_output_consume(terminal, 5) == BOXRIG_STATUS_OK);
+    gtk_window_set_focus(second_window, NULL);
+    while (g_main_context_iteration(NULL, false)) {
+    }
+
+    CHECK(feed_bytes(terminal, (const uint8_t *)"\033[?2004h", 8));
+    CHECK(boxrig_gtk4_terminal_widget_queue_paste(
+              widget, (const uint8_t *)"abcdefghijkl", 12) == BOXRIG_UI_OK);
+    CHECK(boxrig_gtk4_terminal_widget_frame(widget, &frame_result) == BOXRIG_UI_OK);
+    CHECK(frame_result.input_blocked);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 8);
+    CHECK(memcmp(output, "\033[200~ab", 8) == 0);
+    gtk_window_set_child(second_window, NULL);
     gtk_window_set_child(window, GTK_WIDGET(widget));
     gtk_window_present(window);
     while (!gtk_widget_get_mapped(GTK_WIDGET(widget))) {
         (void)g_main_context_iteration(NULL, true);
     }
-    gtk_window_set_focus(window, GTK_WIDGET(widget));
-    while (g_main_context_iteration(NULL, false)) {
-    }
-    CHECK(gtk_window_get_focus(window) == GTK_WIDGET(widget));
-    gtk_window_set_focus(window, NULL);
-    while (g_main_context_iteration(NULL, false)) {
-    }
+    CHECK(boxrig_terminal_output_consume(terminal, 8) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_gtk4_terminal_widget_frame(widget, &frame_result) == BOXRIG_UI_OK);
+    CHECK(frame_result.input_blocked);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 8);
+    CHECK(memcmp(output, "cdefghij", 8) == 0);
+    CHECK(boxrig_terminal_output_consume(terminal, 8) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_gtk4_terminal_widget_frame(widget, &frame_result) == BOXRIG_UI_OK);
+    CHECK(!frame_result.input_blocked);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 8);
+    CHECK(memcmp(output, "kl\033[201~", 8) == 0);
+    CHECK(boxrig_terminal_output_consume(terminal, 8) == BOXRIG_STATUS_OK);
 
     CHECK(boxrig_ui_view_set_focused(
               boxrig_gtk4_terminal_widget_view(widget), true) == BOXRIG_UI_OK);
@@ -2918,6 +2978,8 @@ static bool test_widget_input_lifecycle_releases_context(void)
     CHECK(composition_after.text_length == composition_before.text_length);
 
     gtk_window_set_child(window, NULL);
+    gtk_window_destroy(second_window);
+    g_object_unref(second_window);
     gtk_window_destroy(window);
     g_object_unref(window);
     g_object_unref(key_controller);

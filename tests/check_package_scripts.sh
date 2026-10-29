@@ -50,7 +50,9 @@ if [ -n "$destination" ]; then
         "$sdk/share/licenses/boxrig" "$sdk/share/boxrig/examples"
     printf 'library\n' > "$sdk/lib/libboxrig.a"
     if [[ " $* " == *' install-shared '* ]]; then
-        for name in boxrig boxrig-ui boxrig-session boxrig-posix boxrig-gtk3 boxrig-gtk4; do
+        for name in boxrig boxrig-ui boxrig-session boxrig-posix boxrig-gtk3 boxrig-gtk4 \
+            boxrig-x11 boxrig-wayland boxrig-render-ogl boxrig-x11-ogl boxrig-wayland-ogl \
+            boxrig-notification boxrig-background-wayland boxrig-background-gtk3 boxrig-background-gtk4; do
             printf 'library\n' > "$sdk/lib/lib$name.a"
             printf 'shared library\n' > "$sdk/lib/lib$name.so.0"
             ln -s "lib$name.so.0" "$sdk/lib/lib$name.so"
@@ -106,6 +108,11 @@ test -x "$root/$linux_name/bin/boxrig_emitter"
 test -s "$root/$linux_name/lib/libboxrig-session.a"
 test -s "$root/$linux_name/lib/libboxrig-gtk3.so.0"
 test -L "$root/$linux_name/lib/libboxrig.so"
+for name in x11 wayland render-ogl x11-ogl wayland-ogl notification \
+    background-wayland background-gtk3 background-gtk4; do
+    test -s "$root/$linux_name/lib/libboxrig-$name.so.0"
+    test -L "$root/$linux_name/lib/libboxrig-$name.so"
+done
 test ! -e "$root/$linux_name/share/boxrig/examples"
 test ! -e "$root/$linux_name/share/licenses/boxrig/README_ja.md"
 test ! -e "$project/artifacts/boxrig-0.1.0-win32-amd64.zip"
@@ -153,6 +160,7 @@ workspace=''
 workdir=''
 output=''
 platform=''
+verification=0
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --volume)
@@ -174,12 +182,30 @@ while [ "$#" -gt 0 ]; do
                 *) exit 1 ;;
             esac
             shift 2 ;;
+        tests/shared/check_release_archive.sh)
+            verification=1
+            archive=$2
+            verify_version=$3
+            verify_arch=$4
+            extracted_sdk=$5
+            shift 5 ;;
         *) shift ;;
     esac
 done
 test -d "$workspace"
 test "$workdir" = /workspace
 test -d "$output"
+target="$distro-$release-$arch"
+if [ "$verification" -eq 1 ]; then
+    test "$verify_version" = "$version"
+    test "$verify_arch" = "$arch"
+    test -s "$output/${archive##*/}"
+    sdk="$workspace${extracted_sdk#/workspace}"
+    test "$(cat "$sdk/platform.txt")" = "$platform"
+    test "$(cat "$sdk/payload.txt")" = "${BOXRIG_TEST_ARCHIVE_TEXT:-initial}"
+    test "${BOXRIG_TEST_FAIL_VERIFICATION_TARGET:-}" != "$target"
+    exit 0
+fi
 for required in packaging/build_linux_container.sh \
     build/tools/codegen/generate-wayland-notices.mjs \
     build/generated/licenses/Wayland-protocols-NOTICES.md deps/fixture/source.c; do
@@ -198,7 +224,6 @@ test ! -e "$workspace/build/container-only.o"
 # or the original checkout.
 printf 'container source\n' > "$workspace/deps/fixture/source.c"
 printf 'container object\n' > "$workspace/build/container-only.o"
-target="$distro-$release-$arch"
 test "${BOXRIG_TEST_FAIL_TARGET:-}" != "$target"
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
@@ -273,6 +298,12 @@ if BOXRIG_TEST_ARCHIVE_TEXT=replacement BOXRIG_TEST_FAIL_TARGET=debian-trixie-ar
     exit 1
 fi
 cmp "$archive" "$root/previous.tar.gz"
+if BOXRIG_TEST_ARCHIVE_TEXT=replacement BOXRIG_TEST_FAIL_VERIFICATION_TARGET=debian-trixie-armv7l bash "$project/build_package.sh" \
+    --target linux --distro debian --arch i686,armv7l --jobs 2 > "$root/verification-failure.log" 2>&1; then
+    echo 'FAIL SDK verification failure was ignored' >&2
+    exit 1
+fi
+cmp "$archive" "$root/previous.tar.gz"
 : > "$BOXRIG_PACKAGE_TEST_LOG"
 if BOXRIG_TEST_NO_IMAGES=1 bash "$project/build_package.sh" --target linux --arch amd64 > "$root/missing.log" 2>&1; then
     echo 'FAIL missing image was ignored' >&2
@@ -284,7 +315,7 @@ printf '%s\n' 'PASS failed builds preserve previous archives and missing images 
 
 : > "$BOXRIG_PACKAGE_TEST_LOG"
 bash "$project/build_package.sh" --jobs 2
-test "$(grep -c '^podman <run>' "$BOXRIG_PACKAGE_TEST_LOG")" -eq 9
+test "$(grep -c '^podman <run>' "$BOXRIG_PACKAGE_TEST_LOG")" -eq 18
 test "$(grep -c '^npx version' "$BOXRIG_PACKAGE_TEST_LOG")" -eq 1
 for arch in amd64 i686; do
     test -s "$project/artifacts/boxrig-0.1.0-win32-$arch.zip"

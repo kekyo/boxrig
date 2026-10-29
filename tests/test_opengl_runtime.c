@@ -33,6 +33,32 @@ static boxrig_gl_runtime_config runtime_config(opengl_host *host)
     return config;
 }
 
+typedef struct create_operation {
+    boxrig_gl_runtime_config config;
+    boxrig_gl_runtime *runtime;
+} create_operation;
+
+static bool create_runtime_operation(void *context)
+{
+    create_operation *operation = context;
+    return boxrig_gl_runtime_create(&operation->config, &operation->runtime,
+        NULL) == BOXRIG_GL_OK;
+}
+
+static bool initializes_fixed_state(opengl_host *host)
+{
+    create_operation operation = {runtime_config(host), NULL};
+    for (size_t pass = 0; pass < 2; pass++) {
+        opengl_host_work before = opengl_host_get_work(host);
+        CHECK(opengl_host_test_operation_state(host, create_runtime_operation, &operation));
+        opengl_host_work after = opengl_host_get_work(host);
+        CHECK(after.attribute_pointers - before.attribute_pointers == 4);
+        CHECK(after.uniform_lookups - before.uniform_lookups == 1);
+        CHECK(boxrig_gl_runtime_destroy(&operation.runtime, 7, NULL) == BOXRIG_GL_OK);
+    }
+    return true;
+}
+
 static bool rejects_unsupported_contexts(opengl_host *host)
 {
     boxrig_gl_runtime_config config = runtime_config(host);
@@ -349,6 +375,7 @@ static bool run_fixture(const char *wsi)
     }
     CHECK(validates_context_and_target(host, report.is_gles));
     CHECK(rejects_unsupported_contexts(host));
+    CHECK(initializes_fixed_state(host));
     CHECK(abandons_objects_after_context_loss(host));
     printf(
         "PASS OpenGL %s: WSI %s %s, GL %s, %s / %s, visual 0x%lx depth %d, alpha %d/%d, swap interval %s\n",

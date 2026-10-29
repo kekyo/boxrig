@@ -48,9 +48,7 @@ In-terminal images using Kitty graphics:
 
 ![Kitty graphics images](./images/kitty-image-static.png)
 
-Transparent background:
-
-An OpenGL example with translucent red and the built-in background image beneath the transparent terminal background.
+Overlaying an image on a backdrop and then making the background transparent ([elder-terms](https://giuthub.com/kekyo/elder-terms/)).
 
 ![Transparent background example](./images/transparent-background.png)
 

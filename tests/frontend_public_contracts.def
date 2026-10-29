@@ -732,6 +732,7 @@ BOXRIG_PUBLIC_CONTRACT(
 BOXRIG_PUBLIC_CONTRACT(
     OPERATION, "include/boxrig/wayland.h", FRONTEND_PRESENTATION, 16u,
     "boxrig_wayland_terminal_component_surface "
+    "boxrig_wayland_terminal_component_request_reparent "
     "boxrig_wayland_terminal_component_take_host_action "
     "boxrig_wayland_terminal_component_complete_parent_commit")
 
@@ -857,6 +858,7 @@ BOXRIG_PUBLIC_CONTRACT(
 BOXRIG_PUBLIC_CONTRACT(
     OPERATION, "include/boxrig/win32/component.h", FRONTEND_PRESENTATION, 2u,
     "boxrig_win32_terminal_component_native_hosting "
+    "boxrig_win32_terminal_component_reparent "
     "boxrig_win32_terminal_component_owned_window "
     "boxrig_win32_terminal_component_presentation_window "
     "boxrig_win32_terminal_component_input_window "
@@ -1099,6 +1101,7 @@ BOXRIG_PUBLIC_CONTRACT(
 BOXRIG_PUBLIC_CONTRACT(
     OPERATION, "include/boxrig/x11/component.h", FRONTEND_PRESENTATION, 1u,
     "boxrig_x11_terminal_component_native_hosting "
+    "boxrig_x11_terminal_component_reparent "
     "boxrig_x11_terminal_component_owned_window "
     "boxrig_x11_terminal_component_presentation_window "
     "boxrig_x11_terminal_component_input_window "
@@ -1327,6 +1330,7 @@ BOXRIG_PUBLIC_CONTRACT(
     OPERATION, "include/boxrig/render/runtime.h", RENDERER_MEANING, 31u,
     "boxrig_gl_runtime_create "
     "boxrig_gl_runtime_get_capabilities "
+    "boxrig_gl_runtime_set_clip "
     "boxrig_gl_runtime_set_target_generation "
     "boxrig_gl_runtime_begin_target "
     "boxrig_gl_runtime_end_target "

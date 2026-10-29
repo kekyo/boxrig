@@ -44,12 +44,27 @@ static bool native_display;
 static bool capture_active;
 static size_t captured_frames;
 static bool fail_next_presentation;
+static bool compare_reparent_frames;
+static uint64_t reparent_frame_hash;
+static size_t reparent_frame_count;
 
 /* Save the submitted image, before desktop compositing, for a separate video
  * run. Captures never participate in the performance measurements. */
 static void save_frame(const uint8_t *pixels, unsigned int width, unsigned int height,
     size_t stride, bool rgba_bottom_up)
 {
+    if (compare_reparent_frames) {
+        uint64_t hash = UINT64_C(14695981039346656037);
+        for (unsigned int y = 0; y < height; y++) {
+            const uint8_t *row = pixels + (rgba_bottom_up ? height - 1 - y : y) * stride;
+            for (size_t x = 0; x < (size_t)width * 4; x++) {
+                hash ^= row[x];
+                hash *= UINT64_C(1099511628211);
+            }
+        }
+        reparent_frame_hash = hash;
+        reparent_frame_count++;
+    }
     const char *directory = getenv("BOXRIG_TEST_RESIZE_CAPTURE");
     if (!capture_active || directory == NULL) return;
     char path[1024];
@@ -134,7 +149,8 @@ EGLBoolean __wrap_eglSwapBuffers(EGLDisplay display, EGLSurface surface)
         fail_next_presentation = false;
         return EGL_FALSE;
     }
-    if (capture_active && getenv("BOXRIG_TEST_RESIZE_CAPTURE") != NULL) {
+    if (compare_reparent_frames ||
+        (capture_active && getenv("BOXRIG_TEST_RESIZE_CAPTURE") != NULL)) {
         GLint source_framebuffer, source_buffer;
         glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &source_framebuffer);
         glGetIntegerv(GL_READ_BUFFER, &source_buffer);
@@ -541,7 +557,7 @@ static void wait_for_component(
 #endif
             transparency.effective ==
                 BOXRIG_UI_TRANSPARENCY_PREMULTIPLIED_ALPHA &&
-            !diagnostic.frame_callback_pending &&
+            !diagnostic.reparent_pending && !diagnostic.frame_callback_pending &&
             diagnostic.busy_buffer_count <= 1 &&
             diagnostic.presentation_generation > 0 &&
             !diagnostic.presentation_pending && !frame_result.frame_pending) {
@@ -806,6 +822,84 @@ int main(void)
     CHECK(boxrig_ui_view_set_focused(animation_view, false) == BOXRIG_UI_OK);
     CHECK(!animation_reserved);
     wait_for_component(&host, context, component);
+    weston_host moved_host = host;
+    moved_host.configured = false;
+    moved_host.parent = wl_compositor_create_surface(host.compositor);
+    CHECK(moved_host.parent != NULL);
+    wl_proxy_set_queue((struct wl_proxy *)moved_host.parent, host.queue);
+    moved_host.xdg_surface = xdg_wm_base_get_xdg_surface(host.wm_base, moved_host.parent);
+    CHECK(moved_host.xdg_surface != NULL);
+    CHECK(xdg_surface_add_listener(moved_host.xdg_surface, &xdg_surface_listener, &moved_host) == 0);
+    moved_host.toplevel = xdg_surface_get_toplevel(moved_host.xdg_surface);
+    CHECK(moved_host.toplevel != NULL);
+    CHECK(xdg_toplevel_add_listener(moved_host.toplevel, &toplevel_listener, &moved_host) == 0);
+    wl_surface_commit(moved_host.parent);
+    for (attempt = 0; attempt < 500 && !moved_host.configured; attempt++)
+        CHECK(dispatch_once(&host, context, 20));
+    CHECK(moved_host.configured);
+    host_buffer moved_background;
+    create_host_buffer(&host, 320, 180, UINT32_C(0xff203060), &moved_background);
+    wl_surface_attach(moved_host.parent, moved_background.proxy, 0, 0);
+    wl_surface_damage_buffer(moved_host.parent, 0, 0, 320, 180);
+    wl_surface_commit(moved_host.parent);
+    boxrig_ui_view *retained_view = boxrig_wayland_terminal_component_view(component);
+    struct wl_surface *retained_surface = boxrig_wayland_terminal_component_surface(component);
+    compare_reparent_frames = true;
+    boxrig_ui_dirty move_dirty = {.row_count = 6, .column_count = 24};
+    CHECK(boxrig_ui_view_invalidate(retained_view, BOXRIG_UI_DIRTY_PRESENT, move_dirty) == BOXRIG_UI_OK);
+    wait_for_component(&host, context, component);
+    CHECK(reparent_frame_count > 0);
+    uint64_t retained_frame_hash = reparent_frame_hash;
+#if BOXRIG_TEST_WAYLAND_OPENGL
+    size_t retained_renderers = renderer_creations;
+    size_t retained_egl_surfaces = egl_surface_creations;
+    boxrig_wayland_opengl_component_diagnostic retained_gl;
+    CHECK(boxrig_wayland_opengl_terminal_component_get_diagnostic(component, &retained_gl) == BOXRIG_UI_OK);
+#endif
+    uint64_t last_move = 0;
+    for (unsigned int step = 0; step < 4; step++) {
+        size_t previous_frames = reparent_frame_count;
+        struct wl_surface *destination = step % 2 == 0 ? moved_host.parent : parent;
+        uint64_t move_revision = 0;
+        CHECK(boxrig_wayland_terminal_component_request_reparent(component, destination, &move_revision) == BOXRIG_UI_OK);
+        CHECK(move_revision > last_move);
+        last_move = move_revision;
+        CHECK(boxrig_wayland_terminal_component_view(component) == retained_view);
+        CHECK(boxrig_wayland_terminal_component_surface(component) == retained_surface);
+        CHECK(boxrig_ui_view_is_layout_authority(retained_view));
+        CHECK(boxrig_wayland_terminal_component_complete_parent_commit(component, action.revision, &applied) == BOXRIG_UI_OK && !applied);
+        CHECK(boxrig_wayland_terminal_component_get_diagnostic(component, &diagnostic) == BOXRIG_UI_OK);
+        CHECK(diagnostic.reparent_pending && diagnostic.effective_reparent_revision < move_revision);
+        boxrig_ui_component_frame_result move_frame;
+        CHECK(boxrig_wayland_terminal_component_frame(component, &move_frame) == BOXRIG_UI_OK);
+        CHECK(boxrig_wayland_terminal_component_take_host_action(component, &action));
+        CHECK(action.parent == destination);
+        wl_surface_commit(action.parent);
+        CHECK(boxrig_wayland_terminal_component_complete_parent_commit(component, action.revision, &applied) == BOXRIG_UI_OK && applied);
+        wait_for_component(&host, context, component);
+        CHECK(boxrig_wayland_terminal_component_get_diagnostic(component, &diagnostic) == BOXRIG_UI_OK);
+        CHECK(!diagnostic.reparent_pending && diagnostic.effective_reparent_revision == move_revision);
+        CHECK(reparent_frame_count > previous_frames);
+        CHECK(reparent_frame_hash == retained_frame_hash);
+#if BOXRIG_TEST_WAYLAND_OPENGL
+        boxrig_wayland_opengl_component_diagnostic moved_gl;
+        CHECK(boxrig_wayland_opengl_terminal_component_get_diagnostic(component, &moved_gl) == BOXRIG_UI_OK);
+        CHECK(renderer_creations == retained_renderers && egl_surface_creations == retained_egl_surfaces);
+        CHECK(moved_gl.context_generation == retained_gl.context_generation);
+        CHECK(moved_gl.target_generation == retained_gl.target_generation);
+#endif
+        CHECK(boxrig_ui_view_create_selection_snapshot(retained_view, &snapshot) == BOXRIG_UI_OK);
+        selected = boxrig_text_snapshot_data(snapshot, &selected_length);
+        CHECK(selected_length == 6 && memcmp(selected, "weston", 6) == 0);
+        boxrig_text_snapshot_destroy(snapshot);
+        snapshot = NULL;
+    }
+    compare_reparent_frames = false;
+    xdg_toplevel_destroy(moved_host.toplevel);
+    xdg_surface_destroy(moved_host.xdg_surface);
+    wl_surface_destroy(moved_host.parent);
+    destroy_host_buffer(&moved_background);
+
     CHECK(boxrig_wayland_terminal_component_get_diagnostic(
               component,
               &diagnostic) == BOXRIG_UI_OK);

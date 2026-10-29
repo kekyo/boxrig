@@ -52,6 +52,11 @@ int main(void)
     assert(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
     assert(boxrig_ui_view_create(model, &view_config, &view) == BOXRIG_UI_OK);
     assert(boxrig_ui_model_terminal(model) == terminal);
+    boxrig_text_position position;
+    assert(boxrig_terminal_get_text_position(terminal, BOXRIG_TEXT_SCREEN_PRIMARY,
+               0, 0, &position) == BOXRIG_STATUS_OK);
+    assert(boxrig_ui_view_clear_text_annotation_line(view, 1,
+               position.screen, position.line_id) == BOXRIG_UI_OK);
     boxrig_ui_rectangular_copy_policy copy_policy;
     assert(boxrig_ui_view_get_rectangular_copy_policy(view, &copy_policy) ==
            BOXRIG_UI_OK);

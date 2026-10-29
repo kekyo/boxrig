@@ -85,6 +85,34 @@ After the widget is realized and its first frame completes, check the actual bac
 Continue processing frames and GTK events until a switch's `pending` state clears.
 A failed switch may preserve the previous usable rendering backend.
 
+## Move to another window
+
+Moving the same terminal widget to another container preserves its view, selection, display settings, terminal, and communication session.
+Both Cairo and OpenGL use GTK's standard removal and insertion operations.
+Perform the move from the GTK main loop after input and rendering callbacks have returned.
+
+Hold a widget reference, for example with `g_object_ref_sink()`, before removing it.
+For a direct GtkWindow parent in GTK3, use `gtk_container_remove()` and `gtk_container_add()`.
+For GTK4 GtkWindow parents, detach with `gtk_window_set_child(window, NULL)` and attach with the same function on the new parent.
+For GtkBox, GtkScrolledWindow, or other containers, use their respective removal and insertion APIs.
+Release the host-held reference after attachment, and focus the widget if needed.
+See [GObject floating references](https://docs.gtk.org/gobject/floating-refs.html), [GTK3 remove](https://docs.gtk.org/gtk3/method.Container.remove.html), and [GTK4 set_child](https://docs.gtk.org/gtk4/method.Window.set_child.html) for reference and parent-child rules.
+
+Detachment ends the input connection and uncommitted composition; reattachment connects input to the new window.
+Compare host-retained input with the generation from `get_input_state()` and do not replay older generations.
+Pastes that have not started and stale clipboard responses are discarded.
+A paste that has started sending to the terminal continues with its remaining text and ending notification after the move.
+Calling `quiesce()` for a move would terminate the widget irreversibly.
+GTK supplies the new allocation; propagate grid changes to the communication peer.
+
+OpenGL resources may be released during detachment.
+Continue frame processing after realization in the new parent, and use `get_render_state()` to check the active backend and readiness.
+Retaining the widget and retaining the same GL context are separate conditions.
+
+The [round-trip example](../../../examples/gtk/transfer.c) moves on F6.
+Build it with `make build/examples/gtk3_transfer` or `make build/examples/gtk4_transfer`; pass `--gl` at startup for OpenGL.
+The example checks input and responses through the same PTY, retained selection and settings, and destruction of the old window.
+
 ## Read terminal text through assistive technology
 
 The GTK 3 widget implements `AtkText`, and the GTK 4 widget implements `GtkAccessibleText`.

@@ -127,6 +127,15 @@ bool boxrig_gtk4_terminal_widget_get_accessibility_enabled(
  * @remarks The widget borrows model and terminal. It owns its view, private
  * renderer, immutable presentation node, adjustments, native controllers,
  * input method, and clipboard transactions.
+ * To move the same widget to another window, hold a strong reference across
+ * gtk_window_set_child(window, NULL) and gtk_window_set_child(destination,
+ * widget), or the equivalent standard container methods. Release the
+ * temporary reference after the widget is attached to its destination.
+ * Removal invalidates queued native input, cancels unfinished preedit and
+ * clipboard reads, and reconnects input after rooting. A paste already begun
+ * at the terminal completes after the widget is remapped. OpenGL resources
+ * are recreated after unrealize.
+ * See https://docs.gtk.org/gtk4/method.Window.set_child.html.
  */
 boxrig_ui_status boxrig_gtk4_terminal_widget_create(
     boxrig_ui_model *model,
