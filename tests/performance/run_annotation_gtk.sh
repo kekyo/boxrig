@@ -51,8 +51,13 @@ fi
     "$(dirname "$probe")/annotation_gl_vendor" || echo 'gl_vendor=unavailable'
 } > "$output/configuration.txt"
 terminal_pid=
+original_focus=
+if [[ ${BOXRIG_PLAN18_HARDWARE_GL:-0} == 1 ]]; then
+    original_focus=$(xdotool getactivewindow 2>/dev/null || true)
+fi
 cleanup() {
     if [[ -n $terminal_pid ]]; then kill "$terminal_pid" 2>/dev/null || true; fi
+    if [[ -n $original_focus ]]; then xdotool windowactivate "$original_focus" 2>/dev/null || true; fi
 }
 trap cleanup EXIT
 env BOXRIG_AUTO_URLS="$auto_urls" BOXRIG_ANNOTATION_LINK_MODE="$link_mode" \
@@ -65,6 +70,7 @@ env BOXRIG_AUTO_URLS="$auto_urls" BOXRIG_ANNOTATION_LINK_MODE="$link_mode" \
 terminal_pid=$!
 window=$(timeout 20s xdotool search --sync --onlyvisible --name "^$title$" | head -n 1)
 [[ $window =~ ^[0-9]+$ ]]
+if [[ ${BOXRIG_PLAN18_HARDWARE_GL:-0} == 1 ]]; then xdotool windowactivate --sync "$window"; fi
 BOXRIG_ANNOTATION_GTK_LOAD="$load" BOXRIG_ANNOTATION_LINK_MODE="$link_mode" \
     "$probe" "$window" "$output" "$mode" \
     > "$output/probe.log" 2>&1

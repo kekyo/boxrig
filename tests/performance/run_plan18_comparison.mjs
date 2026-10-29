@@ -3,7 +3,8 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
-const [baselineArg, candidateArg, outputArg, roundsArg] = process.argv.slice(2);
+const [baselineArg, candidateArg, outputArg, roundsArg,
+  baselineRevision, candidateRevision] = process.argv.slice(2);
 if (!baselineArg || !candidateArg || !outputArg) {
   throw new Error('usage: run_plan18_comparison.mjs BASELINE CANDIDATE OUTPUT [ROUNDS]');
 }
@@ -11,6 +12,8 @@ const rounds = Number(roundsArg ?? 2);
 if (!Number.isInteger(rounds) || rounds < 2) throw new Error('rounds must be at least 2');
 const root = process.cwd();
 const binaries = { baseline: resolve(baselineArg), candidate: resolve(candidateArg) };
+const revisions = { baseline: baselineRevision ?? 'unverified',
+  candidate: candidateRevision ?? 'unverified' };
 const output = resolve(outputArg);
 const peer = join(root, 'build/tests/performance/annotation_gtk_peer');
 const probe = join(root, 'build/tests/performance/annotation_gtk_probe');
@@ -27,7 +30,8 @@ for (let round = 0; round < rounds; round++) {
         const result = spawnSync('bash', [script, binaries[frontend], peer, probe,
           renderer, String(history), load, 'none', directory], {
           cwd: root,
-          env: { ...process.env, BOXRIG_ANNOTATION_GTK_KEYS: '20' },
+          env: { ...process.env, BOXRIG_ANNOTATION_GTK_KEYS: '20',
+            BOXRIG_ANNOTATION_BINARY_REVISION: revisions[frontend] },
           stdio: 'inherit',
         });
         cases.push({ frontend, renderer, history, load, capture: 'none', period: 100,

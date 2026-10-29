@@ -23,7 +23,9 @@ for (let round = 0; round < rounds; round++) {
       const result = spawnSync('bash', [script, binary, peer, probe,
         renderer, String(history), load, 'none', directory], {
         cwd: root,
-        env: { ...process.env, BOXRIG_ANNOTATION_GTK_KEYS: '20' },
+        env: { ...process.env, BOXRIG_ANNOTATION_GTK_KEYS: '20',
+          BOXRIG_ANNOTATION_BINARY_REVISION:
+            process.env.BOXRIG_PLAN18_BINARY_REVISION ?? 'unverified' },
         stdio: 'inherit',
       });
       cases.push({ frontend: 'current', renderer, history, load,
