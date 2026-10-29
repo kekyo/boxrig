@@ -826,6 +826,9 @@ static gboolean render_gl_frame(GtkGLArea *area, GdkGLContext *context, gpointer
     }
     boxrig_gtk_gl_surface *surface = replace ? candidate : widget->gl_surface;
     bool changed = replace || resize || widget->gl_pending || boxrig_ui_view_frame_requested(widget->view);
+#ifdef BOXRIG_PLAN18_TRACE_BUILD
+    gint64 draw_started = g_get_monotonic_time();
+#endif
     if ((changed && boxrig_gtk_gl_surface_draw(surface, widget->view,
             boxrig_gtk3_input_composition(widget->input), &widget->render_state) != BOXRIG_UI_OK) ||
         boxrig_gtk_gl_surface_present(surface, &destination, &widget->render_state) != BOXRIG_UI_OK) {
@@ -834,6 +837,19 @@ static gboolean render_gl_frame(GtkGLArea *area, GdkGLContext *context, gpointer
         gl_failed(widget);
         return TRUE;
     }
+#ifdef BOXRIG_PLAN18_TRACE_BUILD
+    if (g_getenv("BOXRIG_PLAN18_TRACE") != NULL) {
+        boxrig_ogl_render_statistics statistics;
+        g_printerr("plan18 draw_present_cpu_us=%" G_GINT64_FORMAT " changed=%d\n",
+            g_get_monotonic_time() - draw_started, changed ? 1 : 0);
+        if (boxrig_gtk_gl_surface_get_statistics(surface, &statistics) == 0)
+            g_printerr("plan18 cumulative_rows=%zu cells=%zu batches=%zu instances=%zu uploads=%zu glyph_uploads=%zu dirty_rectangles=%zu\n",
+                statistics.row_raster_count, statistics.cell_raster_count,
+                statistics.draw_batch_count, statistics.instance_count,
+                statistics.upload_bytes, statistics.grayscale_glyph_upload_count +
+                statistics.color_glyph_upload_count, statistics.dirty_rectangle_count);
+    }
+#endif
     if (replace) {
         boxrig_gtk_gl_surface_destroy(&widget->gl_surface);
         widget->gl_surface = candidate;
@@ -869,9 +885,19 @@ static gboolean gl_render(GtkGLArea *area, GdkGLContext *context, gpointer data)
 {
     BoxrigGtk3TerminalWidget *widget = data;
     if (widget->in_frame || widget->in_gl_render) return TRUE;
+#ifdef BOXRIG_PLAN18_TRACE_BUILD
+    gint64 started = g_get_monotonic_time();
+    if (g_getenv("BOXRIG_PLAN18_TRACE") != NULL)
+        g_printerr("plan18 gtk_render_start_us=%" G_GINT64_FORMAT "\n", started);
+#endif
     g_object_ref(widget);
     widget->in_gl_render = true;
     gboolean result = render_gl_frame(area, context, data);
+#ifdef BOXRIG_PLAN18_TRACE_BUILD
+    if (g_getenv("BOXRIG_PLAN18_TRACE") != NULL)
+        g_printerr("plan18 gtk_render_duration_us=%" G_GINT64_FORMAT "\n",
+            g_get_monotonic_time() - started);
+#endif
     widget->in_gl_render = false;
     g_object_unref(widget);
     return result;
@@ -3431,6 +3457,11 @@ boxrig_ui_status boxrig_gtk3_terminal_widget_frame(
 #if BOXRIG_GTK_OPENGL
         if (uses_gl(widget)) {
             widget->gl_pending = true;
+#ifdef BOXRIG_PLAN18_TRACE_BUILD
+            if (g_getenv("BOXRIG_PLAN18_TRACE") != NULL)
+                g_printerr("plan18 gtk_queue_us=%" G_GINT64_FORMAT "\n",
+                    g_get_monotonic_time());
+#endif
             gtk_gl_area_queue_render(GTK_GL_AREA(widget->gl_area));
         } else
 #endif

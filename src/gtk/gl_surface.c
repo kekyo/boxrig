@@ -7,6 +7,7 @@
 #include "gl_area.h"
 
 #include <epoxy/gl.h>
+#include <glib.h>
 #include <limits.h>
 #include <stdlib.h>
 
@@ -310,8 +311,17 @@ boxrig_ui_status boxrig_gtk_gl_surface_present(boxrig_gtk_gl_surface *surface,
             if (destination->format == BOXRIG_GL_TARGET_SRGB8_ALPHA8) glEnable(GL_FRAMEBUFFER_SRGB);
             else glDisable(GL_FRAMEBUFFER_SRGB);
         }
+#ifdef BOXRIG_PLAN18_TRACE_BUILD
+        gint64 blit_started = g_get_monotonic_time();
+#endif
         glBlitFramebuffer(0, 0, (GLint)surface->target.width, (GLint)surface->target.height,
             0, 0, (GLint)destination->width, (GLint)destination->height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+#ifdef BOXRIG_PLAN18_TRACE_BUILD
+        if (g_getenv("BOXRIG_PLAN18_TRACE") != NULL)
+            g_printerr("plan18 blit_call_us=%" G_GINT64_FORMAT " pixels=%u\n",
+                g_get_monotonic_time() - blit_started,
+                surface->target.width * surface->target.height);
+#endif
     }
     GLenum error = glGetError();
     if (scissor) glEnable(GL_SCISSOR_TEST);
