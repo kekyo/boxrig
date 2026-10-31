@@ -78,7 +78,7 @@ static void run_case(size_t history, bool wrapped, size_t repetitions)
 #endif
     char line[200];
     size_t length;
-    config.rows = 4;
+    config.rows = 24;
     config.columns = 80;
     config.scrollback_capacity = history;
     require(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK,
@@ -103,6 +103,11 @@ static void run_case(size_t history, bool wrapped, size_t repetitions)
         "create model");
     require(boxrig_ui_view_create(model, &view_config, &view) == BOXRIG_UI_OK,
         "create view");
+    boxrig_ui_selection_style style = boxrig_ui_selection_style_default();
+    style.presentation = BOXRIG_UI_SELECTION_FILL;
+    style.foreground_policy = BOXRIG_UI_SELECTION_FOREGROUND_RGB;
+    require(boxrig_ui_view_set_selection_style(view, &style) == BOXRIG_UI_OK,
+        "use selection cell colors");
 #ifdef BOXRIG_SELECTION_COST_CAIRO
     require(boxrig_pango_cairo_renderer_create(800, 80, &renderer) == 0,
         "create Cairo renderer");
@@ -116,12 +121,13 @@ static void run_case(size_t history, bool wrapped, size_t repetitions)
     unsigned int cell_width = boxrig_pango_cairo_renderer_cell_width(renderer);
     unsigned int cell_height = boxrig_pango_cairo_renderer_cell_height(renderer);
     require(boxrig_pango_cairo_renderer_set_surface_size(renderer,
-        80 * cell_width, 4 * cell_height) == 0, "size Cairo surface");
+        config.columns * cell_width, config.rows * cell_height) == 0,
+        "size Cairo surface");
 #else
     unsigned int cell_width = 8, cell_height = 10;
 #endif
-    allocation.allocation_width = 80 * cell_width * BOXRIG_UI_FIXED_ONE;
-    allocation.allocation_height = 4 * cell_height * BOXRIG_UI_FIXED_ONE;
+    allocation.allocation_width = config.columns * cell_width * BOXRIG_UI_FIXED_ONE;
+    allocation.allocation_height = config.rows * cell_height * BOXRIG_UI_FIXED_ONE;
     allocation.cell_width = cell_width * BOXRIG_UI_FIXED_ONE;
     allocation.cell_height = cell_height * BOXRIG_UI_FIXED_ONE;
     allocation.cell_metrics_revision = 1;
@@ -139,12 +145,19 @@ static void run_case(size_t history, bool wrapped, size_t repetitions)
     require(boxrig_ui_view_hit_test(view, BOXRIG_UI_FIXED_ONE,
         BOXRIG_UI_FIXED_ONE, &anchor) == BOXRIG_UI_OK &&
         boxrig_ui_view_hit_test(view, cell_width * BOXRIG_UI_FIXED_ONE,
-        (cell_height + 1) * BOXRIG_UI_FIXED_ONE, &near) == BOXRIG_UI_OK &&
+        ((config.rows - 2) * cell_height + 1) * BOXRIG_UI_FIXED_ONE,
+        &near) == BOXRIG_UI_OK &&
         boxrig_ui_view_hit_test(view, 3 * cell_width * BOXRIG_UI_FIXED_ONE,
-        (cell_height + 1) * BOXRIG_UI_FIXED_ONE, &far) == BOXRIG_UI_OK,
+        ((config.rows - 2) * cell_height + 1) * BOXRIG_UI_FIXED_ONE,
+        &far) == BOXRIG_UI_OK,
         "hit visible rows");
+    fragment_reads = 0;
+    snapshot_creations = 0;
     require(boxrig_ui_view_begin_selection(view, BOXRIG_UI_SELECTION_CHARACTER,
         &anchor) == BOXRIG_UI_OK, "begin selection");
+    require(fragment_reads <= 4 * (history + config.rows) + config.rows * 128,
+        "beginning selection bounds history lookups");
+    require(snapshot_creations == 0, "beginning selection creates no full snapshot");
     size_t update_reads = 0, draw_reads = 0, update_snapshots = 0;
     size_t draw_snapshots = 0, ranges = 0;
     size_t raster_reads = 0, raster_snapshots = 0;
@@ -163,7 +176,7 @@ static void run_case(size_t history, bool wrapped, size_t repetitions)
         fragment_reads = 0;
         snapshot_creations = 0;
         start = clock_ns();
-        for (size_t row = 0; row < 4; row++) {
+        for (size_t row = 0; row < config.rows; row++) {
             boxrig_text_layout_range visual[80];
             ranges += boxrig_ui_view_selection_visual_ranges(view,
                 row, visual, 80);
@@ -171,6 +184,11 @@ static void run_case(size_t history, bool wrapped, size_t repetitions)
                 boxrig_ui_color_filter_input color = {0};
                 boxrig_ui_view_apply_color_state(view, row, column,
                     0, false, &color);
+                size_t selected_columns = row < config.rows - 2
+                    ? (wrapped ? config.columns : 11)
+                    : row == config.rows - 2 ? (iteration % 2 ? 2 : 4) : 0;
+                require(((color.state_flags & BOXRIG_UI_COLOR_SELECTED) != 0) ==
+                    (column < selected_columns), "paint matches drag selection");
             }
         }
         draw_ns += clock_ns() - start;
@@ -199,6 +217,16 @@ static void run_case(size_t history, bool wrapped, size_t repetitions)
         update_ns, draw_ns, raster_ns, update_reads, draw_reads,
         raster_reads, update_snapshots, draw_snapshots, raster_snapshots,
         ranges);
+    /* A new endpoint can require a document lookup. Repainting the same
+     * selection must not repeat that history walk for every row or cell.
+     * Count metadata reads instead of imposing machine-dependent deadlines. */
+    require(update_reads <= 4 * (history + config.rows) +
+        repetitions * config.rows * 128,
+        "selection updates bound history lookups");
+    require(draw_reads <= repetitions * config.rows * config.columns * 32,
+        "selection color preparation is bounded by viewport cells");
+    require(raster_reads <= repetitions * config.rows * config.columns * 32,
+        "selection rasterization is bounded by viewport cells");
 #ifdef BOXRIG_SELECTION_COST_CAIRO
     boxrig_pango_cairo_renderer_destroy(renderer);
 #endif

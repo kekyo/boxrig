@@ -2493,8 +2493,10 @@ $(BUILD_DIR)/tests/performance/selection_cost: \
 
 .PHONY: test-selection-cost
 test: test-selection-cost
-test-selection-cost: $(BUILD_DIR)/tests/performance/selection_cost
-	$<
+test-selection-cost: $(BUILD_DIR)/tests/performance/selection_cost \
+		$(BUILD_DIR)/tests/performance/selection_cost_cairo
+	$(BUILD_DIR)/tests/performance/selection_cost
+	$(BUILD_DIR)/tests/performance/selection_cost_cairo
 
 $(BUILD_DIR)/tests/performance/selection_cost_cairo: \
 		tests/performance/selection_cost.c src/pangocairo/renderer.c \
