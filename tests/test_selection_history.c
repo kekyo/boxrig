@@ -167,6 +167,73 @@ static int linear_newline_follows_reflow_and_font_metrics(void)
     return EXIT_SUCCESS;
 }
 
+static int linear_selection_follows_endpoint_reflow(void)
+{
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    config.rows = 6; config.columns = 16;
+    boxrig_terminal *terminal = NULL;
+    boxrig_ui_model *model = NULL;
+    boxrig_ui_view *view = NULL;
+    boxrig_ui_view_config vc = boxrig_ui_view_config_default();
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    const char text[] = "AAAA\r\nabcdefghijklmno";
+    size_t consumed;
+    CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)text,
+        sizeof(text) - 1, &consumed) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_create(model, &vc, &view) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_acquire_layout_authority(view) == BOXRIG_UI_OK);
+    boxrig_ui_allocation_input allocation = {
+        .allocation_width = 160 * BOXRIG_UI_FIXED_ONE,
+        .allocation_height = 120 * BOXRIG_UI_FIXED_ONE,
+        .cell_width = 10 * BOXRIG_UI_FIXED_ONE,
+        .cell_height = 20 * BOXRIG_UI_FIXED_ONE,
+        .cell_metrics_revision = 1, .window_state = BOXRIG_UI_WINDOW_NORMAL
+    };
+    boxrig_ui_layout_result layout;
+    CHECK(boxrig_ui_view_accept_allocation(view, &allocation, &layout) == BOXRIG_UI_OK);
+    boxrig_ui_hit_test_result hit;
+    CHECK(boxrig_ui_view_hit_test(view, 11 * BOXRIG_UI_FIXED_ONE,
+        BOXRIG_UI_FIXED_ONE, &hit) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_begin_selection(view, BOXRIG_UI_SELECTION_CHARACTER,
+        &hit) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_hit_test(view, 141 * BOXRIG_UI_FIXED_ONE,
+        21 * BOXRIG_UI_FIXED_ONE, &hit) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_update_selection(view, &hit) == BOXRIG_UI_OK);
+    /* The endpoint line grows and shrinks in physical rows while retaining
+     * its logical identity. Painting must include every selected fragment. */
+    const size_t columns[] = {16, 8, 16, 4, 16};
+    const char expected[] = "AAA\nabcdefghijklmno";
+    for (size_t pass = 0; pass < sizeof(columns) / sizeof(columns[0]); pass++) {
+        CHECK(boxrig_terminal_resize(terminal, config.rows, columns[pass]) == BOXRIG_STATUS_OK);
+        CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+        allocation.allocation_width = (boxrig_ui_fixed)(columns[pass] * 10) * BOXRIG_UI_FIXED_ONE;
+        CHECK(boxrig_ui_view_accept_allocation(view, &allocation, &layout) == BOXRIG_UI_OK);
+        for (size_t row = 0; row < config.rows; row++) {
+            size_t start = row == 0 ? 1 : 0;
+            size_t count = row == 0 ? (columns[pass] == 4 ? 3 : 4) :
+                (row - 1) * columns[pass] < 15 ? 15 - (row - 1) * columns[pass] : 0;
+            if (count > columns[pass]) count = columns[pass];
+            boxrig_text_layout_range range;
+            CHECK(boxrig_ui_view_selection_visual_ranges(view, row, &range, 1) == (count != 0));
+            if (count != 0 && (range.column != start || range.column_count != count))
+                fprintf(stderr, "reflow pass=%zu row=%zu expected=%zu,%zu actual=%zu,%zu\n",
+                    pass, row, start, count, range.column, range.column_count);
+            if (count != 0) CHECK(range.column == start && range.column_count == count);
+        }
+        boxrig_text_snapshot *copy = NULL;
+        CHECK(boxrig_ui_view_create_selection_snapshot(view, &copy) == BOXRIG_UI_OK);
+        size_t length;
+        const uint8_t *bytes = boxrig_text_snapshot_data(copy, &length);
+        CHECK(length == sizeof(expected) - 1 && memcmp(bytes, expected, length) == 0);
+        boxrig_text_snapshot_destroy(copy);
+    }
+    boxrig_ui_view_destroy(view); boxrig_ui_model_destroy(model);
+    boxrig_terminal_destroy(terminal);
+    puts("PASS linear selection paint and copy follow endpoint reflow");
+    return EXIT_SUCCESS;
+}
+
 static int linear_newline_moves_after_text_edits(void)
 {
     boxrig_terminal_config config = boxrig_terminal_config_default();
@@ -631,6 +698,7 @@ int main(void)
     CHECK(wrapped_history_and_invalidation() == EXIT_SUCCESS);
     CHECK(linear_newlines_follow_scrolling_and_screen_switches() == EXIT_SUCCESS);
     CHECK(linear_newline_follows_reflow_and_font_metrics() == EXIT_SUCCESS);
+    CHECK(linear_selection_follows_endpoint_reflow() == EXIT_SUCCESS);
     CHECK(linear_newline_moves_after_text_edits() == EXIT_SUCCESS);
     CHECK(linear_newline_updates_across_scroll_round_trip() == EXIT_SUCCESS);
     CHECK(top_anchored_partial_scroll_keeps_selection() == EXIT_SUCCESS);

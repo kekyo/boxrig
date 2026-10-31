@@ -34,6 +34,13 @@ typedef struct boxrig_ui_row_layout_cache {
     uint64_t use_serial;
 } boxrig_ui_row_layout_cache;
 
+typedef struct boxrig_ui_line_bounds {
+    boxrig_text_screen screen;
+    boxrig_text_line_id line_id;
+    size_t first;
+    size_t end;
+} boxrig_ui_line_bounds;
+
 struct boxrig_ui_fragment_layout_provider {
     size_t references;
     boxrig_ui_fragment_layout_resolver resolve;
@@ -105,6 +112,10 @@ struct boxrig_ui_model {
     boxrig_animation_clock *animation_clock;
     size_t animation_view_count;
     boxrig_terminal *terminal;
+    /* Selection and search repeatedly resolve a few endpoints. Keep their
+     * locations bounded independently of history size and view count. */
+    boxrig_ui_line_bounds line_bounds[8];
+    size_t next_line_bounds;
     boxrig_ui_view *first_view;
     boxrig_ui_view *layout_authority;
     boxrig_ui_host_item_consumer *host_item_consumer;
@@ -966,16 +977,61 @@ static bool view_fragment_index(
     return *fragment_index_out < fragment_count;
 }
 
-static bool find_line_bounds(
+static bool line_bounds_are_current(
     const boxrig_terminal *terminal,
+    const boxrig_ui_line_bounds *bounds,
+    size_t fragment_count)
+{
+    boxrig_text_fragment_view fragment;
+    if (bounds->first >= bounds->end || bounds->end > fragment_count ||
+        boxrig_terminal_get_text_fragment(terminal, bounds->screen,
+            bounds->first, &fragment) != BOXRIG_STATUS_OK ||
+        !text_line_id_equal(fragment.line_id, bounds->line_id)) return false;
+    if (bounds->end - bounds->first > 1 &&
+        (boxrig_terminal_get_text_fragment(terminal, bounds->screen,
+            bounds->end - 1, &fragment) != BOXRIG_STATUS_OK ||
+         !text_line_id_equal(fragment.line_id, bounds->line_id))) return false;
+    /* Reflow can preserve the text revision while changing fragment bounds.
+     * Check both neighbors as well as the retained endpoints, so a growing,
+     * shrinking or moved logical line cannot reuse an incomplete interval. */
+    if (bounds->first != 0 &&
+        (boxrig_terminal_get_text_fragment(terminal, bounds->screen,
+            bounds->first - 1, &fragment) != BOXRIG_STATUS_OK ||
+         text_line_id_equal(fragment.line_id, bounds->line_id))) return false;
+    if (bounds->end != fragment_count &&
+        (boxrig_terminal_get_text_fragment(terminal, bounds->screen,
+            bounds->end, &fragment) != BOXRIG_STATUS_OK ||
+         text_line_id_equal(fragment.line_id, bounds->line_id))) return false;
+    return true;
+}
+
+static bool find_line_bounds(
+    boxrig_ui_model *model,
     boxrig_text_screen screen,
     boxrig_text_line_id line_id,
     size_t *first_out,
     size_t *end_out)
 {
+    const boxrig_terminal *terminal = model->terminal;
     size_t fragment_count =
         boxrig_terminal_text_fragment_count(terminal, screen);
     size_t index;
+    boxrig_ui_line_bounds *cached = NULL;
+    const size_t capacity = sizeof(model->line_bounds) / sizeof(model->line_bounds[0]);
+
+    for (index = 0; index < capacity; index++) {
+        boxrig_ui_line_bounds *candidate = &model->line_bounds[index];
+        if (candidate->screen == screen &&
+            text_line_id_equal(candidate->line_id, line_id)) {
+            cached = candidate;
+            if (line_bounds_are_current(terminal, cached, fragment_count)) {
+                *first_out = cached->first;
+                *end_out = cached->end;
+                return true;
+            }
+            break;
+        }
+    }
 
     for (index = 0; index < fragment_count; index++) {
         boxrig_text_fragment_view fragment;
@@ -1006,6 +1062,11 @@ static bool find_line_bounds(
             index++;
         }
         *end_out = index;
+        if (cached == NULL) {
+            cached = &model->line_bounds[model->next_line_bounds];
+            model->next_line_bounds = (model->next_line_bounds + 1) % capacity;
+        }
+        *cached = (boxrig_ui_line_bounds){screen, line_id, *first_out, *end_out};
         return true;
     }
     return false;
@@ -1018,7 +1079,7 @@ static bool find_text_fragment(
 {
     size_t first, end;
     if (view == NULL || view->model == NULL || index_out == NULL) return false;
-    if (!find_line_bounds(view->model->terminal, screen, line_id, &first, &end)) {
+    if (!find_line_bounds(view->model, screen, line_id, &first, &end)) {
         return false;
     }
     for (size_t index = first; index < end; index++) {
@@ -1080,7 +1141,7 @@ static bool project_rectangular_selection(const boxrig_ui_view *view,
 }
 
 static bool compare_text_positions(
-    const boxrig_terminal *terminal,
+    boxrig_ui_model *model,
     const boxrig_text_position *left,
     const boxrig_text_position *right,
     int *comparison_out)
@@ -1092,13 +1153,13 @@ static bool compare_text_positions(
 
     if (left->screen != right->screen ||
         !find_line_bounds(
-            terminal,
+            model,
             left->screen,
             left->line_id,
             &left_first,
             &left_end) ||
         !find_line_bounds(
-            terminal,
+            model,
             right->screen,
             right->line_id,
             &right_first,
@@ -1133,8 +1194,6 @@ static bool range_logical_interval(
     size_t start_end;
     size_t end_first;
     size_t end_end;
-    size_t current_first;
-    size_t current_end;
     size_t fragment_start;
     size_t fragment_end;
     size_t selected_start;
@@ -1154,29 +1213,24 @@ static bool range_logical_interval(
             fragment_index,
             &fragment) != BOXRIG_STATUS_OK ||
         !find_line_bounds(
-            terminal,
+            view->model,
             screen,
             range->start.line_id,
             &start_first,
             &start_end) ||
         !find_line_bounds(
-            terminal,
+            view->model,
             screen,
             range->end.line_id,
             &end_first,
-            &end_end) ||
-        !find_line_bounds(
-            terminal,
-            screen,
-            fragment.line_id,
-            &current_first,
-            &current_end)) {
+            &end_end)) {
         return false;
     }
     (void)start_end;
-    (void)end_end;
-    (void)current_end;
-    if (current_first < start_first || current_first > end_first ||
+    (void)end_first;
+    /* The visible fragment already has its document index. Include all
+     * fragments of either endpoint line without looking up this row again. */
+    if (fragment_index < start_first || fragment_index >= end_end ||
         fragment.logical_column_offset > SIZE_MAX - view->column_count) {
         return false;
     }
@@ -1264,7 +1318,7 @@ static boxrig_ui_status validate_annotation_line(
         return BOXRIG_UI_INVALID_ARGUMENT;
     }
     if (!find_line_bounds(
-            view->model->terminal,
+            view->model,
             screen,
             line_id,
             &first,
@@ -1544,12 +1598,12 @@ static bool row_newline_selected(const boxrig_ui_view *view, size_t row)
      * scanning history for each endpoint comparison. */
     if (text_line_id_equal(range->start.line_id, newline.start.line_id)) {
         if (range->start.column > newline.start.column) return false;
-    } else if (!find_line_bounds(view->model->terminal, screen,
+    } else if (!find_line_bounds(view->model, screen,
             range->start.line_id, &first, &end) || first > index) return false;
     /* A pointer on LF ends at the next line's column zero. Its identity is
      * available from the adjacent fragment, including after reflow. */
     if (text_line_id_equal(range->end.line_id, newline.end.line_id)) return true;
-    return find_line_bounds(view->model->terminal, screen,
+    return find_line_bounds(view->model, screen,
         range->end.line_id, &first, &end) && first > index;
 }
 
@@ -5095,7 +5149,7 @@ static boxrig_ui_status line_selection_unit(
     size_t fragment_count;
 
     if (!find_line_bounds(
-            terminal,
+            view->model,
             hit->leading_position.screen,
             hit->leading_position.line_id,
             &first,
@@ -5163,7 +5217,7 @@ static boxrig_ui_status word_selection_unit(
     boxrig_ui_status status = BOXRIG_UI_OK;
 
     if (!find_line_bounds(
-            terminal,
+            view->model,
             hit->leading_position.screen,
             hit->leading_position.line_id,
             &first,
@@ -5490,7 +5544,7 @@ boxrig_ui_status boxrig_ui_view_update_selection(
         return status;
     }
     if (!compare_text_positions(
-            view->model->terminal,
+            view->model,
             &unit.start,
             &view->selection_origin_start,
             &comparison)) {
@@ -5891,7 +5945,7 @@ boxrig_ui_status boxrig_ui_view_reveal_search_result(boxrig_ui_view *view)
         return BOXRIG_UI_OK;
     }
     if (!find_line_bounds(
-            terminal,
+            view->model,
             view->search_result.screen,
             view->search_result.range.start.line_id,
             &first,
