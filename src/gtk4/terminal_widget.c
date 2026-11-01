@@ -711,9 +711,11 @@ boxrig_ui_status boxrig_gtk4_terminal_widget_get_scrollbar_visibility(
 static uint64_t current_composition_revision(const BoxrigGtk4TerminalWidget *widget)
 {
     boxrig_composition_view view;
+    /* Commits and focus changes without preedit have no overlay to redraw.
+     * Returning zero still invalidates a previously presented active preedit. */
     return boxrig_composition_get_view(
         boxrig_gtk4_input_composition(widget->input), &view) == BOXRIG_COMPOSITION_OK
-        ? view.revision : 0;
+        && view.active ? view.revision : 0;
 }
 
 #if BOXRIG_GTK_OPENGL

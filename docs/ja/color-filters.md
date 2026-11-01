@@ -50,6 +50,9 @@ boxrig_ui_status use_white_text(boxrig_ui_view *view)
 RGBはalphaを乗算していないsRGBです。
 反転などが適用済みなので、同じ反転を補正側で繰り返さないでください。
 
+特定の文字範囲だけを減光する場合などは、text annotationの`COLOR_TAG`と`color_tag`を指定できます。セルの補正入力の`annotation_color_tag`に同じ値が渡るため、元の前景色や反転を保ったまま調整できます。タグは色キャッシュの入力にも含まれ、セル以外の描画対象では0になります。
+下線だけを追加し、端末が指定した二重線などを残すには、`UNDERLINE_STYLE`と`UNDERLINE_FALLBACK`を併用します。元の下線がない文字にだけ、annotationの下線を適用します。独自レンダラーでは`boxrig_ui_annotation_underline_style()`で同じ結果を取得できます。
+
 下線が前景色に追従する設定なら、返した前景色へ合わせて解決します。
 カーソルや枠の補正では、下地の補正済みセル色も参照できます。
 点滅の位相は補正関数へ渡さず、位相だけの変化では補正済みの色を再利用します。

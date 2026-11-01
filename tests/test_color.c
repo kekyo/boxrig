@@ -37,7 +37,8 @@ static boxrig_ui_color_filter_result filter(
     boxrig_ui_color_filter_result result =
         boxrig_ui_color_filter_result_default(input);
     result.foreground.red = (uint8_t)(input->colors.background.green +
-        input->colors.foreground.red + context->adjustment);
+        input->colors.foreground.red + context->adjustment + input->annotation_color_tag);
+    result.foreground.green = (uint8_t)(result.foreground.green + (input->annotation_color_tag >> 32));
     result.background.blue = input->colors.foreground.green;
     result.marker.red = (uint8_t)(input->underlay.background.blue +
         input->colors.marker.red);
@@ -101,6 +102,30 @@ static bool resolves_logical_colors_and_sources(void)
     CHECK(input.foreground_source.logical.index == 0);
     CHECK(input.underline_source.logical.red == 0);
     CHECK(!colors.underline_follows_foreground);
+
+    annotation.field_mask = BOXRIG_UI_ANNOTATION_UNDERLINE_STYLE |
+        BOXRIG_UI_ANNOTATION_UNDERLINE_FALLBACK | BOXRIG_UI_ANNOTATION_COLOR_TAG;
+    annotation.underline_style = BOXRIG_UNDERLINE_SINGLE;
+    annotation.color_tag = UINT64_C(0x100000001);
+    cell.underline_style = BOXRIG_UNDERLINE_DOUBLE;
+    CHECK(boxrig_ui_color_resolve_cell(terminal, &cell, &annotation, 255,
+        &colors, &input) == BOXRIG_UI_OK);
+    CHECK(input.underline_style == BOXRIG_UNDERLINE_DOUBLE);
+    CHECK(input.annotation_color_tag == annotation.color_tag);
+    CHECK(same_rgb(colors.foreground, (boxrig_rgb){0x44, 0x55, 0x66}));
+    CHECK(same_rgb(colors.background, (boxrig_rgb){0x11, 0x22, 0x33}));
+    CHECK(!input.foreground_source.annotated && !input.background_source.annotated);
+    cell.underline_style = BOXRIG_UNDERLINE_NONE;
+    cell.attributes &= ~BOXRIG_CELL_UNDERLINE;
+    CHECK(boxrig_ui_color_resolve_cell(terminal, &cell, &annotation, 255,
+        &colors, &input) == BOXRIG_UI_OK);
+    CHECK(input.underline_style == BOXRIG_UNDERLINE_SINGLE);
+    annotation.field_mask = BOXRIG_UI_ANNOTATION_UNDERLINE_STYLE;
+    annotation.underline_style = BOXRIG_UNDERLINE_NONE;
+    cell.underline_style = BOXRIG_UNDERLINE_DOUBLE;
+    CHECK(boxrig_ui_color_resolve_cell(terminal, &cell, &annotation, 255,
+        &colors, &input) == BOXRIG_UI_OK);
+    CHECK(input.underline_style == BOXRIG_UNDERLINE_NONE && input.annotation_color_tag == 0);
 
     CHECK(boxrig_terminal_get_cell(terminal, 0, 1, &cell) == BOXRIG_STATUS_OK);
     CHECK(boxrig_ui_color_resolve_cell(terminal, &cell, NULL, 255,
@@ -192,6 +217,18 @@ static bool view_filter_cache_and_invalidation(void)
     CHECK(boxrig_ui_view_resolve_colors(view, &input, &result) == BOXRIG_UI_OK);
     CHECK(context.calls == calls + 1);
     CHECK(context.last.foreground_source.role == BOXRIG_UI_COLOR_RGB);
+
+    boxrig_ui_color_filter_result untagged = result;
+    input.annotation_color_tag = 1;
+    CHECK(boxrig_ui_view_resolve_colors(view, &input, &result) == BOXRIG_UI_OK);
+    CHECK(result.foreground.red == (uint8_t)(untagged.foreground.red + 1));
+    input.annotation_color_tag = UINT64_C(1) << 32;
+    CHECK(boxrig_ui_view_resolve_colors(view, &input, &result) == BOXRIG_UI_OK);
+    CHECK(result.foreground.red == untagged.foreground.red);
+    CHECK(result.foreground.green == (uint8_t)(untagged.foreground.green + 1));
+    input.annotation_color_tag = 0;
+    CHECK(boxrig_ui_view_resolve_colors(view, &input, &result) == BOXRIG_UI_OK);
+    CHECK(same_rgb(result.foreground, untagged.foreground));
 
     /* Exercise eviction and colliding buckets without trusting cache internals. */
     for (size_t i = 0; i < 8192; i++) {

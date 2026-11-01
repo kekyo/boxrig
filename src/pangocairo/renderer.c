@@ -629,9 +629,7 @@ static boxrig_underline_style annotation_underline_style(
         !boxrig_ui_view_text_blink_visible(renderer->color_view, cell->attributes)) {
         return BOXRIG_UNDERLINE_NONE;
     }
-    return (style->field_mask & BOXRIG_UI_ANNOTATION_UNDERLINE_STYLE) != 0
-               ? style->underline_style
-               : cell->underline_style;
+    return boxrig_ui_annotation_underline_style(cell, style);
 }
 
 static unsigned long color_pixel(
@@ -2673,6 +2671,7 @@ static void merge_annotation_style(
     if ((addition->field_mask &
          BOXRIG_UI_ANNOTATION_UNDERLINE_STYLE) != 0) {
         target->underline_style = addition->underline_style;
+        target->field_mask &= ~BOXRIG_UI_ANNOTATION_UNDERLINE_FALLBACK;
     }
     if ((addition->field_mask &
          BOXRIG_UI_ANNOTATION_UNDERLINE_COLOR) != 0) {
@@ -2683,6 +2682,9 @@ static void merge_annotation_style(
     }
     if ((addition->field_mask & BOXRIG_UI_ANNOTATION_BACKGROUND) != 0) {
         target->background = addition->background;
+    }
+    if ((addition->field_mask & BOXRIG_UI_ANNOTATION_COLOR_TAG) != 0) {
+        target->color_tag = addition->color_tag;
     }
     target->field_mask |= addition->field_mask;
 }

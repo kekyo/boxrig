@@ -23,6 +23,7 @@ static boxrig_ui_color_filter_result correct_colors(
     state->calls++;
     boxrig_ui_color_filter_result result =
         boxrig_ui_color_filter_result_default(input);
+    if (input->annotation_color_tag == 1) result.foreground = (boxrig_rgb){123, 45, 67};
     if (!state->identity) {
         result.foreground = (boxrig_rgb){255, 255, 0};
         result.background = input->target == BOXRIG_UI_COLOR_SURFACE
@@ -147,6 +148,41 @@ static bool renders_filtered_cells_and_surface(bool (*create)(boxrig_test_color_
             CHECK(get_pixel(original, x, y) == get_pixel(identity, x, y));
         }
     }
+    free(identity);
+    boxrig_ui_text_annotation annotation = {0};
+    annotation.source_id = 1;
+    annotation.item_id = 1;
+    CHECK(boxrig_terminal_get_text_position(terminal, BOXRIG_TEXT_SCREEN_PRIMARY, 0, 0,
+        &annotation.range.start) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_get_text_position(terminal, BOXRIG_TEXT_SCREEN_PRIMARY, 0, 5,
+        &annotation.range.end) == BOXRIG_STATUS_OK);
+    annotation.style.field_mask = BOXRIG_UI_ANNOTATION_UNDERLINE_STYLE | BOXRIG_UI_ANNOTATION_UNDERLINE_FALLBACK;
+    annotation.style.underline_style = BOXRIG_UNDERLINE_DOUBLE;
+    CHECK(boxrig_ui_view_replace_text_annotations(view, 1, BOXRIG_TEXT_SCREEN_PRIMARY,
+        annotation.range.start.line_id, annotation.range.start.line_revision, &annotation, 1) == BOXRIG_UI_OK);
+    CHECK(renderer.draw(renderer.context, view, NULL) == 0);
+    identity = renderer.capture(renderer.context);
+    CHECK(identity != NULL);
+    bool added_underline = false;
+    for (unsigned int y = 0; y < height; y++) {
+        for (unsigned int x = 0; x < 4 * width; x++)
+            CHECK(get_pixel(original, (int)x, (int)y) == get_pixel(identity, (int)x, (int)y));
+        for (unsigned int x = 4 * width; x < 5 * width; x++)
+            added_underline |= get_pixel(original, (int)x, (int)y) != get_pixel(identity, (int)x, (int)y);
+    }
+    CHECK(added_underline);
+    free(identity);
+    annotation.style.field_mask |= BOXRIG_UI_ANNOTATION_COLOR_TAG;
+    annotation.style.color_tag = 1;
+    state.identity = true;
+    CHECK(boxrig_ui_view_set_color_filter(view, correct_colors, &state) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_replace_text_annotations(view, 1, BOXRIG_TEXT_SCREEN_PRIMARY,
+        annotation.range.start.line_id, annotation.range.start.line_revision, &annotation, 1) == BOXRIG_UI_OK);
+    CHECK(renderer.draw(renderer.context, view, NULL) == 0);
+    identity = renderer.capture(renderer.context);
+    CHECK(identity != NULL);
+    CHECK(pixel_is(identity, (int)width + 1, (int)height - 2, 0x7b2d43));
+    CHECK(get_pixel(identity, (int)width + 1, 0) == get_pixel(original, (int)width + 1, 0));
     free(identity);
     free(original);
     renderer.destroy(renderer.context);

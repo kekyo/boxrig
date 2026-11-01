@@ -121,6 +121,9 @@ typedef struct boxrig_ui_color_filter_input {
      * CELL receives terminal background opacity. Markers receive the composed
      * cell and selection opacity, excluding images and pixels behind the view. */
     uint8_t background_opacity;
+    /** Application annotation tag for CELL inputs, zero for other targets.
+     * Part of the deterministic color-cache key; does not replace logical colors. */
+    uint64_t annotation_color_tag;
 } boxrig_ui_color_filter_input;
 
 /**
