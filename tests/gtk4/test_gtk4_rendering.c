@@ -219,6 +219,55 @@ static void feed(fixture *test, const char *text)
     CHECK(consumed == strlen(text));
 }
 
+static void test_commits_without_preedit(fixture *test)
+{
+    boxrig_composition *composition = boxrig_gtk4_terminal_widget_composition(test->widget);
+    boxrig_composition_event commit = {
+        .type = BOXRIG_COMPOSITION_COMMIT, .text = "a", .text_length = 1};
+    CHECK(boxrig_composition_focus_changed(composition, true) == BOXRIG_COMPOSITION_OK);
+    for (unsigned int cycle = 0; cycle < 2; cycle++) {
+        uint64_t generation = boxrig_gtk4_terminal_widget_presentation_generation(test->widget);
+        const boxrig_composition_event events[] = {
+            commit,
+            {.type = BOXRIG_COMPOSITION_PREEDIT_COMPLETE},
+            {.type = BOXRIG_COMPOSITION_CANCEL},
+            commit};
+        for (size_t index = 0; index < G_N_ELEMENTS(events); index++) {
+            CHECK(boxrig_composition_apply_event(composition, &events[index]) == BOXRIG_COMPOSITION_OK);
+            boxrig_ui_component_frame_result result;
+            CHECK(boxrig_gtk4_terminal_widget_frame(test->widget, &result) == BOXRIG_UI_OK);
+            CHECK(!result.frame_pending);
+            CHECK(boxrig_gtk4_terminal_widget_presentation_generation(test->widget) == generation);
+        }
+        const uint8_t *output;
+        CHECK(boxrig_terminal_output_peek(test->terminal, &output) == 2);
+        CHECK(memcmp(output, "aa", 2) == 0);
+        CHECK(boxrig_terminal_output_consume(test->terminal, 2) == BOXRIG_STATUS_OK);
+
+        /* Preedit must still appear and disappear before the peer echoes a commit. */
+        if (cycle == 0) {
+            boxrig_composition_event preedit = {
+                .type = BOXRIG_COMPOSITION_PREEDIT_UPDATE, .text = "draft",
+                .text_length = 5, .caret_offset = 5, .caret_visible = true};
+            test->generation = generation;
+            CHECK(boxrig_composition_apply_event(composition, &preedit) == BOXRIG_COMPOSITION_OK);
+            await_frame(test);
+            CHECK(!test->failed);
+            boxrig_composition_view view;
+            CHECK(boxrig_composition_get_view(composition, &view) == BOXRIG_COMPOSITION_OK);
+            CHECK(view.active && view.visible);
+            test->generation = boxrig_gtk4_terminal_widget_presentation_generation(test->widget);
+            CHECK(boxrig_composition_apply_event(composition, &commit) == BOXRIG_COMPOSITION_OK);
+            await_frame(test);
+            CHECK(!test->failed);
+            CHECK(boxrig_composition_get_view(composition, &view) == BOXRIG_COMPOSITION_OK);
+            CHECK(!view.active && !view.visible);
+            CHECK(boxrig_terminal_output_peek(test->terminal, &output) == 1 && *output == 'a');
+            CHECK(boxrig_terminal_output_consume(test->terminal, 1) == BOXRIG_STATUS_OK);
+        }
+    }
+}
+
 int main(int argc, char **argv)
 {
     CHECK(argc == 3);
@@ -266,6 +315,7 @@ int main(int argc, char **argv)
         CHECK(state.active_backend == (config.render_policy == BOXRIG_GTK_RENDER_CAIRO || expected_failure
             ? BOXRIG_GTK_RENDER_BACKEND_CAIRO : BOXRIG_GTK_RENDER_BACKEND_OPENGL));
         CHECK(context_attempts == (config.render_policy == BOXRIG_GTK_RENDER_CAIRO ? 0u : 1u));
+        test_commits_without_preedit(&test);
         cairo_surface_t *before = capture(GTK_WIDGET(test.widget));
         uint32_t *before_pixels = (uint32_t *)cairo_image_surface_get_data(before);
         CHECK(before_pixels[0] == 0xff285078u);

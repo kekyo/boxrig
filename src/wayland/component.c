@@ -76,8 +76,10 @@ static uint64_t current_composition_revision(
 {
     boxrig_composition_view composition;
 
+    /* Lifecycle-only updates do not change an inactive overlay. Zero also
+     * marks the transition that clears a previously presented preedit. */
     return boxrig_composition_get_view(component->composition, &composition) ==
-                   BOXRIG_COMPOSITION_OK
+                   BOXRIG_COMPOSITION_OK && composition.active
                ? composition.revision : 0;
 }
 

@@ -915,6 +915,18 @@ int main(void)
               component, &metrics) == BOXRIG_FONT_CATALOG_OK);
     CHECK(boxrig_composition_focus_changed(composition, true) ==
           BOXRIG_COMPOSITION_OK);
+    /* A silent peer must not cause a new image for ordinary committed input. */
+    const uint8_t *committed;
+    size_t pending_output = boxrig_terminal_output_peek(terminal, &committed);
+    CHECK(boxrig_terminal_output_consume(terminal, pending_output) == BOXRIG_STATUS_OK);
+    boxrig_composition_event commit = {
+        .type = BOXRIG_COMPOSITION_COMMIT, .text = "a", .text_length = 1};
+    CHECK(boxrig_composition_apply_event(composition, &commit) == BOXRIG_COMPOSITION_OK);
+    wait_for_component(&host, context, component);
+    CHECK(boxrig_wayland_terminal_component_get_diagnostic(component, &diagnostic) == BOXRIG_UI_OK);
+    CHECK(diagnostic.presentation_generation == generation);
+    CHECK(boxrig_terminal_output_peek(terminal, &committed) == 1 && *committed == 'a');
+    CHECK(boxrig_terminal_output_consume(terminal, 1) == BOXRIG_STATUS_OK);
     preedit.type = BOXRIG_COMPOSITION_PREEDIT_UPDATE;
     preedit.text = "abcd";
     preedit.text_length = 4;
