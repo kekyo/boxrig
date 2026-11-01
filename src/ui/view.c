@@ -1277,11 +1277,14 @@ static bool valid_annotation_style(
         BOXRIG_UI_ANNOTATION_UNDERLINE_STYLE |
         BOXRIG_UI_ANNOTATION_UNDERLINE_COLOR |
         BOXRIG_UI_ANNOTATION_FOREGROUND |
-        BOXRIG_UI_ANNOTATION_BACKGROUND;
+        BOXRIG_UI_ANNOTATION_BACKGROUND |
+        BOXRIG_UI_ANNOTATION_UNDERLINE_FALLBACK | BOXRIG_UI_ANNOTATION_COLOR_TAG;
 
     if (style == NULL || (style->field_mask & ~known_fields) != 0) {
         return false;
     }
+    if ((style->field_mask & BOXRIG_UI_ANNOTATION_UNDERLINE_FALLBACK) != 0 &&
+        (style->field_mask & BOXRIG_UI_ANNOTATION_UNDERLINE_STYLE) == 0) return false;
     if ((style->field_mask & BOXRIG_UI_ANNOTATION_UNDERLINE_STYLE) != 0 &&
         (style->underline_style < BOXRIG_UNDERLINE_NONE ||
          style->underline_style > BOXRIG_UNDERLINE_DASHED)) {
@@ -1545,6 +1548,7 @@ static void merge_annotation_style(
     if ((addition->field_mask &
          BOXRIG_UI_ANNOTATION_UNDERLINE_STYLE) != 0) {
         merged->underline_style = addition->underline_style;
+        merged->field_mask &= ~BOXRIG_UI_ANNOTATION_UNDERLINE_FALLBACK;
     }
     if ((addition->field_mask &
          BOXRIG_UI_ANNOTATION_UNDERLINE_COLOR) != 0) {
@@ -1555,6 +1559,9 @@ static void merge_annotation_style(
     }
     if ((addition->field_mask & BOXRIG_UI_ANNOTATION_BACKGROUND) != 0) {
         merged->background = addition->background;
+    }
+    if ((addition->field_mask & BOXRIG_UI_ANNOTATION_COLOR_TAG) != 0) {
+        merged->color_tag = addition->color_tag;
     }
     merged->field_mask |= addition->field_mask;
 }

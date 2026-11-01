@@ -116,7 +116,7 @@ boxrig_ui_status boxrig_ui_color_resolve_cell(
     boxrig_color underline = cell->underline_color;
     boxrig_dynamic_color foreground_role = BOXRIG_DYNAMIC_COLOR_FOREGROUND;
     boxrig_dynamic_color background_role = BOXRIG_DYNAMIC_COLOR_BACKGROUND;
-    boxrig_underline_style underline_style = cell->underline_style;
+    boxrig_underline_style underline_style = boxrig_ui_annotation_underline_style(cell, annotation);
     uint32_t mask = annotation == NULL ? 0 : annotation->field_mask;
     if ((cell->attributes & BOXRIG_CELL_INVERSE) != 0) {
         foreground = cell->background;
@@ -134,9 +134,6 @@ boxrig_ui_status boxrig_ui_color_resolve_cell(
     }
     if ((mask & BOXRIG_UI_ANNOTATION_UNDERLINE_COLOR) != 0) {
         underline = annotation->underline_color;
-    }
-    if ((mask & BOXRIG_UI_ANNOTATION_UNDERLINE_STYLE) != 0) {
-        underline_style = annotation->underline_style;
     }
     boxrig_ui_color_filter_result result = {0};
     if (boxrig_ui_color_resolve_rgb(terminal, foreground, foreground_role,
@@ -168,11 +165,25 @@ boxrig_ui_status boxrig_ui_color_resolve_cell(
         }
         input.attributes = cell->attributes;
         input.underline_style = underline_style;
+        input.annotation_color_tag = (mask & BOXRIG_UI_ANNOTATION_COLOR_TAG) != 0 ? annotation->color_tag : 0;
         input.background_opacity = background_opacity;
         *input_out = input;
     }
     *colors_out = result;
     return BOXRIG_UI_OK;
+}
+
+boxrig_underline_style boxrig_ui_annotation_underline_style(
+    const boxrig_cell_view *cell, const boxrig_ui_text_annotation_style *annotation)
+{
+    if (cell == NULL) return BOXRIG_UNDERLINE_NONE;
+    boxrig_underline_style original = cell->underline_style;
+    if (original == BOXRIG_UNDERLINE_NONE && (cell->attributes & BOXRIG_CELL_UNDERLINE) != 0)
+        original = BOXRIG_UNDERLINE_SINGLE;
+    if (annotation != NULL && (annotation->field_mask & BOXRIG_UI_ANNOTATION_UNDERLINE_STYLE) != 0 &&
+        ((annotation->field_mask & BOXRIG_UI_ANNOTATION_UNDERLINE_FALLBACK) == 0 || original == BOXRIG_UNDERLINE_NONE))
+        return annotation->underline_style;
+    return original;
 }
 
 static bool is_text_target(boxrig_ui_color_target target)
@@ -214,6 +225,7 @@ static bool normalize_input(boxrig_ui_color_filter_input *input)
     boxrig_ui_color_source unused = {0};
     bool text = is_text_target(input->target);
     bool surface = input->target == BOXRIG_UI_COLOR_SURFACE;
+    if (input->target != BOXRIG_UI_COLOR_CELL) input->annotation_color_tag = 0;
     normalize_result(input->target, &input->colors);
     if (text || surface) {
         input->marker_source = unused;
@@ -283,6 +295,8 @@ static uint64_t input_hash(const boxrig_ui_color_filter_input *input)
     hash = hash_source(hash, input->marker_source);
     hash = hash_value(hash, input->attributes);
     hash = hash_value(hash, input->underline_style);
+    hash = hash_value(hash, (uint32_t)input->annotation_color_tag);
+    hash = hash_value(hash, (uint32_t)(input->annotation_color_tag >> 32));
     hash = hash_value(hash, input->state_flags);
     hash = hash_value(hash, input->cursor_shape);
     hash = hash_colors(hash, input->underlay);
@@ -317,6 +331,7 @@ static bool same_input(
         same_source(a->underline_source, b->underline_source) &&
         same_source(a->marker_source, b->marker_source) &&
         a->attributes == b->attributes && a->underline_style == b->underline_style &&
+        a->annotation_color_tag == b->annotation_color_tag &&
         a->state_flags == b->state_flags && a->cursor_shape == b->cursor_shape &&
         a->underlay_valid == b->underlay_valid && same_colors(a->underlay, b->underlay) &&
         a->background_opacity == b->background_opacity;

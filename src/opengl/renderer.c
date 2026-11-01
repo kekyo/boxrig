@@ -750,6 +750,7 @@ static void merge_annotation_style(
 {
     if ((addition->field_mask & BOXRIG_UI_ANNOTATION_UNDERLINE_STYLE) != 0) {
         target->underline_style = addition->underline_style;
+        target->field_mask &= ~BOXRIG_UI_ANNOTATION_UNDERLINE_FALLBACK;
     }
     if ((addition->field_mask & BOXRIG_UI_ANNOTATION_UNDERLINE_COLOR) != 0) {
         target->underline_color = addition->underline_color;
@@ -759,6 +760,9 @@ static void merge_annotation_style(
     }
     if ((addition->field_mask & BOXRIG_UI_ANNOTATION_BACKGROUND) != 0) {
         target->background = addition->background;
+    }
+    if ((addition->field_mask & BOXRIG_UI_ANNOTATION_COLOR_TAG) != 0) {
+        target->color_tag = addition->color_tag;
     }
     target->field_mask |= addition->field_mask;
 }
@@ -2028,15 +2032,7 @@ static boxrig_underline_style effective_underline(
     const boxrig_ui_text_annotation_style *style =
         &renderer->annotation_styles[visual_column];
 
-    if ((style->field_mask & BOXRIG_UI_ANNOTATION_UNDERLINE_STYLE) != 0) {
-        return style->underline_style;
-    }
-    if (cell->underline_style != BOXRIG_UNDERLINE_NONE) {
-        return cell->underline_style;
-    }
-    return (cell->attributes & BOXRIG_CELL_UNDERLINE) != 0
-               ? BOXRIG_UNDERLINE_SINGLE
-               : BOXRIG_UNDERLINE_NONE;
+    return boxrig_ui_annotation_underline_style(cell, style);
 }
 
 static int draw_decorations(

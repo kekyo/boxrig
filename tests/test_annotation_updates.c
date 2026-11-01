@@ -70,8 +70,10 @@ static bool make_annotation(boxrig_terminal *terminal, size_t fragment,
     CHECK(boxrig_terminal_get_text_position(terminal,
         BOXRIG_TEXT_SCREEN_PRIMARY, fragment, 1u,
         &annotation->range.end) == BOXRIG_STATUS_OK);
-    annotation->style.field_mask = BOXRIG_UI_ANNOTATION_UNDERLINE_STYLE;
+    annotation->style.field_mask = BOXRIG_UI_ANNOTATION_UNDERLINE_STYLE |
+        BOXRIG_UI_ANNOTATION_UNDERLINE_FALLBACK | BOXRIG_UI_ANNOTATION_COLOR_TAG;
     annotation->style.underline_style = BOXRIG_UNDERLINE_SINGLE;
+    annotation->style.color_tag = item_id;
     return true;
 }
 
