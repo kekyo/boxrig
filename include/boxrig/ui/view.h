@@ -415,7 +415,12 @@ typedef enum boxrig_ui_text_annotation_style_field {
     /** Replace the terminal cell foreground color. */
     BOXRIG_UI_ANNOTATION_FOREGROUND = 1u << 2,
     /** Replace the terminal cell background color. */
-    BOXRIG_UI_ANNOTATION_BACKGROUND = 1u << 3
+    BOXRIG_UI_ANNOTATION_BACKGROUND = 1u << 3,
+    /** Apply UNDERLINE_STYLE only when the terminal cell has no underline.
+     * Requires UNDERLINE_STYLE in the same annotation. */
+    BOXRIG_UI_ANNOTATION_UNDERLINE_FALLBACK = 1u << 4,
+    /** Supply an application tag to the display-color filter without replacing colors. */
+    BOXRIG_UI_ANNOTATION_COLOR_TAG = 1u << 5
 } boxrig_ui_text_annotation_style_field;
 
 /** Partial cell rendition contributed by an application text annotation. */
@@ -430,7 +435,18 @@ typedef struct boxrig_ui_text_annotation_style {
     boxrig_color foreground;
     /** Logical background color when its field is selected. */
     boxrig_color background;
+    /** Opaque filter input when COLOR_TAG is selected; zero means no tag. */
+    uint64_t color_tag;
 } boxrig_ui_text_annotation_style;
+
+/**
+ * Resolves underline style while respecting optional fallback annotations.
+ * @param cell Terminal cell, or NULL for no underline.
+ * @param annotation Composited annotation style, or NULL.
+ * @return Effective underline; visibility and blink remain renderer decisions.
+ */
+boxrig_underline_style boxrig_ui_annotation_underline_style(
+    const boxrig_cell_view *cell, const boxrig_ui_text_annotation_style *annotation);
 
 /**
  * Resolves cell RGB colors and optionally constructs filter metadata.

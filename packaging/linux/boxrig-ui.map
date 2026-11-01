@@ -99,6 +99,7 @@ BOXRIG_0 {
         boxrig_ui_clipboard_shortcut_match;
         boxrig_ui_color_filter_result_default;
         boxrig_ui_color_resolve_cell;
+        boxrig_ui_annotation_underline_style;
         boxrig_ui_color_resolve_rgb;
         boxrig_ui_cursor_style_default;
         boxrig_ui_editable_document_apply_edit;

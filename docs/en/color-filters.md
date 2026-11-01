@@ -50,6 +50,14 @@ Inputs include the resolved original colors, color origins, attributes, selectio
 RGB is non-premultiplied sRGB.
 Effects such as inverse have already been applied; do not apply the same inversion again in the filter.
 
+To adjust only selected text ranges, set a text annotation's `COLOR_TAG` field
+and `color_tag`. Cell filter inputs receive this value as `annotation_color_tag`,
+allowing adjustments that retain the original foreground and inverse colors.
+The tag participates in the color-cache key and is zero for non-cell targets.
+Combine `UNDERLINE_STYLE` with `UNDERLINE_FALLBACK` to add an underline only where
+the terminal has none, preserving styles such as double underlines. Custom
+renderers can use `boxrig_ui_annotation_underline_style()` for the same resolution.
+
 If the underline follows the foreground, it resolves to the returned foreground color.
 Cursor and outline filters can also inspect the filtered colors of the underlying cell.
 Blink phase is not passed to the callback, and a phase-only change reuses filtered colors.
