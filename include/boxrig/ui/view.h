@@ -1749,6 +1749,29 @@ boxrig_ui_status boxrig_ui_view_update_selection(
     const boxrig_ui_hit_test_result *hit);
 
 /**
+ * Changes selection shape/unit and optionally its focus in one transaction.
+ *
+ * @param view View owning an existing pointer selection.
+ * @param options Linear character/word/line or rectangular character policy.
+ * @param hit Current active-viewport focus hit, or NULL to keep the last focus.
+ * @return BOXRIG_UI_OK, BOXRIG_UI_UNAVAILABLE when no selection exists,
+ * BOXRIG_UI_INVALID_ARGUMENT for an unsupported policy, BOXRIG_UI_STALE for
+ * changed text or geometry, BOXRIG_UI_LIMIT_EXCEEDED, BOXRIG_UI_OUT_OF_MEMORY,
+ * or BOXRIG_UI_BUSY during layout-provider reentry.
+ * @remarks The original pointer anchor and last pointer focus are retained
+ * independently of unit expansion, including offscreen and soft-wrapped rows.
+ * Switching back to words/lines expands those original pointer positions.
+ * Scrolling and unrelated output are allowed; grid, metrics, provider changes
+ * and replacement of selected text invalidate retained switching geometry.
+ * Failure preserves the previous shape, range and focus. No intermediate
+ * selection is published and this function does not modify OS clipboards.
+ */
+boxrig_ui_status boxrig_ui_view_update_selection_with_options(
+    boxrig_ui_view *view,
+    const boxrig_ui_selection_options *options,
+    const boxrig_ui_hit_test_result *hit);
+
+/**
  * Reads this view's current directional selection.
  *
  * @param view View to inspect.
