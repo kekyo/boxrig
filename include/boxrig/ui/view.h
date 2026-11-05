@@ -1762,7 +1762,7 @@ boxrig_ui_status boxrig_ui_view_update_selection(
  * independently of unit expansion, including offscreen and soft-wrapped rows.
  * Switching back to words/lines expands those original pointer positions.
  * Scrolling and unrelated output are allowed; grid, metrics, provider changes
- * and replacement of selected text invalidate retained switching geometry.
+ * and replacement of retained endpoint text invalidate switching geometry.
  * Failure preserves the previous shape, range and focus. No intermediate
  * selection is published and this function does not modify OS clipboards.
  */

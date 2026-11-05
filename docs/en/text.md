@@ -57,7 +57,7 @@ It retains the original anchor and last pointer focus independently of word/line
 so switching to a rectangle and back to words or lines also works with offscreen endpoints.
 Pass a current hit to update the focus and policy together, or `NULL` to retain the focus.
 The operation publishes one complete selection and does not copy to OS clipboards.
-Grid, metrics, layout-provider or selected-text changes invalidate the retained geometry.
+Grid, metrics, layout-provider or retained-endpoint text changes invalidate the retained geometry.
 Stale geometry, capacity limits and allocation failures preserve the previous selection.
 
 UI views provide APIs for normal and rectangular selection.
