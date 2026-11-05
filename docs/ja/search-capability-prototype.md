@@ -17,7 +17,7 @@ Unicodeの大文字小文字変換、正規化、正規表現を、処理量と�
 ## 試作と公開機能の違い
 
 試作は[search_transform_prototype.c](../../tests/search_transform_prototype.c)にあり、製品ライブラリへリンクしません。
-固定したutf8proc 2.11.3とUnicode 17.0.0を使い、全1,112,064 Unicode scalarの変換もテストします。
+固定したutf8proc 2.12.0とUnicode 18.0.0を使い、全1,112,064 Unicode scalarの変換もテストします。
 
 後から追加した正規表現認識は、別の公開機能です。
 範囲を制限した言語と処理量を持つNFAを用い、完全一致検索のflagを増やす方式ではありません。
@@ -34,7 +34,7 @@ Unicodeの大文字小文字変換、正規化、正規表現を、処理量と�
 NFKC、accent除去、`UTF8PROC_IGNORE`は対象外です。
 例えばNFCは`①`と`1`を同一視しません。
 default case foldで`İ`は`i`と結合dotになり、ASCIIの`i`だけとは一致しません。
-意味と所有権は[固定版のヘッダー](https://github.com/JuliaStrings/utf8proc/blob/v2.11.3/utf8proc.h)と[公式C API](https://juliastrings.github.io/utf8proc/doc/utf8proc_8h.html)を照合しています。
+意味と所有権は[固定版のヘッダー](https://github.com/JuliaStrings/utf8proc/blob/v2.12.0/utf8proc.h)と[公式C API](https://juliastrings.github.io/utf8proc/doc/utf8proc_8h.html)を照合しています。
 
 ## 元の文字位置との対応
 
@@ -64,7 +64,7 @@ default case foldで`İ`は`i`と結合dotになり、ASCIIの`i`だけとは一
 
 `utf8proc_map()`は内部で必要量を確保し、callerのallocatorや確保前のhard limitを受け取りません。
 一度の処理の途中状態を返す再開APIもありません。
-この[公開APIの条件](https://github.com/JuliaStrings/utf8proc/blob/v2.11.3/utf8proc.h)により、現在の検索と同じ処理量・確保の契約を実現できません。
+この[公開APIの条件](https://github.com/JuliaStrings/utf8proc/blob/v2.12.0/utf8proc.h)により、現在の検索と同じ処理量・確保の契約を実現できません。
 
 再検討する場合は、scalar変換、canonical ordering、合成を整数単位で再開できるcursorと、caller所有の固定容量storage、元の境界への対応を先に設計します。
 文字列の変換結果だけを追加して済む変更ではありません。

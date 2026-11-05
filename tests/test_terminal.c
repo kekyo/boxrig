@@ -5458,6 +5458,12 @@ static bool test_public_text_cluster_measurement(void)
         "\360\237\207\257\360\237\207\265!";
     static const uint8_t zero_width[] = "\342\200\213!";
     static const uint8_t middle_dot[] = "\302\267!";
+    /* Unicode 18 assigns this Katakana letter a two-column width. */
+    static const uint8_t alternate_ne[] = "\360\233\204\247!";
+    /* GB9c also joins a leading linker, with optional extends, to a consonant. */
+    static const uint8_t leading_virama[] = "\340\245\215\340\244\225!";
+    static const uint8_t leading_virama_extend[] =
+        "\340\245\215\314\210\340\244\225!";
     static const struct {
         const uint8_t *text;
         size_t text_length;
@@ -5476,6 +5482,9 @@ static bool test_public_text_cluster_measurement(void)
         {regional_indicators, sizeof(regional_indicators) - 1, 8, 2},
         {zero_width, sizeof(zero_width) - 1, 3, 1},
         {middle_dot, sizeof(middle_dot) - 1, 2, 1},
+        {alternate_ne, sizeof(alternate_ne) - 1, 4, 2},
+        {leading_virama, sizeof(leading_virama) - 1, 6, 1},
+        {leading_virama_extend, sizeof(leading_virama_extend) - 1, 8, 1},
     };
     boxrig_terminal_config config = boxrig_terminal_config_default();
     boxrig_terminal *terminal = NULL;

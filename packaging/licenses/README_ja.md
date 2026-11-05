@@ -13,7 +13,7 @@ boxrig自身のコードはMITライセンスです。本文は`LICENSE`にあ�
 | [utf8proc](https://github.com/JuliaStrings/utf8proc) | coreのUnicode処理 | `utf8proc-LICENSE.md`。MITとUnicodeデータの表示を含む全文 |
 | [libpng](https://github.com/pnggroup/libpng) | coreのPNG処理 | `libpng-LICENSE`。PNG Reference Library License |
 | [zlib](https://github.com/madler/zlib) | coreの圧縮処理 | `zlib-LICENSE` |
-| [Unicode 17.0.0](https://www.unicode.org/Public/17.0.0/ucd/) | UIの単語境界テーブル | `Unicode-LICENSE.txt`。Unicode License V3 |
+| [Unicode 18.0.0](https://www.unicode.org/Public/18.0.0/ucd/) | UIの単語境界テーブル | `Unicode-LICENSE.txt`。Unicode License V3 |
 | [WHATWG Encoding](https://encoding.spec.whatwg.org/) | coreのShift_JIS変換テーブル | `WHATWG-Encoding-LICENSE`。コードへ組み込んだ部分はBSD-3-Clause |
 
 libpngとzlibのバイナリ配布時の謝辞は必須ではありませんが、SDKには本文を収録しています。
