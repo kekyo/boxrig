@@ -239,6 +239,7 @@ BOXRIG_0 {
         boxrig_ui_view_update_hyperlink_hover;
         boxrig_ui_view_update_monotonic_time;
         boxrig_ui_view_update_selection;
+        boxrig_ui_view_update_selection_with_options;
         boxrig_ui_view_validate_cell_metrics;
         boxrig_ui_zoom_shortcut_match;
     local: *;
