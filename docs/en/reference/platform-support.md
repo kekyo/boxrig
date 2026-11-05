@@ -31,7 +31,7 @@ See [Building and installing](../building.md) for builds and [Sessions](../sessi
 | Native Wayland | wayland-client 1.22 or later, xkbcommon 1.6 or later, Pango/Cairo/IBus | Rendering and input tests under Weston, and protocol tests with simulated servers |
 | OpenGL | OpenGL 3.3 core or OpenGL ES 3.0; libepoxy for GTK, EGL and related libraries for X11/Wayland | Software GL rendering tests; check the GPU and driver in the deployment environment |
 
-Wayland builds use XML from pinned wayland-protocols 1.48.
+Wayland builds use XML from pinned wayland-protocols 1.50.
 wayland-server is used for tests.
 xdg-shell, window decorations, and optional libdecor 0.2 or later are used by the bundled terminal, which owns a toplevel window.
 
@@ -43,7 +43,7 @@ A feature is unavailable without its required protocols.
 
 Interface version 2 of text-input-v3 supports clause attributes; version 1 provides conventional preedit.
 Updating protocol definitions alone does not add capabilities missing from the peer.
-See the [protocol source](https://github.com/wayland-mirror/wayland-protocols/blob/1.48/unstable/text-input/text-input-unstable-v3.xml) and [integration guide](../platforms/wayland.md).
+See the [protocol source](https://github.com/wayland-mirror/wayland-protocols/blob/1.50/unstable/text-input/text-input-unstable-v3.xml) and [integration guide](../platforms/wayland.md).
 Touch, drag and drop, and HTML/image clipboard contents are unsupported.
 
 ## Windows requirements by layer

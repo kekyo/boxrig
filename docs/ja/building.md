@@ -59,7 +59,7 @@ LinuxのSDKをインストールする前に、ライセンス表示を生成す
 npm ci --prefix tools/codegen
 ```
 
-Wayland拡張の定義は固定した[wayland-protocols 1.48](https://gitlab.freedesktop.org/wayland/wayland-protocols/-/tags/1.48)から生成します。
+Wayland拡張の定義は固定した[wayland-protocols 1.50](https://gitlab.freedesktop.org/wayland/wayland-protocols/-/tags/1.50)から生成します。
 生成したヘッダーやCファイルは`build/`に置かれ、公開SDKには含めません。
 
 ## Linux向けにビルドする

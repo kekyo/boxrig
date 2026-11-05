@@ -59,7 +59,7 @@ Before installing a Linux SDK, prepare the tools that generate license notices.
 npm ci --prefix tools/codegen
 ```
 
-Wayland extension definitions are generated from the pinned [wayland-protocols 1.48](https://gitlab.freedesktop.org/wayland/wayland-protocols/-/tags/1.48).
+Wayland extension definitions are generated from the pinned [wayland-protocols 1.50](https://gitlab.freedesktop.org/wayland/wayland-protocols/-/tags/1.50).
 Generated headers and C files go in `build/` and are not part of the public SDK.
 
 ## Build for Linux
