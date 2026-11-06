@@ -779,6 +779,39 @@ typedef struct boxrig_ui_transparency_config {
     uint8_t background_opacity;
 } boxrig_ui_transparency_config;
 
+/** View-local opacity policy for terminal cell backgrounds. */
+typedef enum boxrig_ui_cell_background_mode {
+    /** Every cell background uses the effective terminal background opacity. */
+    BOXRIG_UI_CELL_BACKGROUND_TRANSPARENT = 0,
+    /** Only default-background origins use terminal opacity; all others are opaque. */
+    BOXRIG_UI_CELL_BACKGROUND_OPAQUE_EXPLICIT
+} boxrig_ui_cell_background_mode;
+
+/**
+ * Changes how this view applies opacity to terminal cell backgrounds.
+ * @param view View owned by the calling UI thread.
+ * @param mode Transparent (the default) or opaque explicit backgrounds.
+ * @return OK, INVALID_ARGUMENT, or BUSY during a color-filter callback.
+ * @remarks Origins are resolved after terminal inversion and annotation overrides,
+ * before RGB filtering or selection overlays. In opaque-explicit mode, indexed,
+ * RGB, and inverted default-foreground backgrounds use alpha 255, including blank
+ * and erased cells. Default backgrounds, including OSC 11 changes, and margins
+ * retain the effective terminal opacity. Matching RGB values do not merge origins.
+ * Selection, cursor, IME and image opacity policies are unchanged. A changed mode
+ * requests repaint of existing cells and history without changing terminal data,
+ * text layouts, or another view. Reapplying the current mode is a no-op.
+ */
+boxrig_ui_status boxrig_ui_view_set_cell_background_mode(
+    boxrig_ui_view *view, boxrig_ui_cell_background_mode mode);
+
+/**
+ * Reads this view's cell background policy.
+ * @param view View to inspect, or NULL for the standalone-renderer default.
+ * @return Current mode, or BOXRIG_UI_CELL_BACKGROUND_TRANSPARENT for NULL.
+ */
+boxrig_ui_cell_background_mode boxrig_ui_view_get_cell_background_mode(
+    const boxrig_ui_view *view);
+
 /** Unassociated sRGB color with independently authored eight-bit opacity. */
 typedef struct boxrig_ui_rgba {
     /** Red, zero through 255. */

@@ -29,9 +29,12 @@ typedef struct renderer {
     uint64_t generation;
 } renderer;
 
-static void create(renderer *r, int backend)
+static void create(renderer *r, int backend, unsigned scale)
 {
     memset(r, 0, sizeof(*r));
+    boxrig_font_specification font = boxrig_font_specification_default();
+    boxrig_font_rendering_policy policy = boxrig_font_rendering_policy_default();
+    policy.output_scale = (float)scale;
     if (backend == 2) {
         r->display = XOpenDisplay(NULL);
         assert(r->display != NULL);
@@ -46,10 +49,12 @@ static void create(renderer *r, int backend)
         XMapWindow(r->display, r->window);
         XSync(r->display, False);
         assert(boxrig_x11_renderer_create(r->display, r->window, &r->x11) == 0);
+        assert(boxrig_x11_renderer_set_font(r->x11, &font, &policy) == BOXRIG_FONT_CATALOG_OK);
         return;
     }
     if (backend == 0) {
         assert(boxrig_pango_cairo_renderer_create(WIDTH, HEIGHT, &r->cairo) == 0);
+        assert(boxrig_pango_cairo_renderer_set_font(r->cairo, &font, &policy) == BOXRIG_FONT_CATALOG_OK);
         return;
     }
     r->generation = 1;
@@ -59,6 +64,7 @@ static void create(renderer *r, int backend)
         BOXRIG_GL_TARGET_RGBA8, WIDTH, HEIGHT, &r->texture);
     assert(r->framebuffer != 0);
     boxrig_ogl_renderer_config c = boxrig_ogl_renderer_config_default();
+    c.rendering_policy = policy;
     c.runtime.resolve = opengl_host_resolve;
     c.runtime.resolver_context = r->host;
     c.runtime.query_current_context = opengl_host_query_current;
@@ -148,10 +154,187 @@ static void feed(boxrig_terminal *terminal, boxrig_ui_model *model, const char *
     assert(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
 }
 
-static void test(int backend)
+static boxrig_ui_color_filter_result rotate_background(
+    const boxrig_ui_color_filter_input *input, void *context)
+{
+    if (context != NULL) {
+        uint8_t *opacities = context;
+        if (input->target == BOXRIG_UI_COLOR_IME) opacities[0] = input->background_opacity;
+        if (input->target == BOXRIG_UI_COLOR_IME_MARKER) opacities[1] = input->background_opacity;
+    }
+    boxrig_ui_color_filter_result result = input->colors;
+    result.background = (boxrig_rgb){result.background.green,
+        result.background.blue, result.background.red};
+    return result;
+}
+
+/* Independent source-over expectation over an opaque red or blue layer. */
+static void check_background_pixel(uint32_t actual, uint32_t color,
+    uint8_t alpha, uint32_t layer)
+{
+    uint32_t expected = UINT32_C(0xff000000);
+    for (unsigned shift = 0; shift < 24; shift += 8) {
+        unsigned channel = (((color >> shift) & 255u) * alpha + 127u) / 255u;
+        channel += (((layer >> shift) & 255u) * (255u - alpha) + 127u) / 255u;
+        expected |= channel << shift;
+    }
+    for (unsigned shift = 0; shift < 32; shift += 8) {
+        if (abs((int)((actual >> shift) & 255) - (int)((expected >> shift) & 255)) > 1) {
+            fprintf(stderr, "background actual=%08x expected=%08x color=%06x alpha=%u layer=%06x\n",
+                actual, expected, color, alpha, layer);
+            abort();
+        }
+    }
+}
+
+static void test_cell_backgrounds(renderer *r, boxrig_terminal *terminal,
+    boxrig_ui_model *model, boxrig_ui_view *view, int backend, unsigned scale)
+{
+    unsigned width = r->x11 != NULL ? boxrig_x11_renderer_cell_width(r->x11)
+        : r->gl != NULL ? boxrig_ogl_renderer_cell_width(r->gl)
+        : boxrig_pango_cairo_renderer_cell_width(r->cairo);
+    unsigned height = r->x11 != NULL ? boxrig_x11_renderer_cell_height(r->x11)
+        : r->gl != NULL ? boxrig_ogl_renderer_cell_height(r->gl)
+        : boxrig_pango_cairo_renderer_cell_height(r->cairo);
+    assert(width * 12 <= WIDTH && height * 3 <= HEIGHT);
+    feed(terminal, model, "\033c\033[?25l\033]10;#e0e0e0\007\033]11;#202020\007"
+        "\033]4;2;#00ff00;10;#00ff00;46;#00ff00\007"
+        " \033[49m \033[0m \033[42m \033[102m \033[48;5;46m "
+        "\033[48;2;0;255;0m \033[48;2;32;32;32m "
+        "\033[42mX\b\033[X\033[C\033[0;7m \033[0;32;7m \033[0m"
+        "\033[2;1H0123456789A");
+    const uint8_t alphas[] = {0, 128, 255};
+    const boxrig_ui_cell_background_mode modes[] = {
+        BOXRIG_UI_CELL_BACKGROUND_TRANSPARENT,
+        BOXRIG_UI_CELL_BACKGROUND_OPAQUE_EXPLICIT,
+        BOXRIG_UI_CELL_BACKGROUND_TRANSPARENT};
+    for (unsigned filtered = 0; filtered < 2; filtered++) {
+        assert(boxrig_ui_view_set_color_filter(view, filtered ? rotate_background : NULL,
+            NULL) == BOXRIG_UI_OK);
+        for (unsigned alpha = 0; alpha < 3; alpha++) {
+            boxrig_ui_transparency_state state = {0};
+            state.effective_scopes = BOXRIG_UI_TRANSPARENCY_VIEW_SURFACE;
+            state.effective = BOXRIG_UI_TRANSPARENCY_PREMULTIPLIED_ALPHA;
+            state.effective_background_opacity = alphas[alpha];
+            if (r->x11 != NULL) assert(boxrig_x11_renderer_apply_transparency_state(r->x11, &state) == 0);
+            else if (r->gl != NULL) assert(boxrig_ogl_renderer_apply_transparency_state(r->gl, &state) == 0);
+            else assert(boxrig_pango_cairo_renderer_apply_transparency_state(r->cairo, &state) == 0);
+            for (unsigned mode = 0; mode < 3; mode++) {
+                assert(boxrig_ui_view_set_cell_background_mode(view, modes[mode]) == BOXRIG_UI_OK);
+                for (unsigned image_layer = 0; image_layer < 2; image_layer++) {
+                    for (unsigned blue = 0; blue < 2; blue++) {
+                        uint8_t rgba[] = {blue ? 0 : 255, 0, blue ? 255 : 0, 255};
+                        boxrig_ui_background_image image = {1, 1, 4, sizeof(rgba), rgba,
+                            255, BOXRIG_UI_BACKGROUND_STRETCH};
+                        assert(boxrig_ui_view_set_background_image(view, image_layer ? &image : NULL) == BOXRIG_UI_OK);
+                        assert(boxrig_ui_view_set_background_color(view, image_layer ?
+                            (boxrig_ui_rgba){0} : (boxrig_ui_rgba){rgba[0], 0, rgba[2], 255}) == BOXRIG_UI_OK);
+                        uint32_t *pixels = draw(r, view);
+                        uint32_t layer = blue ? 0xff : 0xff0000;
+                        for (unsigned column = 0; column < 11; column++) {
+                            uint32_t color = column < 3 || column == 7 ? 0x202020
+                                : column == 9 ? 0xe0e0e0 : filtered ? 0xff0000 : 0x00ff00;
+                            uint8_t opacity = mode == 1 && column >= 3 ? 255 : alphas[alpha];
+                            check_background_pixel(pixels[height / 2 * WIDTH + column * width + width / 2],
+                                color, opacity, layer);
+                        }
+                        check_background_pixel(pixels[WIDTH * HEIGHT - 1], 0x202020, alphas[alpha], layer);
+                        const char *directory = getenv("BOXRIG_TEST_BACKGROUND_SNAPSHOTS");
+                        if (directory != NULL && !filtered && alpha == 1 && mode < 2 && !image_layer) {
+                            char path[4096];
+                            int length = snprintf(path, sizeof(path), "%s/%d-%u-%u-%u.png",
+                                directory, backend, scale, mode, blue);
+                            assert(length > 0 && (size_t)length < sizeof(path));
+                            assert(cairo_format_stride_for_width(CAIRO_FORMAT_ARGB32, WIDTH) == WIDTH * 4);
+                            cairo_surface_t *surface = cairo_image_surface_create_for_data(
+                                (unsigned char *)pixels, CAIRO_FORMAT_ARGB32, WIDTH, HEIGHT, WIDTH * 4);
+                            assert(cairo_surface_write_to_png(surface, path) == CAIRO_STATUS_SUCCESS);
+                            cairo_surface_destroy(surface);
+                        }
+                        uint32_t *again = draw(r, view);
+                        assert(memcmp(pixels, again, WIDTH * HEIGHT * sizeof(*pixels)) == 0);
+                        free(again);
+                        free(pixels);
+                    }
+                }
+            }
+        }
+    }
+    assert(boxrig_ui_view_set_color_filter(view, NULL, NULL) == BOXRIG_UI_OK);
+    assert(boxrig_ui_view_set_background_image(view, NULL) == BOXRIG_UI_OK);
+    assert(boxrig_ui_view_set_background_color(view, (boxrig_ui_rgba){255, 0, 0, 255}) == BOXRIG_UI_OK);
+    boxrig_ui_transparency_state state = {0};
+    state.effective_scopes = BOXRIG_UI_TRANSPARENCY_VIEW_SURFACE;
+    state.effective = BOXRIG_UI_TRANSPARENCY_PREMULTIPLIED_ALPHA;
+    state.effective_background_opacity = 128;
+    if (r->x11 != NULL) assert(boxrig_x11_renderer_apply_transparency_state(r->x11, &state) == 0);
+    else if (r->gl != NULL) assert(boxrig_ogl_renderer_apply_transparency_state(r->gl, &state) == 0);
+    else assert(boxrig_pango_cairo_renderer_apply_transparency_state(r->cairo, &state) == 0);
+    /* A candidate caret after the preedit observes the terminal underlay alpha,
+     * while the IME's own reversed background keeps its independent policy. */
+    feed(terminal, model, "\033[1;3H");
+    boxrig_composition *composition = NULL;
+    assert(boxrig_composition_create(terminal, boxrig_composition_limits_default(),
+        &composition) == BOXRIG_COMPOSITION_OK);
+    boxrig_composition_event event = {0};
+    event.type = BOXRIG_COMPOSITION_PREEDIT_UPDATE;
+    event.text = "a";
+    event.text_length = event.caret_offset = event.selection_length = 1;
+    event.caret_visible = true;
+    assert(boxrig_composition_apply_event(composition, &event) == BOXRIG_COMPOSITION_OK);
+    uint8_t opacities[2] = {0};
+    assert(boxrig_ui_view_set_color_filter(view, rotate_background, opacities) == BOXRIG_UI_OK);
+    for (unsigned mode = 0; mode < 3; mode++) {
+        assert(boxrig_ui_view_set_cell_background_mode(view, modes[mode]) == BOXRIG_UI_OK);
+        if (r->x11 != NULL) assert(boxrig_x11_renderer_draw_view_composition(r->x11, view, composition) == 0);
+        else if (r->gl != NULL) assert(boxrig_ogl_renderer_draw_view_composition(r->gl, view, composition) == 0);
+        else assert(boxrig_pango_cairo_renderer_draw_view_composition(r->cairo, view, composition) == 0);
+        assert(opacities[0] == 128);
+        assert(opacities[1] == (mode == 1 ? 255 : 128));
+    }
+    boxrig_composition_destroy(composition);
+    assert(boxrig_ui_view_set_color_filter(view, NULL, NULL) == BOXRIG_UI_OK);
+    /* Revisit the original row through history without rewriting its cells. */
+    feed(terminal, model, "\033[3;1H\n");
+    assert(boxrig_terminal_set_viewport_offset(terminal, 1) == BOXRIG_STATUS_OK);
+    assert(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+    assert(boxrig_ui_view_set_cell_background_mode(view,
+        BOXRIG_UI_CELL_BACKGROUND_OPAQUE_EXPLICIT) == BOXRIG_UI_OK);
+    uint32_t *pixels = draw(r, view);
+    check_background_pixel(pixels[height / 2 * WIDTH + 3 * width + width / 2], 0x00ff00, 255, 0xff0000);
+    check_background_pixel(pixels[height / 2 * WIDTH + width / 2], 0x202020, 128, 0xff0000);
+    free(pixels);
+    /* The mode belongs to the view and also applies to alternate-screen cells. */
+    feed(terminal, model, "\033[?1049h\033[H\033[42m \033[49m ");
+    pixels = draw(r, view);
+    check_background_pixel(pixels[height / 2 * WIDTH + width / 2], 0x00ff00, 255, 0xff0000);
+    check_background_pixel(pixels[height / 2 * WIDTH + width + width / 2], 0x202020, 128, 0xff0000);
+    free(pixels);
+    feed(terminal, model, "\033[?1049l");
+    assert(boxrig_terminal_set_viewport_offset(terminal, 1) == BOXRIG_STATUS_OK);
+    assert(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+    /* Rebind the renderer to another view of the same cells, then back again. */
+    boxrig_ui_view *other = NULL;
+    boxrig_ui_view_config vc = boxrig_ui_view_config_default();
+    assert(boxrig_ui_view_create(model, &vc, &other) == BOXRIG_UI_OK);
+    assert(boxrig_ui_view_set_background_color(other, (boxrig_ui_rgba){255, 0, 0, 255}) == BOXRIG_UI_OK);
+    pixels = draw(r, other);
+    check_background_pixel(pixels[height / 2 * WIDTH + 3 * width + width / 2], 0x00ff00, 128, 0xff0000);
+    free(pixels);
+    pixels = draw(r, view);
+    check_background_pixel(pixels[height / 2 * WIDTH + 3 * width + width / 2], 0x00ff00, 255, 0xff0000);
+    free(pixels);
+    boxrig_ui_view_destroy(other);
+    pixels = draw(r, view);
+    check_background_pixel(pixels[height / 2 * WIDTH + 3 * width + width / 2], 0x00ff00, 255, 0xff0000);
+    free(pixels);
+    printf("PASS backend=%d scale=%u cell background modes, colors, images, history and alternate screen\n", backend, scale);
+}
+
+static void test(int backend, unsigned scale)
 {
     renderer r;
-    create(&r, backend);
+    create(&r, backend, scale);
     boxrig_terminal_config tc = boxrig_terminal_config_default();
     tc.rows = 3; tc.columns = 12;
     boxrig_terminal *terminal;
@@ -262,6 +445,7 @@ static void test(int backend)
             assert(abs((int)((partial[y * WIDTH + x] >> shift) & 255) - (int)((expected >> shift) & 255)) <= 1);
     }
     free(partial); free(baseline);
+    test_cell_backgrounds(&r, terminal, model, view, backend, scale);
     boxrig_ui_view_destroy(view);
     boxrig_ui_model_destroy(model);
     boxrig_terminal_destroy(terminal);
@@ -281,9 +465,11 @@ static void test(int backend)
 
 int main(void)
 {
-    test(0);
-    test(1);
-    test(2);
+    for (unsigned scale = 1; scale <= 2; scale++) {
+        test(0, scale);
+        test(1, scale);
+        test(2, scale);
+    }
     cairo_debug_reset_static_data();
     FcFini();
     return 0;

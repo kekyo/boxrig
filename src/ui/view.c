@@ -214,6 +214,7 @@ struct boxrig_ui_view {
     bool grid_resize_pending;
     boxrig_ui_grid_resize grid_resize;
     boxrig_ui_transparency_state transparency;
+    boxrig_ui_cell_background_mode cell_background_mode;
     bool target_attached;
     boxrig_ui_render_target target;
     bool selection_active;
@@ -2925,6 +2926,7 @@ boxrig_ui_status boxrig_ui_view_create(
     view->layout_generation = 1;
     view->annotation_generation = 1;
     view->color_filter_revision = 1;
+    view->cell_background_mode = BOXRIG_UI_CELL_BACKGROUND_TRANSPARENT;
     view->visible = true;
     view->blink.config = config->blink;
     view->blink.cursor_style = boxrig_ui_cursor_style_default();
@@ -6566,6 +6568,24 @@ boxrig_ui_background_image_view boxrig_ui_view_get_background_image(const boxrig
     return view == NULL ? (boxrig_ui_background_image_view){0} : view->background_image;
 }
 
+boxrig_ui_status boxrig_ui_view_set_cell_background_mode(
+    boxrig_ui_view *view, boxrig_ui_cell_background_mode mode)
+{
+    if (view == NULL || mode < BOXRIG_UI_CELL_BACKGROUND_TRANSPARENT ||
+        mode > BOXRIG_UI_CELL_BACKGROUND_OPAQUE_EXPLICIT)
+        return BOXRIG_UI_INVALID_ARGUMENT;
+    if (view->resolving_colors) return BOXRIG_UI_BUSY;
+    if (view->cell_background_mode == mode) return BOXRIG_UI_OK;
+    view->cell_background_mode = mode;
+    return boxrig_ui_view_invalidate_colors(view);
+}
+
+boxrig_ui_cell_background_mode boxrig_ui_view_get_cell_background_mode(
+    const boxrig_ui_view *view)
+{
+    return view == NULL ? BOXRIG_UI_CELL_BACKGROUND_TRANSPARENT : view->cell_background_mode;
+}
+
 boxrig_ui_status boxrig_ui_view_set_transparency_config(
     boxrig_ui_view *view,
     const boxrig_ui_transparency_config *config)
@@ -7538,6 +7558,10 @@ boxrig_ui_status boxrig_ui_view_resolve_cell_paint(boxrig_ui_view *view,
     size_t row, size_t column, boxrig_ui_color_filter_input *input,
     boxrig_ui_cell_paint *paint)
 {
+    /* Select cell alpha before selection can replace its source with a UI color. */
+    if (view->cell_background_mode == BOXRIG_UI_CELL_BACKGROUND_OPAQUE_EXPLICIT &&
+        input->background_source.role != BOXRIG_UI_COLOR_DEFAULT_BACKGROUND)
+        input->background_opacity = 255;
     const boxrig_ui_selection_style *style = &view->selection_style;
     const bool selected = (input->state_flags & BOXRIG_UI_COLOR_SELECTED) != 0;
     const bool filled = selected && style->presentation != BOXRIG_UI_SELECTION_OUTLINE &&
@@ -7559,7 +7583,7 @@ boxrig_ui_status boxrig_ui_view_resolve_cell_paint(boxrig_ui_view *view,
             row, column, input, &colors);
         if (status != BOXRIG_UI_OK) return status;
     }
-    *paint = (boxrig_ui_cell_paint){colors, colors, {0}, 0};
+    *paint = (boxrig_ui_cell_paint){colors, colors, {0}, 0, base.background_opacity};
     if (!filled) return BOXRIG_UI_OK;
     boxrig_ui_color_filter_result background = base.colors;
     if (style->background_opacity < 255 && boxrig_ui_view_has_color_filter(view)) {
