@@ -72,6 +72,7 @@ typedef struct resolved_cell_colors {
     unsigned long selection_background;
     uint8_t selection_opacity;
     boxrig_rgb display_background;
+    uint8_t background_opacity;
 } resolved_cell_colors;
 
 typedef struct filtered_cell_colors {
@@ -735,6 +736,8 @@ static int prepare_row_colors(
 {
     bool filtered = boxrig_ui_view_has_color_filter(view);
     bool styled = boxrig_ui_view_selection_uses_cell_colors(view);
+    bool resolve_paint = filtered || styled ||
+        boxrig_ui_view_get_cell_background_mode(view) == BOXRIG_UI_CELL_BACKGROUND_OPAQUE_EXPLICIT;
     if (filtered && renderer->row_filter_colors == NULL) {
         if (renderer->cached_columns > SIZE_MAX / sizeof(*renderer->row_filter_colors)) {
             return -1;
@@ -757,9 +760,9 @@ static int prepare_row_colors(
                 BOXRIG_STATUS_OK ||
             boxrig_ui_color_resolve_cell(terminal, &cell,
                 &renderer->annotation_styles[column], renderer->background_opacity,
-                &colors, (filtered || styled) ? &input : NULL) != BOXRIG_UI_OK) return -1;
+                &colors, (resolve_paint) ? &input : NULL) != BOXRIG_UI_OK) return -1;
         boxrig_ui_cell_paint paint = {0};
-        if (filtered || styled) {
+        if (resolve_paint) {
             boxrig_ui_view_apply_color_state(view, row, logical_column,
                 cell.hyperlink_handle, cursor_suppressed, &input);
             if (boxrig_ui_view_resolve_cell_paint(view, row, column, &input, &paint) !=
@@ -773,7 +776,8 @@ static int prepare_row_colors(
             color_pixel(renderer, colors.background),
             color_pixel(renderer, colors.underline),
             paint.selection_opacity != 0 ? color_pixel(renderer, paint.selection_background) : 0,
-            paint.selection_opacity, (filtered || styled) ? paint.underlay.background : colors.background};
+            paint.selection_opacity, (resolve_paint) ? paint.underlay.background : colors.background,
+            resolve_paint ? paint.background_opacity : renderer->background_opacity};
     }
     return 0;
 }
@@ -4448,7 +4452,7 @@ static int draw_visual_default_backgrounds(
                 &cell,
                 visual_column) == BOXRIG_COLOR_DEFAULT) {
             background = renderer->row_colors[visual_column].background;
-            opacity = renderer->background_opacity;
+            opacity = renderer->row_colors[visual_column].background_opacity;
         }
         if (!set_cairo_source_pixel(
                 renderer,
@@ -4502,7 +4506,7 @@ static int draw_visual_nondefault_backgrounds(
         if (!set_cairo_source_pixel(
                 renderer,
                 colors.background,
-                renderer->background_opacity)) {
+                colors.background_opacity)) {
             return -1;
         }
         cairo_rectangle(
@@ -5847,8 +5851,10 @@ static int draw_composition_overlay(
                     cell.hyperlink_handle, true, &underlay.input);
                 underlay.row = row;
                 underlay.column = column;
-                if (boxrig_ui_view_resolve_paint_colors(ui_view, row, column, &underlay.input,
-                        &underlay.colors) != BOXRIG_UI_OK) return -1;
+                boxrig_ui_cell_paint paint;
+                if (boxrig_ui_view_resolve_cell_paint(ui_view, row, column, &underlay.input,
+                        &paint) != BOXRIG_UI_OK) return -1;
+                underlay.colors = paint.underlay;
                 found = true;
             }
             boxrig_rgb original, color;

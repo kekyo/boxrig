@@ -128,6 +128,7 @@ typedef struct resolved_cell_colors {
     COLORREF selection_background;
     uint8_t selection_opacity;
     boxrig_rgb display_background;
+    uint8_t background_opacity;
 } resolved_cell_colors;
 
 typedef struct filtered_cell_colors {

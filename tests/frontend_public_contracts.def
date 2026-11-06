@@ -35,6 +35,8 @@ BOXRIG_PUBLIC_CONTRACT(
     OPERATION, "include/boxrig/ui/view.h", VALUE_BACKGROUND_LAYERS, 31u,
     "boxrig_ui_view_set_background_color "
     "boxrig_ui_view_get_background_color "
+    "boxrig_ui_view_set_cell_background_mode "
+    "boxrig_ui_view_get_cell_background_mode "
     "boxrig_ui_view_set_background_image "
     "boxrig_ui_view_get_background_image "
     "boxrig_ui_background_image_place")
