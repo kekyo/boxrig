@@ -48,6 +48,8 @@ boxrig_ui_status use_white_text(boxrig_ui_view *view)
 
 入力には、解決済みの元の色、色の出自、属性、選択やフォーカスの状態が含まれます。
 RGBはalphaを乗算していないsRGBです。
+セルの`background_opacity`には、表示先の[セル背景モード](./background.md#明示されたセル背景だけを不透明にする)を適用した値が渡ります。
+補正関数でalphaや色の出自は変更できません。
 反転などが適用済みなので、同じ反転を補正側で繰り返さないでください。
 
 特定の文字範囲だけを減光する場合などは、text annotationの`COLOR_TAG`と`color_tag`を指定できます。セルの補正入力の`annotation_color_tag`に同じ値が渡るため、元の前景色や反転を保ったまま調整できます。タグは色キャッシュの入力にも含まれ、セル以外の描画対象では0になります。
