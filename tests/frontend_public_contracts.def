@@ -578,6 +578,7 @@ BOXRIG_PUBLIC_CONTRACT(
 
 BOXRIG_PUBLIC_CONTRACT(
     OPERATION, "include/boxrig/ui/view.h", VALUE_CORE_UI_SEMANTICS, 31u,
+    "boxrig_ui_annotation_underline_style "
     "boxrig_ui_color_resolve_cell "
     "boxrig_ui_view_set_color_filter "
     "boxrig_ui_view_invalidate_colors "
@@ -658,6 +659,7 @@ BOXRIG_PUBLIC_CONTRACT(
     "boxrig_ui_view_begin_selection "
     "boxrig_ui_view_begin_selection_with_options "
     "boxrig_ui_view_update_selection "
+    "boxrig_ui_view_update_selection_with_options "
     "boxrig_ui_view_get_selection "
     "boxrig_ui_view_query_selection_rows "
     "boxrig_ui_view_query_selection_row_ranges "
