@@ -76,6 +76,7 @@ typedef struct boxrig_ui_cell_paint {
     boxrig_ui_color_filter_result underlay;
     boxrig_rgb selection_background;
     uint8_t selection_opacity;
+    uint8_t background_opacity;
 } boxrig_ui_cell_paint;
 
 bool boxrig_ui_view_selection_uses_cell_colors(const boxrig_ui_view *view);

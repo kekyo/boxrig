@@ -221,6 +221,8 @@ BOXRIG_0 {
         boxrig_ui_view_set_blink_config;
         boxrig_ui_view_set_candidates;
         boxrig_ui_view_set_color_filter;
+        boxrig_ui_view_get_cell_background_mode;
+        boxrig_ui_view_set_cell_background_mode;
         boxrig_ui_view_set_composition_active;
         boxrig_ui_view_set_cursor_style;
         boxrig_ui_view_set_focused;
