@@ -20,7 +20,7 @@ for arch in amd64 i686; do
     cmp deps/utf8proc/LICENSE.md "$licenses/utf8proc-LICENSE.md"
     cmp deps/libpng/LICENSE "$licenses/libpng-LICENSE"
     cmp deps/zlib/LICENSE "$licenses/zlib-LICENSE"
-    cmp resources/unicode/17.0.0/LICENSE.txt "$licenses/Unicode-LICENSE.txt"
+    cmp resources/unicode/18.0.0/LICENSE.txt "$licenses/Unicode-LICENSE.txt"
     cmp data/encoding/whatwg/LICENSE "$licenses/WHATWG-Encoding-LICENSE"
     test -s "$licenses/README_ja.md"
     test -s "$licenses/README.md"

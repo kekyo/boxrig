@@ -98,7 +98,7 @@ Waylandでは設定後に所有者のsurface commitも必要です。
 | --- | --- |
 | Win32 | Windows 11 build 22621以降の[system backdrop](https://learn.microsoft.com/en-us/windows/win32/api/dwmapi/ne-dwmapi-dwm_systembackdrop_type) |
 | X11 | コンポジターが動作し、ルートウィンドウでKDE方式のぼかし能力を公開していること。[KDEの実装](https://github.com/KDE/kwindowsystem/blob/master/src/platforms/xcb/kwindoweffects.cpp)と同じ`_KDE_NET_WM_BLUR_BEHIND_REGION`プロパティを使用 |
-| Wayland | [ext-background-effect-v1](https://gitlab.freedesktop.org/wayland/wayland-protocols/-/blob/1.48/staging/ext-background-effect/ext-background-effect-v1.xml)のblur能力 |
+| Wayland | [ext-background-effect-v1](https://gitlab.freedesktop.org/wayland/wayland-protocols/-/blob/1.50/staging/ext-background-effect/ext-background-effect-v1.xml)のblur能力 |
 | GTK 3 | 任意adapterからX11またはWaylandのproviderへ接続 |
 | GTK 4/Wayland | 有効な経路には4.18以降の[commit要求API](https://docs.gtk.org/gdk4-wayland/method.WaylandSurface.force_next_commit.html)が必要 |
 | GTK 4/X11 | 現在は未提供。[XID取得APIの非推奨化](https://docs.gtk.org/gdk4-x11/method.X11Surface.get_xid.html)を理由に標準接続を採用していない |

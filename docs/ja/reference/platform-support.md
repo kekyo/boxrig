@@ -31,7 +31,7 @@ boxrig coreだけで端末出力を解釈する構成、boxrig UIで表示する
 | native Wayland | wayland-client 1.22以上、xkbcommon 1.6以上、Pango・Cairo・IBus | Westonでの描画・入力試験と、模擬サーバーでのプロトコル試験 |
 | OpenGL | OpenGL 3.3 coreまたはOpenGL ES 3.0。GTKはlibepoxy、X11／WaylandはEGLなど | ソフトウェアGLでの描画試験。GPUとドライバーは利用環境で確認 |
 
-Waylandのビルドは固定したwayland-protocols 1.48のXMLを使います。
+Waylandのビルドは固定したwayland-protocols 1.50のXMLを使います。
 wayland-serverはテスト用です。
 xdg-shellとウィンドウ装飾、任意のlibdecor 0.2以上は、トップレベルウィンドウを持つ付属端末側で使用します。
 
@@ -43,7 +43,7 @@ viewporterとfractional-scaleは組み合わせて分数倍率へ対応します
 
 text-input-v3のinterface version 2では文節属性を扱い、version 1では従来の未確定文字を扱います。
 プロトコル定義だけを更新しても、接続先にない機能は増えません。
-[プロトコル原本](https://github.com/wayland-mirror/wayland-protocols/blob/1.48/unstable/text-input/text-input-unstable-v3.xml)と[組み込み手順](../platforms/wayland.md)を参照してください。
+[プロトコル原本](https://github.com/wayland-mirror/wayland-protocols/blob/1.50/unstable/text-input/text-input-unstable-v3.xml)と[組み込み手順](../platforms/wayland.md)を参照してください。
 touch、DnD、HTML・画像クリップボードには対応しません。
 
 ## Windowsの層別条件

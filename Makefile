@@ -1448,7 +1448,7 @@ test: test-package-licenses test-wayland-candidates-startup test-wayland-input t
 	$(XVFB_RUN) -a env LIBGL_ALWAYS_SOFTWARE=1 ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(OPENGL_RUNTIME_TEST_BINARY) glx
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(UI_TEST_BINARY)
 	node tools/unicode/generate-word-break.mjs --check
-	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(SELECTION_TEST_BINARY) resources/unicode/17.0.0/WordBreakTest.txt
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(SELECTION_TEST_BINARY) resources/unicode/18.0.0/WordBreakTest.txt
 	$(XVFB_RUN) -a env ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(UI_PLATFORM_FIXTURE_TEST_BINARY)
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(PANGO_CAIRO_FIXTURE_TEST_BINARY)
 	$(XVFB_RUN) -a env ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(X11_COMPONENT_FIXTURE_TEST_BINARY) "$(TEST_FONT_FILE)"

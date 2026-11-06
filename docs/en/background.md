@@ -98,7 +98,7 @@ Wayland also requires a surface commit by the owner after configuration.
 | --- | --- |
 | Win32 | [System backdrop](https://learn.microsoft.com/en-us/windows/win32/api/dwmapi/ne-dwmapi-dwm_systembackdrop_type) on Windows 11 build 22621 or later |
 | X11 | A running compositor advertising KDE-style blur support on the root window; uses the same `_KDE_NET_WM_BLUR_BEHIND_REGION` property as the [KDE implementation](https://github.com/KDE/kwindowsystem/blob/master/src/platforms/xcb/kwindoweffects.cpp) |
-| Wayland | The blur capability of [ext-background-effect-v1](https://gitlab.freedesktop.org/wayland/wayland-protocols/-/blob/1.48/staging/ext-background-effect/ext-background-effect-v1.xml) |
+| Wayland | The blur capability of [ext-background-effect-v1](https://gitlab.freedesktop.org/wayland/wayland-protocols/-/blob/1.50/staging/ext-background-effect/ext-background-effect-v1.xml) |
 | GTK 3 | An optional adapter connecting to the X11 or Wayland provider |
 | GTK 4/Wayland | A usable route requires the [commit request API](https://docs.gtk.org/gdk4-wayland/method.WaylandSurface.force_next_commit.html) from 4.18 or later |
 | GTK 4/X11 | Not currently provided; the standard integration was not adopted because the [XID retrieval API is deprecated](https://docs.gtk.org/gdk4-x11/method.X11Surface.get_xid.html) |
