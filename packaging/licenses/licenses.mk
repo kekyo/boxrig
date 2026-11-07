@@ -9,7 +9,7 @@ install-common-licenses:
 	$(INSTALL) -m 644 deps/utf8proc/LICENSE.md $(LICENSE_INSTALL_DIR)/utf8proc-LICENSE.md
 	$(INSTALL) -m 644 deps/libpng/LICENSE $(LICENSE_INSTALL_DIR)/libpng-LICENSE
 	$(INSTALL) -m 644 deps/zlib/LICENSE $(LICENSE_INSTALL_DIR)/zlib-LICENSE
-	$(INSTALL) -m 644 resources/unicode/17.0.0/LICENSE.txt $(LICENSE_INSTALL_DIR)/Unicode-LICENSE.txt
+	$(INSTALL) -m 644 resources/unicode/18.0.0/LICENSE.txt $(LICENSE_INSTALL_DIR)/Unicode-LICENSE.txt
 	$(INSTALL) -m 644 data/encoding/whatwg/LICENSE $(LICENSE_INSTALL_DIR)/WHATWG-Encoding-LICENSE
 
 install-linux-licenses: install-common-licenses $(WAYLAND_LICENSE_NOTICES)

@@ -88,6 +88,7 @@ typedef struct resolved_colors {
     uint32_t selection_background;
     uint8_t selection_opacity;
     boxrig_rgb display_background;
+    uint8_t background_opacity;
 } resolved_colors;
 
 typedef struct filtered_cell_colors {
@@ -684,6 +685,8 @@ static int prepare_row_colors(
 {
     bool filtered = boxrig_ui_view_has_color_filter(view);
     bool styled = boxrig_ui_view_selection_uses_cell_colors(view);
+    bool resolve_paint = filtered || styled ||
+        boxrig_ui_view_get_cell_background_mode(view) == BOXRIG_UI_CELL_BACKGROUND_OPAQUE_EXPLICIT;
     if (filtered && renderer->row_filter_colors == NULL) {
         if (renderer->cached_columns > SIZE_MAX / sizeof(*renderer->row_filter_colors)) return -1;
         renderer->row_filter_colors = calloc(renderer->cached_columns,
@@ -702,9 +705,9 @@ static int prepare_row_colors(
                 column, &logical_column) != BOXRIG_TEXT_LAYOUT_OK ||
             boxrig_terminal_get_cell(terminal, row, logical_column, &cell) != BOXRIG_STATUS_OK ||
             boxrig_ui_color_resolve_cell(terminal, &cell, &renderer->annotation_styles[column],
-                renderer->background_opacity, &colors, (filtered || styled) ? &input : NULL) != BOXRIG_UI_OK) return -1;
+                renderer->background_opacity, &colors, (resolve_paint) ? &input : NULL) != BOXRIG_UI_OK) return -1;
         boxrig_ui_cell_paint paint = {0};
-        if (filtered || styled) {
+        if (resolve_paint) {
             boxrig_ui_view_apply_color_state(view, row, logical_column,
                 cell.hyperlink_handle, cursor_suppressed, &input);
             if (boxrig_ui_view_resolve_cell_paint(view, row, column, &input, &paint) !=
@@ -717,7 +720,8 @@ static int prepare_row_colors(
             rgb_pixel(colors.background), rgb_pixel(colors.underline),
             paint.selection_opacity != 0 ? rgb_pixel(paint.selection_background) : 0,
             paint.selection_opacity,
-            (filtered || styled) ? paint.underlay.background : colors.background};
+            (resolve_paint) ? paint.underlay.background : colors.background,
+            resolve_paint ? paint.background_opacity : renderer->background_opacity};
     }
     return 0;
 }
@@ -2876,6 +2880,7 @@ static int draw_row_background(
     size_t visual_end = dirty->column + dirty->column_count;
     size_t run_begin = visual_column;
     uint32_t run_color = 0;
+    uint8_t run_opacity = 0;
     bool have_run = false;
 
     if (visual_end > renderer->cached_columns) {
@@ -2898,7 +2903,8 @@ static int draw_row_background(
             return -1;
         }
         colors = renderer->row_colors[visual_column];
-        if (have_run && colors.background != run_color) {
+        bool changed = colors.background != run_color || colors.background_opacity != run_opacity;
+        if (have_run && changed) {
             if (emit_solid(
                     renderer,
                     run_begin * (float)renderer->cell_width,
@@ -2907,14 +2913,15 @@ static int draw_row_background(
                         (float)renderer->cell_width,
                     (float)renderer->cell_height,
                     run_color,
-                    renderer->background_opacity,
+                    run_opacity,
                     true) == -1) {
                 return -1;
             }
             run_begin = visual_column;
         }
-        if (!have_run || colors.background != run_color) {
+        if (!have_run || changed) {
             run_color = colors.background;
+            run_opacity = colors.background_opacity;
             have_run = true;
         }
         renderer->statistics.cell_raster_count = saturated_add(
@@ -2929,7 +2936,7 @@ static int draw_row_background(
             (visual_end - run_begin) * (float)renderer->cell_width,
             (float)renderer->cell_height,
             run_color,
-            renderer->background_opacity,
+            run_opacity,
             true) == -1) {
         return -1;
     }

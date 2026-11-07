@@ -17,7 +17,7 @@ However, it could not suspend and resume a single transformation under an intege
 ## Prototype versus public features
 
 The prototype is in [search_transform_prototype.c](../../tests/search_transform_prototype.c) and is not linked into the product library.
-It uses pinned utf8proc 2.11.3 and Unicode 17.0.0 and tests transformations of all 1,112,064 Unicode scalar values.
+It uses pinned utf8proc 2.12.0 and Unicode 18.0.0 and tests transformations of all 1,112,064 Unicode scalar values.
 
 Regular-expression recognition added later is a separate public feature.
 It uses an NFA with bounded language and work, rather than adding flags to exact search.
@@ -34,7 +34,7 @@ See [Retrieving, selecting, and searching text](./text.md) for current usage.
 NFKC, accent stripping, and `UTF8PROC_IGNORE` were outside scope.
 For example, NFC does not equate `①` and `1`.
 Default case folding maps `İ` to `i` plus a combining dot, which does not match ASCII `i` alone.
-Semantics and ownership were checked against the [pinned header](https://github.com/JuliaStrings/utf8proc/blob/v2.11.3/utf8proc.h) and [official C API](https://juliastrings.github.io/utf8proc/doc/utf8proc_8h.html).
+Semantics and ownership were checked against the [pinned header](https://github.com/JuliaStrings/utf8proc/blob/v2.12.0/utf8proc.h) and [official C API](https://juliastrings.github.io/utf8proc/doc/utf8proc_8h.html).
 
 ## Mapping to original text positions
 
@@ -64,7 +64,7 @@ These are observations for the pinned data version, not fixed bounds for future 
 
 `utf8proc_map()` allocates the required space internally and accepts neither a caller allocator nor a hard limit checked before allocation.
 It also has no resumable API that returns intermediate transformation state.
-These [public API conditions](https://github.com/JuliaStrings/utf8proc/blob/v2.11.3/utf8proc.h) prevent the same work and allocation contract as current search.
+These [public API conditions](https://github.com/JuliaStrings/utf8proc/blob/v2.12.0/utf8proc.h) prevent the same work and allocation contract as current search.
 
 Reconsideration would first require resumable integer-budget cursors for scalar transformation, canonical ordering, and composition, caller-owned fixed-capacity storage, and original-boundary mappings.
 Adding only transformed strings would not be sufficient.

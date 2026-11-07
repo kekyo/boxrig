@@ -14,7 +14,7 @@ Using an individual library does not necessarily use every component listed belo
 | [utf8proc](https://github.com/JuliaStrings/utf8proc) | Unicode processing in core | `utf8proc-LICENSE.md`, including both MIT and Unicode data notices |
 | [libpng](https://github.com/pnggroup/libpng) | PNG handling in core | `libpng-LICENSE`, PNG Reference Library License |
 | [zlib](https://github.com/madler/zlib) | Compression in core | `zlib-LICENSE` |
-| [Unicode 17.0.0](https://www.unicode.org/Public/17.0.0/ucd/) | UI word-boundary tables | `Unicode-LICENSE.txt`, Unicode License V3 |
+| [Unicode 18.0.0](https://www.unicode.org/Public/18.0.0/ucd/) | UI word-boundary tables | `Unicode-LICENSE.txt`, Unicode License V3 |
 | [WHATWG Encoding](https://encoding.spec.whatwg.org/) | Shift_JIS conversion tables in core | `WHATWG-Encoding-LICENSE`; portions incorporated into code use BSD-3-Clause |
 
 Acknowledgment in binary distributions is not mandatory for libpng or zlib, but the SDK includes their license texts.

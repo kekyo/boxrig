@@ -140,6 +140,8 @@ typedef struct fixture {
     uint64_t drawn_generation;
     int expected_width;
     int expected_height;
+    boxrig_ui_layout_action held_grid_resize;
+    bool hold_grid_resize;
     bool done;
     bool failed;
 } fixture;
@@ -177,6 +179,11 @@ static gboolean frame(gpointer data)
     boxrig_ui_layout_action action;
     while (boxrig_gtk3_terminal_widget_take_layout_action(test->widget, &action)) {
         CHECK(action.kind == BOXRIG_UI_LAYOUT_ACTION_GRID_RESIZE);
+        if (test->hold_grid_resize) {
+            test->held_grid_resize = action;
+            test->done = true;
+            return G_SOURCE_REMOVE;
+        }
         CHECK(boxrig_terminal_resize(test->terminal, action.value.grid_resize.rows,
             action.value.grid_resize.columns) == BOXRIG_STATUS_OK);
         CHECK(boxrig_gtk3_terminal_widget_complete_grid_resize(test->widget,
@@ -237,6 +244,54 @@ static void feed(fixture *test, const char *text)
     CHECK(boxrig_terminal_feed(test->terminal, (const uint8_t *)text,
         strlen(text), &consumed) == BOXRIG_STATUS_OK);
     CHECK(consumed == strlen(text));
+}
+
+static void test_zoom_retains_complete_frame(fixture *test)
+{
+    const boxrig_font_zoom_direction directions[] = {
+        BOXRIG_FONT_ZOOM_INCREASE, BOXRIG_FONT_ZOOM_DECREASE};
+    for (size_t index = 0; index < G_N_ELEMENTS(directions); index++) {
+        cairo_surface_t *before = capture(GTK_WIDGET(test->widget));
+        size_t bytes = (size_t)cairo_image_surface_get_stride(before) *
+            cairo_image_surface_get_height(before);
+        size_t rows, columns;
+        boxrig_terminal_size(test->terminal, &rows, &columns);
+        test->generation = boxrig_gtk3_terminal_widget_presentation_generation(test->widget);
+        test->held_grid_resize = (boxrig_ui_layout_action){0};
+        test->hold_grid_resize = true;
+        bool changed = false;
+        CHECK(boxrig_gtk3_terminal_widget_visual_zoom(test->widget, directions[index],
+            boxrig_font_visual_step_policy_default(), &changed) == BOXRIG_UI_OK);
+        CHECK(changed);
+        await_frame(test);
+        CHECK(!test->failed && test->held_grid_resize.revision != 0);
+        size_t pending_rows, pending_columns;
+        boxrig_terminal_size(test->terminal, &pending_rows, &pending_columns);
+        CHECK(pending_rows == rows && pending_columns == columns);
+        cairo_surface_t *pending = capture(GTK_WIDGET(test->widget));
+        CHECK(cairo_image_surface_get_width(pending) == cairo_image_surface_get_width(before));
+        CHECK(cairo_image_surface_get_height(pending) == cairo_image_surface_get_height(before));
+        CHECK(cairo_image_surface_get_stride(pending) == cairo_image_surface_get_stride(before));
+        /* The native draw boundary must show the last complete image while
+         * the host has not yet acknowledged the new grid. */
+        CHECK(memcmp(cairo_image_surface_get_data(before),
+            cairo_image_surface_get_data(pending), bytes) == 0);
+        test->hold_grid_resize = false;
+        CHECK(boxrig_terminal_resize(test->terminal,
+            test->held_grid_resize.value.grid_resize.rows,
+            test->held_grid_resize.value.grid_resize.columns) == BOXRIG_STATUS_OK);
+        CHECK(boxrig_gtk3_terminal_widget_complete_grid_resize(test->widget,
+            test->held_grid_resize.revision, true) == BOXRIG_UI_OK);
+        await_frame(test);
+        CHECK(!test->failed);
+        cairo_surface_t *after = capture(GTK_WIDGET(test->widget));
+        CHECK(memcmp(cairo_image_surface_get_data(before),
+            cairo_image_surface_get_data(after), bytes) != 0);
+        cairo_surface_destroy(before);
+        cairo_surface_destroy(pending);
+        cairo_surface_destroy(after);
+    }
+    printf("PASS GTK 3 zoom retains complete pixels until grid completion\n");
 }
 
 static void test_commits_without_preedit(fixture *test)
@@ -469,6 +524,7 @@ int main(int argc, char **argv)
         cairo_surface_t *opaque = capture(GTK_WIDGET(test.widget));
         CHECK(((uint32_t *)cairo_image_surface_get_data(opaque))[0] == 0xff285078u);
         cairo_surface_destroy(opaque);
+        test_zoom_retains_complete_frame(&test);
         if (state.active_backend == BOXRIG_GTK_RENDER_BACKEND_OPENGL) {
             /* Complete a host resize between queued work and GTK rendering. */
             resize_before_render = test.terminal;

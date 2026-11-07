@@ -4,7 +4,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const dataDirectory = resolve(root, 'resources/unicode/17.0.0');
+const dataDirectory = resolve(root, 'resources/unicode/18.0.0');
 const outputPath = resolve(root, 'src/ui/word_break_data.inc');
 const download = process.argv.includes('--download');
 const check = process.argv.includes('--check');
@@ -12,18 +12,18 @@ const check = process.argv.includes('--check');
 const sources = [
   {
     name: 'WordBreakProperty.txt',
-    url: 'https://www.unicode.org/Public/17.0.0/ucd/auxiliary/WordBreakProperty.txt',
-    sha256: '72274cac1e6b919507db35655c3e175aa27274668a1ece95c28d2069f2ad9852',
+    url: 'https://www.unicode.org/Public/18.0.0/ucd/auxiliary/WordBreakProperty.txt',
+    sha256: '8dbfa17063e11084201f33c3e76d485d3b9166930c71db8e39ed1c9234171aec',
   },
   {
     name: 'WordBreakTest.txt',
-    url: 'https://www.unicode.org/Public/17.0.0/ucd/auxiliary/WordBreakTest.txt',
-    sha256: '1de23a75f37904abc7d206239ee8d34f8fdf0fb4ab32a7174dfbabbde25419b2',
+    url: 'https://www.unicode.org/Public/18.0.0/ucd/auxiliary/WordBreakTest.txt',
+    sha256: '3dd70c071781276067c680d87303f60434adce7b067bd063194af374edad86a5',
   },
   {
     name: 'emoji-data.txt',
-    url: 'https://www.unicode.org/Public/17.0.0/ucd/emoji/emoji-data.txt',
-    sha256: '2cb2bb9455cda83e8481541ecf5b6dfda66a3bb89efa3fa7c5297eccf607b72b',
+    url: 'https://www.unicode.org/Public/18.0.0/ucd/emoji/emoji-data.txt',
+    sha256: '80d00f8e616a0ef27fd6b8de3b758c06383b5d917e2977709578e68baf733bf1',
   },
   {
     name: 'LICENSE.txt',
@@ -132,7 +132,7 @@ const hexadecimal = (value) => `UINT32_C(0x${value.toString(16)})`;
 
 const generate = (properties, pictographic) => {
   const lines = [
-    '/* Generated from Unicode 17.0.0 data by',
+    '/* Generated from Unicode 18.0.0 data by',
     ' * tools/unicode/generate-word-break.mjs. Do not edit.',
     ' */',
     '',

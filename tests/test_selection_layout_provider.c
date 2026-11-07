@@ -125,6 +125,13 @@ static int run_history(size_t history_count)
     static const uint8_t expected[] = "ב\nב\nב\nב\nב\nב\nב";
     CHECK(length == sizeof(expected) - 1 && memcmp(bytes, expected, length) == 0);
     boxrig_text_snapshot_destroy(copy);
+    const boxrig_ui_selection_options linear = {BOXRIG_UI_SELECTION_LINEAR, BOXRIG_UI_SELECTION_CHARACTER};
+    CHECK(boxrig_ui_view_update_selection_with_options(view, &linear, NULL) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_update_selection_with_options(view, &options, NULL) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_create_selection_snapshot(view, &copy) == BOXRIG_UI_OK);
+    bytes = boxrig_text_snapshot_data(copy, &length);
+    CHECK(length == sizeof(expected) - 1 && memcmp(bytes, expected, length) == 0);
+    boxrig_text_snapshot_destroy(copy);
     CHECK(boxrig_ui_view_hit_test(view, 71 * BOXRIG_UI_FIXED_ONE,
         BOXRIG_UI_FIXED_ONE, &hit) == BOXRIG_UI_OK);
     CHECK(boxrig_ui_view_update_selection(view, &hit) == BOXRIG_UI_OK);

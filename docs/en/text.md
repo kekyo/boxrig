@@ -52,6 +52,14 @@ Arbitrary positions inside wide or combining characters cannot be selection boun
 
 ## Selection and copying
 
+Use `boxrig_ui_view_update_selection_with_options()` to change an active selection's shape or unit.
+It retains the original anchor and last pointer focus independently of word/line expansion,
+so switching to a rectangle and back to words or lines also works with offscreen endpoints.
+Pass a current hit to update the focus and policy together, or `NULL` to retain the focus.
+The operation publishes one complete selection and does not copy to OS clipboards.
+Grid, metrics, layout-provider or retained-endpoint text changes invalidate the retained geometry.
+Stale geometry, capacity limits and allocation failures preserve the previous selection.
+
 UI views provide APIs for normal and rectangular selection.
 Start with `begin_selection()` or `begin_selection_with_options()` and update the endpoint with `update_selection()`.
 Using hit-test results based on text layout keeps interactions aligned with visual appearance even for bidirectional text.

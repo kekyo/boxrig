@@ -118,7 +118,7 @@ typedef struct boxrig_ui_color_filter_input {
     /** Whether underlay names an actual cell below this marker. */
     bool underlay_valid;
     /** Background opacity, from 0 through 255; filters cannot change it.
-     * CELL receives terminal background opacity. Markers receive the composed
+     * CELL receives opacity after the view's cell background policy. Markers receive the composed
      * cell and selection opacity, excluding images and pixels behind the view. */
     uint8_t background_opacity;
     /** Application annotation tag for CELL inputs, zero for other targets.

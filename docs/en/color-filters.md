@@ -48,6 +48,8 @@ Filtering does not reveal text with the concealed attribute.
 
 Inputs include the resolved original colors, color origins, attributes, selection state, and focus state.
 RGB is non-premultiplied sRGB.
+For cells, `background_opacity` includes the view's [cell background mode](./background.md#make-explicit-cell-backgrounds-opaque).
+The filter cannot change alpha or color origins.
 Effects such as inverse have already been applied; do not apply the same inversion again in the filter.
 
 To adjust only selected text ranges, set a text annotation's `COLOR_TAG` field

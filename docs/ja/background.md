@@ -10,6 +10,7 @@ OSへすりガラス効果を依頼する設定もあります。
 | --- | --- |
 | 端末の背後に置く単色 | 表示先の背景色 |
 | スクロールで動かない背景画像 | 表示先の背景画像 |
+| 明示された文字セルの背景だけを不透明にする | 表示先のセル背景モード |
 | 背後のウィンドウやデスクトップ | コンポーネントの透過設定と親ウィンドウの準備 |
 | ぼかしたデスクトップ | 対応OSの背景効果 |
 
@@ -74,6 +75,32 @@ alphaを0にすると追加した単色を見えなくできます。
 親ウィンドウの準備は親の所有者が行います。
 特にWin32の親の構成は[Win32ガイド](./platforms/win32.md#透過と親ウィンドウの条件)を参照してください。
 
+## 明示されたセル背景だけを不透明にする
+
+既定では、すべての文字セルの背景に端末背景の不透明度を使います。
+エスケープシーケンスで指定された背景色だけを不透明にするには、表示先に次のモードを設定します。
+`view`は作成済みのUI表示先です。
+
+```c
+boxrig_ui_status status = boxrig_ui_view_set_cell_background_mode(
+    view, BOXRIG_UI_CELL_BACKGROUND_OPAQUE_EXPLICIT);
+```
+
+このモードでは、16色・256色・RGBで指定したセル背景をalpha 255で描画します。
+既定背景とRGBが同じ場合も区別するため、空白や文字消去後のセルも対象です。
+通常の既定背景、SGR 49やリセットで戻した背景、OSC 11で色を変更した既定背景は、従来の透過設定に従います。
+
+反転表示では、反転後に背景へ移った色の出自で判断します。
+既定前景色も、反転で背景になれば不透明にします。
+注釈で背景を上書きした場合は、その指定色の出自を使います。
+RGB補正だけでは出自は変わりません。選択、カーソル、IME、画像はそれぞれの不透明度を維持します。
+
+設定の範囲は個々の表示先です。
+実行中に切り替えると既存セルや履歴を再描画し、alternate screenでも同じ規則を使います。
+元の透過動作へ戻すには`BOXRIG_UI_CELL_BACKGROUND_TRANSPARENT`を設定します。
+現在のモードは`boxrig_ui_view_get_cell_background_mode()`で取得できます。
+端末の論理色や文字は変更しないため、切替時に端末へ再出力する必要はありません。
+
 <a id="すりガラス効果の要求"></a>
 
 ## OSのすりガラス効果を要求する
@@ -98,7 +125,7 @@ Waylandでは設定後に所有者のsurface commitも必要です。
 | --- | --- |
 | Win32 | Windows 11 build 22621以降の[system backdrop](https://learn.microsoft.com/en-us/windows/win32/api/dwmapi/ne-dwmapi-dwm_systembackdrop_type) |
 | X11 | コンポジターが動作し、ルートウィンドウでKDE方式のぼかし能力を公開していること。[KDEの実装](https://github.com/KDE/kwindowsystem/blob/master/src/platforms/xcb/kwindoweffects.cpp)と同じ`_KDE_NET_WM_BLUR_BEHIND_REGION`プロパティを使用 |
-| Wayland | [ext-background-effect-v1](https://gitlab.freedesktop.org/wayland/wayland-protocols/-/blob/1.48/staging/ext-background-effect/ext-background-effect-v1.xml)のblur能力 |
+| Wayland | [ext-background-effect-v1](https://gitlab.freedesktop.org/wayland/wayland-protocols/-/blob/1.50/staging/ext-background-effect/ext-background-effect-v1.xml)のblur能力 |
 | GTK 3 | 任意adapterからX11またはWaylandのproviderへ接続 |
 | GTK 4/Wayland | 有効な経路には4.18以降の[commit要求API](https://docs.gtk.org/gdk4-wayland/method.WaylandSurface.force_next_commit.html)が必要 |
 | GTK 4/X11 | 現在は未提供。[XID取得APIの非推奨化](https://docs.gtk.org/gdk4-x11/method.X11Surface.get_xid.html)を理由に標準接続を採用していない |

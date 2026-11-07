@@ -10,6 +10,7 @@ You can also request a frosted-glass effect from the OS.
 | --- | --- |
 | A solid color behind the terminal | View background color |
 | A background image unaffected by scrolling | View background image |
+| Only explicitly specified cell backgrounds made opaque | View cell background mode |
 | Windows or the desktop behind the terminal | Component transparency settings and parent-window preparation |
 | A blurred desktop | Background effects on a supported OS |
 
@@ -74,6 +75,35 @@ Check effective scope and opacity with `get_transparency()` or its equivalent in
 The parent's owner prepares the parent window.
 For Win32 parent configuration in particular, see the [Win32 guide](./platforms/win32.md#transparency-and-parent-window-requirements).
 
+## Make explicit cell backgrounds opaque
+
+By default, every terminal cell background uses the terminal background opacity.
+To keep explicitly specified backgrounds opaque, configure the view as follows.
+`view` is an existing UI view.
+
+```c
+boxrig_ui_status status = boxrig_ui_view_set_cell_background_mode(
+    view, BOXRIG_UI_CELL_BACKGROUND_OPAQUE_EXPLICIT);
+```
+
+This mode renders 16-color, 256-color, and RGB cell backgrounds with alpha 255.
+It distinguishes explicit colors even when their RGB matches the default background,
+and applies to blank and erased cells as well.
+Default backgrounds, including SGR 49, rendition resets, and OSC 11 color changes,
+continue to use the existing transparency setting.
+
+For inverse video, the origin of the color after inversion determines opacity.
+A default foreground moved into the background is opaque.
+Background annotation overrides use the origin of their specified color.
+RGB filtering does not change origins. Selection, cursor, IME, and images retain
+their respective opacity policies.
+
+The setting belongs to each view independently.
+Changing it repaints existing cells and history, and the same rules apply on the alternate screen.
+Set `BOXRIG_UI_CELL_BACKGROUND_TRANSPARENT` to restore the original transparency behavior.
+Read the current mode with `boxrig_ui_view_get_cell_background_mode()`.
+Logical terminal colors and text are unchanged, so no terminal output needs to be replayed.
+
 <a id="すりガラス効果の要求"></a>
 
 ## Request an OS frosted-glass effect
@@ -98,7 +128,7 @@ Wayland also requires a surface commit by the owner after configuration.
 | --- | --- |
 | Win32 | [System backdrop](https://learn.microsoft.com/en-us/windows/win32/api/dwmapi/ne-dwmapi-dwm_systembackdrop_type) on Windows 11 build 22621 or later |
 | X11 | A running compositor advertising KDE-style blur support on the root window; uses the same `_KDE_NET_WM_BLUR_BEHIND_REGION` property as the [KDE implementation](https://github.com/KDE/kwindowsystem/blob/master/src/platforms/xcb/kwindoweffects.cpp) |
-| Wayland | The blur capability of [ext-background-effect-v1](https://gitlab.freedesktop.org/wayland/wayland-protocols/-/blob/1.48/staging/ext-background-effect/ext-background-effect-v1.xml) |
+| Wayland | The blur capability of [ext-background-effect-v1](https://gitlab.freedesktop.org/wayland/wayland-protocols/-/blob/1.50/staging/ext-background-effect/ext-background-effect-v1.xml) |
 | GTK 3 | An optional adapter connecting to the X11 or Wayland provider |
 | GTK 4/Wayland | A usable route requires the [commit request API](https://docs.gtk.org/gdk4-wayland/method.WaylandSurface.force_next_commit.html) from 4.18 or later |
 | GTK 4/X11 | Not currently provided; the standard integration was not adopted because the [XID retrieval API is deprecated](https://docs.gtk.org/gdk4-x11/method.X11Surface.get_xid.html) |

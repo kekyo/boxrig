@@ -774,6 +774,24 @@ static gboolean render_gl_frame(GtkGLArea *area, GdkGLContext *context, gpointer
     }
     boxrig_gl_target previous = {0};
     (void)boxrig_gtk_gl_surface_get_target(widget->gl_surface, &previous);
+    if (widget->gl_presented && !input_geometry_ready(widget) &&
+        previous.width == destination.width && previous.height == destination.height &&
+        previous.format == destination.format && previous.alpha_mode == destination.alpha_mode &&
+        previous.origin == destination.origin) {
+        /* A metrics-only allocation still needs its native draw boundary.
+         * Re-present the complete image at the unchanged extent until the
+         * host finishes resizing the grid. Replacing the font here would
+         * draw its new metrics against the old core rows and consume dirty
+         * before the matching layout is ready. */
+        if (boxrig_gtk_gl_surface_present(widget->gl_surface, &destination,
+                &widget->render_state) != BOXRIG_UI_OK) {
+            gl_failed(widget);
+            return TRUE;
+        }
+        widget->gl_pending = false;
+        widget->presentation_allocation_generation = widget->allocation_generation;
+        return TRUE;
+    }
     bool replace = widget->gl_surface == NULL || previous.format != destination.format ||
         previous.alpha_mode != destination.alpha_mode || previous.origin != destination.origin ||
         widget->gl_font_revision != metrics.layout_revision ||

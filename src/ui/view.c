@@ -136,6 +136,16 @@ struct boxrig_ui_host_item_consumer {
     boxrig_ui_model *model;
 };
 
+/* Pointer geometry is independent of expanded word/line selection boundaries.
+ * No borrowed layout or viewport coordinate is retained here. */
+typedef struct selection_endpoint {
+    boxrig_text_range grapheme;
+    boxrig_text_range character;
+    boxrig_text_position position;
+    size_t fragment_offset;
+    size_t visual_boundary;
+} selection_endpoint;
+
 struct boxrig_ui_view {
     boxrig_ui_fragment_layout_provider *fragment_layout_provider;
     uint64_t font_width_revision;
@@ -204,12 +214,16 @@ struct boxrig_ui_view {
     bool grid_resize_pending;
     boxrig_ui_grid_resize grid_resize;
     boxrig_ui_transparency_state transparency;
+    boxrig_ui_cell_background_mode cell_background_mode;
     bool target_attached;
     boxrig_ui_render_target target;
     bool selection_active;
     boxrig_ui_selection selection;
     boxrig_text_position selection_origin_start;
     boxrig_text_position selection_origin_end;
+    selection_endpoint selection_pointer_anchor;
+    selection_endpoint selection_pointer_focus;
+    bool selection_endpoints_valid;
     boxrig_ui_selection_row_slice *selection_rows;
     boxrig_ui_selection_row_range *selection_ranges;
     boxrig_text_search_cursor *search_cursor;
@@ -2323,6 +2337,7 @@ static void mark_rectangular_selection_stale(boxrig_ui_view *view)
 {
     bool selected_screen_active;
 
+    if (view != NULL) view->selection_endpoints_valid = false;
     if (view == NULL || !view->selection_active ||
         view->selection.shape != BOXRIG_UI_SELECTION_RECTANGULAR ||
         view->selection.stale) {
@@ -2911,6 +2926,7 @@ boxrig_ui_status boxrig_ui_view_create(
     view->layout_generation = 1;
     view->annotation_generation = 1;
     view->color_filter_revision = 1;
+    view->cell_background_mode = BOXRIG_UI_CELL_BACKGROUND_TRANSPARENT;
     view->visible = true;
     view->blink.config = config->blink;
     view->blink.cursor_style = boxrig_ui_cursor_style_default();
@@ -5145,7 +5161,7 @@ static boxrig_ui_status materialize_rectangular_rows(
 
 static boxrig_ui_status line_selection_unit(
     boxrig_ui_view *view,
-    const boxrig_ui_hit_test_result *hit,
+    const boxrig_text_position *leading,
     boxrig_text_range *unit_out)
 {
     boxrig_terminal *terminal = view->model->terminal;
@@ -5157,8 +5173,8 @@ static boxrig_ui_status line_selection_unit(
 
     if (!find_line_bounds(
             view->model,
-            hit->leading_position.screen,
-            hit->leading_position.line_id,
+            leading->screen,
+            leading->line_id,
             &first,
             &end)) {
         return BOXRIG_UI_STALE;
@@ -5167,10 +5183,10 @@ static boxrig_ui_status line_selection_unit(
     (void)rows;
     fragment_count = boxrig_terminal_text_fragment_count(
         terminal,
-        hit->leading_position.screen);
+        leading->screen);
     if (boxrig_terminal_get_text_position(
             terminal,
-            hit->leading_position.screen,
+            leading->screen,
             first,
             0,
             &unit_out->start) != BOXRIG_STATUS_OK) {
@@ -5179,7 +5195,7 @@ static boxrig_ui_status line_selection_unit(
     if (end < fragment_count) {
         if (boxrig_terminal_get_text_position(
                 terminal,
-                hit->leading_position.screen,
+                leading->screen,
                 end,
                 0,
                 &unit_out->end) != BOXRIG_STATUS_OK) {
@@ -5187,7 +5203,7 @@ static boxrig_ui_status line_selection_unit(
         }
     } else if (boxrig_terminal_get_text_position(
                    terminal,
-                   hit->leading_position.screen,
+                   leading->screen,
                    end - 1,
                    columns,
                    &unit_out->end) != BOXRIG_STATUS_OK) {
@@ -5198,7 +5214,8 @@ static boxrig_ui_status line_selection_unit(
 
 static boxrig_ui_status word_selection_unit(
     boxrig_ui_view *view,
-    const boxrig_ui_hit_test_result *hit,
+    const boxrig_text_position *leading,
+    const boxrig_text_range *character,
     boxrig_text_range *unit_out)
 {
     boxrig_terminal *terminal = view->model->terminal;
@@ -5225,8 +5242,8 @@ static boxrig_ui_status word_selection_unit(
 
     if (!find_line_bounds(
             view->model,
-            hit->leading_position.screen,
-            hit->leading_position.line_id,
+            leading->screen,
+            leading->line_id,
             &first,
             &end)) {
         return BOXRIG_UI_STALE;
@@ -5235,19 +5252,19 @@ static boxrig_ui_status word_selection_unit(
     (void)rows;
     if (boxrig_terminal_get_text_position(
             terminal,
-            hit->leading_position.screen,
+            leading->screen,
             first,
             0,
             &line_range.start) != BOXRIG_STATUS_OK ||
         boxrig_terminal_get_text_position(
             terminal,
-            hit->leading_position.screen,
+            leading->screen,
             end - 1,
             columns,
             &line_range.end) != BOXRIG_STATUS_OK) {
         return BOXRIG_UI_STALE;
     }
-    options.screen = hit->leading_position.screen;
+    options.screen = leading->screen;
     options.range = &line_range;
     options.byte_capacity = view->maximum_copy_bytes;
     options.line_capacity = 1;
@@ -5261,15 +5278,17 @@ static boxrig_ui_status word_selection_unit(
     bytes = boxrig_text_snapshot_data(snapshot, &byte_length);
     if (byte_length == 0) {
         boxrig_text_snapshot_destroy(snapshot);
-        return character_selection_unit(view, hit, unit_out);
+        *unit_out = *character;
+        return BOXRIG_UI_OK;
     }
     core_status = boxrig_text_snapshot_byte_offset_at_position(
         snapshot,
-        &hit->leading_position,
+        leading,
         &hit_offset);
     if (core_status != BOXRIG_STATUS_OK) {
         boxrig_text_snapshot_destroy(snapshot);
-        return character_selection_unit(view, hit, unit_out);
+        *unit_out = *character;
+        return BOXRIG_UI_OK;
     }
     if (byte_length > SIZE_MAX / sizeof(*codepoints) ||
         byte_length == SIZE_MAX ||
@@ -5369,9 +5388,62 @@ static boxrig_ui_status selection_unit(
     case BOXRIG_UI_SELECTION_CHARACTER:
         return character_selection_unit(view, hit, unit_out);
     case BOXRIG_UI_SELECTION_WORD:
-        return word_selection_unit(view, hit, unit_out);
+        {
+        boxrig_text_range character;
+        character_selection_unit(view, hit, &character);
+        return word_selection_unit(view, &hit->leading_position, &character, unit_out);
+    }
     case BOXRIG_UI_SELECTION_LINE:
-        return line_selection_unit(view, hit, unit_out);
+        return line_selection_unit(view, &hit->leading_position, unit_out);
+    default:
+        return BOXRIG_UI_INVALID_ARGUMENT;
+    }
+}
+
+static bool capture_selection_endpoint(boxrig_ui_view *view,
+    const boxrig_ui_hit_test_result *hit, selection_endpoint *endpoint)
+{
+    boxrig_text_screen screen;
+    size_t index;
+    boxrig_text_fragment_view fragment;
+    if (!rectangular_hit_boundary(view, hit, &endpoint->visual_boundary) ||
+        !hit_names_current_grapheme(view, hit, &endpoint->grapheme) ||
+        !view_fragment_index(view, hit->row, &screen, &index) ||
+        boxrig_terminal_get_text_fragment(view->model->terminal, screen, index,
+            &fragment) != BOXRIG_STATUS_OK) return false;
+    endpoint->position = hit->position;
+    endpoint->fragment_offset = fragment.logical_column_offset;
+    character_selection_unit(view, hit, &endpoint->character);
+    return true;
+}
+
+static bool rebase_selection_endpoint(boxrig_ui_view *view,
+    selection_endpoint *endpoint)
+{
+    boxrig_terminal *terminal = view->model->terminal;
+    boxrig_text_range grapheme, character;
+    size_t index;
+    if (!find_text_fragment(view, endpoint->position.screen, endpoint->position.line_id,
+            endpoint->fragment_offset, endpoint->position.line_revision, &index) ||
+        boxrig_terminal_rebase_text_range(terminal, &endpoint->grapheme, &grapheme) != BOXRIG_STATUS_OK ||
+        boxrig_terminal_rebase_text_range(terminal, &endpoint->character, &character) != BOXRIG_STATUS_OK ||
+        rebase_text_position(terminal, &endpoint->position) != BOXRIG_STATUS_OK) return false;
+    endpoint->grapheme = grapheme;
+    endpoint->character = character;
+    return true;
+}
+
+static boxrig_ui_status endpoint_selection_unit(boxrig_ui_view *view,
+    boxrig_ui_selection_kind kind, const selection_endpoint *endpoint, boxrig_text_range *unit)
+{
+    switch (kind) {
+    case BOXRIG_UI_SELECTION_CHARACTER:
+        *unit = endpoint->character;
+        return BOXRIG_UI_OK;
+    case BOXRIG_UI_SELECTION_WORD:
+        return word_selection_unit(view, &endpoint->grapheme.start, &endpoint->character, unit);
+    case BOXRIG_UI_SELECTION_LINE:
+        return line_selection_unit(view, &endpoint->grapheme.start, unit);
     default:
         return BOXRIG_UI_INVALID_ARGUMENT;
     }
@@ -5479,6 +5551,8 @@ boxrig_ui_status boxrig_ui_view_begin_selection_with_options(
     view->selection_layout_revision = fragment_layout_revision(view);
     view->selection_origin_start = unit.start;
     view->selection_origin_end = unit.end;
+    view->selection_endpoints_valid = capture_selection_endpoint(view, hit, &view->selection_pointer_anchor);
+    view->selection_pointer_focus = view->selection_pointer_anchor;
     mark_selection_dirty(view);
     return BOXRIG_UI_OK;
 }
@@ -5543,6 +5617,8 @@ boxrig_ui_status boxrig_ui_view_update_selection(
         view->selection_ranges = replacement_ranges;
         view->selection_rows = replacement_rows;
         view->selection = replacement;
+        view->selection_endpoints_valid = view->selection_endpoints_valid &&
+            capture_selection_endpoint(view, hit, &view->selection_pointer_focus);
         mark_selection_dirty(view);
         return BOXRIG_UI_OK;
     }
@@ -5577,6 +5653,79 @@ boxrig_ui_status boxrig_ui_view_update_selection(
     }
     mark_selection_dirty(view);
     view->selection = replacement;
+    view->selection_endpoints_valid = view->selection_endpoints_valid &&
+        capture_selection_endpoint(view, hit, &view->selection_pointer_focus);
+    mark_selection_dirty(view);
+    return BOXRIG_UI_OK;
+}
+
+boxrig_ui_status boxrig_ui_view_update_selection_with_options(
+    boxrig_ui_view *view, const boxrig_ui_selection_options *options,
+    const boxrig_ui_hit_test_result *hit)
+{
+    if (view == NULL || options == NULL || !valid_selection_shape(options->shape) ||
+        !valid_selection_kind(options->kind) ||
+        (options->shape == BOXRIG_UI_SELECTION_RECTANGULAR && options->kind != BOXRIG_UI_SELECTION_CHARACTER))
+        return BOXRIG_UI_INVALID_ARGUMENT;
+    if (view->resolving_fragment_layout) return BOXRIG_UI_BUSY;
+    if (!view->selection_active) return BOXRIG_UI_UNAVAILABLE;
+    if (!view->selection_endpoints_valid || view->selection.stale || !selection_layout_is_current(view) ||
+        view->selection.screen != boxrig_terminal_active_text_screen(view->model->terminal)) return BOXRIG_UI_STALE;
+    /* Validate the old selection before building a replacement. Failure must
+     * not publish a new focus, expansion unit, or partially materialized rows. */
+    boxrig_text_range retained;
+    if (view->selection.shape == BOXRIG_UI_SELECTION_LINEAR) {
+        if (boxrig_terminal_rebase_text_range(view->model->terminal, &view->selection.range, &retained) != BOXRIG_STATUS_OK)
+            return BOXRIG_UI_STALE;
+    } else if (!rectangular_selection_rows_are_current(view)) return BOXRIG_UI_STALE;
+    selection_endpoint anchor = view->selection_pointer_anchor;
+    selection_endpoint focus = view->selection_pointer_focus;
+    if (!rebase_selection_endpoint(view, &anchor) || !rebase_selection_endpoint(view, &focus)) return BOXRIG_UI_STALE;
+    if (hit != NULL && !capture_selection_endpoint(view, hit, &focus)) return BOXRIG_UI_STALE;
+    if (anchor.position.screen != focus.position.screen) return BOXRIG_UI_STALE;
+    boxrig_ui_selection replacement = {0};
+    replacement.shape = options->shape;
+    replacement.kind = options->kind;
+    replacement.screen = anchor.position.screen;
+    replacement.layout_generation = view->layout_generation;
+    replacement.text_revision = boxrig_terminal_text_revision(view->model->terminal);
+    boxrig_text_range origin = anchor.grapheme;
+    boxrig_ui_selection_row_slice *rows = NULL;
+    boxrig_ui_selection_row_range *ranges = NULL;
+    if (options->shape == BOXRIG_UI_SELECTION_RECTANGULAR) {
+        replacement.anchor = anchor.position;
+        replacement.focus = focus.position;
+        replacement.anchor_fragment_logical_column_offset = anchor.fragment_offset;
+        replacement.focus_fragment_logical_column_offset = focus.fragment_offset;
+        replacement.anchor_visual_column = anchor.visual_boundary;
+        replacement.focus_visual_column = focus.visual_boundary;
+        if (!project_rectangular_selection(view, &replacement)) return BOXRIG_UI_STALE;
+        boxrig_ui_status status = materialize_rectangular_rows(view, &replacement, false, &rows, &ranges);
+        if (status != BOXRIG_UI_OK) return status;
+    } else {
+        boxrig_text_range unit;
+        boxrig_ui_status status = endpoint_selection_unit(view, options->kind, &anchor, &origin);
+        if (status != BOXRIG_UI_OK) return status;
+        status = endpoint_selection_unit(view, options->kind, &focus, &unit);
+        if (status != BOXRIG_UI_OK) return status;
+        int comparison;
+        if (!compare_text_positions(view->model, &unit.start, &origin.start, &comparison)) return BOXRIG_UI_STALE;
+        replacement.range_valid = true;
+        replacement.anchor = comparison < 0 ? origin.end : origin.start;
+        replacement.focus = comparison < 0 ? unit.start : unit.end;
+        replacement.range.start = comparison < 0 ? unit.start : origin.start;
+        replacement.range.end = comparison < 0 ? origin.end : unit.end;
+    }
+    mark_selection_dirty(view);
+    free(view->selection_rows);
+    free(view->selection_ranges);
+    view->selection_rows = rows;
+    view->selection_ranges = ranges;
+    view->selection = replacement;
+    view->selection_origin_start = origin.start;
+    view->selection_origin_end = origin.end;
+    view->selection_pointer_anchor = anchor;
+    view->selection_pointer_focus = focus;
     mark_selection_dirty(view);
     return BOXRIG_UI_OK;
 }
@@ -6417,6 +6566,24 @@ boxrig_ui_status boxrig_ui_view_set_background_image(boxrig_ui_view *view,
 boxrig_ui_background_image_view boxrig_ui_view_get_background_image(const boxrig_ui_view *view)
 {
     return view == NULL ? (boxrig_ui_background_image_view){0} : view->background_image;
+}
+
+boxrig_ui_status boxrig_ui_view_set_cell_background_mode(
+    boxrig_ui_view *view, boxrig_ui_cell_background_mode mode)
+{
+    if (view == NULL || mode < BOXRIG_UI_CELL_BACKGROUND_TRANSPARENT ||
+        mode > BOXRIG_UI_CELL_BACKGROUND_OPAQUE_EXPLICIT)
+        return BOXRIG_UI_INVALID_ARGUMENT;
+    if (view->resolving_colors) return BOXRIG_UI_BUSY;
+    if (view->cell_background_mode == mode) return BOXRIG_UI_OK;
+    view->cell_background_mode = mode;
+    return boxrig_ui_view_invalidate_colors(view);
+}
+
+boxrig_ui_cell_background_mode boxrig_ui_view_get_cell_background_mode(
+    const boxrig_ui_view *view)
+{
+    return view == NULL ? BOXRIG_UI_CELL_BACKGROUND_TRANSPARENT : view->cell_background_mode;
 }
 
 boxrig_ui_status boxrig_ui_view_set_transparency_config(
@@ -7391,6 +7558,10 @@ boxrig_ui_status boxrig_ui_view_resolve_cell_paint(boxrig_ui_view *view,
     size_t row, size_t column, boxrig_ui_color_filter_input *input,
     boxrig_ui_cell_paint *paint)
 {
+    /* Select cell alpha before selection can replace its source with a UI color. */
+    if (view->cell_background_mode == BOXRIG_UI_CELL_BACKGROUND_OPAQUE_EXPLICIT &&
+        input->background_source.role != BOXRIG_UI_COLOR_DEFAULT_BACKGROUND)
+        input->background_opacity = 255;
     const boxrig_ui_selection_style *style = &view->selection_style;
     const bool selected = (input->state_flags & BOXRIG_UI_COLOR_SELECTED) != 0;
     const bool filled = selected && style->presentation != BOXRIG_UI_SELECTION_OUTLINE &&
@@ -7412,7 +7583,7 @@ boxrig_ui_status boxrig_ui_view_resolve_cell_paint(boxrig_ui_view *view,
             row, column, input, &colors);
         if (status != BOXRIG_UI_OK) return status;
     }
-    *paint = (boxrig_ui_cell_paint){colors, colors, {0}, 0};
+    *paint = (boxrig_ui_cell_paint){colors, colors, {0}, 0, base.background_opacity};
     if (!filled) return BOXRIG_UI_OK;
     boxrig_ui_color_filter_result background = base.colors;
     if (style->background_opacity < 255 && boxrig_ui_view_has_color_filter(view)) {

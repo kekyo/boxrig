@@ -1,7 +1,7 @@
 # Architecture-independent generation, also callable without the native UI SDKs.
 BUILD_DIR ?= build
-WAYLAND_PROTOCOLS_VERSION := 1.48
-# Pinned submodule release: https://gitlab.freedesktop.org/wayland/wayland-protocols/-/tags/1.48
+WAYLAND_PROTOCOLS_VERSION := 1.50
+# Pinned submodule release: https://gitlab.freedesktop.org/wayland/wayland-protocols/-/tags/1.50
 WAYLAND_PROTOCOLS_DIR := deps/wayland-protocols
 WAYLAND_VIEWPORTER_XML := $(WAYLAND_PROTOCOLS_DIR)/stable/viewporter/viewporter.xml
 WAYLAND_FRACTIONAL_SCALE_XML := $(WAYLAND_PROTOCOLS_DIR)/staging/fractional-scale/fractional-scale-v1.xml

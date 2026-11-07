@@ -1448,7 +1448,7 @@ test: test-package-licenses test-wayland-candidates-startup test-wayland-input t
 	$(XVFB_RUN) -a env LIBGL_ALWAYS_SOFTWARE=1 ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(OPENGL_RUNTIME_TEST_BINARY) glx
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(UI_TEST_BINARY)
 	node tools/unicode/generate-word-break.mjs --check
-	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(SELECTION_TEST_BINARY) resources/unicode/17.0.0/WordBreakTest.txt
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(SELECTION_TEST_BINARY) resources/unicode/18.0.0/WordBreakTest.txt
 	$(XVFB_RUN) -a env ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(UI_PLATFORM_FIXTURE_TEST_BINARY)
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(PANGO_CAIRO_FIXTURE_TEST_BINARY)
 	$(XVFB_RUN) -a env ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(X11_COMPONENT_FIXTURE_TEST_BINARY) "$(TEST_FONT_FILE)"
@@ -2515,7 +2515,17 @@ $(SELECTION_TEST_BINARY): tests/test_selection.c src/ui/word_break.h \
 		$(UI_LIBRARY) $(LIBRARY) $(SANITIZERS) -o $@
 
 .PHONY: test-selection-history test-rectangular-copy
-test: test-selection-history test-selection-layout-provider test-rectangular-copy
+test: test-selection-history test-selection-layout-provider test-rectangular-copy test-selection-mode
+.PHONY: test-selection-mode
+test-selection-mode: $(BUILD_DIR)/tests/test_selection_mode
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
+
+$(BUILD_DIR)/tests/test_selection_mode: tests/test_selection_mode.c \
+		$(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) \
+		$(SANITIZERS) $< $(UI_LIBRARY) $(LIBRARY) $(SANITIZERS) \
+		-Wl,--wrap=malloc -Wl,--wrap=realloc -o $@
+
 test-rectangular-copy: $(BUILD_DIR)/tests/test_rectangular_copy
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
 

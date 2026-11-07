@@ -1662,6 +1662,52 @@ static bool rectangular_selection_can_cross_zero_width(void)
     return true;
 }
 
+static bool word_selection_includes_unicode18_katakana(void)
+{
+    /* U+30A2, U+1B127 (new in Unicode 18), U+30A4 form one Katakana word. */
+    static const uint8_t word[] = "\xe3\x82\xa2\xf0\x9b\x84\xa7\xe3\x82\xa4";
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    config.rows = 1;
+    config.columns = 10;
+    boxrig_terminal *terminal = NULL;
+    boxrig_ui_model *model = NULL;
+    boxrig_ui_view *view = NULL;
+    boxrig_ui_view_config view_config = boxrig_ui_view_config_default();
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    size_t consumed = 0;
+    CHECK(boxrig_terminal_feed(terminal, word, sizeof(word) - 1, &consumed) ==
+          BOXRIG_STATUS_OK);
+    CHECK(consumed == sizeof(word) - 1);
+    CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_create(model, &view_config, &view) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_acquire_layout_authority(view) == BOXRIG_UI_OK);
+    boxrig_ui_allocation_input allocation = {
+        .allocation_width = pixels(100), .allocation_height = pixels(10),
+        .cell_width = pixels(10), .cell_height = pixels(10),
+        .cell_metrics_revision = 1, .window_state = BOXRIG_UI_WINDOW_NORMAL
+    };
+    boxrig_ui_layout_result layout;
+    CHECK(boxrig_ui_view_accept_allocation(view, &allocation, &layout) == BOXRIG_UI_OK);
+    boxrig_ui_hit_test_result hit;
+    CHECK(boxrig_ui_view_hit_test(view, pixels(1), pixels(1), &hit) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_begin_selection(view, BOXRIG_UI_SELECTION_WORD, &hit) ==
+          BOXRIG_UI_OK);
+    boxrig_text_snapshot *copy = NULL;
+    CHECK(boxrig_ui_view_create_selection_snapshot(view, &copy) == BOXRIG_UI_OK);
+    size_t length = 0;
+    const uint8_t *bytes = boxrig_text_snapshot_data(copy, &length);
+    CHECK(length == sizeof(word) - 1);
+    CHECK(memcmp(bytes, word, length) == 0);
+    boxrig_text_layout_range range;
+    CHECK(boxrig_ui_view_selection_visual_ranges(view, 0, &range, 1) == 1);
+    CHECK(range.column == 0 && range.column_count == 6);
+    boxrig_text_snapshot_destroy(copy);
+    boxrig_ui_view_destroy(view);
+    boxrig_ui_model_destroy(model);
+    boxrig_terminal_destroy(terminal);
+    return true;
+}
+
 static bool unicode_word_break_conformance(const char *path)
 {
     char line[8192];
@@ -2091,6 +2137,7 @@ int main(int argc, char **argv)
         !rectangular_selection_distinguishes_soft_and_hard_rows() ||
         !rectangular_selection_tracks_stable_view_lifecycle() ||
         !rectangular_selection_rejects_changed_physical_geometry() ||
+        !word_selection_includes_unicode18_katakana() ||
         !unicode_word_break_conformance(argv[1])) {
         return EXIT_FAILURE;
     }

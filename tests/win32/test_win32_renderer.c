@@ -3613,6 +3613,36 @@ static bool render_background_layer(void)
     CHECK(boxrig_win32_renderer_update_view(renderer, view) == 0);
     CHECK(memcmp(pixels, baseline, count * sizeof(*pixels)) == 0);
     free(baseline);
+    CHECK(feed_text(terminal, "\033c\033[?25l\033]10;#e0e0e0\007\033]11;#202020\007"
+        " \033[48;2;0;255;0m \033[48;2;32;32;32m \033[0;7m \033[0m "));
+    CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+    unsigned width = boxrig_win32_renderer_cell_width(renderer);
+    unsigned height = boxrig_win32_renderer_cell_height(renderer);
+    const uint8_t alphas[] = {0, 128, 255};
+    for (unsigned alpha = 0; alpha < 3; alpha++) {
+        state.effective_background_opacity = alphas[alpha];
+        CHECK(boxrig_win32_renderer_apply_transparency_state(renderer, &state) == 0);
+        for (unsigned mode = 0; mode < 3; mode++) {
+            CHECK(boxrig_ui_view_set_cell_background_mode(view, mode == 1 ?
+                BOXRIG_UI_CELL_BACKGROUND_OPAQUE_EXPLICIT : BOXRIG_UI_CELL_BACKGROUND_TRANSPARENT) == BOXRIG_UI_OK);
+            for (unsigned blue = 0; blue < 2; blue++) {
+                CHECK(boxrig_ui_view_set_background_color(view,
+                    (boxrig_ui_rgba){blue ? 0 : 255, 0, blue ? 255 : 0, 255}) == BOXRIG_UI_OK);
+                CHECK(boxrig_win32_renderer_update_view(renderer, view) == 0);
+                CHECK(renderer_surface_pixels(renderer, &surface, &size, &pixels, &stride));
+                for (unsigned column = 0; column < 5; column++) {
+                    uint32_t color = column == 1 ? 0x00ff00 : column == 3 ? 0xe0e0e0 : 0x202020;
+                    uint8_t opacity = mode == 1 && column > 0 && column < 4 ? 255 : alphas[alpha];
+                    uint32_t expected = 0xff000000;
+                    uint32_t layer = blue ? 0x0000ff : 0xff0000;
+                    for (unsigned shift = 0; shift < 24; shift += 8)
+                        expected |= (((((color >> shift) & 255) * opacity + 127) / 255) +
+                            ((((layer >> shift) & 255) * (255 - opacity) + 127) / 255)) << shift;
+                    CHECK(pixels[height / 2 * stride + column * width + width / 2] == expected);
+                }
+            }
+        }
+    }
     boxrig_ui_view_destroy(view); boxrig_ui_model_destroy(model);
     boxrig_terminal_destroy(terminal); boxrig_win32_renderer_destroy(renderer);
     DeleteDC(dc);
