@@ -48,9 +48,12 @@ In-terminal images using Kitty graphics:
 
 ![Kitty graphics images](./images/kitty-image-static.png)
 
-Overlaying an image on a backdrop and then making the background transparent ([elder-terms](https://giuthub.com/kekyo/elder-terms/)).
+Overlaying an image on a backdrop and then making the background transparent ([elder-terms](https://github.com/kekyo/elder-terms/)).
 
 ![Transparent background example](./images/transparent-background.png)
+
+One of boxrig's first-party projects is [elder-terms](https://github.com/kekyo/elder-terms/).
+Since it covers a wide range of features, if you want to see what boxrig can actually do, give elder-terms a try.
 
 ## Implementation examples
 

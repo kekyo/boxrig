@@ -47,9 +47,12 @@ Kitty graphicsによるターミナル内の画像表示:
 
 透過背景:
 
-端末背景に画像を重ね、更に背景透過を行った例([elder-terms](https://giuthub.com/kekyo/elder-terms/))。
+端末背景に画像を重ね、更に背景透過を行った例([elder-terms](https://github.com/kekyo/elder-terms/))。
 
 ![透過背景の表示例](./images/transparent-background.png)
+
+boxrigのファーストパーティプロジェクトとして、 [elder-terms](https://github.com/kekyo/elder-terms/) があります。
+様々な機能を網羅しているので、現実的にboxrigで何が出来るのかを確認したい場合は、elder-termsを試して下さい。
 
 ## 実装例
 
