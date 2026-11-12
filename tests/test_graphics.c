@@ -3828,6 +3828,131 @@ static bool test_raw_apc_chunks_and_empty_final_chunk(void)
     return true;
 }
 
+static bool test_independently_padded_chunks_at_every_input_split(void)
+{
+    static const char *const inputs[] = {
+        "\x1b_Ga=T,i=132,f=32,s=2,v=2,c=2,r=2,C=1,m=1;"
+        "/wAA/wD/AIAAAP8A////fw==\x1b\\\x1b_Gm=0\x1b\\",
+        "\x1b_Ga=T,i=132,f=32,s=2,v=2,c=2,r=2,C=1,m=1\x1b\\"
+        "\x1b_Gm=1;/wAA/w==\x1b\\\x1b_Gm=1;AP8AgA==\x1b\\"
+        "\x1b_Gm=1;AAD/AA==\x1b\\\x1b_Gm=0;////fw==\x1b\\",
+        "\x1b_Ga=T,i=132,f=32,s=2,v=2,c=2,r=2,C=1,o=z,m=1;eA==\x1b\\"
+        "\x1b_Gm=1;nPvPwPCf4T8=\x1b\\"
+        "\x1b_Gm=1;QwOY+v+/HgA72Af5\x1b\\\x1b_Gm=0;\x1b\\",
+        "\x1b_Ga=T,i=132,f=100,c=2,r=2,C=1,m=1;iQ==\x1b\\"
+        "\x1b_Gm=1;UE5HDQoaCgA=\x1b\\"
+        "\x1b_Gm=1;AAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAF0lEQVR4nGP4z8Dw"
+        "n+E/QwMDmP7/vx4AP1cH+TNnSIYAAAAASUVORK5CYII=\x1b\\"
+        "\x1b_Gm=0\x1b\\"
+    };
+    static const uint8_t expected_pixels[] = {
+        255, 0, 0, 255, 0, 255, 0, 128,
+        0, 0, 255, 0, 255, 255, 255, 127
+    };
+    static const uint8_t expected_response[] = "\x1b_Gi=132;OK\x1b\\";
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+
+    config.rows = 2;
+    config.columns = 2;
+    for (size_t index = 0; index < sizeof(inputs) / sizeof(inputs[0]); index++) {
+        const uint8_t *input = (const uint8_t *)inputs[index];
+        size_t length = strlen(inputs[index]);
+
+        for (size_t split = 0; split <= length; split++) {
+            boxrig_terminal *terminal = NULL;
+            boxrig_image_handle handle = 0;
+            boxrig_image_view image;
+            boxrig_image_placement_view placement;
+            const uint8_t *output = NULL;
+            size_t consumed = 0;
+
+            CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+            CHECK(boxrig_terminal_set_cell_pixel_geometry(terminal, 1, 1) ==
+                  BOXRIG_STATUS_OK);
+            CHECK(boxrig_terminal_feed(terminal, input, split, &consumed) ==
+                  BOXRIG_STATUS_OK);
+            CHECK(consumed == split);
+            if (split < length) {
+                CHECK(boxrig_terminal_image_count(terminal) == 0);
+                CHECK(boxrig_terminal_image_placement_count(terminal) == 0);
+                CHECK(boxrig_terminal_output_peek(terminal, &output) == 0);
+            }
+            CHECK(boxrig_terminal_feed(
+                      terminal, input + split, length - split, &consumed) ==
+                  BOXRIG_STATUS_OK);
+            CHECK(consumed == length - split);
+            CHECK(boxrig_terminal_image_count(terminal) == 1);
+            CHECK(boxrig_terminal_image_handle_at(terminal, 0, &handle) ==
+                  BOXRIG_STATUS_OK);
+            CHECK(boxrig_terminal_get_image(terminal, handle, &image) ==
+                  BOXRIG_STATUS_OK);
+            CHECK(image.image_id == 132);
+            CHECK(image.width == 2 && image.height == 2);
+            CHECK(image.rgba_length == sizeof(expected_pixels));
+            CHECK(memcmp(image.rgba, expected_pixels, sizeof(expected_pixels)) == 0);
+            CHECK(boxrig_terminal_image_placement_count(terminal) == 1);
+            CHECK(boxrig_terminal_get_image_placement(terminal, 0, &placement) ==
+                  BOXRIG_STATUS_OK);
+            CHECK(placement.image_handle == handle);
+            CHECK(placement.columns == 2 && placement.rows == 2);
+            CHECK(boxrig_terminal_output_peek(terminal, &output) ==
+                  sizeof(expected_response) - 1);
+            CHECK(memcmp(output, expected_response, sizeof(expected_response) - 1) == 0);
+            boxrig_terminal_destroy(terminal);
+        }
+    }
+    return true;
+}
+
+static bool test_invalid_padded_chunks_preserve_existing_image(void)
+{
+    static const char *const invalid[] = {
+        "AA=A", "AB==", "AAB=", "AA==AA==", "AA_A", "AAA"
+    };
+    static const uint8_t initial[] =
+        "\x1b_Ga=t,i=133,f=32,s=1,v=1;AQIDBA==\x1b\\";
+    static const uint8_t expected_pixels[] = {1, 2, 3, 4};
+    static const uint8_t expected_response[] =
+        "\x1b_Gi=133;OK\x1b\\"
+        "\x1b_Gi=133;EINVAL:invalid command\x1b\\"
+        "\x1b_Gi=134;OK\x1b\\";
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+
+    for (size_t index = 0; index < sizeof(invalid) / sizeof(invalid[0]); index++) {
+        boxrig_terminal *terminal = NULL;
+        boxrig_image_handle handle = 0;
+        boxrig_image_view image;
+        const uint8_t *output = NULL;
+        char input[256];
+        size_t consumed = 0;
+        int length = snprintf(
+            input, sizeof(input),
+            "\x1b_Ga=t,i=133,f=32,s=1,v=1,m=1;AQ==\x1b\\"
+            "\x1b_Gm=1;%s\x1b\\"
+            "\x1b_Ga=t,i=134,f=24,s=1,v=1;BQYH\x1b\\", invalid[index]);
+
+        CHECK(length > 0 && (size_t)length < sizeof(input));
+        CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+        CHECK(boxrig_terminal_feed(terminal, initial, sizeof(initial) - 1,
+                                  &consumed) == BOXRIG_STATUS_OK);
+        CHECK(boxrig_terminal_image_handle_at(terminal, 0, &handle) ==
+              BOXRIG_STATUS_OK);
+        CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)input,
+                                  (size_t)length, &consumed) == BOXRIG_STATUS_OK);
+        CHECK(consumed == (size_t)length);
+        CHECK(boxrig_terminal_image_count(terminal) == 2);
+        CHECK(boxrig_terminal_get_image(terminal, handle, &image) == BOXRIG_STATUS_OK);
+        CHECK(image.image_id == 133);
+        CHECK(image.rgba_length == sizeof(expected_pixels));
+        CHECK(memcmp(image.rgba, expected_pixels, sizeof(expected_pixels)) == 0);
+        CHECK(boxrig_terminal_output_peek(terminal, &output) ==
+              sizeof(expected_response) - 1);
+        CHECK(memcmp(output, expected_response, sizeof(expected_response) - 1) == 0);
+        boxrig_terminal_destroy(terminal);
+    }
+    return true;
+}
+
 static bool test_raw_chunk_errors_and_new_command_abort_old_upload(void)
 {
     static const uint8_t input[] =
@@ -3838,7 +3963,7 @@ static bool test_raw_chunk_errors_and_new_command_abort_old_upload(void)
         "\x1b_Ga=t,i=165,f=24,s=1,v=1,m=1;AAAA\x1b\\"
         "\x1b_Gm=0,s=1;AAAA\x1b\\"
         "\x1b_Ga=t,i=166,f=24,s=1,v=1;BwgJ\x1b\\"
-        "\x1b_Ga=t,i=167,f=32,s=1,v=1,m=1;AAAAAA==\x1b\\";
+        "\x1b_Ga=t,i=167,f=32,s=1,v=1,m=1;AAAAAA==A\x1b\\";
     static const uint8_t expected_output[] =
         "\x1b_Gi=161;EINVAL:invalid command\x1b\\"
         "\x1b_Gi=162;OK\x1b\\"
@@ -4181,14 +4306,9 @@ static bool test_zlib_and_png_apc_chunk_boundaries(void)
          fixture_index < sizeof(fixtures) / sizeof(fixtures[0]);
          fixture_index++) {
         size_t payload_length = strlen(fixtures[fixture_index].payload);
-        size_t last_split = payload_length;
         size_t split;
 
-        if (last_split != 0 &&
-            fixtures[fixture_index].payload[last_split - 1] == '=') {
-            last_split -= 4;
-        }
-        for (split = 0; split <= last_split; split += 4) {
+        for (split = 0; split <= payload_length; split += 4) {
             boxrig_terminal *terminal = NULL;
             boxrig_image_handle handle = 0;
             boxrig_image_view image;
@@ -7889,6 +8009,10 @@ int main(void)
          test_raw_base64_validation_and_query_is_non_mutating},
         {"raw APC chunks and empty final chunk",
          test_raw_apc_chunks_and_empty_final_chunk},
+        {"independently padded chunks at every input split",
+         test_independently_padded_chunks_at_every_input_split},
+        {"invalid padded chunks preserve existing image",
+         test_invalid_padded_chunks_preserve_existing_image},
         {"raw chunk errors and new command abort old upload",
          test_raw_chunk_errors_and_new_command_abort_old_upload},
         {"raw dimensions and decode capacity are bounded",

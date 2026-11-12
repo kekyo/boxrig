@@ -2928,6 +2928,14 @@ $(POSIX_EXAMPLE_COMMON_TEST_BINARY): tests/test_posix_example_common.c \
 		examples/boxrig_term/common/posix_application.c $(POSIX_LIBRARY) \
 		$(SESSION_LIBRARY) $(UI_LIBRARY) $(LIBRARY) -lutil $(SANITIZERS) -o $@
 
+.PHONY: test-example-environment
+test: test-example-environment
+test-example-environment: $(EXAMPLE_BINARY) $(GTK3_EXAMPLE_BINARY) $(GTK4_EXAMPLE_BINARY) $(WAYLAND_EXAMPLE_BINARY)
+	$(XVFB_RUN) -a env GDK_BACKEND=x11 GTK_IM_MODULE=gtk-im-context-simple NO_AT_BRIDGE=1 GSK_RENDERER=cairo BOXRIG_TEST_SAMPLE_BINARY=$(EXAMPLE_BINARY) BOXRIG_TEST_SAMPLE_RENDERER=x11 tests/test_example_environment.sh
+	$(XVFB_RUN) -a env GDK_BACKEND=x11 GTK_IM_MODULE=gtk-im-context-simple NO_AT_BRIDGE=1 BOXRIG_TEST_SAMPLE_BINARY=$(GTK3_EXAMPLE_BINARY) BOXRIG_TEST_SAMPLE_RENDERER=cairo tests/test_example_environment.sh
+	$(XVFB_RUN) -a env GDK_BACKEND=x11 GTK_IM_MODULE=gtk-im-context-simple NO_AT_BRIDGE=1 GSK_RENDERER=cairo BOXRIG_TEST_SAMPLE_BINARY=$(GTK4_EXAMPLE_BINARY) BOXRIG_TEST_SAMPLE_RENDERER=cairo tests/test_example_environment.sh
+	env BOXRIG_TEST_SAMPLE_BINARY=$(WAYLAND_EXAMPLE_BINARY) BOXRIG_TEST_SAMPLE_RENDERER=wayland $(WAYLAND_WESTON_TEST_RUNNER) $(WESTON) tests/test_example_environment.sh
+
 .PHONY: test-tty-erase
 test: test-tty-erase
 test-tty-erase: $(BUILD_DIR)/tests/test_posix_tty_erase

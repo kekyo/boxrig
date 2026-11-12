@@ -211,6 +211,10 @@ Win32の`BOXRIG_TRANSPARENCY_MODE=background/window/opaque`は、背景だけ、
 | `BOXRIG_CONPTY` | Win32で`system`、`packaged-preferred`、`packaged-required` |
 | `BOXRIG_CONPTY_DIRECTORY` | 同梱版ConPTYの絶対パス |
 
+子プロセスには、24ビットカラー対応を示す`COLORTERM=truecolor`を渡します。
+親の`COLORTERM`が未設定、空文字、別の値でも同じです。
+色表示の選択に使う`NO_COLOR`や`FORCE_COLOR`はそのまま継承します。
+
 Linuxの通知にはセッションD-Busの通知サービス、WindowsにはShellの通知機能を使います。
 頻度制限やOSC 52の環境差は[ホスト連携](./host-integration.md)と[環境別対応](./reference/platform-support.md)を参照してください。
 

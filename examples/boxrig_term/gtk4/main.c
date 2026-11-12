@@ -16,6 +16,10 @@ int main(int argument_count, char **arguments)
     boxrig_term_posix_config_status status;
     boxrig_term_gtk4_config config;
 
+    if (boxrig_term_posix_prepare_environment() == -1) {
+        perror("boxrig_term: failed to set COLORTERM");
+        return 1;
+    }
     environment.shell = getenv("SHELL");
     environment.terminal_type = getenv("BOXRIG_TERM");
     environment.background_opacity = getenv("BOXRIG_BACKGROUND_OPACITY");
