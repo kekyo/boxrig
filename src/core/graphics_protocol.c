@@ -5686,6 +5686,8 @@ static boxrig_status protocol_begin(
                 FIELD_BIT(BOXRIG_KITTY_GRAPHICS_FIELD_QUIET);
         }
         protocol->upload->chunk_encoded_length = 0;
+        /* Base64 padding ends one APC payload, not the decoded image stream. */
+        protocol->upload->base64_ended = false;
         state->command = protocol->upload->command;
         state->more = command.more;
         state->active = true;
@@ -5794,7 +5796,7 @@ static boxrig_status protocol_commit(void *context)
             if (state->more == 1 &&
                 upload->result == BOXRIG_KITTY_GRAPHICS_RESULT_OK &&
                 upload->chunk_encoded_length % 4 == 0 &&
-                upload->quartet_length == 0 && !upload->base64_ended) {
+                upload->quartet_length == 0) {
                 clear_transaction(state);
                 return BOXRIG_STATUS_OK;
             }

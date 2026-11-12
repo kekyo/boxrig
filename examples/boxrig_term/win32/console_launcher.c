@@ -8,6 +8,7 @@
 
 #include <limits.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <wchar.h>
@@ -61,7 +62,7 @@ static wchar_t *copy_child_command_line(void)
     return copy;
 }
 
-static bool configure_term(void)
+static bool configure_environment(void)
 {
     wchar_t override[32];
     const wchar_t *term = L"xterm-256color";
@@ -87,7 +88,14 @@ static bool configure_term(void)
         }
         term = override;
     }
-    return SetEnvironmentVariableW(L"TERM", term) != 0;
+    if (!SetEnvironmentVariableW(L"TERM", term) ||
+        !SetEnvironmentVariableW(L"COLORTERM", L"truecolor")) {
+        fprintf(stderr,
+                "boxrig_term: failed to configure terminal environment "
+                "(error %lu)\n", (unsigned long)GetLastError());
+        return false;
+    }
+    return true;
 }
 
 static BOOL WINAPI handle_child_interrupt(DWORD control_type)
@@ -112,7 +120,7 @@ int wmain(void)
     int result = 1;
 
     command_line = copy_child_command_line();
-    if (command_line == NULL || !configure_term() ||
+    if (command_line == NULL || !configure_environment() ||
         !SetConsoleCtrlHandler(handle_child_interrupt, TRUE)) {
         goto cleanup;
     }

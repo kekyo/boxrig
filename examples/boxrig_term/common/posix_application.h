@@ -105,6 +105,15 @@ typedef enum boxrig_term_posix_config_status {
 typedef struct boxrig_term_posix_runtime boxrig_term_posix_runtime;
 
 /**
+ * Advertises the terminal application's 24-bit color support to its children.
+ *
+ * @return Zero on success, or -1 with errno set on failure.
+ * @remarks Replaces COLORTERM with truecolor. Call before GUI initialization
+ * or starting threads. Other environment variables are preserved.
+ */
+int boxrig_term_posix_prepare_environment(void);
+
+/**
  * Returns native-independent defaults for one POSIX terminal application.
  *
  * @param child_arguments Borrowed NULL-terminated child argument vector.

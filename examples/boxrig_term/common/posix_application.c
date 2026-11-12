@@ -72,6 +72,11 @@ static bool config_valid(const boxrig_term_posix_config *config)
            config->window_title != NULL;
 }
 
+int boxrig_term_posix_prepare_environment(void)
+{
+    return setenv("COLORTERM", "truecolor", 1);
+}
+
 boxrig_term_posix_config boxrig_term_posix_config_default(
     char *const child_arguments[])
 {

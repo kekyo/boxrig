@@ -212,6 +212,10 @@ At 0% background opacity, it returns to opaque instead of becoming completely tr
 | `BOXRIG_CONPTY` | Win32: `system`, `packaged-preferred`, or `packaged-required` |
 | `BOXRIG_CONPTY_DIRECTORY` | Absolute path to bundled ConPTY |
 
+Child processes receive `COLORTERM=truecolor` to advertise 24-bit color support.
+This applies whether the parent's `COLORTERM` is unset, empty, or set to another value.
+Color preferences such as `NO_COLOR` and `FORCE_COLOR` are inherited unchanged.
+
 Linux notifications use a session D-Bus notification service; Windows uses Shell notifications.
 See [Host integration](./host-integration.md) and [Platform support](./reference/platform-support.md) for rate limits and OSC 52 differences.
 
