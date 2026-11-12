@@ -1062,6 +1062,7 @@ static bool test_emitter_graphics_when_supported(
 static bool test_launcher_term(
     const wchar_t *launcher_path,
     const wchar_t *term_override,
+    const wchar_t *inherited_colorterm,
     const char *expected_term,
     DWORD expected_exit_code)
 {
@@ -1071,13 +1072,18 @@ static bool test_launcher_term(
     HANDLE output;
     HANDLE process;
     char received[8192] = {0};
-    char commands[96];
-    char expected[64];
+    char commands[256];
+    char expected[160];
     size_t received_length = 0;
     DWORD exit_code = 1;
     bool passed = false;
 
-    if (!SetEnvironmentVariableW(L"BOXRIG_TERM", term_override)) {
+    if (!SetEnvironmentVariableW(L"BOXRIG_TERM", term_override) ||
+        !SetEnvironmentVariableW(L"TERM", L"vt100") ||
+        !SetEnvironmentVariableW(L"COLORTERM", inherited_colorterm) ||
+        !SetEnvironmentVariableW(L"NO_COLOR", L"keep") ||
+        !SetEnvironmentVariableW(L"FORCE_COLOR", L"1") ||
+        !SetEnvironmentVariableW(L"BOXRIG_TEST_INHERITED", L"preserved")) {
         goto cleanup;
     }
     command_line = make_shell_command_line(launcher_path);
@@ -1091,12 +1097,13 @@ static bool test_launcher_term(
     if (snprintf(
             commands,
             sizeof(commands),
-            "echo TERM=%%TERM%%\rexit %lu\r",
+            "echo ENV:%%TERM%%:%%COLORTERM%%:%%NO_COLOR%%:%%FORCE_COLOR%%:"
+            "%%BOXRIG_TEST_INHERITED%%\rexit %lu\r",
             (unsigned long)expected_exit_code) < 0 ||
         snprintf(
             expected,
             sizeof(expected),
-            "TERM=%s",
+            "ENV:%s:truecolor:keep:1:preserved",
             expected_term) < 0 ||
         !write_all(input, commands) ||
         !read_until(
@@ -1110,7 +1117,7 @@ static bool test_launcher_term(
         exit_code != expected_exit_code) {
         fprintf(
             stderr,
-            "console launcher TERM contract failed; output: %s\n",
+            "console launcher environment contract failed; output: %s\n",
             received);
         goto cleanup;
     }
@@ -1386,13 +1393,18 @@ int wmain(int argument_count, wchar_t **arguments)
     }
     boxrig_win32_pty_destroy(pty);
     pty = NULL;
-    if (!test_launcher_term(
-            arguments[2],
-            NULL,
-            "xterm-256color",
-            23) ||
-        !test_launcher_term(arguments[2], L"xterm", "xterm", 0) ||
-        !test_launcher_survives_more_ctrl_c(arguments[2]) ||
+    const wchar_t *const inherited_colorterms[] = {NULL, L"", L"256color"};
+    for (size_t index = 0;
+         index < sizeof(inherited_colorterms) / sizeof(inherited_colorterms[0]);
+         index++) {
+        if (!test_launcher_term(arguments[2], NULL, inherited_colorterms[index],
+                                "xterm-256color", 23) ||
+            !test_launcher_term(arguments[2], L"xterm", inherited_colorterms[index],
+                                "xterm", 0)) {
+            goto cleanup;
+        }
+    }
+    if (!test_launcher_survives_more_ctrl_c(arguments[2]) ||
         !test_emitter_redirected_bytes(arguments[3]) ||
         !test_emitter_transport(arguments[2], arguments[3]) ||
         !test_emitter_graphics_when_supported(
@@ -1409,7 +1421,7 @@ cleanup:
     }
     printf(
         "PASS Win32 redirected bytes, pseudoconsole I/O, transport and "
-        "graphics meaning, resize, TERM selection, more Ctrl-C, and child "
+        "graphics meaning, resize, child environment, more Ctrl-C, and child "
         "exit\n");
     return 0;
 }
