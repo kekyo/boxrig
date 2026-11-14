@@ -40,6 +40,8 @@ notcurses-demoをboxrigで実行し、表示の崩れや想定と異なる描画
 
 修正後のnotcurses-demoを全デモで再実行し、CairoとOpenGLの結果を照合します。変更した経路の回帰テストに加え、`make -j1 test`で全体テストを実行します。長時間の試験はログへ保存し、タイマーを使って確認間隔を空けます。警告、失敗、スキップの理由を調べ、今回の変更による問題は解消します。
 
+実行中に、WindowsマシンがオフラインのためWin32テストを省略する指示を受けました。以後はWin32専用ターゲット、共通ターゲット内のWine実行、および実行結果から生成するWindowsレポートの検査を省略します。Linuxの全体検査は継続し、Win32を成功とは数えません。この指定は今回の実行にのみ適用し、通常のMakefileは変更しません。
+
 各段階の成果は`doc:`、`fix:`、`refactor:`、`chore:`などのヘッダーで適切な粒度にコミットします。最後に各段階の完了条件を実際の成果物と照合し、測定結果、修正内容、テスト結果、残る制限を本書に記録します。一般ドキュメントから本計画へのリンクは追加しません。
 
 全体の完了条件は、notcurses-demoによる評価、問題の分析と計画、根拠のある描画・性能修正、再現テストと全体テスト、結果の記録が揃うことです。未確認の描画や未実施の試験を成功とは扱いません。
@@ -99,3 +101,19 @@ build/tests/performance/notcurses_replay artifacts/step19/recheck/output.bin
 ### 付属JSON出力の扱い
 
 保存されたJSONは末尾に余分なカンマがあり、先頭項目の名前とフレーム数も不正でした。上流3.0.7の[デモ終了処理](https://github.com/dankamongmen/notcurses/blob/v3.0.7/src/demo/demo.c#L599-L603)では、`results`を解放した後にJSON生成へ渡しています。外部コードは修正せず、以後は標準出力の集計表、端末出力、独立した経過時間・CPU時間を評価に使います。導入パッケージで省略されたデモは、標準出力の`SKIPPED`とDFSG版の説明に基づき実行済みのデモと区別します。
+
+## 修正後のデモ評価
+
+80列24行でCairoとOpenGLの全デモを再実行し、両方とも終了コード0でした。集計表は25項目で、19デモが実行され、`eagle`、`chunli`、`keller`、`jungle`、`view`、`luigi`の6デモは`SKIPPED`です。デモ自身の集計はfailed render、failed raster、input errorのすべてが0でした。これは描画内容の正しさを自動的に保証する指標ではないため、動画も照合しています。
+
+録画は`batched/cairo-all/video.mkv`と`batched/opengl-all/video.mkv`、集計表の抽出は各ディレクトリーの`summary.txt`です。`xray`の画像、`box`の宇宙船、`yield`の地図が表示され、デモの切り替え後に画像が残らないことを確認しました。`xray`で見える青い線の重なりと破片は、配布動画`/usr/share/notcurses/notcursesIII.mov`の同じ場面にも含まれます。[xrayの実装](https://github.com/dankamongmen/notcurses/blob/v3.0.7/src/demo/xray.c)が読み込む元動画と照合し、描画の破損とは区別しました。
+
+XvfbのOpenGLはMesa 25.2.8のllvmpipeでした。実デスクトップではNVIDIA GeForce RTX 3090、ドライバー615.71.09のOpenGLでも全デモが終了コード0となり、同じ画像表示を確認しました。実GPUの録画は対象ウィンドウだけを取得し、`batched/gpu-all/`に保存しています。これらの実行は、全体テスト開始前に終えています。
+
+大きな画面の確認として、Cairoでも118列45行へ拡大して全デモを実行しました。終了コード0、デモの失敗と入力エラーは0でした。記録は`batched/cairo-large/`です。この条件では`grid`が18.20秒、`fission`が36.65秒、デモ合計が89.70秒でした。80列24行の同じCairo実行では合計21.93秒です。処理するセル数や出力総量も変わるため、同じ作業量の比較ではありません。大画面Cairoの文字整形・描画負荷は追加測定の対象として残ります。今回のcoreの高速化が、この負荷も解消したとは扱いません。
+
+### 集計表の説明文が欠ける現象
+
+終了後に`DFSG version. Some demos are unavailable.`の先頭の`D`だけが残りました。保存出力では、24行目を超える位置への移動と改行の後、移動済みの説明文の行を2列目から空白で上書きしています。45行でも同様です。[上流の集計表と終了処理](https://github.com/dankamongmen/notcurses/blob/v3.0.7/src/demo/demo.c#L391-L500)を確認した上で、保存出力の末尾20,666バイトを別の端末でも再生しました。
+
+xtermでも`D`だけが残り、一部の`SKIPPED`表示も同様に消えることを確認しました。したがって、boxrig固有の欠落として補正する変更は加えていません。入力は`reference/summary.bin`、参照端末の録画と画像は`reference/xterm.mkv`と`reference/xterm.png`です。xtermと実行に必要なlibutempterはUbuntuの配布パッケージを作業用ディレクトリーへ展開して使い、システムへのインストールや外部コードの変更はしていません。
