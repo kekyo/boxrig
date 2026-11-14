@@ -752,7 +752,9 @@ static bool should_respond(
          command->image_id != 0) ||
         command_has(command, BOXRIG_KITTY_GRAPHICS_FIELD_IMAGE_NUMBER);
 
-    if (!has_selector || command->quiet == 2) {
+    /* Kitty deletion has no acknowledgement, even when an image ID is given.
+     * Sending one leaks unsolicited input into applications during teardown. */
+    if (!has_selector || command->quiet == 2 || command->action == (uint8_t)'d') {
         return false;
     }
     return !(command->quiet == 1 && result == BOXRIG_KITTY_GRAPHICS_RESULT_OK);
