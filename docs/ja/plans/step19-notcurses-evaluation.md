@@ -66,6 +66,36 @@ boxrigの`validate_transmission()`は転送だけを行う`a=t`で配置IDの`p`
 
 `test-animation-integration test-native-frame-deletion`は成功しました。後者はX11、Wayland、GTK3、GTK4の計12構成で録画し、フレームの切り替え、削除後の画素、メモリーの解放を検証しています。ログは`delete-integration.log`、終了コードは`delete-integration.status`です。notcursesの録画`delete/box/video.mkv`でも、宇宙船の移動、消去、終了後の集計表を目視しました。
 
+### 画像入力の処理負荷
+
+描画修正後、全デモの出力1,030,435,632バイトを保存しました。`tests/performance/notcurses_replay.c`はこのファイルを同じ24行80列・7×14画素のセル条件でcoreへ再入力します。デモの待ち時間や描画を含めず、入力処理の経過時間とCPU時間、応答バイト数、画像・配置数の最大値、配置と応答の検査値を記録します。検査値は画素そのものの正しさを証明するものではありません。
+
+`perf`によるユーザー空間の計測では、再入力の経過時間は7.706秒、CPU時間は7.704秒でした。サンプルの43.40%が`protocol_put`、18.92%が`boxrig_kitty_graphics_put`、15.20%が`boxrig_parser_feed`、9.16%が`put_string_byte`、6.25%が`append_raw_byte`、3.18%が`interpreter_string_put`にありました。データは`functional/all-replay.json`と`functional/all-replay-report.txt`に保存しています。
+
+第3段階では、画像のBase64データを1バイトずつ複数の関数へ渡す費用を減らします。まず連続した制御文字以外のASCIIをまとめて渡す経路を追加します。文字列の容量上限、ESC・CAN・SUB・BEL、分割入力、途中の処理待ちと再試行を従来経路と照合します。独自の画像受信側に対しては既存の1バイト単位の呼び出しも維持します。
+
+追加テストでは、大きな画像のピクセルと配置を検証しつつ、1バイト単位の受け渡し回数に上限を設けます。さらに必要な場合は、Base64の復号をまとめて処理する案を計測します。圧縮データや外部ファイル転送は既存の検証を維持し、測定していない方式の変更は行いません。採用前後は同じ保存出力を繰り返し再入力し、実デモの録画と終了結果も比較します。
+
+連続するASCIIを最大1,024バイトずつ受け渡す変更を採用しました。文字列の制御文字と容量超過は既存処理に戻し、独自の受信側がまとめた入力に対応しない場合も従来どおり動きます。Base64復号のアルゴリズムは変更していません。再試行時の先読み量にも上限を設けています。
+
+受け渡し回数の試験と新しい経路の試験は、変更前に失敗しました。変更後はparserとgraphicsの全試験が成功しています。約3KBの画像では、parserから画像処理への1バイト呼び出しが0回となり、全画素と配置も検証しています。長い入力を1バイトずつ受理して再試行する試験、画像受信側が途中まで受理した場合の試験も成功しました。記録は`parser-batch-red.log`、`graphics-work-red.log`、`parser-batch-green.log`、`graphics-work-green.log`、`graphics-batch-green.log`にあります。
+
+同じ保存出力を3回ずつ再入力した結果は次のとおりです。中央値の経過時間は39.3%短縮しました。すべての実行で応答は7,217バイト、画像と配置の最大数は各3、検査値は`74584625c67dce2e`で一致しました。数値はcoreの入力処理の比較であり、描画を含むデモ全体の短縮率ではありません。
+
+| 条件 | 経過時間の3測定（秒） | 中央値（秒） |
+| --- | --- | --- |
+| 描画修正後・性能変更前 | 7.736、7.686、7.710 | 7.710 |
+| ASCIIをまとめて受け渡す変更後 | 4.682、4.671、4.680 | 4.680 |
+
+実行手順は次のとおりです。録画スクリプトはXvfbでGTK3を80列24行に固定し、デモの終了コード、PTY出力、時刻、30fpsの動画を保存します。全デモの指定は空文字列です。出力先の既存ファイルは上書きするため、比較する条件ごとに別のディレクトリーを指定します。
+
+```sh
+make -j4 boxrig-term-gtk3 build/tests/performance/notcurses_replay
+bash tests/performance/run_notcurses_capture.sh \
+  build/boxrig_term/gtk3/boxrig_term opengl '' 0.03 artifacts/step19/recheck
+build/tests/performance/notcurses_replay artifacts/step19/recheck/output.bin
+```
+
 ### 付属JSON出力の扱い
 
 保存されたJSONは末尾に余分なカンマがあり、先頭項目の名前とフレーム数も不正でした。上流3.0.7の[デモ終了処理](https://github.com/dankamongmen/notcurses/blob/v3.0.7/src/demo/demo.c#L599-L603)では、`results`を解放した後にJSON生成へ渡しています。外部コードは修正せず、以後は標準出力の集計表、端末出力、独立した経過時間・CPU時間を評価に使います。導入パッケージで省略されたデモは、標準出力の`SKIPPED`とDFSG版の説明に基づき実行済みのデモと区別します。

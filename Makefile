@@ -6328,3 +6328,14 @@ annotation-gtk-stress: $(BUILD_DIR)/tests/performance/annotation_gtk_peer $(BUIL
 	node tests/performance/run_annotation_gtk_stress.mjs artifacts/plan11/gtk-matrix
 
 include tests/performance/plan18.mk
+
+$(BUILD_DIR)/tests/performance/notcurses_replay: tests/performance/notcurses_replay.c $(LIBRARY) | $(BUILD_DIR)/tests/performance
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(LIBRARY) -o $@
+
+.PHONY: test-graphics-work
+test: test-graphics-work
+test-graphics-work: $(BUILD_DIR)/tests/test_graphics_work
+	$(BUILD_DIR)/tests/test_graphics_work
+
+$(BUILD_DIR)/tests/test_graphics_work: tests/test_graphics_work.c $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(LIBRARY) -Wl,--wrap=boxrig_kitty_graphics_put -o $@

@@ -124,6 +124,9 @@ typedef struct boxrig_kitty_graphics_consumer {
         void *context,
         boxrig_kitty_graphics_command command);
     boxrig_status (*put)(void *context, uint8_t byte);
+    /* Optional run callback: on retry, consumed_out excludes the blocked byte. */
+    boxrig_status (*put_run)(
+        void *context, const uint8_t *bytes, size_t length, size_t *consumed_out);
     boxrig_status (*commit)(void *context);
     void (*abort)(void *context);
 } boxrig_kitty_graphics_consumer;
@@ -286,6 +289,12 @@ void boxrig_kitty_graphics_start(boxrig_kitty_graphics_state *state);
 boxrig_status boxrig_kitty_graphics_put(
     boxrig_kitty_graphics_state *state,
     uint8_t byte);
+/* Consume a payload/header run, reporting only accepted bytes on retry. */
+boxrig_status boxrig_kitty_graphics_put_run(
+    boxrig_kitty_graphics_state *state,
+    const uint8_t *bytes,
+    size_t length,
+    size_t *consumed_out);
 boxrig_status boxrig_kitty_graphics_end(
     boxrig_kitty_graphics_state *state,
     bool cancelled);

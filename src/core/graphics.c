@@ -449,6 +449,7 @@ static boxrig_kitty_graphics_consumer unsupported_consumer(void)
     consumer.context = NULL;
     consumer.begin = unsupported_begin;
     consumer.put = unsupported_put;
+    consumer.put_run = NULL;
     consumer.commit = unsupported_commit;
     consumer.abort = unsupported_abort;
     return consumer;
@@ -573,6 +574,58 @@ boxrig_status boxrig_kitty_graphics_put(
         return BOXRIG_STATUS_OK;
     }
     return BOXRIG_STATUS_INVALID_ARGUMENT;
+}
+
+boxrig_status boxrig_kitty_graphics_put_run(
+    boxrig_kitty_graphics_state *state,
+    const uint8_t *bytes,
+    size_t length,
+    size_t *consumed_out)
+{
+    size_t consumed = 0;
+
+    *consumed_out = 0;
+    if (state == NULL || !state->active) {
+        return BOXRIG_STATUS_INVALID_ARGUMENT;
+    }
+    while (consumed < length) {
+        boxrig_status status;
+
+        if (state->stage == BOXRIG_KITTY_GRAPHICS_IGNORE) {
+            consumed = length;
+            break;
+        }
+        if (state->stage == BOXRIG_KITTY_GRAPHICS_PAYLOAD &&
+            state->consumer.put_run != NULL &&
+            state->payload_length < BOXRIG_KITTY_GRAPHICS_PAYLOAD_CAPACITY) {
+            size_t available = BOXRIG_KITTY_GRAPHICS_PAYLOAD_CAPACITY -
+                               state->payload_length;
+            size_t run_length = length - consumed;
+            size_t accepted = 0;
+
+            if (run_length > available) {
+                run_length = available;
+            }
+            status = state->consumer.put_run(
+                state->consumer.context, bytes + consumed,
+                run_length, &accepted);
+            consumed += accepted;
+            state->payload_length += accepted;
+        } else {
+            /* Header transitions, payload overflow and scalar consumers keep
+             * their byte-level retry and cancellation behavior. */
+            status = boxrig_kitty_graphics_put(state, bytes[consumed]);
+            if (status == BOXRIG_STATUS_OK) {
+                consumed++;
+            }
+        }
+        if (status != BOXRIG_STATUS_OK) {
+            *consumed_out = consumed;
+            return status;
+        }
+    }
+    *consumed_out = consumed;
+    return BOXRIG_STATUS_OK;
 }
 
 boxrig_status boxrig_kitty_graphics_end(

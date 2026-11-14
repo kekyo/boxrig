@@ -78,6 +78,10 @@ typedef struct boxrig_parser_actions {
         void *context,
         boxrig_parser_string_kind kind);
     boxrig_status (*string_put)(void *context, uint8_t byte);
+    /* Optional printable-ASCII run with the same retry contract as print_run.
+     * The parser excludes terminators and caps the run at string_capacity. */
+    boxrig_status (*string_put_run)(void *context, const uint8_t *bytes,
+                                   size_t length, size_t *consumed_out);
     boxrig_status (*string_end)(
         void *context,
         bool cancelled,

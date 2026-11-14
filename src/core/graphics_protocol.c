@@ -5753,6 +5753,24 @@ static boxrig_status protocol_put(void *context, uint8_t byte)
     return BOXRIG_STATUS_OK;
 }
 
+static boxrig_status protocol_put_run(
+    void *context,
+    const uint8_t *bytes,
+    size_t length,
+    size_t *consumed_out)
+{
+    for (size_t index = 0; index < length; index++) {
+        boxrig_status status = protocol_put(context, bytes[index]);
+
+        if (status != BOXRIG_STATUS_OK) {
+            *consumed_out = index;
+            return status;
+        }
+    }
+    *consumed_out = length;
+    return BOXRIG_STATUS_OK;
+}
+
 static boxrig_status protocol_commit(void *context)
 {
     boxrig_terminal *terminal = context;
@@ -5926,6 +5944,7 @@ void boxrig_kitty_graphics_protocol_initialize(
     consumer.context = terminal;
     consumer.begin = protocol_begin;
     consumer.put = protocol_put;
+    consumer.put_run = protocol_put_run;
     consumer.commit = protocol_commit;
     consumer.abort = protocol_abort;
     boxrig_kitty_graphics_set_consumer(&terminal->graphics, &consumer);

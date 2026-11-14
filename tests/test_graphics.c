@@ -82,6 +82,29 @@ static boxrig_status consumer_commit(void *context)
     return BOXRIG_STATUS_OK;
 }
 
+static boxrig_status consumer_put_run(
+    void *context, const uint8_t *bytes, size_t length, size_t *consumed_out)
+{
+    consumer_log *log = context;
+
+    *consumed_out = 0;
+    while (*consumed_out < length) {
+        /* Exercise partial acceptance before the blocked byte. */
+        if (log->block == CONSUMER_BLOCK_PUT && !log->blocked &&
+            log->put_count == 1) {
+            log->put_attempts++;
+            log->blocked = true;
+            return BOXRIG_STATUS_WOULD_BLOCK;
+        }
+        log->put_attempts++;
+        log->digest ^= bytes[*consumed_out];
+        log->digest *= UINT64_C(1099511628211);
+        log->put_count++;
+        (*consumed_out)++;
+    }
+    return BOXRIG_STATUS_OK;
+}
+
 static void consumer_abort(void *context)
 {
     consumer_log *log = context;
@@ -96,6 +119,7 @@ static boxrig_kitty_graphics_consumer make_consumer(consumer_log *log)
     consumer.context = log;
     consumer.begin = consumer_begin;
     consumer.put = consumer_put;
+    consumer.put_run = NULL;
     consumer.commit = consumer_commit;
     consumer.abort = consumer_abort;
     return consumer;
@@ -406,52 +430,57 @@ static bool test_apc_consumer_retries_are_atomic(void)
 
     config.rows = 1;
     config.columns = 1;
-    for (block = CONSUMER_BLOCK_BEGIN;
-         block <= CONSUMER_BLOCK_COMMIT;
-         block++) {
-        boxrig_terminal *terminal = NULL;
-        boxrig_kitty_graphics_consumer consumer;
-        consumer_log log;
-        size_t consumed = 0;
-        size_t remaining;
+    for (size_t use_run = 0; use_run <= 1; use_run++) {
+        for (block = CONSUMER_BLOCK_BEGIN;
+             block <= CONSUMER_BLOCK_COMMIT;
+             block++) {
+            boxrig_terminal *terminal = NULL;
+            boxrig_kitty_graphics_consumer consumer;
+            consumer_log log;
+            size_t consumed = 0;
+            size_t remaining;
 
-        memset(&log, 0, sizeof(log));
-        log.block = block;
-        log.digest = UINT64_C(1469598103934665603);
-        consumer = make_consumer(&log);
-        CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
-        boxrig_kitty_graphics_set_consumer(&terminal->graphics, &consumer);
-        CHECK(boxrig_terminal_feed(
-                  terminal,
-                  input,
-                  sizeof(input) - 1,
-                  &consumed) == BOXRIG_STATUS_WOULD_BLOCK);
-        CHECK(consumed < sizeof(input) - 1);
-        if (block == CONSUMER_BLOCK_BEGIN) {
-            CHECK(input[consumed] == (uint8_t)';');
-        } else if (block == CONSUMER_BLOCK_PUT) {
-            CHECK(input[consumed] == (uint8_t)'A');
-        } else {
-            CHECK(input[consumed] == (uint8_t)'\\');
+            memset(&log, 0, sizeof(log));
+            log.block = block;
+            log.digest = UINT64_C(1469598103934665603);
+            consumer = make_consumer(&log);
+            if (use_run != 0) {
+                consumer.put_run = consumer_put_run;
+            }
+            CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+            boxrig_kitty_graphics_set_consumer(&terminal->graphics, &consumer);
+            CHECK(boxrig_terminal_feed(
+                      terminal,
+                      input,
+                      sizeof(input) - 1,
+                      &consumed) == BOXRIG_STATUS_WOULD_BLOCK);
+            CHECK(consumed < sizeof(input) - 1);
+            if (block == CONSUMER_BLOCK_BEGIN) {
+                CHECK(input[consumed] == (uint8_t)';');
+            } else if (block == CONSUMER_BLOCK_PUT) {
+                CHECK(input[consumed] == (uint8_t)(use_run != 0 ? 'B' : 'A'));
+            } else {
+                CHECK(input[consumed] == (uint8_t)'\\');
+            }
+            remaining = sizeof(input) - 1 - consumed;
+            CHECK(boxrig_terminal_feed(
+                      terminal,
+                      input + consumed,
+                      remaining,
+                      &consumed) == BOXRIG_STATUS_OK);
+            CHECK(consumed == remaining);
+            CHECK(log.begin_count == 1);
+            CHECK(log.put_count == 3);
+            CHECK(log.commit_count == 1);
+            CHECK(log.abort_count == 0);
+            CHECK(log.begin_attempts ==
+                  (block == CONSUMER_BLOCK_BEGIN ? 2u : 1u));
+            CHECK(log.put_attempts ==
+                  (block == CONSUMER_BLOCK_PUT ? 4u : 3u));
+            CHECK(log.commit_attempts ==
+                  (block == CONSUMER_BLOCK_COMMIT ? 2u : 1u));
+            boxrig_terminal_destroy(terminal);
         }
-        remaining = sizeof(input) - 1 - consumed;
-        CHECK(boxrig_terminal_feed(
-                  terminal,
-                  input + consumed,
-                  remaining,
-                  &consumed) == BOXRIG_STATUS_OK);
-        CHECK(consumed == remaining);
-        CHECK(log.begin_count == 1);
-        CHECK(log.put_count == 3);
-        CHECK(log.commit_count == 1);
-        CHECK(log.abort_count == 0);
-        CHECK(log.begin_attempts ==
-              (block == CONSUMER_BLOCK_BEGIN ? 2u : 1u));
-        CHECK(log.put_attempts ==
-              (block == CONSUMER_BLOCK_PUT ? 4u : 3u));
-        CHECK(log.commit_attempts ==
-              (block == CONSUMER_BLOCK_COMMIT ? 2u : 1u));
-        boxrig_terminal_destroy(terminal);
     }
     return true;
 }
