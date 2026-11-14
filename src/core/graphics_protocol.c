@@ -185,12 +185,14 @@ static boxrig_kitty_graphics_result validate_transmission(
         FIELD_BIT(BOXRIG_KITTY_GRAPHICS_FIELD_DATA_OFFSET) |
         FIELD_BIT(BOXRIG_KITTY_GRAPHICS_FIELD_IMAGE_ID) |
         FIELD_BIT(BOXRIG_KITTY_GRAPHICS_FIELD_IMAGE_NUMBER) |
+        /* Clients such as notcurses include a placement ID in a=t uploads.
+         * It is echoed in responses, but only a=T or a=p creates a placement. */
+        FIELD_BIT(BOXRIG_KITTY_GRAPHICS_FIELD_PLACEMENT_ID) |
         FIELD_BIT(BOXRIG_KITTY_GRAPHICS_FIELD_MORE) |
         FIELD_BIT(BOXRIG_KITTY_GRAPHICS_FIELD_USAGE_HINTS);
 
     if (display) {
         transmission_fields |=
-            FIELD_BIT(BOXRIG_KITTY_GRAPHICS_FIELD_PLACEMENT_ID) |
             FIELD_BIT(BOXRIG_KITTY_GRAPHICS_FIELD_SOURCE_X) |
             FIELD_BIT(BOXRIG_KITTY_GRAPHICS_FIELD_SOURCE_Y) |
             FIELD_BIT(BOXRIG_KITTY_GRAPHICS_FIELD_SOURCE_WIDTH) |

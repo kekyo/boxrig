@@ -3755,6 +3755,75 @@ static bool test_raw_base64_validation_and_query_is_non_mutating(void)
     return true;
 }
 
+static bool test_notcurses_transmit_with_placement_id(void)
+{
+    /* notcurses 3.0.7 sends p=1 with a=t, then places the image separately.
+     * Its chunked form sets q=2 only on the final APC. */
+    static const char *const uploads[] = {
+        "\x1b_Gf=32,s=1,v=1,i=14024436,p=1,a=t,q=2;/wAA/w==\x1b\\",
+        "\x1b_Gf=32,s=1,v=1,i=14024436,p=1,a=t,m=1;/wAA\x1b\\"
+        "\x1b_Gq=2,m=0;/w==\x1b\\"
+    };
+    static const uint8_t display[] =
+        "\x1b[3;4H\x1b_Ga=p,i=14024436,p=2,q=2,C=1\x1b\\";
+    static const uint8_t expected[] = {255, 0, 0, 255};
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    config.rows = 6;
+    config.columns = 8;
+
+    for (size_t index = 0; index < sizeof(uploads) / sizeof(uploads[0]); index++) {
+        size_t length = strlen(uploads[index]);
+        for (size_t split = 0; split <= length; split++) {
+            boxrig_terminal *terminal = NULL;
+            boxrig_image_handle handle;
+            boxrig_image_view image;
+            boxrig_image_placement_view placement;
+            const uint8_t *output;
+            size_t consumed = 0;
+            CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+            CHECK(boxrig_terminal_set_cell_pixel_geometry(terminal, 7, 14) ==
+                  BOXRIG_STATUS_OK);
+            CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)uploads[index],
+                  split, &consumed) == BOXRIG_STATUS_OK);
+            CHECK(consumed == split);
+            CHECK(boxrig_terminal_feed(terminal,
+                  (const uint8_t *)uploads[index] + split, length - split,
+                  &consumed) == BOXRIG_STATUS_OK);
+            CHECK(consumed == length - split);
+            CHECK(boxrig_terminal_image_count(terminal) == 1);
+            CHECK(boxrig_terminal_image_placement_count(terminal) == 0);
+            CHECK(terminal->screen.active->cursor.row == 0);
+            CHECK(terminal->screen.active->cursor.column == 0);
+            CHECK(boxrig_terminal_output_peek(terminal, &output) == 0);
+            CHECK(boxrig_terminal_image_handle_at(terminal, 0, &handle) ==
+                  BOXRIG_STATUS_OK);
+            CHECK(boxrig_terminal_get_image(terminal, handle, &image) ==
+                  BOXRIG_STATUS_OK);
+            CHECK(image.rgba_length == sizeof(expected));
+            CHECK(memcmp(image.rgba, expected, sizeof(expected)) == 0);
+            CHECK(boxrig_terminal_feed(terminal, display, sizeof(display) - 1,
+                  &consumed) == BOXRIG_STATUS_OK);
+            CHECK(consumed == sizeof(display) - 1);
+            CHECK(boxrig_terminal_image_placement_count(terminal) == 1);
+            CHECK(boxrig_terminal_get_image_placement(terminal, 0, &placement) ==
+                  BOXRIG_STATUS_OK);
+            CHECK(placement.image_handle == handle && placement.placement_id == 2);
+            CHECK(placement.visual_row == 2 && placement.visual_column == 3);
+            CHECK(placement.clip_width == 1 && placement.clip_height == 1);
+            CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)uploads[index],
+                  length, &consumed) == BOXRIG_STATUS_OK);
+            CHECK(consumed == length);
+            CHECK(boxrig_terminal_image_count(terminal) == 1);
+            CHECK(boxrig_terminal_image_placement_count(terminal) == 0);
+            CHECK(terminal->screen.active->cursor.row == 2);
+            CHECK(terminal->screen.active->cursor.column == 3);
+            CHECK(boxrig_terminal_output_peek(terminal, &output) == 0);
+            boxrig_terminal_destroy(terminal);
+        }
+    }
+    return true;
+}
+
 static bool test_raw_apc_chunks_and_empty_final_chunk(void)
 {
     static const char base64[] = "/wAAAP8AAAD/////";
@@ -8007,6 +8076,8 @@ int main(void)
          test_raw_rgb_and_rgba_normalize_at_every_input_split},
         {"raw Base64 validation and query is non-mutating",
          test_raw_base64_validation_and_query_is_non_mutating},
+        {"notcurses transmit with placement id",
+         test_notcurses_transmit_with_placement_id},
         {"raw APC chunks and empty final chunk",
          test_raw_apc_chunks_and_empty_final_chunk},
         {"independently padded chunks at every input split",
