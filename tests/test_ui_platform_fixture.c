@@ -26,6 +26,8 @@ static D3D_DRIVER_TYPE d3d11_fixture_driver;
 #elif defined(BOXRIG_TEST_FRONTEND_OPENGL)
 #include "opengl/renderer.h"
 #include "opengl_host.h"
+#include <GL/gl.h>
+#include <GL/glext.h>
 #include <cairo/cairo.h>
 #include <fontconfig/fontconfig.h>
 #else
@@ -1725,6 +1727,106 @@ static bool common_image_alpha_fixture(void)
 }
 
 #if defined(BOXRIG_TEST_FRONTEND_OPENGL)
+static GLsync first_image_fence;
+static bool first_image_fence_completed;
+
+static GLenum APIENTRY image_fence_status(GLsync fence, GLbitfield flags, GLuint64 timeout)
+{
+    if (flags != 0 || timeout != 0) return GL_WAIT_FAILED;
+    if (first_image_fence == NULL) first_image_fence = fence;
+    return fence == first_image_fence && first_image_fence_completed
+        ? GL_ALREADY_SIGNALED : GL_TIMEOUT_EXPIRED;
+}
+
+static boxrig_gl_function resolve_image_fence(void *context, const char *name)
+{
+    if (strcmp(name, "glClientWaitSync") == 0) {
+        PFNGLCLIENTWAITSYNCPROC poll = image_fence_status;
+        boxrig_gl_function result;
+        memcpy(&result, &poll, sizeof(result));
+        return result;
+    }
+    return opengl_host_resolve(context, name);
+}
+
+static bool opengl_image_cache_pending_frame_fixture(void)
+{
+    /* Exercise entry and byte limits independently, with a newer frame still
+     * pending when the oldest image becomes reusable. Readback completes the
+     * real GPU work; controlled fence results make this independent of speed. */
+    for (size_t pass = 0; pass < 2; pass++) {
+        platform_renderer_fixture renderer;
+        boxrig_ogl_renderer_config config = boxrig_ogl_renderer_config_default();
+        boxrig_terminal_config terminal_config = boxrig_terminal_config_default();
+        boxrig_ui_view_config view_config = boxrig_ui_view_config_default();
+        boxrig_terminal *terminal = NULL;
+        boxrig_ui_model *model = NULL;
+        boxrig_ui_view *view = NULL;
+        boxrig_ogl_render_statistics statistics;
+        platform_rgb color;
+        const char *images[] = {"/wAA/w==", "AP8A/w==", "AAD//w=="};
+        char content[160];
+
+        CHECK(create_platform_renderer(&renderer));
+        CHECK(boxrig_ogl_renderer_destroy(&renderer.renderer,
+            renderer.context_generation, NULL) == BOXRIG_GL_OK);
+        config.runtime.resolver_context = renderer.host;
+        config.runtime.resolve = resolve_image_fence;
+        config.runtime.current_context_query_context = renderer.host;
+        config.runtime.query_current_context = opengl_host_query_current;
+        config.runtime.context_generation = renderer.context_generation;
+        config.runtime.target_generation = renderer.target.generation;
+        config.initial_target = renderer.target;
+        if (pass == 0) config.limits.maximum_image_entries = 2;
+        else config.limits.maximum_image_bytes = 8;
+        first_image_fence = NULL;
+        first_image_fence_completed = false;
+        CHECK(boxrig_ogl_renderer_create(&config, &renderer.renderer, NULL) == BOXRIG_GL_OK);
+        CHECK(size_platform_renderer(&renderer, 1, 1));
+        terminal_config.rows = terminal_config.columns = 1;
+        view_config.blink.cursor_enabled = view_config.blink.text_enabled = false;
+        CHECK(boxrig_terminal_create(&terminal_config, &terminal) == BOXRIG_STATUS_OK);
+        CHECK(boxrig_terminal_set_cell_pixel_geometry(terminal,
+            renderer.cell_width, renderer.cell_height) == BOXRIG_STATUS_OK);
+        CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
+        CHECK(boxrig_ui_view_create(model, &view_config, &view) == BOXRIG_UI_OK);
+
+        for (size_t image = 0; image < 3; image++) {
+            int length = snprintf(content, sizeof(content),
+                "\033[?25l\033[H\033_Ga=d,d=a,q=2\033\\"
+                "\033_Ga=T,i=%zu,f=32,s=1,v=1,c=1,r=1,C=1,q=2;%s\033\\",
+                image + 7001, images[image]);
+            CHECK(length > 0 && (size_t)length < sizeof(content));
+            CHECK(feed_bytes(terminal, content, (size_t)length));
+            CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+            if (image == 2) {
+                CHECK(first_image_fence != NULL);
+                /* Neither cached image may be evicted while both are pending. */
+                CHECK(boxrig_ogl_renderer_draw_view(renderer.renderer, view) == -1);
+                CHECK(boxrig_ui_view_frame_requested(view));
+                CHECK(boxrig_ogl_renderer_get_render_statistics(renderer.renderer, &statistics) == 0);
+                CHECK(statistics.image_eviction_count == 0);
+                first_image_fence_completed = true;
+            }
+            CHECK(draw_platform_view(&renderer, view, NULL));
+            CHECK(get_platform_pixel(&renderer,
+                (int)(renderer.cell_width / 2), (int)(renderer.cell_height / 2), &color));
+            CHECK(color.red == (image == 0 ? 255 : 0));
+            CHECK(color.green == (image == 1 ? 255 : 0));
+            CHECK(color.blue == (image == 2 ? 255 : 0));
+        }
+        CHECK(boxrig_ogl_renderer_get_render_statistics(renderer.renderer, &statistics) == 0);
+        CHECK(statistics.image_cache_upload_count == 3);
+        CHECK(statistics.image_eviction_count == 1);
+        CHECK(statistics.in_flight_frame_count == 2);
+        boxrig_ui_view_destroy(view);
+        boxrig_ui_model_destroy(model);
+        boxrig_terminal_destroy(terminal);
+        destroy_platform_renderer(&renderer);
+    }
+    return true;
+}
+
 static bool opengl_multiline_image_alpha_fixture(void)
 {
     static const char content[] =
@@ -2831,6 +2933,7 @@ int main(void)
 #if defined(BOXRIG_TEST_FRONTEND_OPENGL)
     if (!opengl_partial_frame_work_fixture() ||
         !opengl_multiline_image_alpha_fixture() ||
+        !opengl_image_cache_pending_frame_fixture() ||
         !opengl_composition_text_fixture() ||
         !opengl_glyph_position_reuse_fixture() ||
         !opengl_glyph_cache_pressure_fixture() ||

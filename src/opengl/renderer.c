@@ -1045,7 +1045,9 @@ static bool resource_in_flight(
         return true;
     }
     for (index = 0; index < renderer->in_flight_count; index++) {
-        if (renderer->in_flight[index].serial >= last_used_serial) {
+        /* A pending frame protects resources used by it or later work.
+         * Resources last used before every pending frame have completed. */
+        if (renderer->in_flight[index].serial <= last_used_serial) {
             return true;
         }
     }
