@@ -6339,3 +6339,20 @@ test-graphics-work: $(BUILD_DIR)/tests/test_graphics_work
 
 $(BUILD_DIR)/tests/test_graphics_work: tests/test_graphics_work.c $(LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(LIBRARY) -Wl,--wrap=boxrig_kitty_graphics_put -o $@
+
+.PHONY: test-pangocairo-updates
+test: test-pangocairo-updates
+test-pangocairo-updates: $(BUILD_DIR)/tests/test_pangocairo_updates
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $< self-test
+
+$(BUILD_DIR)/tests/test_pangocairo_updates: CAIRO_UPDATE_SANITIZERS = $(SANITIZERS)
+$(BUILD_DIR)/tests/test_pangocairo_updates $(BUILD_DIR)/tests/performance/measure_pangocairo_updates: \
+		tests/pangocairo/measure_updates.c src/pangocairo/renderer.c \
+		src/pangocairo/renderer.h src/pangocairo/renderer_private.h src/pangocairo/glyph_fit.h \
+		src/ui/glyph_fit.h src/ui/view_private.h src/ui/color_private.h \
+		$(PANGO_CANDIDATE_OBJECT) $(UI_HEADERS) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests/performance
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) -Isrc $(POSIX_CPPFLAGS) \
+		$(PANGO_CAIRO_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(CAIRO_UPDATE_SANITIZERS) \
+		tests/pangocairo/measure_updates.c src/pangocairo/renderer.c \
+		$(PANGO_CANDIDATE_OBJECT) $(UI_LIBRARY) $(LIBRARY) \
+		$(PANGO_CAIRO_LIBS) $(CAIRO_UPDATE_SANITIZERS) -o $@

@@ -2792,6 +2792,10 @@ static int terminal_row_signature(
     for (column = 0; column < columns; column++) {
         boxrig_cell_view cell;
 
+        if (renderer->render_statistics.signature_cell_count != SIZE_MAX) {
+            renderer->render_statistics.signature_cell_count++;
+        }
+
         if (boxrig_terminal_get_cell(terminal, row, column, &cell) !=
             BOXRIG_STATUS_OK) {
             return -1;
@@ -3124,7 +3128,7 @@ static bool cluster_starts_new_render_style(
 
 static GList *split_items_at_render_boundaries(
     GList *items,
-    const boxrig_pango_cairo_row_shape *shape)
+    boxrig_pango_cairo_row_shape *shape)
 {
     GList *result = NULL;
     GList *node;
@@ -3139,6 +3143,10 @@ static GList *split_items_at_render_boundaries(
              cluster_index < shape->cluster_count;
              cluster_index++) {
             size_t boundary = shape->clusters[cluster_index].text_offset;
+
+            if (shape->statistics.cluster_visit_count != SIZE_MAX) {
+                shape->statistics.cluster_visit_count++;
+            }
 
             if (boundary > (size_t)remaining->offset &&
                 boundary < original_end &&
@@ -3246,6 +3254,10 @@ static int build_portable_layout(
         for (node = items; node != NULL; node = node->next) {
             PangoItem *item = node->data;
 
+            if (shape->statistics.cluster_visit_count != SIZE_MAX) {
+                shape->statistics.cluster_visit_count++;
+            }
+
             if (item_overlaps_cluster(item, cluster)) {
                 if (!found) {
                     inputs[cluster_index].bidi_level = item->analysis.level;
@@ -3257,6 +3269,9 @@ static int build_portable_layout(
                 font_key = hash_u64(
                     font_key,
                     pango_font_key(&item->analysis));
+                if (shape->statistics.font_description_count != SIZE_MAX) {
+                    shape->statistics.font_description_count++;
+                }
                 found = true;
             }
         }
@@ -3333,6 +3348,10 @@ static int shape_items(boxrig_pango_cairo_row_shape *shape, GList *items)
             const boxrig_pango_cairo_logical_cluster *cluster =
                 &shape->clusters[cluster_index];
             size_t offset;
+
+            if (shape->statistics.cluster_visit_count != SIZE_MAX) {
+                shape->statistics.cluster_visit_count++;
+            }
 
             if (!item_overlaps_cluster(item, cluster)) {
                 continue;
@@ -3480,6 +3499,14 @@ static int shape_text_fragment(
         goto cleanup;
     }
     shape->statistics.cluster_count = shape->cluster_count;
+    size_t visits = shape->statistics.cluster_visit_count;
+    size_t descriptions = shape->statistics.font_description_count;
+    renderer->render_statistics.cluster_visit_count =
+        visits > SIZE_MAX - renderer->render_statistics.cluster_visit_count
+            ? SIZE_MAX : renderer->render_statistics.cluster_visit_count + visits;
+    renderer->render_statistics.font_description_count =
+        descriptions > SIZE_MAX - renderer->render_statistics.font_description_count
+            ? SIZE_MAX : renderer->render_statistics.font_description_count + descriptions;
     free(shape->clusters);
     shape->clusters = NULL;
     result = 0;
