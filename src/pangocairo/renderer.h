@@ -51,6 +51,8 @@ typedef struct boxrig_pango_cairo_render_statistics {
     size_t cluster_visit_count;
     /** Font descriptions serialized while preparing row shapes. */
     size_t font_description_count;
+    /** Pixel area rasterized into temporary glyph groups before clipping. */
+    size_t glyph_raster_pixel_count;
 } boxrig_pango_cairo_render_statistics;
 
 int boxrig_pango_cairo_renderer_create(

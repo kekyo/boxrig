@@ -40,17 +40,31 @@ typedef struct boxrig_pango_cairo_logical_cluster {
     uint64_t hyperlink_key;
 } boxrig_pango_cairo_logical_cluster;
 
+typedef struct boxrig_pango_cairo_glyph_bounds {
+    size_t first_glyph;
+    size_t glyph_count;
+    /* Pango units from the fitted span's visual origin. The ink envelopes
+     * include every preceding/following cluster, respectively. */
+    double advance;
+    double advance_end;
+    double prefix_ink_end;
+    double suffix_ink_start;
+} boxrig_pango_cairo_glyph_bounds;
+
+typedef struct boxrig_pango_cairo_glyph_span {
+    boxrig_ui_glyph_span placement;
+    boxrig_pango_cairo_glyph_bounds *clusters;
+    size_t cluster_count;
+} boxrig_pango_cairo_glyph_span;
+
 typedef struct boxrig_pango_cairo_shaped_item {
     PangoGlyphItem glyph_item;
-    boxrig_ui_glyph_span *spans;
+    boxrig_pango_cairo_glyph_span *spans;
     size_t span_count;
-    /* Split prefixes own their Pango items; glyph_item retains the last part. */
-    PangoGlyphItem **prefixes;
     size_t logical_column;
     size_t logical_column_count;
     size_t visual_column;
     size_t visual_column_count;
-    bool preserve_advance;
 } boxrig_pango_cairo_shaped_item;
 
 typedef struct boxrig_pango_cairo_row_shape {
@@ -61,6 +75,8 @@ typedef struct boxrig_pango_cairo_row_shape {
     boxrig_pango_cairo_shaped_item *items;
     size_t item_count;
     boxrig_text_layout *layout;
+    boxrig_text_cluster_input *layout_inputs;
+    boxrig_text_direction base_direction;
     boxrig_pango_cairo_shape_statistics statistics;
 } boxrig_pango_cairo_row_shape;
 
@@ -84,12 +100,18 @@ typedef struct filtered_cell_colors {
 typedef struct boxrig_pango_cairo_row_cache {
     boxrig_pango_cairo_row_shape shape;
     uint64_t content_signature;
+    uint64_t paint_signature;
     uint64_t layout_revision;
     boxrig_text_direction_policy direction_policy;
     bool valid;
     bool colors_valid;
     bool verified_this_frame;
 } boxrig_pango_cairo_row_cache;
+
+typedef struct boxrig_pango_cairo_row_signature {
+    uint64_t shape;
+    uint64_t paint;
+} boxrig_pango_cairo_row_signature;
 
 typedef struct boxrig_pango_cairo_dirty_interval {
     size_t column;
@@ -2544,10 +2566,8 @@ static void row_shape_destroy(boxrig_pango_cairo_row_shape *shape)
     size_t index;
 
     for (index = 0; index < shape->item_count; index++) {
-        for (size_t i = 0; i + 1 < shape->items[index].span_count; i++)
-            if (shape->items[index].prefixes[i] != NULL)
-                pango_glyph_item_free(shape->items[index].prefixes[i]);
-        free(shape->items[index].prefixes);
+        for (size_t i = 0; i < shape->items[index].span_count; i++)
+            free(shape->items[index].spans[i].clusters);
         free(shape->items[index].spans);
         if (shape->items[index].glyph_item.glyphs != NULL) {
             pango_glyph_string_free(shape->items[index].glyph_item.glyphs);
@@ -2559,6 +2579,7 @@ static void row_shape_destroy(boxrig_pango_cairo_row_shape *shape)
     free(shape->items);
     free(shape->clusters);
     free(shape->text);
+    free(shape->layout_inputs);
     boxrig_text_layout_destroy(shape->layout);
     memset(shape, 0, sizeof(*shape));
 }
@@ -2784,9 +2805,10 @@ static int terminal_row_signature(
     const boxrig_terminal *terminal,
     size_t row,
     size_t columns,
-    uint64_t *signature_out)
+    boxrig_pango_cairo_row_signature *signature_out)
 {
     uint64_t hash = UINT64_C(1469598103934665603);
+    uint64_t paint = UINT64_C(1469598103934665603);
     size_t column;
 
     hash = hash_u64(hash, columns);
@@ -2810,10 +2832,15 @@ static int terminal_row_signature(
         }
         hash = hash_u64(hash, cell.column_width);
         hash = hash_u64(hash, cell.continuation ? 1u : 0u);
-        hash = hash_u64(hash, cell_style_key(renderer, &cell));
-        hash = hash_u64(hash, cell_hyperlink_key(&cell));
+        hash = hash_u64(hash, cell.font_dependent ? 1u : 0u);
+        /* Match create_shaping_attributes(): colors, decorations, visibility
+         * and links affect painting, not the glyphs or their placement. */
+        hash = hash_u64(hash, cell.attributes &
+            (BOXRIG_CELL_BOLD | BOXRIG_CELL_FAINT | BOXRIG_CELL_ITALIC));
+        paint = hash_u64(paint, cell_style_key(renderer, &cell));
+        paint = hash_u64(paint, cell_hyperlink_key(&cell));
     }
-    *signature_out = hash;
+    *signature_out = (boxrig_pango_cairo_row_signature){hash, paint};
     return 0;
 }
 
@@ -2882,47 +2909,26 @@ static bool layouts_have_same_topology(
     return true;
 }
 
-static int mark_layout_dirty(
+static int mark_shape_dirty(
     boxrig_pango_cairo_dirty_interval *destination,
-    const boxrig_text_layout *layout,
+    const boxrig_pango_cairo_row_shape *shape,
     size_t logical_column,
     size_t logical_column_count,
     size_t columns)
 {
-    boxrig_text_layout_range *ranges;
-    size_t range_count;
-    size_t range_index;
-
-    range_count = boxrig_text_layout_dirty_ranges(
-        layout,
-        logical_column,
-        logical_column_count,
-        NULL,
-        0);
-    if (range_count == 0 ||
-        range_count > SIZE_MAX / sizeof(*ranges)) {
-        return -1;
+    bool found = false;
+    /* A changed character can affect joining or ligatures across paint
+     * boundaries. Invalidate its native shaping item in both old/new rows. */
+    for (size_t index = 0; index < shape->item_count; index++) {
+        const boxrig_pango_cairo_shaped_item *item = &shape->items[index];
+        if (item->logical_column < logical_column + logical_column_count &&
+            logical_column < item->logical_column + item->logical_column_count) {
+            mark_dirty_interval(destination, item->visual_column,
+                item->visual_column_count, columns);
+            found = true;
+        }
     }
-    ranges = malloc(range_count * sizeof(*ranges));
-    if (ranges == NULL ||
-        boxrig_text_layout_dirty_ranges(
-            layout,
-            logical_column,
-            logical_column_count,
-            ranges,
-            range_count) != range_count) {
-        free(ranges);
-        return -1;
-    }
-    for (range_index = 0; range_index < range_count; range_index++) {
-        mark_dirty_interval(
-            destination,
-            ranges[range_index].column,
-            ranges[range_index].column_count,
-            columns);
-    }
-    free(ranges);
-    return 0;
+    return found ? 0 : -1;
 }
 
 static int mark_unchanged_layout_dirty(
@@ -3116,59 +3122,6 @@ static PangoAttrList *create_shaping_attributes(
     return attributes;
 }
 
-static bool cluster_starts_new_render_style(
-    const boxrig_pango_cairo_row_shape *shape,
-    size_t cluster_index)
-{
-    return cluster_index != 0 &&
-           (shape->clusters[cluster_index - 1].style_key !=
-                shape->clusters[cluster_index].style_key ||
-            shape->clusters[cluster_index - 1].hyperlink_key !=
-                shape->clusters[cluster_index].hyperlink_key);
-}
-
-static GList *split_items_at_render_boundaries(
-    GList *items,
-    boxrig_pango_cairo_row_shape *shape)
-{
-    GList *result = NULL;
-    GList *node;
-    size_t cluster_index = 1;
-
-    for (node = items; node != NULL; node = node->next) {
-        PangoItem *remaining = node->data;
-        size_t original_end =
-            (size_t)remaining->offset + (size_t)remaining->length;
-        for (; cluster_index < shape->cluster_count; cluster_index++) {
-            size_t boundary = shape->clusters[cluster_index].text_offset;
-
-            if (shape->statistics.cluster_visit_count != SIZE_MAX) {
-                shape->statistics.cluster_visit_count++;
-            }
-
-            if (boundary >= original_end) {
-                break;
-            }
-            if (boundary > (size_t)remaining->offset &&
-                cluster_starts_new_render_style(shape, cluster_index)) {
-                size_t split_index = boundary - (size_t)remaining->offset;
-                glong split_chars = g_utf8_strlen(
-                    shape->text + remaining->offset,
-                    (gssize)split_index);
-                PangoItem *prefix = pango_item_split(
-                    remaining,
-                    (int)split_index,
-                    (int)split_chars);
-
-                result = g_list_prepend(result, prefix);
-            }
-        }
-        result = g_list_prepend(result, remaining);
-    }
-    g_list_free(items);
-    return g_list_reverse(result);
-}
-
 static uint64_t pango_font_key(const PangoAnalysis *analysis)
 {
     PangoFontDescription *description;
@@ -3294,7 +3247,61 @@ static int build_portable_layout(
         free(inputs);
         return -1;
     }
-    free(inputs);
+    shape->layout_inputs = inputs;
+    shape->base_direction = base_direction;
+    return 0;
+}
+
+static int build_glyph_spans(boxrig_pango_cairo_shaped_item *item,
+    const char *text, const boxrig_text_layout *layout)
+{
+    size_t count = 0;
+    boxrig_ui_glyph_span *placements = boxrig_pango_glyph_spans(
+        &item->glyph_item, text, layout, &count);
+    if (placements == NULL) return -1;
+    item->spans = calloc(count, sizeof(*item->spans));
+    if (item->spans == NULL) { free(placements); return -1; }
+    item->span_count = count;
+    PangoGlyphString *glyphs = item->glyph_item.glyphs;
+    for (size_t i = 0; i < count; i++) {
+        /* The fitted spans arrive in logical order. Store them in visual
+         * order so a narrow paint range does not scan the complete item. */
+        size_t visual = (item->glyph_item.item->analysis.level & 1) != 0
+            ? count - i - 1 : i;
+        boxrig_pango_cairo_glyph_span *span = &item->spans[visual];
+        span->placement = placements[i];
+        span->clusters = calloc(placements[i].glyph_count, sizeof(*span->clusters));
+        if (span->clusters == NULL) { free(placements); return -1; }
+        size_t end = placements[i].first_glyph + placements[i].glyph_count;
+        double advance = 0;
+        for (size_t first = placements[i].first_glyph; first < end;) {
+            size_t next = first + 1;
+            while (next < end && glyphs->log_clusters[next] == glyphs->log_clusters[first]) next++;
+            boxrig_pango_cairo_glyph_bounds *cluster = &span->clusters[span->cluster_count++];
+            cluster->first_glyph = first;
+            cluster->glyph_count = next - first;
+            cluster->advance = advance;
+            PangoRectangle ink;
+            pango_glyph_string_extents_range(glyphs, (int)first, (int)next,
+                item->glyph_item.item->analysis.font, &ink, NULL);
+            cluster->suffix_ink_start = advance + ink.x;
+            cluster->prefix_ink_end = advance + ink.x + ink.width;
+            for (size_t g = first; g < next; g++) advance += glyphs->glyphs[g].geometry.width;
+            cluster->advance_end = advance;
+            first = next;
+        }
+        /* Bearings need not be monotonic. These envelopes allow binary
+         * searches without losing neighboring italic or combining ink. */
+        for (size_t j = 1; j < span->cluster_count; j++) {
+            if (span->clusters[j].prefix_ink_end < span->clusters[j-1].prefix_ink_end)
+                span->clusters[j].prefix_ink_end = span->clusters[j-1].prefix_ink_end;
+        }
+        for (size_t j = span->cluster_count; j > 1; j--) {
+            if (span->clusters[j-2].suffix_ink_start > span->clusters[j-1].suffix_ink_start)
+                span->clusters[j-2].suffix_ink_start = span->clusters[j-1].suffix_ink_start;
+        }
+    }
+    free(placements);
     return 0;
 }
 
@@ -3403,18 +3410,7 @@ static int shape_items(boxrig_pango_cairo_row_shape *shape, GList *items)
                 shape->statistics.missing_glyph_count++;
             }
         }
-        shaped->spans = boxrig_pango_glyph_spans(&shaped->glyph_item, shape->text,
-            shape->layout, &shaped->span_count);
-        if (shaped->spans == NULL) return -1;
-        if (shaped->span_count > 1) {
-            shaped->prefixes = calloc(shaped->span_count - 1, sizeof(*shaped->prefixes));
-            if (shaped->prefixes == NULL) { shaped->span_count = 0; return -1; }
-            for (size_t i = 0; i + 1 < shaped->span_count; i++) {
-                shaped->prefixes[i] = pango_glyph_item_split(&shaped->glyph_item,
-                    shape->text, (int)shaped->spans[i].text_length);
-                if (shaped->prefixes[i] == NULL) return -1;
-            }
-        }
+        if (build_glyph_spans(shaped, shape->text, shape->layout) == -1) return -1;
         item_index++;
     }
     shape->statistics.font_run_count = allocated_count;
@@ -3499,7 +3495,8 @@ static int shape_text_fragment(
     if (items == NULL) {
         goto cleanup;
     }
-    items = split_items_at_render_boundaries(items, shape);
+    /* Keep native shaping contexts intact across colors and links. Their
+     * visual intervals are applied to the retained glyphs during painting. */
     base_direction = resolved_base_direction(
         items,
         renderer->direction_policy);
@@ -3624,6 +3621,42 @@ boxrig_ui_status boxrig_pango_cairo_renderer_bind_view(boxrig_pango_cairo_render
     return status == BOXRIG_UI_OK ? boxrig_ui_view_set_fragment_layout_provider(view, provider) : status;
 }
 
+static int refresh_row_paint(
+    boxrig_pango_cairo_renderer *renderer,
+    const boxrig_terminal *terminal,
+    size_t row,
+    boxrig_pango_cairo_row_shape *shape)
+{
+    size_t bytes = shape->cluster_count * sizeof(*shape->layout_inputs);
+    boxrig_text_cluster_input *inputs = malloc(bytes);
+    boxrig_text_layout *layout = NULL;
+
+    if (inputs == NULL) return -1;
+    memcpy(inputs, shape->layout_inputs, bytes);
+    for (size_t index = 0; index < shape->cluster_count; index++) {
+        boxrig_cell_view cell;
+        if (boxrig_terminal_get_cell(terminal, row,
+                inputs[index].logical_column, &cell) != BOXRIG_STATUS_OK) {
+            free(inputs);
+            return -1;
+        }
+        inputs[index].style_key = cell_style_key(renderer, &cell);
+        inputs[index].hyperlink_key = cell_hyperlink_key(&cell);
+    }
+    /* The portable layout still exposes current style/link boundaries. Its
+     * byte ranges, font identities and BiDi levels come from the cached shape. */
+    if (boxrig_text_layout_create(inputs, shape->cluster_count,
+            renderer->cached_columns, shape->base_direction, &layout) != BOXRIG_TEXT_LAYOUT_OK) {
+        free(inputs);
+        return -1;
+    }
+    boxrig_text_layout_destroy(shape->layout);
+    free(shape->layout_inputs);
+    shape->layout = layout;
+    shape->layout_inputs = inputs;
+    return 0;
+}
+
 static int update_model_row(
     boxrig_pango_cairo_renderer *renderer,
     const boxrig_terminal *terminal,
@@ -3632,7 +3665,7 @@ static int update_model_row(
 {
     boxrig_pango_cairo_row_cache *cache = &renderer->row_cache[row];
     boxrig_pango_cairo_row_shape new_shape;
-    uint64_t content_signature;
+    boxrig_pango_cairo_row_signature signature;
     bool old_layout_compatible;
 
     if (terminal_row_signature(
@@ -3640,10 +3673,15 @@ static int update_model_row(
             terminal,
             row,
             renderer->cached_columns,
-            &content_signature) == -1) {
+            &signature) == -1) {
         return -1;
     }
-    if (cached_row_matches(renderer, cache, content_signature)) {
+    if (cached_row_matches(renderer, cache, signature.shape)) {
+        if (cache->paint_signature != signature.paint &&
+            refresh_row_paint(renderer, terminal, row, &cache->shape) == -1) {
+            return -1;
+        }
+        cache->paint_signature = signature.paint;
         cache->verified_this_frame = true;
         return mark_unchanged_layout_dirty(
             &renderer->frame_dirty[row],
@@ -3662,15 +3700,15 @@ static int update_model_row(
         cache->direction_policy == renderer->direction_policy &&
         layouts_have_same_topology(cache->shape.layout, new_shape.layout);
     if (old_layout_compatible) {
-        if (mark_layout_dirty(
+        if (mark_shape_dirty(
                 &renderer->frame_dirty[row],
-                cache->shape.layout,
+                &cache->shape,
                 logical_dirty->column,
                 logical_dirty->column_count,
                 renderer->cached_columns) == -1 ||
-            mark_layout_dirty(
+            mark_shape_dirty(
                 &renderer->frame_dirty[row],
-                new_shape.layout,
+                &new_shape,
                 logical_dirty->column,
                 logical_dirty->column_count,
                 renderer->cached_columns) == -1) {
@@ -3689,7 +3727,8 @@ static int update_model_row(
     }
     row_shape_destroy(&cache->shape);
     cache->shape = new_shape;
-    cache->content_signature = content_signature;
+    cache->content_signature = signature.shape;
+    cache->paint_signature = signature.paint;
     cache->layout_revision = renderer->effective_metrics.layout_revision;
     cache->direction_policy = renderer->direction_policy;
     cache->valid = true;
@@ -3705,7 +3744,7 @@ static int ensure_cached_row(
 {
     boxrig_pango_cairo_row_cache *cache = &renderer->row_cache[row];
     boxrig_pango_cairo_row_shape new_shape;
-    uint64_t content_signature;
+    boxrig_pango_cairo_row_signature signature;
 
     if (cache->verified_this_frame && cache->valid &&
         cache->layout_revision == renderer->effective_metrics.layout_revision &&
@@ -3718,16 +3757,17 @@ static int ensure_cached_row(
             terminal,
             row,
             renderer->cached_columns,
-            &content_signature) == -1) {
+            &signature) == -1) {
         return -1;
     }
-    if (!cached_row_matches(renderer, cache, content_signature)) {
+    if (!cached_row_matches(renderer, cache, signature.shape)) {
         if (shape_terminal_row(renderer, terminal, row, &new_shape) == -1) {
             return -1;
         }
         row_shape_destroy(&cache->shape);
         cache->shape = new_shape;
-        cache->content_signature = content_signature;
+        cache->content_signature = signature.shape;
+        cache->paint_signature = signature.paint;
         cache->layout_revision = renderer->effective_metrics.layout_revision;
         cache->direction_policy = renderer->direction_policy;
         cache->valid = true;
@@ -3736,6 +3776,11 @@ static int ensure_cached_row(
             0,
             renderer->cached_columns,
             renderer->cached_columns);
+    } else if (cache->paint_signature != signature.paint) {
+        if (refresh_row_paint(renderer, terminal, row, &cache->shape) == -1) return -1;
+        cache->paint_signature = signature.paint;
+        mark_dirty_interval(&renderer->frame_dirty[row], 0,
+            renderer->cached_columns, renderer->cached_columns);
     }
     cache->verified_this_frame = true;
     *shape_out = &cache->shape;
@@ -4048,35 +4093,72 @@ static int draw_visual_backgrounds(
 
 static int draw_fitted_item_segment(
     boxrig_pango_cairo_renderer *renderer,
-    const boxrig_pango_cairo_row_shape *shape,
     const boxrig_pango_cairo_shaped_item *item,
+    const boxrig_pango_cairo_glyph_span *span,
     size_t row,
     size_t clip_column,
     size_t clip_column_count,
     unsigned long foreground)
 {
-    double x = item->visual_column * renderer->cell_width;
+    double x = span->placement.visual_column * renderer->cell_width;
     double y = row * renderer->cell_height;
     double allocated_width =
-        item->visual_column_count * renderer->cell_width;
-    int natural_units;
+        span->placement.column_count * renderer->cell_width;
+    double natural_units = span->placement.natural_width;
     double horizontal_scale = 1.0;
 
-    if (!set_cairo_source_pixel(renderer, foreground, 255)) {
-        return -1;
-    }
-    natural_units = pango_glyph_string_get_width(item->glyph_item.glyphs);
-    if (natural_units > 0 && !item->preserve_advance) {
+    if (natural_units > 0 && !span->placement.preserve_advance) {
         horizontal_scale =
             allocated_width * PANGO_SCALE / (double)natural_units;
     }
-    /* Bound the glyph raster before compositing it. Rasterize the complete
-     * item so clipped wide glyphs keep the same coverage on each phase.
+    double inset = span->placement.preserve_advance
+        ? (allocated_width - natural_units / (double)PANGO_SCALE) / 2 : 0;
+    double origin = x + inset;
+    double units_per_pixel = PANGO_SCALE / horizontal_scale;
+    double clip_x = clip_column * renderer->cell_width;
+    double clip_end = (clip_column + clip_column_count) * renderer->cell_width;
+    /* Include a device pixel around the ink bounds for antialias coverage.
+     * Select complete native clusters, preserving ligatures and marks. */
+    double first_unit = (clip_x - origin - 1) * units_per_pixel;
+    double end_unit = (clip_end - origin + 1) * units_per_pixel;
+    size_t low = 0, high = span->cluster_count;
+    while (low < high) {
+        size_t middle = low + (high - low) / 2;
+        if (span->clusters[middle].prefix_ink_end <= first_unit) low = middle + 1;
+        else high = middle;
+    }
+    size_t first = low;
+    high = span->cluster_count;
+    while (low < high) {
+        size_t middle = low + (high - low) / 2;
+        if (span->clusters[middle].suffix_ink_start < end_unit) low = middle + 1;
+        else high = middle;
+    }
+    if (first == low) return 0;
+    const boxrig_pango_cairo_glyph_bounds *begin = &span->clusters[first];
+    const boxrig_pango_cairo_glyph_bounds *last = &span->clusters[low-1];
+    double raster_x = origin + begin->advance / units_per_pixel;
+    double raster_end = origin + last->advance_end / units_per_pixel;
+    if (raster_x > clip_x) raster_x = clip_x;
+    if (raster_end < clip_end) raster_end = clip_end;
+    if (raster_x < x) raster_x = x;
+    if (raster_end > x + allocated_width) raster_end = x + allocated_width;
+    raster_x = (double)(size_t)raster_x;
+    raster_end = (double)(size_t)raster_end + (raster_end > (double)(size_t)raster_end ? 1 : 0);
+    size_t raster_width = (size_t)(raster_end - raster_x);
+    size_t area = raster_width > SIZE_MAX / renderer->cell_height
+        ? SIZE_MAX : raster_width * renderer->cell_height;
+    renderer->render_statistics.glyph_raster_pixel_count =
+        area > SIZE_MAX - renderer->render_statistics.glyph_raster_pixel_count
+            ? SIZE_MAX : renderer->render_statistics.glyph_raster_pixel_count + area;
+    if (!set_cairo_source_pixel(renderer, foreground, 255)) return -1;
+    /* Bound the glyph raster before compositing it. Rasterize complete
+     * clusters so clipped wide glyphs keep the same coverage on each phase.
      * This context is renderer-owned; restore its dirty clip before painting
      * the raster. No caller-owned clip is changed. */
     cairo_save(renderer->cairo);
     cairo_reset_clip(renderer->cairo);
-    cairo_rectangle(renderer->cairo, x, y, allocated_width, renderer->cell_height);
+    cairo_rectangle(renderer->cairo, raster_x, y, raster_end - raster_x, renderer->cell_height);
     cairo_clip(renderer->cairo);
     cairo_surface_t *underlay = cairo_get_group_target(renderer->cairo);
     cairo_pattern_t *ink = cairo_pattern_reference(cairo_get_source(renderer->cairo));
@@ -4087,13 +4169,16 @@ static int draw_fitted_item_segment(
     cairo_set_operator(renderer->cairo, CAIRO_OPERATOR_OVER);
     cairo_set_source(renderer->cairo, ink);
     cairo_pattern_destroy(ink);
-    double inset = item->preserve_advance
-        ? (allocated_width - natural_units / (double)PANGO_SCALE) / 2 : 0;
-    cairo_translate(renderer->cairo, x + inset, y + renderer->ascent);
+    cairo_translate(renderer->cairo, origin + begin->advance / units_per_pixel, y + renderer->ascent);
     cairo_scale(renderer->cairo, horizontal_scale, 1.0);
     cairo_move_to(renderer->cairo, 0.0, 0.0);
-    pango_cairo_show_glyph_item(renderer->cairo, shape->text,
-        (PangoGlyphItem *)&item->glyph_item);
+    /* Borrow a view of the immutable cached glyph array. Only the public
+     * fields change; this stack view is neither resized nor freed. */
+    PangoGlyphString glyphs = *item->glyph_item.glyphs;
+    glyphs.num_glyphs = (int)(last->first_glyph + last->glyph_count - begin->first_glyph);
+    glyphs.glyphs += begin->first_glyph;
+    glyphs.log_clusters += begin->first_glyph;
+    pango_cairo_show_glyph_string(renderer->cairo, item->glyph_item.item->analysis.font, &glyphs);
     cairo_pattern_t *raster = cairo_pop_group(renderer->cairo);
     cairo_restore(renderer->cairo);
     cairo_save(renderer->cairo);
@@ -4110,23 +4195,25 @@ static int draw_fitted_item_segment(
 
 static int draw_shaped_item_segment(
     boxrig_pango_cairo_renderer *renderer,
-    const boxrig_pango_cairo_row_shape *shape,
     const boxrig_pango_cairo_shaped_item *item,
     size_t row, size_t clip_column, size_t clip_column_count,
     unsigned long foreground)
 {
-    for (size_t i = 0; i < item->span_count; i++) {
-        const boxrig_ui_glyph_span *span = &item->spans[i];
+    size_t low = 0, high = item->span_count;
+    while (low < high) {
+        size_t middle = low + (high - low) / 2;
+        const boxrig_ui_glyph_span *span = &item->spans[middle].placement;
+        if (span->visual_column + span->column_count <= clip_column) low = middle + 1;
+        else high = middle;
+    }
+    for (size_t i = low; i < item->span_count; i++) {
+        const boxrig_ui_glyph_span *span = &item->spans[i].placement;
+        if (span->visual_column >= clip_column + clip_column_count) break;
         size_t first = span->visual_column > clip_column ? span->visual_column : clip_column;
         size_t end = span->visual_column + span->column_count;
         if (end > clip_column + clip_column_count) end = clip_column + clip_column_count;
         if (first >= end) continue;
-        boxrig_pango_cairo_shaped_item part = *item;
-        if (i + 1 < item->span_count) part.glyph_item = *item->prefixes[i];
-        part.visual_column = span->visual_column;
-        part.visual_column_count = span->column_count;
-        part.preserve_advance = span->preserve_advance;
-        if (draw_fitted_item_segment(renderer, shape, &part, row, first,
+        if (draw_fitted_item_segment(renderer, item, &item->spans[i], row, first,
                 end - first, foreground) == -1) return -1;
     }
     return 0;
@@ -4152,9 +4239,11 @@ static int draw_shaped_item(
     }
     end = item->visual_column + item->visual_column_count;
     column = item->visual_column;
-    if (column < clip_column) column = clip_column;
-    if (end > clip_column + clip_count) end = clip_column + clip_count;
-    while (column < end) {
+    if (end <= clip_column || column >= clip_column + clip_count) return 0;
+    /* Keep the paint runs independent of the dirty clip. Changing a glyph
+     * batch on partial exposes can change Cairo's alpha rounding, even when
+     * the omitted glyph is a space. The outer row clip limits compositing. */
+    while (column < end && column < clip_column + clip_count) {
         boxrig_cell_view cell;
         resolved_cell_colors colors;
         size_t logical_column;
@@ -4202,10 +4291,9 @@ static int draw_shaped_item(
             }
             segment_end++;
         }
-        if (!concealed &&
+        if (!concealed && segment_end > clip_column &&
             draw_shaped_item_segment(
                 renderer,
-                shape,
                 item,
                 row,
                 column,
@@ -4937,7 +5025,7 @@ static int draw_filled_cursor(
             const boxrig_pango_cairo_shaped_item *item = &shape->items[i];
             if (column >= item->visual_column &&
                 column - item->visual_column < item->visual_column_count &&
-                draw_shaped_item_segment(renderer, shape, item, cursor.row,
+                draw_shaped_item_segment(renderer, item, cursor.row,
                     column, 1, ink) == -1) goto cleanup;
         }
     }
