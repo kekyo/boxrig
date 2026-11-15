@@ -172,7 +172,9 @@ static bool self_test(void)
             update_result result;
             CHECK(measure(modes[i], 3, 24, 3, cursor != 0, "-", &result));
             CHECK(result.work.row_raster_count == 9);
-            CHECK(result.work.signature_cell_count != 0);
+            /* Every frame validates each visible row once, including the
+             * cursor row and rows already checked during model updates. */
+            CHECK(result.work.signature_cell_count == 3 * 24 * 3);
         }
     }
     return true;

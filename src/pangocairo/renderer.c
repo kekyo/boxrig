@@ -88,6 +88,7 @@ typedef struct boxrig_pango_cairo_row_cache {
     boxrig_text_direction_policy direction_policy;
     bool valid;
     bool colors_valid;
+    bool verified_this_frame;
 } boxrig_pango_cairo_row_cache;
 
 typedef struct boxrig_pango_cairo_dirty_interval {
@@ -3635,6 +3636,7 @@ static int update_model_row(
         return -1;
     }
     if (cached_row_matches(renderer, cache, content_signature)) {
+        cache->verified_this_frame = true;
         return mark_unchanged_layout_dirty(
             &renderer->frame_dirty[row],
             cache->shape.layout,
@@ -3683,6 +3685,7 @@ static int update_model_row(
     cache->layout_revision = renderer->effective_metrics.layout_revision;
     cache->direction_policy = renderer->direction_policy;
     cache->valid = true;
+    cache->verified_this_frame = true;
     return 0;
 }
 
@@ -3696,6 +3699,12 @@ static int ensure_cached_row(
     boxrig_pango_cairo_row_shape new_shape;
     uint64_t content_signature;
 
+    if (cache->verified_this_frame && cache->valid &&
+        cache->layout_revision == renderer->effective_metrics.layout_revision &&
+        cache->direction_policy == renderer->direction_policy) {
+        *shape_out = &cache->shape;
+        return 0;
+    }
     if (terminal_row_signature(
             renderer,
             terminal,
@@ -3720,6 +3729,7 @@ static int ensure_cached_row(
             renderer->cached_columns,
             renderer->cached_columns);
     }
+    cache->verified_this_frame = true;
     *shape_out = &cache->shape;
     return 0;
 }
@@ -5910,6 +5920,12 @@ static int draw_renderer(
     if (rows == 0 || columns == 0 ||
         ensure_render_state(renderer, rows, columns) == -1) {
         return -1;
+    }
+    /* All consumers in this draw observe the same terminal content. Reuse a
+     * successful validation for cursors, image anchors and the final raster,
+     * but always revalidate after a new draw, including a failed-frame retry. */
+    for (row = 0; row < rows; row++) {
+        renderer->row_cache[row].verified_this_frame = false;
     }
     if (synchronize_image_cache(renderer, terminal) == -1 ||
         snapshot_image_placements(
