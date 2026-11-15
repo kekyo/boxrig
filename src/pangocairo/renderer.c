@@ -3133,24 +3133,23 @@ static GList *split_items_at_render_boundaries(
 {
     GList *result = NULL;
     GList *node;
+    size_t cluster_index = 1;
 
     for (node = items; node != NULL; node = node->next) {
         PangoItem *remaining = node->data;
         size_t original_end =
             (size_t)remaining->offset + (size_t)remaining->length;
-        size_t cluster_index;
-
-        for (cluster_index = 1;
-             cluster_index < shape->cluster_count;
-             cluster_index++) {
+        for (; cluster_index < shape->cluster_count; cluster_index++) {
             size_t boundary = shape->clusters[cluster_index].text_offset;
 
             if (shape->statistics.cluster_visit_count != SIZE_MAX) {
                 shape->statistics.cluster_visit_count++;
             }
 
+            if (boundary >= original_end) {
+                break;
+            }
             if (boundary > (size_t)remaining->offset &&
-                boundary < original_end &&
                 cluster_starts_new_render_style(shape, cluster_index)) {
                 size_t split_index = boundary - (size_t)remaining->offset;
                 glong split_chars = g_utf8_strlen(
@@ -3161,13 +3160,13 @@ static GList *split_items_at_render_boundaries(
                     (int)split_index,
                     (int)split_chars);
 
-                result = g_list_append(result, prefix);
+                result = g_list_prepend(result, prefix);
             }
         }
-        result = g_list_append(result, remaining);
+        result = g_list_prepend(result, remaining);
     }
     g_list_free(items);
-    return result;
+    return g_list_reverse(result);
 }
 
 static uint64_t pango_font_key(const PangoAnalysis *analysis)
@@ -3209,17 +3208,6 @@ static uint64_t pango_language_key(PangoLanguage *language)
                      strlen(name));
 }
 
-static bool item_overlaps_cluster(
-    const PangoItem *item,
-    const boxrig_pango_cairo_logical_cluster *cluster)
-{
-    size_t item_start = (size_t)item->offset;
-    size_t item_end = item_start + (size_t)item->length;
-    size_t cluster_end = cluster->text_offset + cluster->text_length;
-
-    return item_start < cluster_end && cluster->text_offset < item_end;
-}
-
 static int build_portable_layout(
     boxrig_pango_cairo_row_shape *shape,
     GList *items,
@@ -3228,6 +3216,10 @@ static int build_portable_layout(
     boxrig_text_cluster_input *inputs;
     size_t column_count = 0;
     size_t cluster_index;
+    GList *first_item = items;
+    PangoFont *previous_font = NULL;
+    uint64_t previous_font_key = 0;
+    bool have_font_key = false;
 
     if (shape->cluster_count > SIZE_MAX / sizeof(*inputs)) {
         return -1;
@@ -3244,6 +3236,7 @@ static int build_portable_layout(
         GList *node;
         bool found = false;
         uint64_t font_key = UINT64_C(1469598103934665603);
+        size_t cluster_end = cluster->text_offset + cluster->text_length;
 
         inputs[cluster_index].logical_column = cluster->logical_column;
         inputs[cluster_index].column_count = cluster->column_count;
@@ -3252,28 +3245,37 @@ static int build_portable_layout(
         inputs[cluster_index].preserve_advance = cluster->cell.font_dependent;
         inputs[cluster_index].style_key = cluster->style_key;
         inputs[cluster_index].hyperlink_key = cluster->hyperlink_key;
-        for (node = items; node != NULL; node = node->next) {
+        /* Pango items partition the text in ascending logical byte order,
+         * including RTL text. Retain an item that spans the next cluster. */
+        for (node = first_item; node != NULL; node = node->next) {
             PangoItem *item = node->data;
+            size_t item_end = (size_t)item->offset + (size_t)item->length;
 
             if (shape->statistics.cluster_visit_count != SIZE_MAX) {
                 shape->statistics.cluster_visit_count++;
             }
 
-            if (item_overlaps_cluster(item, cluster)) {
-                if (!found) {
-                    inputs[cluster_index].bidi_level = item->analysis.level;
-                    inputs[cluster_index].script_key =
-                        (uint64_t)item->analysis.script;
-                    inputs[cluster_index].language_key =
-                        pango_language_key(item->analysis.language);
-                }
-                font_key = hash_u64(
-                    font_key,
-                    pango_font_key(&item->analysis));
+            if ((size_t)item->offset >= cluster_end) break;
+            if (!found) {
+                inputs[cluster_index].bidi_level = item->analysis.level;
+                inputs[cluster_index].script_key =
+                    (uint64_t)item->analysis.script;
+                inputs[cluster_index].language_key =
+                    pango_language_key(item->analysis.language);
+            }
+            if (!have_font_key || previous_font != item->analysis.font) {
+                previous_font = item->analysis.font;
+                previous_font_key = pango_font_key(&item->analysis);
+                have_font_key = true;
                 if (shape->statistics.font_description_count != SIZE_MAX) {
                     shape->statistics.font_description_count++;
                 }
-                found = true;
+            }
+            font_key = hash_u64(font_key, previous_font_key);
+            found = true;
+            if (item_end >= cluster_end) {
+                first_item = item_end == cluster_end ? node->next : node;
+                break;
             }
         }
         if (!found) {
@@ -3301,6 +3303,7 @@ static int shape_items(boxrig_pango_cairo_row_shape *shape, GList *items)
     size_t allocated_count = (size_t)g_list_length(items);
     GList *node;
     size_t item_index = 0;
+    size_t first_cluster = 0;
 
     if (allocated_count == 0 ||
         allocated_count > SIZE_MAX / sizeof(*shape->items)) {
@@ -3334,6 +3337,7 @@ static int shape_items(boxrig_pango_cairo_row_shape *shape, GList *items)
         size_t logical_end = 0;
         size_t visual_begin = SIZE_MAX;
         size_t visual_end = 0;
+        size_t item_end = (size_t)item->offset + (size_t)item->length;
         int glyph_index;
 
         pango_shape_item(
@@ -3343,7 +3347,7 @@ static int shape_items(boxrig_pango_cairo_row_shape *shape, GList *items)
             NULL,
             shaped->glyph_item.glyphs,
             PANGO_SHAPE_NONE);
-        for (cluster_index = 0;
+        for (cluster_index = first_cluster;
              cluster_index < shape->cluster_count;
              cluster_index++) {
             const boxrig_pango_cairo_logical_cluster *cluster =
@@ -3354,9 +3358,7 @@ static int shape_items(boxrig_pango_cairo_row_shape *shape, GList *items)
                 shape->statistics.cluster_visit_count++;
             }
 
-            if (!item_overlaps_cluster(item, cluster)) {
-                continue;
-            }
+            if (cluster->text_offset >= item_end) break;
             if (shaped->logical_column_count == 0) {
                 shaped->logical_column = cluster->logical_column;
             }
@@ -3379,6 +3381,12 @@ static int shape_items(boxrig_pango_cairo_row_shape *shape, GList *items)
             }
             shaped->logical_column_count =
                 logical_end - shaped->logical_column;
+            size_t cluster_end = cluster->text_offset + cluster->text_length;
+            if (cluster_end >= item_end) {
+                first_cluster = cluster_end == item_end
+                    ? cluster_index + 1 : cluster_index;
+                break;
+            }
         }
         if (shaped->logical_column_count == 0 || visual_begin == SIZE_MAX) {
             return -1;

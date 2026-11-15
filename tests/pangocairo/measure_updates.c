@@ -166,7 +166,7 @@ static bool measure(const char *mode, size_t rows, size_t columns,
 
 static bool self_test(void)
 {
-    const char *modes[] = {"paint", "boundaries", "text", "solid-text", "expose"};
+    const char *modes[] = {"text", "solid-text", "paint", "boundaries", "expose"};
     for (size_t i = 0; i < sizeof(modes) / sizeof(modes[0]); i++) {
         for (unsigned int cursor = 0; cursor < 2; cursor++) {
             update_result result;
@@ -175,6 +175,8 @@ static bool self_test(void)
             /* Every frame validates each visible row once, including the
              * cursor row and rows already checked during model updates. */
             CHECK(result.work.signature_cell_count == 3 * 24 * 3);
+            CHECK(result.work.cluster_visit_count <= 3 * 24 * 3 * 8);
+            CHECK(result.work.font_description_count <= 3 * 3);
         }
     }
     return true;
