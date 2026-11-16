@@ -14,7 +14,21 @@ typedef struct boxrig_ui_glyph_span {
     size_t visual_column;
     size_t column_count;
     bool preserve_advance;
+    /* A complete, standalone Block Element, or zero for normal font shaping. */
+    uint32_t block_character;
 } boxrig_ui_glyph_span;
+
+/* Cell-relative, nonoverlapping, opaque integer rectangles. */
+typedef struct boxrig_ui_block_rectangle {
+    unsigned int x, y, width, height;
+} boxrig_ui_block_rectangle;
+
+bool boxrig_ui_block_glyph_supported(uint32_t character);
+uint32_t boxrig_ui_block_glyph_utf8(const char *text, size_t length);
+/* The width covers the complete grapheme, including continuation columns.
+ * Round shared eighth boundaries once; empty partitions at tiny sizes vanish. */
+size_t boxrig_ui_block_glyph_rectangles(uint32_t character,
+    unsigned int width, unsigned int height, boxrig_ui_block_rectangle rectangles[3]);
 
 /* Input spans are native shaping clusters in logical text order. Merge any
  * that share a terminal grapheme, then adjacent spans with the same advance

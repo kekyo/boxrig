@@ -2917,8 +2917,153 @@ int boxrig_test_d3d11_fixture(D3D_DRIVER_TYPE driver)
     return 0;
 }
 #else
+static bool common_block_geometry_fixture(void)
+{
+    /* Expected occupied eighths from the Block Elements character names.
+     * Empty neighboring cells also detect font ink escaping its grid cell. */
+    static const struct { const char *text; uint8_t rows[8]; } cases[] = {
+        {"█", {255,255,255,255,255,255,255,255}},
+        {"▀", {255,255,255,255,0,0,0,0}},
+        {"▄", {0,0,0,0,255,255,255,255}},
+        {"▌", {240,240,240,240,240,240,240,240}},
+        {"▐", {15,15,15,15,15,15,15,15}},
+        {"▖", {0,0,0,0,240,240,240,240}},
+        {"▗", {0,0,0,0,15,15,15,15}},
+        {"▘", {240,240,240,240,0,0,0,0}},
+        {"▙", {240,240,240,240,255,255,255,255}},
+        {"▚", {240,240,240,240,15,15,15,15}},
+        {"▛", {255,255,255,255,240,240,240,240}},
+        {"▜", {255,255,255,255,15,15,15,15}},
+        {"▝", {15,15,15,15,0,0,0,0}},
+        {"▞", {15,15,15,15,240,240,240,240}},
+        {"▟", {15,15,15,15,255,255,255,255}},
+        {"▔", {255,0,0,0,0,0,0,0}},
+        {"▕", {1,1,1,1,1,1,1,1}},
+        {"▁", {0,0,0,0,0,0,0,255}},
+        {"▂", {0,0,0,0,0,0,255,255}},
+        {"▃", {0,0,0,0,0,255,255,255}},
+        {"▅", {0,0,0,255,255,255,255,255}},
+        {"▆", {0,0,255,255,255,255,255,255}},
+        {"▇", {0,255,255,255,255,255,255,255}},
+        {"▉", {254,254,254,254,254,254,254,254}},
+        {"▊", {252,252,252,252,252,252,252,252}},
+        {"▋", {248,248,248,248,248,248,248,248}},
+        {"▍", {224,224,224,224,224,224,224,224}},
+        {"▎", {192,192,192,192,192,192,192,192}},
+        {"▏", {128,128,128,128,128,128,128,128}}
+    };
+    const size_t count = sizeof(cases) / sizeof(cases[0]);
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    boxrig_ui_view_config view_config = boxrig_ui_view_config_default();
+    platform_renderer_fixture renderer;
+    boxrig_terminal *terminal = NULL;
+    boxrig_ui_model *model = NULL;
+    boxrig_ui_view *view = NULL;
+    config.rows = 2;
+    config.columns = 2 * count + 1;
+    CHECK(create_platform_renderer(&renderer));
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    const char setup[] = "\033[?25l\033[38;2;136;136;136;48;2;32;32;32m\033[2J";
+    CHECK(feed_bytes(terminal, setup, sizeof(setup) - 1));
+    for (size_t i = 0; i < count; i++) {
+        char sequence[32];
+        int length = snprintf(sequence, sizeof(sequence), "\033[1;%zuH%s", 2 * i + 2, cases[i].text);
+        CHECK(length > 0 && (size_t)length < sizeof(sequence));
+        CHECK(feed_bytes(terminal, sequence, (size_t)length));
+    }
+    CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_create(model, &view_config, &view) == BOXRIG_UI_OK);
+    CHECK(size_platform_renderer(&renderer, config.rows, config.columns));
+    CHECK(draw_platform_view(&renderer, view, NULL));
+    for (size_t column = 0; column < config.columns; column++) {
+        for (unsigned int y = 0; y < renderer.cell_height; y++) {
+            for (unsigned int x = 0; x < renderer.cell_width; x++) {
+                unsigned int expected = 32;
+                if (column % 2 != 0) {
+                    unsigned int bx = 0, by = 0;
+                    while (bx < 7 && x >= (renderer.cell_width * (bx + 1) + 4) / 8) bx++;
+                    while (by < 7 && y >= (renderer.cell_height * (by + 1) + 4) / 8) by++;
+                    if ((cases[column / 2].rows[by] & (128u >> bx)) != 0) expected = 136;
+                }
+                platform_rgb pixel;
+                CHECK(get_platform_pixel(&renderer,
+                    (int)(column * renderer.cell_width + x), (int)y, &pixel));
+                if (pixel.red != expected || pixel.green != expected || pixel.blue != expected) {
+                    fprintf(stderr, "block pixel column=%zu x=%u y=%u expected=%u actual=%u,%u,%u\n",
+                        column, x, y, expected, pixel.red, pixel.green, pixel.blue);
+                    CHECK(false);
+                }
+            }
+        }
+    }
+    boxrig_ui_view_destroy(view);
+    boxrig_ui_model_destroy(model);
+    boxrig_terminal_destroy(terminal);
+    destroy_platform_renderer(&renderer);
+    puts("PASS block glyphs cover exact cell rectangles without seams or color fringes");
+    return true;
+}
+
+static bool common_block_mode_switch_fixture(void)
+{
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    boxrig_ui_view_config options = boxrig_ui_view_config_default();
+    platform_renderer_fixture renderer;
+    boxrig_terminal *terminal = NULL;
+    boxrig_ui_model *model = NULL;
+    boxrig_ui_view *view = NULL;
+    config.rows = 2;
+    config.columns = 8;
+    options.block_glyph_mode = BOXRIG_UI_BLOCK_GLYPH_FONT;
+    CHECK(create_platform_renderer(&renderer));
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    const char content[] = "\033[?25l\033[38;2;136;136;136;48;2;32;32;32m\033[2J"
+        "████\033[2;1HA░▒▓█\xcc\x81";
+    CHECK(feed_bytes(terminal, content, sizeof(content) - 1));
+    CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_create(model, &options, &view) == BOXRIG_UI_OK);
+    CHECK(size_platform_renderer(&renderer, config.rows, config.columns));
+    size_t width = config.columns * renderer.cell_width;
+    size_t height = config.rows * renderer.cell_height;
+    platform_rgb *font = calloc(width * height, sizeof(*font));
+    CHECK(font != NULL);
+    for (size_t phase = 0; phase < 4; phase++) {
+        boxrig_ui_block_glyph_mode mode = phase % 2 == 0
+            ? BOXRIG_UI_BLOCK_GLYPH_FONT : BOXRIG_UI_BLOCK_GLYPH_RECTANGLES;
+        CHECK(boxrig_ui_view_set_block_glyph_mode(view, mode) == BOXRIG_UI_OK);
+        CHECK(draw_platform_view(&renderer, view, NULL));
+        /* A partial repaint must not reintroduce font edges or old pixels. */
+        if (phase == 3) {
+            CHECK(boxrig_ui_view_invalidate(view, BOXRIG_UI_DIRTY_OVERLAY,
+                (boxrig_ui_dirty){0, 1, 1, 1}) == BOXRIG_UI_OK);
+            CHECK(draw_platform_view(&renderer, view, NULL));
+        }
+        for (size_t y = 0; y < height; y++) for (size_t x = 0; x < width; x++) {
+            platform_rgb pixel = {0};
+            CHECK(get_platform_pixel(&renderer, (int)x, (int)y, &pixel));
+            if (phase == 0) font[y * width + x] = pixel;
+            else if (mode == BOXRIG_UI_BLOCK_GLYPH_FONT || y >= renderer.cell_height) {
+                CHECK(pixel.red == font[y * width + x].red &&
+                    pixel.green == font[y * width + x].green && pixel.blue == font[y * width + x].blue);
+            } else {
+                uint8_t expected = x < 4 * renderer.cell_width ? 136 : 32;
+                CHECK(pixel.red == expected && pixel.green == expected && pixel.blue == expected);
+            }
+        }
+    }
+    free(font);
+    boxrig_ui_view_destroy(view);
+    boxrig_ui_model_destroy(model);
+    boxrig_terminal_destroy(terminal);
+    destroy_platform_renderer(&renderer);
+    puts("PASS live block mode changes preserve font fallback and partial redraws");
+    return true;
+}
+
 int main(void)
 {
+    if (!common_block_geometry_fixture()) return 1;
+    if (!common_block_mode_switch_fixture()) return 1;
 #if !defined(BOXRIG_TEST_FRONTEND_WIN32) && !defined(BOXRIG_TEST_FRONTEND_D3D11)
     if (!color_glyph_policy_fixture()) return 1;
 #endif

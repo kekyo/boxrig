@@ -39,6 +39,7 @@ static void merge_glyph_span(boxrig_ui_glyph_span *left,
     left->text_length = right->text_offset + right->text_length - left->text_offset;
     left->natural_width += right->natural_width;
     left->preserve_advance = left->preserve_advance || right->preserve_advance;
+    left->block_character = 0;
 }
 
 size_t boxrig_ui_fit_glyph_spans(const boxrig_text_layout *layout,
@@ -58,6 +59,12 @@ size_t boxrig_ui_fit_glyph_spans(const boxrig_text_layout *layout,
                 layout->clusters[cluster_index].text_length <= span.text_offset) cluster_index++;
         size_t first = SIZE_MAX, end = 0;
         span.preserve_advance = false;
+        /* A native cluster covering only part of a terminal grapheme must
+         * retain its font, including combining marks and variation selectors. */
+        if (cluster_index >= layout->cluster_count ||
+            layout->clusters[cluster_index].text_offset != span.text_offset ||
+            layout->clusters[cluster_index].text_length != span.text_length)
+            span.block_character = 0;
         for (size_t j = cluster_index; j < layout->cluster_count &&
                 layout->clusters[j].text_offset < text_end; j++) {
             size_t column = layout->cluster_visual_columns[j];
@@ -78,7 +85,8 @@ size_t boxrig_ui_fit_glyph_spans(const boxrig_text_layout *layout,
     for (size_t i = 0; i < combined; i++) {
         boxrig_ui_glyph_span span = spans[i];
         boxrig_ui_glyph_span *previous = fitted == 0 ? NULL : &spans[fitted-1];
-        if (previous != NULL && !previous->preserve_advance && !span.preserve_advance &&
+        if (previous != NULL && previous->block_character == 0 && span.block_character == 0 &&
+            !previous->preserve_advance && !span.preserve_advance &&
             previous->natural_width > 0 && span.natural_width > 0 &&
             (previous->visual_column + previous->column_count == span.visual_column ||
              span.visual_column + span.column_count == previous->visual_column) &&
