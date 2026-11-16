@@ -6332,6 +6332,17 @@ include tests/performance/plan18.mk
 $(BUILD_DIR)/tests/performance/notcurses_replay: tests/performance/notcurses_replay.c $(LIBRARY) | $(BUILD_DIR)/tests/performance
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(LIBRARY) -o $@
 
+.PHONY: test-notcurses-replay
+test: test-notcurses-replay
+test-notcurses-replay: $(BUILD_DIR)/tests/performance/notcurses_replay
+	bash tests/performance/test_notcurses_replay.sh $<
+
+$(BUILD_DIR)/tests/performance/terminal_geometry: tests/performance/terminal_geometry.c | $(BUILD_DIR)/tests/performance
+	$(CC) $(CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< -o $@
+
+.PHONY: notcurses-evaluation-tools
+notcurses-evaluation-tools: $(GTK3_EXAMPLE_BINARY) $(BUILD_DIR)/tests/performance/notcurses_replay $(BUILD_DIR)/tests/performance/terminal_geometry $(BUILD_DIR)/tests/performance/annotation_gl_vendor
+
 .PHONY: test-graphics-work
 test: test-graphics-work
 test-graphics-work: $(BUILD_DIR)/tests/test_graphics_work
