@@ -33,6 +33,37 @@ Core retains the terminal's characters and attributes for every backend.
 Choosing a renderer does not change the terminal protocol.
 Standard components remain available in builds that do not link optional rendering libraries.
 
+## Block character rendering
+
+The standard renderers draw filled block characters such as `█` and `▀` as rectangles sized to the terminal cells.
+Adjacent blocks share pixel boundaries, preventing gaps and color fringes caused by font edges.
+Each view owns this setting, so views sharing a model can use different rendering modes.
+
+To use font glyphs, change the view creation configuration:
+
+```c
+boxrig_ui_view_config config = boxrig_ui_view_config_default();
+config.block_glyph_mode = BOXRIG_UI_BLOCK_GLYPH_FONT;
+```
+
+For an existing `view`, switch to rectangles with this API.
+A changed setting requests a redraw without additional terminal input.
+
+```c
+boxrig_ui_status status = boxrig_ui_view_set_block_glyph_mode(
+    view, BOXRIG_UI_BLOCK_GLYPH_RECTANGLES);
+```
+
+`BOXRIG_UI_OK` indicates success.
+Read the current setting with `boxrig_ui_view_get_block_glyph_mode(view)`.
+The default is `BOXRIG_UI_BLOCK_GLYPH_RECTANGLES`.
+
+Rectangle rendering covers the 29 characters U+2580 through U+2590 and U+2594 through U+259F in [Unicode Block Elements](https://www.unicode.org/charts/PDF/U2580.pdf).
+Shades `░`, `▒`, and `▓`, blocks accompanied by combining characters, box-drawing characters, and IME preedit text continue to use fonts.
+Changing this mode preserves terminal text, character widths, and copied content.
+A two-column block occupies two columns; colors, selection, cursors, and blinking follow the same settings as ordinary text.
+See [view.h](../../include/boxrig/ui/view.h) for the API contract.
+
 ## Prepare an OpenGL target
 
 The [OpenGL public API](../../include/boxrig/render/opengl.h) targets OpenGL 3.3 core or OpenGL ES 3.0.
