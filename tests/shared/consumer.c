@@ -51,6 +51,9 @@ int main(void)
     boxrig_ui_view_config view_config = boxrig_ui_view_config_default();
     assert(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
     assert(boxrig_ui_view_create(model, &view_config, &view) == BOXRIG_UI_OK);
+    assert(boxrig_ui_view_get_block_glyph_mode(view) == BOXRIG_UI_BLOCK_GLYPH_RECTANGLES);
+    assert(boxrig_ui_view_set_block_glyph_mode(view, BOXRIG_UI_BLOCK_GLYPH_FONT) == BOXRIG_UI_OK);
+    assert(boxrig_ui_view_get_block_glyph_mode(view) == BOXRIG_UI_BLOCK_GLYPH_FONT);
     assert(boxrig_ui_view_get_cell_background_mode(view) == BOXRIG_UI_CELL_BACKGROUND_TRANSPARENT);
     assert(boxrig_ui_view_set_cell_background_mode(view,
         BOXRIG_UI_CELL_BACKGROUND_OPAQUE_EXPLICIT) == BOXRIG_UI_OK);
