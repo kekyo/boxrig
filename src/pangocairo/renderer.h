@@ -53,6 +53,14 @@ typedef struct boxrig_pango_cairo_render_statistics {
     size_t font_description_count;
     /** Pixel area rasterized into temporary glyph groups before clipping. */
     size_t glyph_raster_pixel_count;
+    /** Color pattern lookups, including hits and misses. */
+    size_t color_source_lookup_count;
+    /** Cached RGBA keys compared during color pattern lookups. */
+    size_t color_source_comparison_count;
+    /** Successfully created color patterns. */
+    size_t color_source_creation_count;
+    /** Patterns replaced after reaching the fixed cache capacity. */
+    size_t color_source_eviction_count;
 } boxrig_pango_cairo_render_statistics;
 
 int boxrig_pango_cairo_renderer_create(

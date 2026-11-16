@@ -28,6 +28,7 @@
 #include <unistd.h>
 
 #define BOXRIG_PANGO_CAIRO_COLOR_SOURCE_LIMIT 512
+#define BOXRIG_PANGO_CAIRO_COLOR_BUCKET_COUNT 1024
 #define BOXRIG_PANGO_CAIRO_MEMORY_FONT_LIMIT 32
 
 typedef struct boxrig_pango_cairo_logical_cluster {
@@ -123,6 +124,9 @@ typedef struct boxrig_pango_cairo_color_source {
     unsigned long pixel;
     uint8_t alpha;
     cairo_pattern_t *pattern;
+    /* One-based links keep a zero-initialized bucket table empty. */
+    uint16_t next;
+    uint16_t previous;
 } boxrig_pango_cairo_color_source;
 
 typedef struct boxrig_pango_cairo_memory_font {
@@ -195,6 +199,7 @@ struct boxrig_pango_cairo_renderer {
     resolved_cell_colors *row_colors;
     filtered_cell_colors *row_filter_colors;
     boxrig_pango_cairo_color_source color_sources[BOXRIG_PANGO_CAIRO_COLOR_SOURCE_LIMIT];
+    uint16_t color_source_buckets[BOXRIG_PANGO_CAIRO_COLOR_BUCKET_COUNT];
     size_t color_source_count;
     size_t color_source_replacement;
     uint64_t color_revision;
@@ -3840,6 +3845,15 @@ int boxrig_pango_cairo_renderer_get_render_statistics(
     return 0;
 }
 
+static size_t color_source_bucket(unsigned long pixel, uint8_t alpha)
+{
+    uint32_t key = (uint32_t)pixel ^ ((uint32_t)alpha << 24);
+    key ^= key >> 16;
+    key *= UINT32_C(0x7feb352d);
+    key ^= key >> 15;
+    return key & (BOXRIG_PANGO_CAIRO_COLOR_BUCKET_COUNT - 1);
+}
+
 static bool set_cairo_source_pixel(
     boxrig_pango_cairo_renderer *renderer,
     unsigned long pixel,
@@ -3849,9 +3863,12 @@ static bool set_cairo_source_pixel(
     size_t source_index;
     bool succeeded;
 
-    for (source_index = 0;
-         source_index < renderer->color_source_count;
-         source_index++) {
+    renderer->render_statistics.color_source_lookup_count++;
+    size_t bucket = color_source_bucket(pixel, alpha);
+    for (uint16_t link = renderer->color_source_buckets[bucket]; link != 0;
+         link = renderer->color_sources[source_index].next) {
+        source_index = link - 1;
+        renderer->render_statistics.color_source_comparison_count++;
         if (renderer->color_sources[source_index].pixel == pixel &&
             renderer->color_sources[source_index].alpha == alpha) {
             cairo_set_source(
@@ -3867,21 +3884,39 @@ static bool set_cairo_source_pixel(
         alpha / 255.0);
     succeeded = cairo_pattern_status(source_pattern) == CAIRO_STATUS_SUCCESS;
     if (succeeded) {
+        renderer->render_statistics.color_source_creation_count++;
         if (renderer->color_source_count <
             BOXRIG_PANGO_CAIRO_COLOR_SOURCE_LIMIT) {
             source_index = renderer->color_source_count;
             renderer->color_source_count++;
         } else {
+            renderer->render_statistics.color_source_eviction_count++;
             source_index = renderer->color_source_replacement;
             renderer->color_source_replacement =
                 (renderer->color_source_replacement + 1) %
                 BOXRIG_PANGO_CAIRO_COLOR_SOURCE_LIMIT;
+            boxrig_pango_cairo_color_source *old = &renderer->color_sources[source_index];
+            /* Remove the old key in constant time, including bucket heads.
+             * Capacity and round-robin replacement stay independent of hash
+             * collisions; a miss never grows the cache. */
+            if (old->previous != 0)
+                renderer->color_sources[old->previous - 1].next = old->next;
+            else
+                renderer->color_source_buckets[color_source_bucket(old->pixel, old->alpha)] = old->next;
+            if (old->next != 0)
+                renderer->color_sources[old->next - 1].previous = old->previous;
             cairo_pattern_destroy(
                 renderer->color_sources[source_index].pattern);
         }
         renderer->color_sources[source_index].pixel = pixel;
         renderer->color_sources[source_index].alpha = alpha;
         renderer->color_sources[source_index].pattern = source_pattern;
+        renderer->color_sources[source_index].previous = 0;
+        renderer->color_sources[source_index].next = renderer->color_source_buckets[bucket];
+        if (renderer->color_source_buckets[bucket] != 0)
+            renderer->color_sources[renderer->color_source_buckets[bucket] - 1].previous =
+                (uint16_t)(source_index + 1);
+        renderer->color_source_buckets[bucket] = (uint16_t)(source_index + 1);
         cairo_pattern_reference(source_pattern);
         cairo_set_source(renderer->cairo, source_pattern);
         succeeded = cairo_status(renderer->cairo) == CAIRO_STATUS_SUCCESS;
