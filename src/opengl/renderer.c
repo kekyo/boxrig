@@ -1930,6 +1930,43 @@ static boxrig_gl_clip glyph_span_clip(const boxrig_ogl_renderer *renderer,
         bottom > top ? bottom-top : 0};
 }
 
+static int draw_block_span(boxrig_ogl_renderer *renderer,
+    const boxrig_terminal *terminal, size_t row, const boxrig_ogl_row_shape *shape,
+    const boxrig_ui_glyph_span *span, const dirty_interval *dirty,
+    const boxrig_gl_clip *clip, const uint32_t *foreground)
+{
+    boxrig_ui_block_rectangle rectangles[3];
+    size_t count = boxrig_ui_block_glyph_rectangles(span->block_character,
+        (unsigned int)span->column_count * renderer->cell_width,
+        renderer->cell_height, rectangles);
+    size_t first = span->visual_column > dirty->column ? span->visual_column : dirty->column;
+    size_t end = span->visual_column + span->column_count;
+    if (end > dirty->column + dirty->column_count) end = dirty->column + dirty->column_count;
+    for (size_t column = first; column < end; column++) {
+        size_t logical;
+        boxrig_cell_view cell;
+        if (boxrig_text_layout_visual_to_logical(shape->layout, column, &logical) != BOXRIG_TEXT_LAYOUT_OK ||
+            boxrig_terminal_get_cell(terminal, row, logical, &cell) != BOXRIG_STATUS_OK) return -1;
+        if ((cell.attributes & BOXRIG_CELL_CONCEALED) != 0 ||
+            !boxrig_ui_view_text_blink_visible(renderer->color_view, cell.attributes)) continue;
+        boxrig_gl_clip cell_clip = glyph_span_clip(renderer, row, column, 1, clip);
+        uint32_t ink = foreground != NULL ? *foreground : renderer->row_colors[column].foreground;
+        for (size_t r = 0; r < count; r++) {
+            const boxrig_ui_block_rectangle *rectangle = &rectangles[r];
+            uint32_t left = (uint32_t)(span->visual_column * renderer->cell_width) + rectangle->x;
+            uint32_t top = (uint32_t)(row * renderer->cell_height) + rectangle->y;
+            uint32_t right = left + rectangle->width, bottom = top + rectangle->height;
+            if (left < cell_clip.x) left = cell_clip.x;
+            if (top < cell_clip.y) top = cell_clip.y;
+            if (right > cell_clip.x + cell_clip.width) right = cell_clip.x + cell_clip.width;
+            if (bottom > cell_clip.y + cell_clip.height) bottom = cell_clip.y + cell_clip.height;
+            if (left < right && top < bottom && emit_solid(renderer, (float)left, (float)top,
+                    (float)(right - left), (float)(bottom - top), ink, 255, false) == -1) return -1;
+        }
+    }
+    return 0;
+}
+
 static int draw_glyph_items(
     boxrig_ogl_renderer *renderer,
     const boxrig_terminal *terminal,
@@ -1965,6 +2002,13 @@ static int draw_glyph_items(
             boxrig_gl_clip bounded = glyph_span_clip(renderer, row, span->visual_column,
                 span->column_count, clip);
             if (bounded.width == 0 || bounded.height == 0) continue;
+
+            if (span->block_character != 0 && boxrig_ui_view_get_block_glyph_mode(
+                    renderer->color_view) == BOXRIG_UI_BLOCK_GLYPH_RECTANGLES) {
+                if (draw_block_span(renderer, terminal, row, shape, span, dirty,
+                        &bounded, foreground) == -1) return -1;
+                continue;
+            }
 
             for (glyph_index = span->first_glyph;
                  glyph_index < span->first_glyph + span->glyph_count; glyph_index++) {

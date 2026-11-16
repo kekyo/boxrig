@@ -4595,6 +4595,31 @@ static int draw_shaped_item_segment(
         size_t end = span->visual_column + span->column_count;
         if (end > clip_column + clip_column_count) end = clip_column + clip_column_count;
         if (first >= end) continue;
+        if (span->block_character != 0 && boxrig_ui_view_get_block_glyph_mode(
+                renderer->color_view) == BOXRIG_UI_BLOCK_GLYPH_RECTANGLES) {
+            boxrig_ui_block_rectangle rectangles[3];
+            size_t count = boxrig_ui_block_glyph_rectangles(span->block_character,
+                (unsigned int)span->column_count * renderer->cell_width,
+                renderer->cell_height, rectangles);
+            if (!set_cairo_source_pixel(renderer, foreground, 255)) return -1;
+            cairo_save(renderer->cairo);
+            cairo_rectangle(renderer->cairo, first * (double)renderer->cell_width,
+                row * (double)renderer->cell_height,
+                (end - first) * (double)renderer->cell_width, renderer->cell_height);
+            cairo_clip(renderer->cairo);
+            cairo_set_antialias(renderer->cairo, CAIRO_ANTIALIAS_NONE);
+            for (size_t r = 0; r < count; r++) {
+                const boxrig_ui_block_rectangle *rectangle = &rectangles[r];
+                cairo_rectangle(renderer->cairo,
+                    span->visual_column * (double)renderer->cell_width + rectangle->x,
+                    row * (double)renderer->cell_height + rectangle->y,
+                    rectangle->width, rectangle->height);
+            }
+            cairo_fill(renderer->cairo);
+            cairo_restore(renderer->cairo);
+            if (cairo_status(renderer->cairo) != CAIRO_STATUS_SUCCESS) return -1;
+            continue;
+        }
         boxrig_x11_shaped_item part = *item;
         if (i + 1 < item->span_count) part.glyph_item = *item->prefixes[i];
         part.visual_column = span->visual_column;

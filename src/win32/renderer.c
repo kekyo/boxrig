@@ -2333,6 +2333,15 @@ static int fill_canonical_rectangle(
     return 0;
 }
 
+static int fill_opaque_rectangle(boxrig_win32_renderer *renderer,
+    HDC context, const RECT *rectangle, COLORREF color)
+{
+    if (renderer->premultiplied_argb32_target)
+        return fill_canonical_rectangle(renderer, rectangle, color, 255);
+    if (SetDCBrushColor(context, color) == CLR_INVALID) return -1;
+    return FillRect(context, rectangle, (HBRUSH)GetStockObject(DC_BRUSH)) ? 0 : -1;
+}
+
 static int composite_solid_rectangle(boxrig_win32_renderer *renderer,
     HDC memory_context, const RECT *rectangle, COLORREF color, uint8_t alpha)
 {
@@ -3326,6 +3335,26 @@ static int draw_shaped_run_segment(
         size_t end = span->visual_column + span->column_count;
         if (end > clip_column + clip_column_count) end = clip_column + clip_column_count;
         if (first >= end) continue;
+        if (span->block_character != 0 && boxrig_ui_view_get_block_glyph_mode(
+                renderer->color_view) == BOXRIG_UI_BLOCK_GLYPH_RECTANGLES) {
+            boxrig_ui_block_rectangle rectangles[3];
+            size_t count = boxrig_ui_block_glyph_rectangles(span->block_character,
+                (unsigned int)span->column_count * renderer->cell_width,
+                renderer->cell_height, rectangles);
+            LONG clip_left = (LONG)(first * renderer->cell_width);
+            LONG clip_right = (LONG)(end * renderer->cell_width);
+            for (size_t r = 0; r < count; r++) {
+                const boxrig_ui_block_rectangle *rectangle = &rectangles[r];
+                LONG left = (LONG)(span->visual_column * renderer->cell_width + rectangle->x);
+                LONG top = (LONG)(row * renderer->cell_height + rectangle->y);
+                RECT area = {left, top, left + (LONG)rectangle->width, top + (LONG)rectangle->height};
+                if (area.left < clip_left) area.left = clip_left;
+                if (area.right > clip_right) area.right = clip_right;
+                if (area.left < area.right && fill_opaque_rectangle(
+                        renderer, memory_context, &area, foreground) == -1) return -1;
+            }
+            continue;
+        }
         boxrig_win32_shaped_run part = fitted_run(run, span);
         if (draw_fitted_run_segment(renderer, memory_context, row, &part, first,
                 end - first, foreground, clip_opaque) == -1) return -1;
@@ -4201,15 +4230,6 @@ static int draw_view_overlays(
             BOXRIG_UI_OVERLAY_HYPERLINK_HOVER, row) == 0 ? 0 : -1;
 }
 
-static int fill_cursor_rectangle(boxrig_win32_renderer *renderer,
-    HDC context, const RECT *rectangle, COLORREF color)
-{
-    if (renderer->premultiplied_argb32_target)
-        return fill_canonical_rectangle(renderer, rectangle, color, 255);
-    if (SetDCBrushColor(context, color) == CLR_INVALID) return -1;
-    return FillRect(context, rectangle, (HBRUSH)GetStockObject(DC_BRUSH)) ? 0 : -1;
-}
-
 static int draw_filled_cursor(
     boxrig_win32_renderer *renderer, HDC context, boxrig_ui_view *view,
     boxrig_cursor_view cursor, const boxrig_win32_row_shape *shape,
@@ -4229,7 +4249,7 @@ static int draw_filled_cursor(
     renderer->alpha_clip_active = true;
     if (renderer->sink.fill == NULL && IntersectClipRect(context, rectangle->left,
             rectangle->top, rectangle->right, rectangle->bottom) == ERROR) goto cleanup;
-    if (fill_cursor_rectangle(renderer, context, rectangle, color_pixel(renderer, fill)) == -1)
+    if (fill_opaque_rectangle(renderer, context, rectangle, color_pixel(renderer, fill)) == -1)
         goto cleanup;
     if ((cell.continuation || (cell.text_length != 0 &&
             !(cell.text_length == 1 && cell.text[0] == ' '))) &&
@@ -4315,7 +4335,7 @@ static int draw_cursor(
         LONG top = rectangle.top + (LONG)rectangles[i].y;
         RECT stroke = {left, top, left + (LONG)rectangles[i].width,
             top + (LONG)rectangles[i].height};
-        if (fill_cursor_rectangle(renderer, memory_context, &stroke, pixel) == -1) {
+        if (fill_opaque_rectangle(renderer, memory_context, &stroke, pixel) == -1) {
             result = -1;
             break;
         }

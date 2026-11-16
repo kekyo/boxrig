@@ -2720,6 +2720,8 @@ static int shape_run(
         boxrig_ui_glyph_span *span = &run->spans[run->span_count++];
         span->text_offset = run->text_offset + t;
         span->text_length = end - t;
+        if (span->text_length == 1 && boxrig_ui_block_glyph_supported(shape->text[span->text_offset]))
+            span->block_character = shape->text[span->text_offset];
         span->first_glyph = run->cluster_map[t];
         size_t glyph_end = span->first_glyph + 1;
         while (glyph_end < run->glyph_count && !run->glyph_properties[glyph_end].isClusterStart)

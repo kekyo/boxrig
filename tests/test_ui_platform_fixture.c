@@ -275,6 +275,12 @@ static bool size_platform_renderer(
         fixture->window,
         (unsigned int)columns * fixture->cell_width,
         (unsigned int)rows * fixture->cell_height);
+    CHECK(boxrig_x11_renderer_set_target_extent(fixture->renderer,
+        (unsigned int)columns * fixture->cell_width,
+        (unsigned int)rows * fixture->cell_height) == 0);
+    CHECK(boxrig_x11_renderer_set_viewport(fixture->renderer, 0, 0,
+        (unsigned int)columns * fixture->cell_width,
+        (unsigned int)rows * fixture->cell_height) == 0);
     CHECK(boxrig_x11_renderer_set_surface_size(
               fixture->renderer,
               (unsigned int)columns * fixture->cell_width,
@@ -2907,16 +2913,6 @@ static bool opengl_4k_terminal_grid_fixture(void)
 }
 #endif
 
-#if defined(BOXRIG_TEST_FRONTEND_D3D11)
-int boxrig_test_d3d11_fixture(D3D_DRIVER_TYPE driver)
-{
-    d3d11_fixture_driver = driver;
-    if (!common_layout_action_fixture() || !common_grid_negotiation_fixture() ||
-        !common_text_overlay_fixture() || !common_image_alpha_fixture()) return 1;
-    puts("PASS shared cell-grid fixture through D3D11 public API");
-    return 0;
-}
-#else
 static bool common_block_geometry_fixture(void)
 {
     /* Expected occupied eighths from the Block Elements character names.
@@ -2962,6 +2958,9 @@ static bool common_block_geometry_fixture(void)
     config.rows = 2;
     config.columns = 2 * count + 1;
     CHECK(create_platform_renderer(&renderer));
+#if defined(BOXRIG_TEST_FRONTEND_OPENGL)
+    CHECK(boxrig_ogl_renderer_set_composited_scrollbar(renderer.renderer, false, 0) == 0);
+#endif
     CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
     const char setup[] = "\033[?25l\033[38;2;136;136;136;48;2;32;32;32m\033[2J";
     CHECK(feed_bytes(terminal, setup, sizeof(setup) - 1));
@@ -3016,6 +3015,9 @@ static bool common_block_mode_switch_fixture(void)
     config.columns = 8;
     options.block_glyph_mode = BOXRIG_UI_BLOCK_GLYPH_FONT;
     CHECK(create_platform_renderer(&renderer));
+#if defined(BOXRIG_TEST_FRONTEND_OPENGL)
+    CHECK(boxrig_ogl_renderer_set_composited_scrollbar(renderer.renderer, false, 0) == 0);
+#endif
     CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
     const char content[] = "\033[?25l\033[38;2;136;136;136;48;2;32;32;32m\033[2J"
         "████\033[2;1HA░▒▓█\xcc\x81";
@@ -3060,8 +3062,124 @@ static bool common_block_mode_switch_fixture(void)
     return true;
 }
 
+static bool common_block_presentation_fixture(void)
+{
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    boxrig_ui_view_config options = boxrig_ui_view_config_default();
+    platform_renderer_fixture renderer;
+    boxrig_terminal *terminal = NULL;
+    boxrig_ui_model *model = NULL;
+    boxrig_ui_view *view = NULL;
+    config.rows = 2;
+    config.columns = 16;
+    config.ambiguous_width = BOXRIG_AMBIGUOUS_WIDTH_WIDE;
+    options.blink.cursor_enabled = false;
+    CHECK(create_platform_renderer(&renderer));
+#if defined(BOXRIG_TEST_FRONTEND_OPENGL)
+    CHECK(boxrig_ogl_renderer_set_composited_scrollbar(renderer.renderer, false, 0) == 0);
+#endif
+    CHECK(size_platform_renderer(&renderer, config.rows, config.columns));
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_set_cell_pixel_geometry(terminal,
+        renderer.cell_width, renderer.cell_height) == BOXRIG_STATUS_OK);
+    /* Each block spans two columns. A cursor addressed at a continuation
+     * covers the whole grapheme; images exercise both sides of the text layer. */
+    const char content[] = "\033[38;2;136;136;136;48;2;32;32;32m\033[2J\033[H"
+        "▀\033[7m▀\033[27;8m█\033[28;5m▀\033[25m▀▀▀▀"
+        "\033[1;13H\033_Ga=T,f=32,s=1,v=1,c=2,r=1,z=-1,C=1;AP8A/w==\033\\"
+        "\033[1;15H\033_Ga=T,f=32,s=1,v=1,c=2,r=1,z=0,C=1;/wAA/w==\033\\"
+        "\033[2;1H▌▌\033[1;12H\033[?25h";
+    CHECK(feed_bytes(terminal, content, sizeof(content) - 1));
+    boxrig_cell_view cell;
+    CHECK(boxrig_terminal_get_cell(terminal, 0, 0, &cell) == BOXRIG_STATUS_OK);
+    CHECK(cell.column_width == 2);
+    CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_create(model, &options, &view) == BOXRIG_UI_OK);
+    boxrig_ui_allocation_input allocation = {0};
+    allocation.allocation_width = pixels(config.columns * renderer.cell_width);
+    allocation.allocation_height = pixels(config.rows * renderer.cell_height);
+    allocation.cell_width = pixels(renderer.cell_width);
+    allocation.cell_height = pixels(renderer.cell_height);
+    allocation.cell_metrics_revision = 1;
+    boxrig_ui_layout_result layout;
+    CHECK(boxrig_ui_view_acquire_layout_authority(view) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_accept_allocation(view, &allocation, &layout) == BOXRIG_UI_OK);
+    boxrig_ui_cursor_style cursor = boxrig_ui_cursor_style_default();
+    cursor.shape = BOXRIG_UI_CURSOR_SHAPE_BLOCK;
+    cursor.block_presentation = BOXRIG_UI_CURSOR_BLOCK_FILL;
+    cursor.color_policy = BOXRIG_UI_CURSOR_COLOR_RGB;
+    cursor.color = (boxrig_rgb){240, 208, 128};
+    CHECK(boxrig_ui_view_set_cursor_style(view, &cursor) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_update_monotonic_time(view, 0) == BOXRIG_UI_OK);
+    CHECK(draw_platform_view(&renderer, view, NULL));
+    boxrig_ui_hit_test_result first, last;
+    CHECK(boxrig_ui_view_hit_test(view, pixels(8 * renderer.cell_width + 1),
+        pixels(1), &first) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_hit_test(view, pixels(10 * renderer.cell_width - 1),
+        pixels(1), &last) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_begin_selection(view, BOXRIG_UI_SELECTION_CHARACTER, &first) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_update_selection(view, &last) == BOXRIG_UI_OK);
+    boxrig_ui_selection_style selection = boxrig_ui_selection_style_default();
+    selection.presentation = BOXRIG_UI_SELECTION_FILL;
+    selection.background = (boxrig_rgb){60, 80, 100};
+    selection.foreground_policy = BOXRIG_UI_SELECTION_FOREGROUND_RGB;
+    selection.foreground = (boxrig_rgb){20, 100, 200};
+    CHECK(boxrig_ui_view_set_selection_style(view, &selection) == BOXRIG_UI_OK);
+    for (size_t phase = 0; phase < 3; phase++) {
+        CHECK(boxrig_ui_view_update_monotonic_time(view, phase * 500) == BOXRIG_UI_OK);
+        if (phase == 2) CHECK(boxrig_ui_view_invalidate(view, BOXRIG_UI_DIRTY_OVERLAY,
+            (boxrig_ui_dirty){1, 1, 1, 1}) == BOXRIG_UI_OK);
+        CHECK(draw_platform_view(&renderer, view, NULL));
+        for (unsigned int y = 0; y < config.rows * renderer.cell_height; y++) {
+            bool upper = y < (renderer.cell_height + 1) / 2;
+            for (unsigned int x = 0; x < config.columns * renderer.cell_width; x++) {
+                size_t column = x / renderer.cell_width;
+                uint8_t gray = upper ? 136 : 32;
+                if (column == 2 || column == 3) gray = upper ? 32 : 136;
+                if (column == 4 || column == 5 ||
+                    ((column == 6 || column == 7) && phase == 1)) gray = 32;
+                platform_rgb expected = {gray, gray, gray}, actual;
+                if (column == 8 || column == 9) expected = upper
+                    ? (platform_rgb){20, 100, 200} : (platform_rgb){60, 80, 100};
+                if (column == 10 || column == 11) expected = upper
+                    ? (platform_rgb){32, 32, 32} : (platform_rgb){240, 208, 128};
+                if ((column == 12 || column == 13) && !upper) expected = (platform_rgb){0, 255, 0};
+                if (column >= 14) expected = (platform_rgb){255, 0, 0};
+                if (y >= renderer.cell_height) expected = column == 0 || column == 2
+                    ? (platform_rgb){136, 136, 136} : (platform_rgb){32, 32, 32};
+                CHECK(get_platform_pixel(&renderer, (int)x, (int)y, &actual));
+                if (actual.red != expected.red || actual.green != expected.green || actual.blue != expected.blue) {
+                    fprintf(stderr, "block presentation phase=%zu column=%zu x=%u y=%u expected=%u,%u,%u actual=%u,%u,%u\n",
+                        phase, column, x, y, expected.red, expected.green, expected.blue,
+                        actual.red, actual.green, actual.blue);
+                    CHECK(false);
+                }
+            }
+        }
+    }
+    boxrig_ui_view_destroy(view);
+    boxrig_ui_model_destroy(model);
+    boxrig_terminal_destroy(terminal);
+    destroy_platform_renderer(&renderer);
+    puts("PASS wide block colors, inverse, concealment, blinking, selection, cursor and image layers");
+    return true;
+}
+
+#if defined(BOXRIG_TEST_FRONTEND_D3D11)
+int boxrig_test_d3d11_fixture(D3D_DRIVER_TYPE driver)
+{
+    d3d11_fixture_driver = driver;
+    if (!common_block_geometry_fixture() || !common_block_mode_switch_fixture() ||
+        !common_block_presentation_fixture()) return 1;
+    if (!common_layout_action_fixture() || !common_grid_negotiation_fixture() ||
+        !common_text_overlay_fixture() || !common_image_alpha_fixture()) return 1;
+    puts("PASS shared cell-grid fixture through D3D11 public API");
+    return 0;
+}
+#else
 int main(void)
 {
+    if (!common_block_presentation_fixture()) return 1;
     if (!common_block_geometry_fixture()) return 1;
     if (!common_block_mode_switch_fixture()) return 1;
 #if !defined(BOXRIG_TEST_FRONTEND_WIN32) && !defined(BOXRIG_TEST_FRONTEND_D3D11)
