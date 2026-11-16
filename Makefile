@@ -6343,6 +6343,16 @@ $(BUILD_DIR)/tests/performance/terminal_geometry: tests/performance/terminal_geo
 .PHONY: notcurses-evaluation-tools
 notcurses-evaluation-tools: $(GTK3_EXAMPLE_BINARY) $(BUILD_DIR)/tests/performance/notcurses_replay $(BUILD_DIR)/tests/performance/terminal_geometry $(BUILD_DIR)/tests/performance/annotation_gl_vendor
 
+$(BUILD_DIR)/tests/performance/frame_latency: tests/performance/frame_latency.c | $(BUILD_DIR)/tests/performance
+	$(CC) $(CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $$(pkg-config --cflags --libs x11) -o $@
+
+.PHONY: test-frame-latency
+test: test-frame-latency
+test-frame-latency: $(PHASE_TRACE_BINARY) $(BUILD_DIR)/tests/performance/frame_latency $(BUILD_DIR)/tests/performance/terminal_geometry $(BUILD_DIR)/tests/performance/annotation_gl_vendor
+	output=$$(mktemp -d $(BUILD_DIR)/tests/performance/frame-latency.XXXXXXXX); \
+		xvfb-run -a -s '-screen 0 1280x800x24' bash tests/performance/run_frame_latency.sh \
+		$(PHASE_TRACE_BINARY) cairo 24 80 "$$output/cairo"
+
 .PHONY: test-graphics-work
 test: test-graphics-work
 test-graphics-work: $(BUILD_DIR)/tests/test_graphics_work
