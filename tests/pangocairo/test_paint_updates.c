@@ -320,10 +320,73 @@ static bool partial_paint_updates(bool repeated)
     return true;
 }
 
+static bool conceal_preserves_neighboring_ascii(bool repeated)
+{
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    config.rows = 95; config.columns = 24;
+    boxrig_terminal *terminal = NULL;
+    boxrig_pango_cairo_renderer *renderer = NULL;
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_pango_cairo_renderer_create(560, 336, &renderer) == 0);
+    unsigned int cw = boxrig_pango_cairo_renderer_cell_width(renderer);
+    unsigned int ch = boxrig_pango_cairo_renderer_cell_height(renderer);
+    unsigned int width = 24 * cw, height = 95 * ch;
+    CHECK(boxrig_pango_cairo_renderer_set_surface_size(renderer, width, height) == 0);
+    CHECK(feed(terminal, "\033[?7l\033[?25l"));
+    for (size_t row = 0; row < config.rows; row++) {
+        for (size_t column = 0; column < config.columns; column++) {
+            char input[128];
+            char glyph = (char)(32 + (repeated ? row : row * config.columns + column) % 95);
+            (void)snprintf(input, sizeof(input),
+                "\033[%zu;%zuH\033[0;38;2;%u;%u;192;48;2;32;32;64m%c",
+                row + 1, column + 1, column % 2 == 0 ? 64 : 240,
+                column % 2 == 0 ? 224 : 64, glyph);
+            CHECK(feed(terminal, input));
+        }
+    }
+    CHECK(boxrig_pango_cairo_renderer_draw(renderer, terminal) == 0);
+    uint32_t *before = pixels(renderer, width, height);
+    CHECK(before != NULL);
+    boxrig_pango_cairo_renderer_destroy(renderer);
+    renderer = NULL;
+    CHECK(boxrig_pango_cairo_renderer_create(width, height, &renderer) == 0);
+    /* Concealing the last cell must not change coverage elsewhere in the row.
+     * Leave its immediate neighbor outside the comparison for overhanging ink. */
+    for (size_t row = 0; row < config.rows; row++) {
+        boxrig_cell_view cell;
+        CHECK(boxrig_terminal_get_cell(terminal, row, 23, &cell) == BOXRIG_STATUS_OK);
+        char input[64];
+        (void)snprintf(input, sizeof(input), "\033[%zu;24H\033[8m%c", row + 1, cell.text[0]);
+        CHECK(feed(terminal, input));
+    }
+    CHECK(boxrig_pango_cairo_renderer_draw(renderer, terminal) == 0);
+    uint32_t *after = pixels(renderer, width, height);
+    CHECK(after != NULL);
+    bool passed = true;
+    for (unsigned int y = 0; y < height && passed; y++) {
+        for (unsigned int x = 0; x < 22 * cw; x++) {
+            size_t index = (size_t)y * width + x;
+            if (before[index] != after[index]) {
+                fprintf(stderr, "conceal changed neighboring ASCII at %u,%u: %08x != %08x\n",
+                    x, y, before[index], after[index]);
+                passed = false;
+                break;
+            }
+        }
+    }
+    free(before); free(after);
+    boxrig_pango_cairo_renderer_destroy(renderer);
+    boxrig_terminal_destroy(terminal);
+    CHECK(passed);
+    puts("PASS concealing ASCII preserves neighboring glyph coverage");
+    return true;
+}
+
 int main(int argc, char **argv)
 {
     bool passed = paint_updates(argc == 2 ? argv[1] : NULL) &&
-        partial_paint_updates(false) && partial_paint_updates(true);
+        partial_paint_updates(false) && partial_paint_updates(true) &&
+        conceal_preserves_neighboring_ascii(false) && conceal_preserves_neighboring_ascii(true);
     if (!passed) return 1;
     cairo_debug_reset_static_data();
     FcFini();

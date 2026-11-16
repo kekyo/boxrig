@@ -4132,6 +4132,24 @@ static int draw_visual_backgrounds(
     return cairo_status(renderer->cairo) == CAIRO_STATUS_SUCCESS ? 0 : -1;
 }
 
+/* Entries live only while drawing one immutable, single-span shaped item.
+ * Keep the original native glyph batch and underlay, including alpha rounding. */
+typedef struct glyph_raster_reuse_entry {
+    cairo_pattern_t *pattern;
+    uint8_t *underlay;
+    const PangoGlyphInfo *glyphs;
+    size_t glyph_count;
+    size_t width;
+    double relative_x;
+    double raster_x;
+    unsigned long foreground;
+} glyph_raster_reuse_entry;
+
+typedef struct glyph_raster_reuse {
+    glyph_raster_reuse_entry entries[16];
+    size_t count;
+} glyph_raster_reuse;
+
 static int draw_fitted_item_segment(
     boxrig_pango_cairo_renderer *renderer,
     const boxrig_pango_cairo_shaped_item *item,
@@ -4139,7 +4157,8 @@ static int draw_fitted_item_segment(
     size_t row,
     size_t clip_column,
     size_t clip_column_count,
-    unsigned long foreground)
+    unsigned long foreground,
+    glyph_raster_reuse *reuse)
 {
     double x = span->placement.visual_column * renderer->cell_width;
     double y = row * renderer->cell_height;
@@ -4189,41 +4208,99 @@ static int draw_fitted_item_segment(
     size_t raster_width = (size_t)(raster_end - raster_x);
     size_t area = raster_width > SIZE_MAX / renderer->cell_height
         ? SIZE_MAX : raster_width * renderer->cell_height;
-    renderer->render_statistics.glyph_raster_pixel_count =
-        area > SIZE_MAX - renderer->render_statistics.glyph_raster_pixel_count
-            ? SIZE_MAX : renderer->render_statistics.glyph_raster_pixel_count + area;
-    if (!set_cairo_source_pixel(renderer, foreground, 255)) return -1;
-    /* Bound the glyph raster before compositing it. Rasterize complete
-     * clusters so clipped wide glyphs keep the same coverage on each phase.
-     * This context is renderer-owned; restore its dirty clip before painting
-     * the raster. No caller-owned clip is changed. */
-    cairo_save(renderer->cairo);
-    cairo_reset_clip(renderer->cairo);
-    cairo_rectangle(renderer->cairo, raster_x, y, raster_end - raster_x, renderer->cell_height);
-    cairo_clip(renderer->cairo);
-    cairo_surface_t *underlay = cairo_get_group_target(renderer->cairo);
-    cairo_pattern_t *ink = cairo_pattern_reference(cairo_get_source(renderer->cairo));
-    renderer->render_statistics.glyph_group_count++;
-    cairo_push_group(renderer->cairo);
-    cairo_set_operator(renderer->cairo, CAIRO_OPERATOR_SOURCE);
-    cairo_set_source_surface(renderer->cairo, underlay, 0, 0);
-    cairo_paint(renderer->cairo);
-    cairo_set_operator(renderer->cairo, CAIRO_OPERATOR_OVER);
-    cairo_set_source(renderer->cairo, ink);
-    cairo_pattern_destroy(ink);
-    cairo_translate(renderer->cairo, origin + begin->advance / units_per_pixel, y + renderer->ascent);
-    cairo_scale(renderer->cairo, horizontal_scale, 1.0);
-    cairo_move_to(renderer->cairo, 0.0, 0.0);
-    /* Borrow a view of the immutable cached glyph array. Only the public
-     * fields change; this stack view is neither resized nor freed. */
-    PangoGlyphString glyphs = *item->glyph_item.glyphs;
-    glyphs.num_glyphs = (int)(last->first_glyph + last->glyph_count - begin->first_glyph);
-    glyphs.glyphs += begin->first_glyph;
-    glyphs.log_clusters += begin->first_glyph;
-    renderer->render_statistics.glyph_draw_count++;
-    pango_cairo_show_glyph_string(renderer->cairo, item->glyph_item.item->analysis.font, &glyphs);
-    cairo_pattern_t *raster = cairo_pop_group(renderer->cairo);
-    cairo_restore(renderer->cairo);
+    size_t glyph_count = last->first_glyph + last->glyph_count - begin->first_glyph;
+    const PangoGlyphInfo *glyph_info = item->glyph_item.glyphs->glyphs + begin->first_glyph;
+    double glyph_x = origin + begin->advance / units_per_pixel;
+    double relative_x = glyph_x - raster_x;
+    cairo_pattern_t *raster = NULL;
+    glyph_raster_reuse_entry *remember = NULL;
+    /* At most 16 rasters of 4096 pixels, plus their equally bounded underlays.
+     * Compare the actual underlay so images, transparency and prior ink remain
+     * part of the reuse key. The renderer owns this ARGB32 image surface. */
+    if (reuse != NULL && area <= 4096 && raster_x >= 0 && y >= 0 &&
+        raster_end <= renderer->surface_width && y + renderer->cell_height <= renderer->surface_height) {
+        cairo_surface_flush(renderer->backing_surface);
+        const uint8_t *data = cairo_image_surface_get_data(renderer->backing_surface);
+        size_t stride = (size_t)cairo_image_surface_get_stride(renderer->backing_surface);
+        data += (size_t)y * stride + (size_t)raster_x * 4;
+        size_t bytes = raster_width * 4;
+        for (size_t i = 0; i < reuse->count; i++) {
+            glyph_raster_reuse_entry *entry = &reuse->entries[i];
+            if (entry->width != raster_width || entry->foreground != foreground ||
+                entry->relative_x != relative_x || entry->glyph_count != glyph_count) continue;
+            bool equal = true;
+            for (size_t g = 0; g < glyph_count && equal; g++) {
+                const PangoGlyphInfo *a = &entry->glyphs[g], *b = &glyph_info[g];
+                equal = a->glyph == b->glyph && a->geometry.width == b->geometry.width &&
+                    a->geometry.x_offset == b->geometry.x_offset && a->geometry.y_offset == b->geometry.y_offset;
+            }
+            for (size_t line = 0; line < renderer->cell_height && equal; line++)
+                equal = memcmp(entry->underlay + line * bytes, data + line * stride, bytes) == 0;
+            if (!equal) continue;
+            raster = cairo_pattern_reference(entry->pattern);
+            cairo_matrix_t matrix = {1, 0, 0, 1, entry->raster_x - raster_x, 0};
+            cairo_pattern_set_matrix(raster, &matrix);
+            break;
+        }
+        if (raster == NULL && reuse->count < sizeof(reuse->entries) / sizeof(reuse->entries[0])) {
+            remember = &reuse->entries[reuse->count];
+            remember->underlay = malloc(area * 4);
+            if (remember->underlay != NULL) {
+                for (size_t line = 0; line < renderer->cell_height; line++)
+                    memcpy(remember->underlay + line * bytes, data + line * stride, bytes);
+                remember->glyphs = glyph_info;
+                remember->glyph_count = glyph_count;
+                remember->width = raster_width;
+                remember->relative_x = relative_x;
+                remember->raster_x = raster_x;
+                remember->foreground = foreground;
+            } else remember = NULL;
+        }
+    }
+    if (raster == NULL) {
+        renderer->render_statistics.glyph_raster_pixel_count =
+            area > SIZE_MAX - renderer->render_statistics.glyph_raster_pixel_count
+                ? SIZE_MAX : renderer->render_statistics.glyph_raster_pixel_count + area;
+        if (!set_cairo_source_pixel(renderer, foreground, 255)) {
+            if (remember != NULL) free(remember->underlay);
+            return -1;
+        }
+        /* Bound the glyph raster before compositing it. Rasterize complete
+         * clusters so clipped wide glyphs keep the same coverage on each phase.
+         * This context is renderer-owned; restore its dirty clip before painting
+         * the raster. No caller-owned clip is changed. */
+        cairo_save(renderer->cairo);
+        cairo_reset_clip(renderer->cairo);
+        cairo_rectangle(renderer->cairo, raster_x, y, raster_end - raster_x, renderer->cell_height);
+        cairo_clip(renderer->cairo);
+        cairo_surface_t *underlay = cairo_get_group_target(renderer->cairo);
+        cairo_pattern_t *ink = cairo_pattern_reference(cairo_get_source(renderer->cairo));
+        renderer->render_statistics.glyph_group_count++;
+        cairo_push_group(renderer->cairo);
+        cairo_set_operator(renderer->cairo, CAIRO_OPERATOR_SOURCE);
+        cairo_set_source_surface(renderer->cairo, underlay, 0, 0);
+        cairo_paint(renderer->cairo);
+        cairo_set_operator(renderer->cairo, CAIRO_OPERATOR_OVER);
+        cairo_set_source(renderer->cairo, ink);
+        cairo_pattern_destroy(ink);
+        cairo_translate(renderer->cairo, glyph_x, y + renderer->ascent);
+        cairo_scale(renderer->cairo, horizontal_scale, 1.0);
+        cairo_move_to(renderer->cairo, 0.0, 0.0);
+        /* Borrow a view of the immutable cached glyph array. Only the public
+         * fields change; this stack view is neither resized nor freed. */
+        PangoGlyphString glyphs = *item->glyph_item.glyphs;
+        glyphs.num_glyphs = (int)(last->first_glyph + last->glyph_count - begin->first_glyph);
+        glyphs.glyphs += begin->first_glyph;
+        glyphs.log_clusters += begin->first_glyph;
+        renderer->render_statistics.glyph_draw_count++;
+        pango_cairo_show_glyph_string(renderer->cairo, item->glyph_item.item->analysis.font, &glyphs);
+        raster = cairo_pop_group(renderer->cairo);
+        cairo_restore(renderer->cairo);
+        if (remember != NULL) {
+            remember->pattern = cairo_pattern_reference(raster);
+            reuse->count++;
+        }
+    }
     cairo_save(renderer->cairo);
     cairo_rectangle(renderer->cairo, clip_column * renderer->cell_width, y,
         clip_column_count * renderer->cell_width, renderer->cell_height);
@@ -4242,7 +4319,8 @@ static int draw_shaped_item_segment(
     boxrig_pango_cairo_renderer *renderer,
     const boxrig_pango_cairo_shaped_item *item,
     size_t row, size_t clip_column, size_t clip_column_count,
-    unsigned long foreground)
+    unsigned long foreground,
+    glyph_raster_reuse *reuse)
 {
     size_t low = 0, high = item->span_count;
     while (low < high) {
@@ -4282,15 +4360,13 @@ static int draw_shaped_item_segment(
             cairo_restore(renderer->cairo);
             if (cairo_status(renderer->cairo) != CAIRO_STATUS_SUCCESS) return -1;
         } else if (draw_fitted_item_segment(renderer, item, &item->spans[i], row, first,
-                       end - first, foreground) == -1) return -1;
+                       end - first, foreground, reuse) == -1) return -1;
     }
     return 0;
 }
 
-/* A repeated foreground can share one glyph raster across disjoint cell clips.
- * Keep integer-advance ASCII as the eligible case: changing the glyph batch for
- * fractional positioning, ligatures, marks or color fonts can change Cairo's
- * coverage/rounding. Those cases retain the original segment path. */
+/* Repeated ASCII runs can reuse identical bounded rasters. Preserve each
+ * original glyph batch; widening it changes Cairo coverage for some glyphs. */
 static int draw_repeated_foregrounds(
     boxrig_pango_cairo_renderer *renderer,
     const boxrig_terminal *terminal,
@@ -4324,6 +4400,11 @@ static int draw_repeated_foregrounds(
         }
     }
     if (runs < 8 || color_count < 2) return 0;
+    cairo_matrix_t matrix;
+    cairo_get_matrix(renderer->cairo, &matrix);
+    if (matrix.xx != 1 || matrix.yy != 1 || matrix.xy != 0 || matrix.yx != 0 ||
+        matrix.x0 != 0 || matrix.y0 != 0 ||
+        cairo_get_group_target(renderer->cairo) != renderer->backing_surface) return 0;
     for (size_t i = 0; i < count; i++) {
         const boxrig_pango_cairo_glyph_bounds *bounds = &span->clusters[i];
         if (bounds->glyph_count != 1 || bounds->advance != i * advance ||
@@ -4335,23 +4416,21 @@ static int draw_repeated_foregrounds(
             cell.continuation || (cell.attributes & BOXRIG_CELL_CONCEALED) != 0 ||
             !boxrig_ui_view_text_blink_visible(renderer->color_view, cell.attributes)) return 0;
     }
-    for (size_t c = 0; c < color_count; c++) {
-        cairo_save(renderer->cairo);
-        for (size_t column = first; column < first + count;) {
-            size_t end = column + 1;
-            while (end < first + count && renderer->row_colors[end].foreground ==
-                   renderer->row_colors[column].foreground) end++;
-            if (renderer->row_colors[column].foreground == colors[c])
-                cairo_rectangle(renderer->cairo, column * (double)renderer->cell_width,
-                    row * (double)renderer->cell_height,
-                    (end - column) * (double)renderer->cell_width, renderer->cell_height);
-            column = end;
-        }
-        cairo_clip(renderer->cairo);
-        int status = draw_shaped_item_segment(renderer, item, row, first, count, colors[c]);
-        cairo_restore(renderer->cairo);
-        if (status != 0) return status;
+    glyph_raster_reuse reuse = {0};
+    int status = 0;
+    for (size_t column = first; column < first + count && status == 0;) {
+        size_t end = column + 1;
+        while (end < first + count && renderer->row_colors[end].foreground ==
+               renderer->row_colors[column].foreground) end++;
+        status = draw_shaped_item_segment(renderer, item, row, column,
+            end - column, renderer->row_colors[column].foreground, &reuse);
+        column = end;
     }
+    for (size_t i = 0; i < reuse.count; i++) {
+        cairo_pattern_destroy(reuse.entries[i].pattern);
+        free(reuse.entries[i].underlay);
+    }
+    if (status != 0) return status;
     *painted_out = true;
     return 0;
 }
@@ -4440,7 +4519,7 @@ static int draw_shaped_item(
                 row,
                 column,
                 segment_end - column,
-                colors.foreground) == -1) {
+                colors.foreground, NULL) == -1) {
             return -1;
         }
         column = segment_end;
@@ -5168,7 +5247,7 @@ static int draw_filled_cursor(
             if (column >= item->visual_column &&
                 column - item->visual_column < item->visual_column_count &&
                 draw_shaped_item_segment(renderer, item, cursor.row,
-                    column, 1, ink) == -1) goto cleanup;
+                    column, 1, ink, NULL) == -1) goto cleanup;
         }
     }
     renderer->row_colors[column].foreground = ink;

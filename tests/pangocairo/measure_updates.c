@@ -200,10 +200,10 @@ static bool self_test(void)
              * but must not rasterize the whole row for every cell color. */
             CHECK(result.work.glyph_raster_pixel_count <= result.pixel_area * 3 * 4);
             if (strcmp(modes[i], "foreground") == 0) {
-                /* Repeated foregrounds share a raster within each row. Cursor
-                 * inversion may add one independent composite per frame. */
-                CHECK(result.work.glyph_group_count <= 3 * 3 * 3 + 3);
-                CHECK(result.work.glyph_draw_count <= 3 * 3 * 3 + 3);
+                /* Identical native batches and underlays share a raster.
+                 * Row edges and cursor inversion retain independent rasters. */
+                CHECK(result.work.glyph_group_count <= 3 * 3 * 6 + 3);
+                CHECK(result.work.glyph_draw_count <= 3 * 3 * 6 + 3);
             }
             if (strcmp(modes[i], "paint") == 0 || strcmp(modes[i], "boundaries") == 0 ||
                 strcmp(modes[i], "foreground") == 0) {
