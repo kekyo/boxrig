@@ -1749,6 +1749,114 @@ static bool common_image_alpha_fixture(void)
 }
 
 #if defined(BOXRIG_TEST_FRONTEND_OPENGL)
+static size_t largest_image_upload;
+
+static void APIENTRY observe_image_upload(GLenum target, GLint level,
+    GLint x, GLint y, GLsizei width, GLsizei height,
+    GLenum format, GLenum type, const void *data)
+{
+    size_t bytes = (size_t)width * (size_t)height * (format == GL_RGBA ? 4u : 1u);
+    if (bytes > largest_image_upload) largest_image_upload = bytes;
+    glTexSubImage2D(target, level, x, y, width, height, format, type, data);
+}
+
+static boxrig_gl_function resolve_image_upload(void *context, const char *name)
+{
+    if (strcmp(name, "glTexSubImage2D") == 0) {
+        void (APIENTRY *upload)(GLenum, GLint, GLint, GLint, GLsizei, GLsizei,
+            GLenum, GLenum, const void *) = observe_image_upload;
+        boxrig_gl_function result;
+        memcpy(&result, &upload, sizeof(result));
+        return result;
+    }
+    return opengl_host_resolve(context, name);
+}
+
+static bool opengl_image_upload_budget_fixture(void)
+{
+    /* Each image is 36 bytes. Exercise a frame larger than the upload buffer,
+     * vertical strips with a partial final strip, and buffers narrower than
+     * one image row. All variants must display the same translucent pixels. */
+    const size_t budgets[] = {256, 28, 36, 8, 5};
+    const char content[] = "\033[?25l\033]11;#000000\007\033[H"
+        "\033_Ga=T,i=7101,f=32,s=3,v=3,c=1,r=1,C=1,q=2;"
+        "/wAA/wD/AIAAAP//AP//QP8A/wD//wDA/4AA/4CAgID/////\033\\"
+        "\033[1;2H\033_Ga=T,i=7102,f=32,s=3,v=3,c=1,r=1,C=1,q=2;"
+        "/wAA/wD/AIAAAP//AP//QP8A/wD//wDA/4AA/4CAgID/////\033\\";
+    for (size_t format = 0; format < 2; format++) {
+        platform_rgb *reference = NULL;
+        size_t reference_count = 0;
+        for (size_t pass = 0; pass < sizeof(budgets) / sizeof(budgets[0]); pass++) {
+            platform_renderer_fixture renderer;
+            boxrig_ogl_renderer_config config = boxrig_ogl_renderer_config_default();
+            boxrig_terminal_config terminal_config = boxrig_terminal_config_default();
+            boxrig_ui_view_config view_config = boxrig_ui_view_config_default();
+            boxrig_terminal *terminal = NULL;
+            boxrig_ui_model *model = NULL;
+            boxrig_ui_view *view = NULL;
+            CHECK(create_platform_renderer(&renderer));
+            CHECK(boxrig_ogl_renderer_destroy(&renderer.renderer,
+                renderer.context_generation, NULL) == BOXRIG_GL_OK);
+            config.runtime.resolver_context = renderer.host;
+            config.runtime.resolve = resolve_image_upload;
+            config.runtime.current_context_query_context = renderer.host;
+            config.runtime.query_current_context = opengl_host_query_current;
+            config.runtime.context_generation = renderer.context_generation;
+            config.runtime.target_generation = renderer.target.generation;
+            config.initial_target = renderer.target;
+            config.limits.maximum_staging_bytes = budgets[pass];
+            config.limits.maximum_image_bytes = 72;
+            CHECK(boxrig_ogl_renderer_create(&config, &renderer.renderer, NULL) == BOXRIG_GL_OK);
+            renderer.target.format = format == 0 ? BOXRIG_GL_TARGET_RGBA8 : BOXRIG_GL_TARGET_SRGB8_ALPHA8;
+            CHECK(size_platform_renderer(&renderer, 1, 2));
+            terminal_config.rows = 1;
+            terminal_config.columns = 2;
+            view_config.blink.cursor_enabled = view_config.blink.text_enabled = false;
+            CHECK(boxrig_terminal_create(&terminal_config, &terminal) == BOXRIG_STATUS_OK);
+            CHECK(boxrig_terminal_set_cell_pixel_geometry(terminal,
+                renderer.cell_width, renderer.cell_height) == BOXRIG_STATUS_OK);
+            CHECK(feed_bytes(terminal, content, sizeof(content) - 1));
+            CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
+            CHECK(boxrig_ui_view_create(model, &view_config, &view) == BOXRIG_UI_OK);
+            largest_image_upload = 0;
+            if (pass == 1) {
+                boxrig_ogl_renderer_fail_next(renderer.renderer, BOXRIG_OGL_FAILURE_UPLOAD);
+                CHECK(boxrig_ogl_renderer_draw_view(renderer.renderer, view) == -1);
+                CHECK(boxrig_ui_view_frame_requested(view));
+            }
+            fprintf(stderr, "image upload budget=%zu format=%zu\n", budgets[pass], format);
+            CHECK(draw_platform_view(&renderer, view, NULL));
+            CHECK(!boxrig_ui_view_frame_requested(view));
+            CHECK(largest_image_upload != 0 && largest_image_upload <= budgets[pass]);
+            size_t count = (size_t)renderer.target.width * renderer.target.height;
+            if (pass == 0) {
+                reference_count = count;
+                reference = malloc(count * sizeof(*reference));
+                CHECK(reference != NULL);
+            }
+            CHECK(count == reference_count);
+            for (size_t index = 0; index < count; index++) {
+                platform_rgb color;
+                CHECK(get_platform_pixel(&renderer, (int)(index % renderer.target.width),
+                    (int)(index / renderer.target.width), &color));
+                if (pass == 0) reference[index] = color;
+                else CHECK(color.red == reference[index].red &&
+                    color.green == reference[index].green && color.blue == reference[index].blue);
+            }
+            boxrig_ogl_render_statistics statistics;
+            CHECK(boxrig_ogl_renderer_get_render_statistics(renderer.renderer, &statistics) == 0);
+            CHECK(statistics.image_cache_upload_count == 2 && statistics.upload_bytes == 72);
+            boxrig_ui_view_destroy(view);
+            boxrig_ui_model_destroy(model);
+            boxrig_terminal_destroy(terminal);
+            destroy_platform_renderer(&renderer);
+        }
+        free(reference);
+    }
+    puts("PASS images larger than the staging buffer preserve pixels and recover after upload failure");
+    return true;
+}
+
 static GLsync first_image_fence;
 static bool first_image_fence_completed;
 
@@ -3306,7 +3414,8 @@ int main(void)
     if (!pango_cairo_retained_presentation_fixture()) return 1;
 #endif
 #if defined(BOXRIG_TEST_FRONTEND_OPENGL)
-    if (!opengl_partial_frame_work_fixture() ||
+    if (!opengl_image_upload_budget_fixture() ||
+        !opengl_partial_frame_work_fixture() ||
         !opengl_multiline_image_alpha_fixture() ||
         !opengl_image_cache_pending_frame_fixture() ||
         !opengl_composition_text_fixture() ||

@@ -1518,7 +1518,8 @@ static int upload_image(
 {
     uint8_t *staging;
     size_t byte_count;
-    size_t pixel;
+    size_t tile_width;
+    size_t tile_height;
     image_entry entry;
 
     if (view->width == 0 || view->height == 0 || view->width > UINT32_MAX ||
@@ -1528,35 +1529,21 @@ static int upload_image(
         return -1;
     }
     byte_count = view->width * view->height * 4;
-    if (byte_count > renderer->config.limits.maximum_staging_bytes ||
+    if (renderer->config.limits.maximum_staging_bytes < 4 ||
         byte_count > renderer->config.limits.maximum_image_bytes ||
         consume_failure(renderer, BOXRIG_OGL_FAILURE_ALLOCATION) ||
         reserve_image(renderer, byte_count) == -1) {
         return -1;
     }
-    staging = malloc(byte_count);
+    /* Staging bounds one transfer, not the full texture. Split both axes when
+     * the buffer cannot hold one complete image row. */
+    tile_width = renderer->config.limits.maximum_staging_bytes / 4;
+    if (tile_width > view->width) tile_width = view->width;
+    tile_height = renderer->config.limits.maximum_staging_bytes / (tile_width * 4);
+    if (tile_height > view->height) tile_height = view->height;
+    staging = malloc(tile_width * tile_height * 4);
     if (staging == NULL) {
         return -1;
-    }
-    for (pixel = 0; pixel < view->width * view->height; pixel++) {
-        size_t x = pixel % view->width;
-        size_t y = pixel / view->width;
-        const uint8_t *source = view->rgba + y * view->stride + x * 4;
-        uint8_t alpha = source[3];
-
-        if (renderer->target.format == BOXRIG_GL_TARGET_SRGB8_ALPHA8) {
-            staging[pixel * 4] = linear_premultiplied(source[0], alpha);
-            staging[pixel * 4 + 1] = linear_premultiplied(source[1], alpha);
-            staging[pixel * 4 + 2] = linear_premultiplied(source[2], alpha);
-        } else {
-            staging[pixel * 4] =
-                (uint8_t)(((unsigned int)source[0] * alpha + 127u) / 255u);
-            staging[pixel * 4 + 1] =
-                (uint8_t)(((unsigned int)source[1] * alpha + 127u) / 255u);
-            staging[pixel * 4 + 2] =
-                (uint8_t)(((unsigned int)source[2] * alpha + 127u) / 255u);
-        }
-        staging[pixel * 4 + 3] = alpha;
     }
     memset(&entry, 0, sizeof(entry));
     if (boxrig_gl_runtime_create_texture(
@@ -1565,28 +1552,36 @@ static int upload_image(
             (uint32_t)view->height,
             BOXRIG_GL_TEXTURE_PREMULTIPLIED_RGBA8,
             &entry.texture,
-            NULL) != BOXRIG_GL_OK ||
-        consume_failure(renderer, BOXRIG_OGL_FAILURE_UPLOAD) ||
-        boxrig_gl_runtime_upload_texture(
-            renderer->runtime,
-            entry.texture,
-            BOXRIG_GL_TEXTURE_PREMULTIPLIED_RGBA8,
-            0,
-            0,
-            (uint32_t)view->width,
-            (uint32_t)view->height,
-            staging,
-            byte_count,
             NULL) != BOXRIG_GL_OK) {
-        if (entry.texture != 0) {
-            (void)boxrig_gl_runtime_delete_texture(
-                renderer->runtime,
-                renderer->config.runtime.context_generation,
-                &entry.texture,
-                NULL);
+        goto failure;
+    }
+    for (size_t y = 0; y < view->height; y += tile_height) {
+        size_t height = view->height - y;
+        if (height > tile_height) height = tile_height;
+        for (size_t x = 0; x < view->width; x += tile_width) {
+            size_t width = view->width - x;
+            if (width > tile_width) width = tile_width;
+            for (size_t row = 0; row < height; row++) {
+                for (size_t column = 0; column < width; column++) {
+                    const uint8_t *source = view->rgba + (y + row) * view->stride + (x + column) * 4;
+                    uint8_t *destination = staging + (row * width + column) * 4;
+                    uint8_t alpha = source[3];
+                    for (size_t channel = 0; channel < 3; channel++) {
+                        destination[channel] = renderer->target.format == BOXRIG_GL_TARGET_SRGB8_ALPHA8
+                            ? linear_premultiplied(source[channel], alpha)
+                            : (uint8_t)(((unsigned int)source[channel] * alpha + 127u) / 255u);
+                    }
+                    destination[3] = alpha;
+                }
+            }
+            if (consume_failure(renderer, BOXRIG_OGL_FAILURE_UPLOAD) ||
+                boxrig_gl_runtime_upload_texture(renderer->runtime, entry.texture,
+                    BOXRIG_GL_TEXTURE_PREMULTIPLIED_RGBA8, (uint32_t)x, (uint32_t)y,
+                    (uint32_t)width, (uint32_t)height, staging, width * height * 4,
+                    NULL) != BOXRIG_GL_OK) {
+                goto failure;
+            }
         }
-        free(staging);
-        return -1;
     }
     free(staging);
     entry.handle = view->handle;
@@ -1606,6 +1601,14 @@ static int upload_image(
         renderer->statistics.upload_bytes,
         byte_count);
     return 0;
+
+failure:
+    if (entry.texture != 0) {
+        (void)boxrig_gl_runtime_delete_texture(renderer->runtime,
+            renderer->config.runtime.context_generation, &entry.texture, NULL);
+    }
+    free(staging);
+    return -1;
 }
 
 static int ensure_image_entry(
@@ -4066,8 +4069,15 @@ boxrig_renderer_status boxrig_ogl_renderer_lifecycle_create(
     }
     config.initial_target = *target;
     config.backend_context = renderer;
-    config.limits.maximum_upload_bytes =
-        renderer->config.limits.maximum_staging_bytes;
+    /* A frame can upload multiple textures. Bound their sum by retained image,
+     * background and atlas storage, independently of the per-transfer buffer. */
+    size_t page_bytes = (size_t)renderer->config.limits.glyph_page_extent *
+        renderer->config.limits.glyph_page_extent * 4;
+    size_t atlas_bytes = renderer->config.limits.maximum_glyph_pages > SIZE_MAX / page_bytes
+        ? SIZE_MAX : renderer->config.limits.maximum_glyph_pages * page_bytes;
+    config.limits.maximum_upload_bytes = saturated_add(atlas_bytes,
+        saturated_add(renderer->config.limits.maximum_image_bytes,
+            renderer->config.limits.maximum_image_bytes));
     config.limits.maximum_dirty_rectangle_count =
         renderer->config.limits.maximum_dirty_rectangles;
     config.limits.maximum_draw_count =

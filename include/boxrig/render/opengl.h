@@ -42,7 +42,7 @@ typedef struct boxrig_ogl_renderer_limits {
     size_t maximum_image_entries;
     /** Maximum retained image and client-candidate texture bytes. */
     size_t maximum_image_bytes;
-    /** Maximum bytes staged by one upload. */
+    /** Maximum bytes staged by one upload rectangle; images may span uploads. */
     size_t maximum_staging_bytes;
     /** Maximum quad instances emitted by one frame. */
     size_t maximum_instances;
