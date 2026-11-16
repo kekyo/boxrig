@@ -589,6 +589,8 @@ BOXRIG_PUBLIC_CONTRACT(
     "boxrig_ui_view_resolve_colors "
     "boxrig_ui_view_set_blink_config "
     "boxrig_ui_view_get_blink_config "
+    "boxrig_ui_view_set_block_glyph_mode "
+    "boxrig_ui_view_get_block_glyph_mode "
     "boxrig_ui_view_update_monotonic_time "
     "boxrig_ui_view_next_animation_deadline "
     "boxrig_ui_view_cursor_blink_visible "
