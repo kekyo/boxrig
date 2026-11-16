@@ -658,7 +658,7 @@ static bool test_logical_order_keeps_cells_and_native_glyphs(void)
     }
     boxrig_text_layout_run run;
     CHECK(boxrig_text_layout_get_run(layout, 0, &run) == BOXRIG_TEXT_LAYOUT_OK);
-    CHECK(run.bidi_level == 1 && run.direction == BOXRIG_TEXT_DIRECTION_RTL);
+    CHECK(run.bidi_level == 1 && run.direction == BOXRIG_TEXT_DIRECTION_LTR);
     boxrig_text_layout_range range;
     CHECK(boxrig_text_layout_visual_ranges(layout, 1, 2, &range, 1) == 1);
     CHECK(range.column == 1 && range.column_count == 2);

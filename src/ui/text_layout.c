@@ -287,7 +287,9 @@ static void initialize_runs(boxrig_text_layout *layout)
             layout->clusters[end - 1].column_count - first->logical_column;
         run->visual_column = visual_begin;
         run->visual_column_count = visual_end - visual_begin;
-        run->direction = (first->bidi_level & 1u) == 0
+        /* Selection boundaries and preedit placement follow display order;
+         * native shaping still uses the original embedding level below. */
+        run->direction = layout->logical_order || (first->bidi_level & 1u) == 0
                              ? BOXRIG_TEXT_DIRECTION_LTR
                              : BOXRIG_TEXT_DIRECTION_RTL;
         run->bidi_level = first->bidi_level;

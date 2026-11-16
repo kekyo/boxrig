@@ -2974,6 +2974,11 @@ static bool common_logical_cell_order_fixture(void)
                       pixels(renderer.cell_width) / 2, pixels(renderer.cell_height) / 2,
                       &hit) == BOXRIG_UI_OK);
             CHECK(hit.inside_grid && hit.logical_column == column);
+            CHECK(hit.trailing_half);
+            CHECK(boxrig_ui_view_hit_test(view, pixels(column * renderer.cell_width) +
+                      pixels(renderer.cell_width) / 4, pixels(renderer.cell_height) / 2,
+                      &hit) == BOXRIG_UI_OK);
+            CHECK(hit.text_position_valid && !hit.trailing_half);
         }
         /* Hebrew letters have the same glyph in isolation. Comparing each
          * adjacent letter with its spaced reference detects reordered or
@@ -2996,11 +3001,25 @@ static bool common_logical_cell_order_fixture(void)
             CHECK(ink > 3);
         }
     }
+    boxrig_ui_hit_test_result anchor, focus;
+    CHECK(boxrig_ui_view_hit_test(view, pixels(renderer.cell_width) / 4,
+              pixels(renderer.cell_height) / 2, &anchor) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_hit_test(view, pixels(renderer.cell_width) * 11 / 4,
+              pixels(renderer.cell_height) / 2, &focus) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_begin_selection(view, BOXRIG_UI_SELECTION_CHARACTER,
+              &anchor) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_update_selection(view, &focus) == BOXRIG_UI_OK);
+    boxrig_text_snapshot *snapshot = NULL;
+    CHECK(boxrig_ui_view_create_selection_snapshot(view, &snapshot) == BOXRIG_UI_OK);
+    size_t length = 0;
+    const uint8_t *copied = boxrig_text_snapshot_data(snapshot, &length);
+    CHECK(length == sizeof("אבג") - 1 && memcmp(copied, "אבג", length) == 0);
+    boxrig_text_snapshot_destroy(snapshot);
     boxrig_ui_view_destroy(view);
     boxrig_ui_model_destroy(model);
     boxrig_terminal_destroy(terminal);
     destroy_platform_renderer(&renderer);
-    puts("PASS logical cell order preserves RTL glyphs, hit testing and cached repaint");
+    puts("PASS logical cell order preserves RTL glyphs, hit testing, copy and cached repaint");
     return true;
 }
 

@@ -82,9 +82,9 @@ typedef struct boxrig_text_layout_run {
     size_t visual_column;
     /** Number of visual columns occupied by the run. */
     size_t visual_column_count;
-    /** Resolved run direction. */
+    /** Cell traversal direction; LTR when logical cell order is requested. */
     boxrig_text_direction direction;
-    /** Unicode bidirectional embedding level shared by the run. */
+    /** Native Unicode embedding level, retained even in logical cell order. */
     uint8_t bidi_level;
     /** Shaping-relevant style key shared by the run. */
     uint64_t style_key;
