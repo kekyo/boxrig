@@ -175,6 +175,7 @@ struct boxrig_ui_view {
     size_t maximum_retained_layout_bytes;
     size_t maximum_copy_bytes;
     boxrig_ui_rectangular_copy_policy rectangular_copy_policy;
+    boxrig_ui_block_glyph_mode block_glyph_mode;
     size_t maximum_annotation_count;
     size_t maximum_selection_rows;
     size_t maximum_selection_ranges;
@@ -2386,6 +2387,7 @@ boxrig_ui_view_config boxrig_ui_view_config_default(void)
     config.maximum_background_image_bytes = 64u * 1024u * 1024u;
     config.maximum_copy_bytes = BOXRIG_UI_COPY_CAPACITY_DEFAULT;
     config.rectangular_copy_policy = BOXRIG_UI_RECTANGULAR_COPY_TRIM_TRAILING_SPACES;
+    config.block_glyph_mode = BOXRIG_UI_BLOCK_GLYPH_RECTANGLES;
     config.maximum_annotation_count =
         BOXRIG_UI_ANNOTATION_CAPACITY_DEFAULT;
     config.maximum_selection_rows =
@@ -2877,6 +2879,8 @@ boxrig_ui_status boxrig_ui_view_create(
         config->maximum_copy_bytes > BOXRIG_UI_COPY_CAPACITY_MAX ||
         (config->rectangular_copy_policy != BOXRIG_UI_RECTANGULAR_COPY_PRESERVE_SPACES &&
          config->rectangular_copy_policy != BOXRIG_UI_RECTANGULAR_COPY_TRIM_TRAILING_SPACES) ||
+        (config->block_glyph_mode != BOXRIG_UI_BLOCK_GLYPH_RECTANGLES &&
+         config->block_glyph_mode != BOXRIG_UI_BLOCK_GLYPH_FONT) ||
         config->maximum_annotation_count >
             BOXRIG_UI_ANNOTATION_CAPACITY_MAX ||
         config->maximum_selection_rows == 0 ||
@@ -2920,6 +2924,7 @@ boxrig_ui_status boxrig_ui_view_create(
     view->maximum_background_image_bytes = config->maximum_background_image_bytes;
     view->maximum_copy_bytes = config->maximum_copy_bytes;
     view->rectangular_copy_policy = config->rectangular_copy_policy;
+    view->block_glyph_mode = config->block_glyph_mode;
     view->maximum_annotation_count = config->maximum_annotation_count;
     view->maximum_selection_rows = config->maximum_selection_rows;
     view->maximum_selection_ranges = config->maximum_selection_ranges;
@@ -6290,6 +6295,27 @@ boxrig_ui_status boxrig_ui_view_set_rectangular_copy_policy(
     if (view->resolving_fragment_layout || view->resolving_colors) return BOXRIG_UI_BUSY;
     view->rectangular_copy_policy = policy;
     return BOXRIG_UI_OK;
+}
+
+boxrig_ui_status boxrig_ui_view_set_block_glyph_mode(
+    boxrig_ui_view *view, boxrig_ui_block_glyph_mode mode)
+{
+    if (view == NULL || (mode != BOXRIG_UI_BLOCK_GLYPH_RECTANGLES &&
+            mode != BOXRIG_UI_BLOCK_GLYPH_FONT)) return BOXRIG_UI_INVALID_ARGUMENT;
+    if (view->resolving_colors) return BOXRIG_UI_BUSY;
+    if (view->block_glyph_mode != mode) {
+        view->block_glyph_mode = mode;
+        /* MODEL requests raster work even when a native expose could reuse
+         * the old backing surface. Shaping signatures remain unchanged. */
+        mark_full_dirty(view, BOXRIG_UI_DIRTY_MODEL);
+    }
+    return BOXRIG_UI_OK;
+}
+
+boxrig_ui_block_glyph_mode boxrig_ui_view_get_block_glyph_mode(
+    const boxrig_ui_view *view)
+{
+    return view == NULL ? BOXRIG_UI_BLOCK_GLYPH_RECTANGLES : view->block_glyph_mode;
 }
 
 boxrig_ui_status boxrig_ui_view_get_rectangular_copy_policy(

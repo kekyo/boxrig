@@ -2618,7 +2618,7 @@ boxrig_ui_status boxrig_x11_terminal_component_set_text_direction(
     if (component == NULL ||
         !boxrig_ui_lifecycle_accepts_events(&component->lifecycle) ||
         policy < BOXRIG_TEXT_DIRECTION_AUTO ||
-        policy > BOXRIG_TEXT_DIRECTION_FORCE_RTL) {
+        policy > BOXRIG_TEXT_DIRECTION_LOGICAL) {
         return BOXRIG_UI_INVALID_ARGUMENT;
     }
     if (component->direction_policy == policy) {

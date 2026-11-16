@@ -51,11 +51,13 @@ void boxrig_unicode_cluster_analyzer_initialize(
 bool boxrig_unicode_cluster_analyzer_accept(
     boxrig_unicode_cluster_analyzer *analyzer,
     int32_t codepoint,
-    bool ambiguous_is_wide);
+    bool ambiguous_is_wide,
+    bool emoji_variation_is_wide);
 boxrig_status boxrig_unicode_measure_text_cluster(
     const uint8_t *text,
     size_t text_length,
     bool ambiguous_is_wide,
+    bool emoji_variation_is_wide,
     boxrig_text_cluster_measurement *measurement_out);
 
 #endif

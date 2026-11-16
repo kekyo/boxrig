@@ -2992,7 +2992,8 @@ int boxrig_x11_renderer_set_direction_policy(
     if (renderer == NULL ||
         (policy != BOXRIG_TEXT_DIRECTION_AUTO &&
          policy != BOXRIG_TEXT_DIRECTION_FORCE_LTR &&
-         policy != BOXRIG_TEXT_DIRECTION_FORCE_RTL)) {
+         policy != BOXRIG_TEXT_DIRECTION_FORCE_RTL &&
+         policy != BOXRIG_TEXT_DIRECTION_LOGICAL)) {
         return -1;
     }
     if (renderer->direction_policy != policy) {
@@ -3674,7 +3675,8 @@ static bool item_overlaps_cluster(
 static int build_portable_layout(
     boxrig_x11_row_shape *shape,
     GList *items,
-    boxrig_text_direction base_direction)
+    boxrig_text_direction base_direction,
+    bool logical_order)
 {
     boxrig_text_cluster_input *inputs;
     size_t column_count = 0;
@@ -3727,11 +3729,12 @@ static int build_portable_layout(
         inputs[cluster_index].font_key = font_key;
         column_count += cluster->column_count;
     }
-    if (boxrig_text_layout_create(
+    if (boxrig_ui_text_layout_create(
             inputs,
             shape->cluster_count,
             column_count,
             base_direction,
+            logical_order,
             &shape->layout) != BOXRIG_TEXT_LAYOUT_OK) {
         free(inputs);
         return -1;
@@ -3935,7 +3938,8 @@ static int shape_text_fragment(
     base_direction = resolved_base_direction(
         items,
         renderer->direction_policy);
-    if (build_portable_layout(shape, items, base_direction) == -1 ||
+    if (build_portable_layout(shape, items, base_direction,
+            renderer->direction_policy == BOXRIG_TEXT_DIRECTION_LOGICAL) == -1 ||
         (render_glyphs && shape_items(shape, items) == -1)) {
         goto cleanup;
     }
@@ -4595,6 +4599,31 @@ static int draw_shaped_item_segment(
         size_t end = span->visual_column + span->column_count;
         if (end > clip_column + clip_column_count) end = clip_column + clip_column_count;
         if (first >= end) continue;
+        if (span->block_character != 0 && boxrig_ui_view_get_block_glyph_mode(
+                renderer->color_view) == BOXRIG_UI_BLOCK_GLYPH_RECTANGLES) {
+            boxrig_ui_block_rectangle rectangles[3];
+            size_t count = boxrig_ui_block_glyph_rectangles(span->block_character,
+                (unsigned int)span->column_count * renderer->cell_width,
+                renderer->cell_height, rectangles);
+            if (!set_cairo_source_pixel(renderer, foreground, 255)) return -1;
+            cairo_save(renderer->cairo);
+            cairo_rectangle(renderer->cairo, first * (double)renderer->cell_width,
+                row * (double)renderer->cell_height,
+                (end - first) * (double)renderer->cell_width, renderer->cell_height);
+            cairo_clip(renderer->cairo);
+            cairo_set_antialias(renderer->cairo, CAIRO_ANTIALIAS_NONE);
+            for (size_t r = 0; r < count; r++) {
+                const boxrig_ui_block_rectangle *rectangle = &rectangles[r];
+                cairo_rectangle(renderer->cairo,
+                    span->visual_column * (double)renderer->cell_width + rectangle->x,
+                    row * (double)renderer->cell_height + rectangle->y,
+                    rectangle->width, rectangle->height);
+            }
+            cairo_fill(renderer->cairo);
+            cairo_restore(renderer->cairo);
+            if (cairo_status(renderer->cairo) != CAIRO_STATUS_SUCCESS) return -1;
+            continue;
+        }
         boxrig_x11_shaped_item part = *item;
         if (i + 1 < item->span_count) part.glyph_item = *item->prefixes[i];
         part.visual_column = span->visual_column;

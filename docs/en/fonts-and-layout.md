@@ -61,6 +61,16 @@ File and memory font registration APIs let you supply fonts bundled with your ap
 Check each registration API for file lifetime and memory-copy requirements.
 Redistribution of a font also follows that font's license.
 
+## Match TUI widths and cell order
+
+A TUI positions text and borders at terminal rows and columns. Its width and ordering assumptions must match the terminal. `boxrig_term` uses the following two settings by default.
+
+Receiving the emoji presentation selector VS16 (U+FE0F) preserves the base character's width. Select `BOXRIG_EMOJI_VARIATION_WIDTH_PRESERVE` in `boxrig_terminal_config.emoji_variation_width` when creating the terminal. For example, a heart followed by VS16 stays one column wide, preventing writes beyond the application's allocated area. Intrinsically wide emoji, flags, and keycaps retain their widths. Measurement, fragmented input, wrapping, and resizing use the same policy.
+
+Text is displayed in the terminal's stored cell order. Pass `BOXRIG_TEXT_DIRECTION_LOGICAL` to the component or GTK widget's `set_text_direction()` API. Contextual font shaping, including Arabic forms, remains active. Hit testing and selection follow the same cell order.
+
+The original behavior remains selectable through the API. Use `BOXRIG_EMOJI_VARIATION_WIDTH_WIDE` to promote VS16 clusters to two columns, and `BOXRIG_TEXT_DIRECTION_AUTO` to reorder bidirectional text. `FORCE_LTR` and `FORCE_RTL` select the paragraph base direction while still reordering runs within it. Standalone library defaults remain `WIDE` and `AUTO`, respectively.
+
 ## Complex text and color fonts
 
 Text layout uses Pango on Linux and DirectWrite on Windows.

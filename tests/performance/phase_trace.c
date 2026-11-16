@@ -4,6 +4,7 @@
 #include "terminal_internal.h"
 #include "regex.h"
 #include "interval_trace.h"
+#include "../../src/gtk/gl_surface.h"
 
 #include <errno.h>
 #include <unistd.h>
@@ -46,6 +47,45 @@ boxrig_status __wrap_boxrig_terminal_feed(boxrig_terminal *terminal,
     boxrig_status status = __real_boxrig_terminal_feed(terminal, bytes, length, consumed_out);
     boxrig_interval_end("feed", start, *consumed_out,
         boxrig_terminal_text_revision(terminal), status, false);
+    boxrig_interval_end("image_state", boxrig_interval_begin(),
+        boxrig_terminal_image_count(terminal), terminal->graphics_protocol.storage_usage,
+        0, boxrig_terminal_image_placement_count(terminal) != 0);
+    return status;
+}
+
+boxrig_ui_status __real_boxrig_ui_model_synchronize(boxrig_ui_model *model);
+boxrig_ui_status __wrap_boxrig_ui_model_synchronize(boxrig_ui_model *model)
+{
+    boxrig_interval_start start = boxrig_interval_begin();
+    boxrig_ui_status status = __real_boxrig_ui_model_synchronize(model);
+    boxrig_interval_end("model", start, 1, 0, status, false);
+    return status;
+}
+
+boxrig_ui_status __real_boxrig_gtk_gl_surface_draw(boxrig_gtk_gl_surface *surface,
+    boxrig_ui_view *view, boxrig_composition *composition, boxrig_gtk_render_state *state);
+boxrig_ui_status __wrap_boxrig_gtk_gl_surface_draw(boxrig_gtk_gl_surface *surface,
+    boxrig_ui_view *view, boxrig_composition *composition, boxrig_gtk_render_state *state)
+{
+    boxrig_interval_start start = boxrig_interval_begin();
+    boxrig_ui_status status = __real_boxrig_gtk_gl_surface_draw(surface, view, composition, state);
+    boxrig_interval_end("gl_draw", start, 1, 0, status, false);
+    boxrig_ogl_render_statistics statistics;
+    if (boxrig_gtk_gl_surface_get_statistics(surface, &statistics) == 0)
+        boxrig_interval_end("gl_uploads", boxrig_interval_begin(),
+            statistics.image_cache_upload_count, statistics.upload_bytes, 0, false);
+    return status;
+}
+
+boxrig_ui_status __real_boxrig_gtk_gl_surface_present(boxrig_gtk_gl_surface *surface,
+    const boxrig_gl_target *destination, boxrig_gtk_render_state *state);
+boxrig_ui_status __wrap_boxrig_gtk_gl_surface_present(boxrig_gtk_gl_surface *surface,
+    const boxrig_gl_target *destination, boxrig_gtk_render_state *state)
+{
+    boxrig_interval_start start = boxrig_interval_begin();
+    boxrig_ui_status status = __real_boxrig_gtk_gl_surface_present(surface, destination, state);
+    /* Submission is separate from the external probe's visible-pixel time. */
+    boxrig_interval_end("gl_present", start, 1, 0, status, false);
     return status;
 }
 

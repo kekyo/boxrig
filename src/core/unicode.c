@@ -188,7 +188,8 @@ void boxrig_unicode_cluster_analyzer_initialize(
 bool boxrig_unicode_cluster_analyzer_accept(
     boxrig_unicode_cluster_analyzer *analyzer,
     int32_t codepoint,
-    bool ambiguous_is_wide)
+    bool ambiguous_is_wide,
+    bool emoji_variation_is_wide)
 {
     int32_t next_grapheme_state = analyzer->grapheme_state;
     int width;
@@ -202,9 +203,11 @@ bool boxrig_unicode_cluster_analyzer_accept(
     width = boxrig_unicode_column_width(codepoint, ambiguous_is_wide);
     /* Pictographic grapheme properties do not imply emoji presentation.
      * Keep the scalar width for text-default symbols; VS16 promotes their
-     * cluster when emoji presentation is explicitly requested. */
+     * cluster when emoji presentation is explicitly requested and the width
+     * policy permits it. Keycaps retain their intrinsic two-column width. */
     if (boxrig_unicode_is_regional_indicator(codepoint) ||
-        (analyzer->active && (codepoint == 0xfe0f || codepoint == 0x20e3))) {
+        (analyzer->active && (codepoint == 0x20e3 ||
+            (codepoint == 0xfe0f && emoji_variation_is_wide)))) {
         width = 2;
     }
     if (width <= 0) {
@@ -223,6 +226,7 @@ boxrig_status boxrig_unicode_measure_text_cluster(
     const uint8_t *text,
     size_t text_length,
     bool ambiguous_is_wide,
+    bool emoji_variation_is_wide,
     boxrig_text_cluster_measurement *measurement_out)
 {
     boxrig_unicode_cluster_analyzer analyzer;
@@ -252,7 +256,8 @@ boxrig_status boxrig_unicode_measure_text_cluster(
         if (!boxrig_unicode_cluster_analyzer_accept(
                 &candidate,
                 (int32_t)codepoint,
-                ambiguous_is_wide)) {
+                ambiguous_is_wide,
+                emoji_variation_is_wide)) {
             measurement.text_length = offset;
             measurement.column_width = analyzer.column_width;
             measurement.split_by_limit = false;

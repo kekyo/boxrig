@@ -20,7 +20,8 @@
 bool __real_boxrig_unicode_cluster_analyzer_accept(
     boxrig_unicode_cluster_analyzer *analyzer,
     int32_t codepoint,
-    bool ambiguous_is_wide);
+    bool ambiguous_is_wide,
+    bool emoji_variation_is_wide);
 
 static bool count_cluster_calls;
 static size_t cluster_calls;
@@ -42,13 +43,14 @@ void *__wrap_malloc(size_t length)
 bool __wrap_boxrig_unicode_cluster_analyzer_accept(
     boxrig_unicode_cluster_analyzer *analyzer,
     int32_t codepoint,
-    bool ambiguous_is_wide)
+    bool ambiguous_is_wide,
+    bool emoji_variation_is_wide)
 {
     if (count_cluster_calls) {
         cluster_calls++;
     }
     return __real_boxrig_unicode_cluster_analyzer_accept(
-        analyzer, codepoint, ambiguous_is_wide);
+        analyzer, codepoint, ambiguous_is_wide, emoji_variation_is_wide);
 }
 
 static bool feed_bytes(

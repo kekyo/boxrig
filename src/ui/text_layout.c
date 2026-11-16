@@ -19,6 +19,7 @@ struct boxrig_text_layout {
     size_t cluster_count;
     size_t run_count;
     boxrig_text_direction base_direction;
+    bool logical_order;
     boxrig_text_cluster_input *clusters;
     size_t *cluster_visual_columns;
     size_t *logical_to_visual;
@@ -39,6 +40,7 @@ static void merge_glyph_span(boxrig_ui_glyph_span *left,
     left->text_length = right->text_offset + right->text_length - left->text_offset;
     left->natural_width += right->natural_width;
     left->preserve_advance = left->preserve_advance || right->preserve_advance;
+    left->block_character = 0;
 }
 
 size_t boxrig_ui_fit_glyph_spans(const boxrig_text_layout *layout,
@@ -58,6 +60,12 @@ size_t boxrig_ui_fit_glyph_spans(const boxrig_text_layout *layout,
                 layout->clusters[cluster_index].text_length <= span.text_offset) cluster_index++;
         size_t first = SIZE_MAX, end = 0;
         span.preserve_advance = false;
+        /* A native cluster covering only part of a terminal grapheme must
+         * retain its font, including combining marks and variation selectors. */
+        if (cluster_index >= layout->cluster_count ||
+            layout->clusters[cluster_index].text_offset != span.text_offset ||
+            layout->clusters[cluster_index].text_length != span.text_length)
+            span.block_character = 0;
         for (size_t j = cluster_index; j < layout->cluster_count &&
                 layout->clusters[j].text_offset < text_end; j++) {
             size_t column = layout->cluster_visual_columns[j];
@@ -75,10 +83,21 @@ size_t boxrig_ui_fit_glyph_spans(const boxrig_text_layout *layout,
         else spans[combined++] = span;
     }
     size_t fitted = 0;
+    cluster_index = 0;
+    bool previous_preserves_order = false;
     for (size_t i = 0; i < combined; i++) {
         boxrig_ui_glyph_span span = spans[i];
+        while (cluster_index + 1 < layout->cluster_count &&
+            layout->clusters[cluster_index + 1].text_offset <= span.text_offset) cluster_index++;
+        /* Keep RTL native clusters separate in logical mode. Native engines
+         * may index RTL glyphs in either direction; their drawing direction
+         * still reverses a merged span. Contextual shaping remains intact. */
+        bool preserves_order = layout->logical_order &&
+            (layout->clusters[cluster_index].bidi_level & 1u) != 0;
         boxrig_ui_glyph_span *previous = fitted == 0 ? NULL : &spans[fitted-1];
-        if (previous != NULL && !previous->preserve_advance && !span.preserve_advance &&
+        if (previous != NULL && previous->block_character == 0 && span.block_character == 0 &&
+            !preserves_order && !previous_preserves_order &&
+            !previous->preserve_advance && !span.preserve_advance &&
             previous->natural_width > 0 && span.natural_width > 0 &&
             (previous->visual_column + previous->column_count == span.visual_column ||
              span.visual_column + span.column_count == previous->visual_column) &&
@@ -86,6 +105,7 @@ size_t boxrig_ui_fit_glyph_spans(const boxrig_text_layout *layout,
                 span.natural_width * previous->column_count) < 0.000001)
             merge_glyph_span(previous, &span);
         else spans[fitted++] = span;
+        previous_preserves_order = preserves_order;
     }
     return fitted;
 }
@@ -267,7 +287,9 @@ static void initialize_runs(boxrig_text_layout *layout)
             layout->clusters[end - 1].column_count - first->logical_column;
         run->visual_column = visual_begin;
         run->visual_column_count = visual_end - visual_begin;
-        run->direction = (first->bidi_level & 1u) == 0
+        /* Selection boundaries and preedit placement follow display order;
+         * native shaping still uses the original embedding level below. */
+        run->direction = layout->logical_order || (first->bidi_level & 1u) == 0
                              ? BOXRIG_TEXT_DIRECTION_LTR
                              : BOXRIG_TEXT_DIRECTION_RTL;
         run->bidi_level = first->bidi_level;
@@ -281,11 +303,12 @@ static void initialize_runs(boxrig_text_layout *layout)
     }
 }
 
-boxrig_text_layout_status boxrig_text_layout_create(
+boxrig_text_layout_status boxrig_ui_text_layout_create(
     const boxrig_text_cluster_input *clusters,
     size_t cluster_count,
     size_t column_count,
     boxrig_text_direction base_direction,
+    bool logical_order,
     boxrig_text_layout **layout_out)
 {
     boxrig_text_layout *layout;
@@ -316,6 +339,7 @@ boxrig_text_layout_status boxrig_text_layout_create(
     layout->column_count = column_count;
     layout->cluster_count = cluster_count;
     layout->base_direction = base_direction;
+    layout->logical_order = logical_order;
     if (cluster_count != 0) {
         layout->clusters = malloc(cluster_count * sizeof(*layout->clusters));
         layout->cluster_visual_columns =
@@ -346,7 +370,11 @@ boxrig_text_layout_status boxrig_text_layout_create(
             clusters,
             cluster_count * sizeof(*layout->clusters));
     }
-    resolve_visual_cluster_order(clusters, cluster_count, order);
+    if (logical_order) {
+        for (size_t index = 0; index < cluster_count; index++) order[index] = index;
+    } else {
+        resolve_visual_cluster_order(clusters, cluster_count, order);
+    }
     for (visual_index = 0; visual_index < cluster_count; visual_index++) {
         size_t cluster_index = order[visual_index];
         const boxrig_text_cluster_input *cluster = &clusters[cluster_index];
@@ -356,7 +384,7 @@ boxrig_text_layout_status boxrig_text_layout_create(
         for (offset = 0; offset < cluster->column_count; offset++) {
             size_t logical = cluster->logical_column + offset;
             size_t visual = visual_column +
-                            (((cluster->bidi_level & 1u) != 0)
+                            ((!logical_order && (cluster->bidi_level & 1u) != 0)
                                  ? cluster->column_count - offset - 1
                                  : offset);
 
@@ -369,6 +397,15 @@ boxrig_text_layout_status boxrig_text_layout_create(
     initialize_runs(layout);
     *layout_out = layout;
     return BOXRIG_TEXT_LAYOUT_OK;
+}
+
+boxrig_text_layout_status boxrig_text_layout_create(
+    const boxrig_text_cluster_input *clusters, size_t cluster_count,
+    size_t column_count, boxrig_text_direction base_direction,
+    boxrig_text_layout **layout_out)
+{
+    return boxrig_ui_text_layout_create(clusters, cluster_count, column_count,
+        base_direction, false, layout_out);
 }
 
 boxrig_text_layout *boxrig_text_layout_retain(boxrig_text_layout *layout)

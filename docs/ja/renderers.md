@@ -33,6 +33,37 @@ boxrig UIは、既存のウィンドウ内へ端末を表示する構成と、�
 描画方式の選択は、端末プロトコルを変更する操作ではありません。
 任意の描画ライブラリをリンクしていない構成でも、標準のコンポーネントを利用できます。
 
+## ブロック文字の描画方式
+
+標準の描画器では、`█`や`▀`などの塗りつぶしブロック文字はセル寸法に合わせた矩形です。
+隣接するブロックの境界を揃え、フォントの文字端による隙間や色付きの縞を防ぎます。
+この設定は表示先ごとに保持するため、同じモデルを異なる方式で表示できます。
+
+フォントの字形を使う場合は、表示先の作成設定を変更してください。
+
+```c
+boxrig_ui_view_config config = boxrig_ui_view_config_default();
+config.block_glyph_mode = BOXRIG_UI_BLOCK_GLYPH_FONT;
+```
+
+作成済みの`view`では、次のAPIで矩形描画に切り替えられます。
+設定が変わると、端末からの追加入力がなくても再描画を要求します。
+
+```c
+boxrig_ui_status status = boxrig_ui_view_set_block_glyph_mode(
+    view, BOXRIG_UI_BLOCK_GLYPH_RECTANGLES);
+```
+
+`status`が`BOXRIG_UI_OK`なら設定は成功です。
+現在の設定は`boxrig_ui_view_get_block_glyph_mode(view)`で取得できます。
+既定値は`BOXRIG_UI_BLOCK_GLYPH_RECTANGLES`です。
+
+矩形描画の対象は、[Unicode Block Elements](https://www.unicode.org/charts/PDF/U2580.pdf)のU+2580からU+2590とU+2594からU+259Fの29文字です。
+網掛けの`░`・`▒`・`▓`、結合文字などを伴うブロック、罫線文字、IME入力中の文字にはフォントを使います。
+描画方式を変えても、端末に保持した文字や文字幅、コピーする内容は変わりません。
+2列幅のブロックは2列分の矩形となり、色、選択、カーソル、点滅は通常の文字と同じ設定に従います。
+APIの詳細は[view.h](../../include/boxrig/ui/view.h)を参照してください。
+
 ## OpenGLの描画先を用意する
 
 [OpenGLの公開API](../../include/boxrig/render/opengl.h)は、OpenGL 3.3 coreまたはOpenGL ES 3.0を対象とします。

@@ -24,6 +24,10 @@ typedef struct boxrig_pango_cairo_shape_statistics {
     size_t glyph_count;
     size_t missing_glyph_count;
     size_t font_run_count;
+    /** Cluster/item comparisons performed while preparing this shape. */
+    size_t cluster_visit_count;
+    /** Font descriptions serialized while preparing this shape. */
+    size_t font_description_count;
 } boxrig_pango_cairo_shape_statistics;
 
 typedef struct boxrig_pango_cairo_render_statistics {
@@ -41,6 +45,28 @@ typedef struct boxrig_pango_cairo_render_statistics {
     size_t image_pixel_count;
     /** Color payload bytes consumed while constructing cell style keys. */
     size_t color_hash_byte_count;
+    /** Cells inspected to validate a cached row. */
+    size_t signature_cell_count;
+    /** Cluster/item comparisons performed while preparing row shapes. */
+    size_t cluster_visit_count;
+    /** Font descriptions serialized while preparing row shapes. */
+    size_t font_description_count;
+    /** Pixel area rasterized into temporary glyph groups before clipping. */
+    size_t glyph_raster_pixel_count;
+    /** Color pattern lookups, including hits and misses. */
+    size_t color_source_lookup_count;
+    /** Cached RGBA keys compared during color pattern lookups. */
+    size_t color_source_comparison_count;
+    /** Successfully created color patterns. */
+    size_t color_source_creation_count;
+    /** Patterns replaced after reaching the fixed cache capacity. */
+    size_t color_source_eviction_count;
+    /** Temporary groups created to rasterize fitted glyphs. */
+    size_t glyph_group_count;
+    /** Pango glyph drawing calls for fitted glyphs. */
+    size_t glyph_draw_count;
+    /** Glyph composite bounding area before outer dirty/color clipping. */
+    size_t glyph_composite_pixel_count;
 } boxrig_pango_cairo_render_statistics;
 
 int boxrig_pango_cairo_renderer_create(

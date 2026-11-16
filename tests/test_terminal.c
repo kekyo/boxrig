@@ -51,6 +51,8 @@ static bool test_defaults_and_initial_screen(void)
     CHECK(config.text_recognizer_pattern_capacity == 256 * 1024);
     CHECK(config.text_recognizer_event_capacity == 4096);
     CHECK(config.ambiguous_width == BOXRIG_AMBIGUOUS_WIDTH_NARROW);
+    CHECK(config.emoji_variation_width == BOXRIG_EMOJI_VARIATION_WIDTH_WIDE);
+    CHECK(boxrig_terminal_emoji_variation_width(NULL) == BOXRIG_EMOJI_VARIATION_WIDTH_WIDE);
     CHECK(boxrig_terminal_ambiguous_width(NULL) == BOXRIG_AMBIGUOUS_WIDTH_NARROW);
     CHECK(config.cursor_column_mode == BOXRIG_CURSOR_COLUMN_MODE_TERMINAL);
     config.rows = 3;
@@ -5345,6 +5347,107 @@ static bool test_text_heart_cell_width_and_cursor(void)
     return true;
 }
 
+static bool test_emoji_variation_preserves_background(void)
+{
+    /* The Unicode 5.2 row from notcurses-demo mojibake occupies 42 columns. */
+    static const uint8_t text[] =
+        "⛷⛹⛰⛪⛩️⛲⛺⛽⛵⛴️⛅ⱨ️⛱️⛄⚽⚾⛳⛸️⛑️⛏️⛓️⛔❗⭕🅿️🈯🈚";
+    for (size_t variant = 0; variant < 4; variant++) {
+        boxrig_terminal_config config = boxrig_terminal_config_default();
+        config.rows = 3;
+        config.columns = 100;
+        bool preserve = variant < 2;
+        bool fragmented = (variant % 2) != 0;
+        config.emoji_variation_width = preserve ?
+            BOXRIG_EMOJI_VARIATION_WIDTH_PRESERVE : BOXRIG_EMOJI_VARIATION_WIDTH_WIDE;
+        boxrig_terminal *terminal = NULL;
+        CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+        CHECK(boxrig_terminal_emoji_variation_width(terminal) == config.emoji_variation_width);
+        size_t measured_columns = 0;
+        for (size_t offset = 0; offset < sizeof(text) - 1;) {
+            boxrig_text_cluster_measurement measurement;
+            CHECK(boxrig_terminal_measure_text_cluster(terminal, text + offset,
+                      sizeof(text) - 1 - offset, &measurement) == BOXRIG_STATUS_OK);
+            CHECK(measurement.text_length != 0);
+            measured_columns += measurement.column_width;
+            offset += measurement.text_length;
+        }
+        CHECK(measured_columns == (preserve ? 42 : 51));
+        uint8_t background[100];
+        for (size_t column = 0; column < sizeof(background); column++) {
+            background[column] = (uint8_t)('0' + column % 10);
+        }
+        size_t consumed = 0;
+        CHECK(boxrig_terminal_feed(terminal, background, sizeof(background),
+                  &consumed) == BOXRIG_STATUS_OK);
+        CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)"\r|", 2,
+                  &consumed) == BOXRIG_STATUS_OK);
+        size_t chunk = fragmented ? 1 : sizeof(text) - 1;
+        for (size_t offset = 0; offset < sizeof(text) - 1; offset += chunk) {
+            CHECK(boxrig_terminal_feed(terminal, text + offset, chunk,
+                      &consumed) == BOXRIG_STATUS_OK);
+            CHECK(consumed == chunk);
+        }
+        CHECK(boxrig_terminal_feed(terminal,
+                  (const uint8_t *)"                     ", 21,
+                  &consumed) == BOXRIG_STATUS_OK);
+        boxrig_cursor_view cursor;
+        boxrig_terminal_get_cursor(terminal, &cursor);
+        size_t end = preserve ? 64 : 73;
+        CHECK(cursor.row == 0 && cursor.column == end);
+        for (size_t column = end; column < config.columns; column++) {
+            boxrig_cell_view cell;
+            CHECK(boxrig_terminal_get_cell(terminal, 0, column, &cell) == BOXRIG_STATUS_OK);
+            CHECK(cell.text_length == 1 && cell.text[0] == background[column]);
+        }
+        boxrig_terminal_destroy(terminal);
+    }
+    return true;
+}
+
+static bool test_emoji_variation_preserves_wrap_and_reflow(void)
+{
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    config.rows = 3;
+    config.columns = 4;
+    config.emoji_variation_width = BOXRIG_EMOJI_VARIATION_WIDTH_PRESERVE;
+    boxrig_terminal *terminal = NULL;
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    static const uint8_t text[] = "abc❤️Z";
+    for (size_t offset = 0; offset < sizeof(text) - 1; offset++) {
+        size_t consumed = 0;
+        CHECK(boxrig_terminal_feed(terminal, text + offset, 1, &consumed) == BOXRIG_STATUS_OK);
+        CHECK(consumed == 1);
+    }
+    boxrig_cell_view cell;
+    CHECK(boxrig_terminal_get_cell(terminal, 0, 3, &cell) == BOXRIG_STATUS_OK);
+    CHECK(cell.column_width == 1 && cell.text_length == 6);
+    CHECK(memcmp(cell.text, "❤️", 6) == 0);
+    CHECK(boxrig_terminal_get_cell(terminal, 1, 0, &cell) == BOXRIG_STATUS_OK);
+    CHECK(cell.text_length == 1 && cell.text[0] == 'Z');
+    CHECK(boxrig_terminal_resize(terminal, 3, 5) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_get_cell(terminal, 0, 3, &cell) == BOXRIG_STATUS_OK);
+    CHECK(cell.column_width == 1 && cell.text_length == 6);
+    CHECK(boxrig_terminal_get_cell(terminal, 0, 4, &cell) == BOXRIG_STATUS_OK);
+    CHECK(cell.text_length == 1 && cell.text[0] == 'Z');
+    CHECK(boxrig_terminal_emoji_variation_width(terminal) == BOXRIG_EMOJI_VARIATION_WIDTH_PRESERVE);
+    static const char *const wide[] = {"1️⃣", "🇯🇵", "😀", "😀️"};
+    for (size_t index = 0; index < sizeof(wide) / sizeof(wide[0]); index++) {
+        boxrig_text_cluster_measurement measurement;
+        CHECK(boxrig_terminal_measure_text_cluster(terminal,
+                  (const uint8_t *)wide[index], strlen(wide[index]),
+                  &measurement) == BOXRIG_STATUS_OK);
+        CHECK(measurement.column_width == 2 && measurement.text_length == strlen(wide[index]));
+    }
+    boxrig_terminal_destroy(terminal);
+    terminal = NULL;
+    config.emoji_variation_width = (boxrig_emoji_variation_width)-1;
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_INVALID_ARGUMENT);
+    config.emoji_variation_width = (boxrig_emoji_variation_width)2;
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_INVALID_ARGUMENT);
+    return true;
+}
+
 static bool test_emoji_promotion_wraps_complete_cluster(void)
 {
     static const uint8_t heart[] = "\xe2\x9d\xa4\xef\xb8\x8f";
@@ -10361,6 +10464,10 @@ int main(void)
         {"xterm color reset sequences", test_xterm_color_reset_sequences},
         {"unicode graphemes width and invalid input",
          test_unicode_graphemes_width_and_invalid_input},
+        {"emoji variation preserves background",
+         test_emoji_variation_preserves_background},
+        {"emoji variation preserves wrap and reflow",
+         test_emoji_variation_preserves_wrap_and_reflow},
         {"emoji promotion wraps complete cluster",
          test_emoji_promotion_wraps_complete_cluster},
         {"emoji promotion preserves clipping",

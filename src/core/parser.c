@@ -631,6 +631,38 @@ boxrig_status boxrig_parser_feed(
 
         if (parser->state == BOXRIG_PARSER_STRING ||
             parser->state == BOXRIG_PARSER_STRING_ESCAPE) {
+            if (parser->state == BOXRIG_PARSER_STRING &&
+                !parser->string_discarding &&
+                parser->string_length < parser->string_capacity &&
+                parser->actions.string_put_run != NULL &&
+                byte >= 0x20 && byte <= 0x7e) {
+                size_t available = parser->string_capacity - parser->string_length;
+                size_t run_length = 1;
+                size_t accepted = 0;
+
+                /* Exclude every control and bound lookahead on retries.
+                 * Leave limit cancellation to the first excess byte. */
+                while (run_length < 1024 && run_length < available &&
+                       run_length < length - consumed &&
+                       bytes[consumed + run_length] >= 0x20 &&
+                       bytes[consumed + run_length] <= 0x7e) {
+                    run_length++;
+                }
+                status = parser->actions.string_put_run(
+                    parser->actions.context, bytes + consumed,
+                    run_length, &accepted);
+                consumed += accepted;
+                parser->string_length += accepted;
+                if (accepted != 0) {
+                    parser->ground_print_flushed = false;
+                    parser->last_input_was_cr = false;
+                }
+                if (status != BOXRIG_STATUS_OK) {
+                    *consumed_out = consumed;
+                    return status;
+                }
+                continue;
+            }
             status = feed_string_byte(parser, byte);
         } else if (is_dcs_state(parser->state)) {
             status = feed_dcs_byte(parser, byte);

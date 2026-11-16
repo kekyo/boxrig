@@ -158,6 +158,15 @@ typedef enum boxrig_ui_rectangular_copy_policy {
     BOXRIG_UI_RECTANGULAR_COPY_TRIM_TRAILING_SPACES
 } boxrig_ui_rectangular_copy_policy;
 
+/** Presentation of standalone filled Unicode Block Elements. */
+typedef enum boxrig_ui_block_glyph_mode {
+    /** Fill pixel-aligned cell rectangles for U+2580..U+2590 and U+2594..U+259F.
+     * Shading characters and graphemes containing additional scalars use fonts. */
+    BOXRIG_UI_BLOCK_GLYPH_RECTANGLES = 0,
+    /** Render every block character with the selected font and font options. */
+    BOXRIG_UI_BLOCK_GLYPH_FONT
+} boxrig_ui_block_glyph_mode;
+
 /**
  * A rectangular interval in terminal row and column coordinates.
  * Columns are logical for MODEL and IMAGE, and visual for the other layers.
@@ -187,6 +196,8 @@ typedef struct boxrig_ui_view_config {
     size_t maximum_copy_bytes;
     /** Rectangular copy policy; defaults to TRIM_TRAILING_SPACES. */
     boxrig_ui_rectangular_copy_policy rectangular_copy_policy;
+    /** Initial block presentation; defaults to BOXRIG_UI_BLOCK_GLYPH_RECTANGLES. */
+    boxrig_ui_block_glyph_mode block_glyph_mode;
     /**
      * Maximum application text annotations retained by this view.
      * The default is BOXRIG_UI_ANNOTATION_CAPACITY_DEFAULT and values above
@@ -1010,6 +1021,27 @@ typedef struct boxrig_ui_render_target {
  * 16 MiB of copied UTF-8 text, and 65,536 application annotations.
  */
 boxrig_ui_view_config boxrig_ui_view_config_default(void);
+
+/**
+ * Selects block presentation independently for this view.
+ * @param view View to change on its owning UI thread.
+ * @param mode Rectangle or font presentation.
+ * @return OK, INVALID_ARGUMENT, or BUSY during a color-filter callback.
+ * @remarks Changed settings request a redraw without changing terminal text,
+ * column widths, selection, or font settings. Reapplying the mode does nothing.
+ * All standard renderers use this policy for terminal cells and filled cursors;
+ * input-method preedit remains font-rendered.
+ */
+boxrig_ui_status boxrig_ui_view_set_block_glyph_mode(
+    boxrig_ui_view *view, boxrig_ui_block_glyph_mode mode);
+
+/**
+ * Reads the block presentation mode.
+ * @param view View to inspect, or NULL for standalone renderer defaults.
+ * @return The view's mode, or BOXRIG_UI_BLOCK_GLYPH_RECTANGLES for NULL.
+ */
+boxrig_ui_block_glyph_mode boxrig_ui_view_get_block_glyph_mode(
+    const boxrig_ui_view *view);
 
 /**
  * Returns the opaque background-transparency defaults.

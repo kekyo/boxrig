@@ -625,6 +625,9 @@ bool boxrig_test_run_frontend_component_fixture(
     CHECK(operations->font.text_direction(component) ==
           BOXRIG_TEXT_DIRECTION_FORCE_RTL);
     CHECK(operations->font.set_text_direction(
+              component, BOXRIG_TEXT_DIRECTION_LOGICAL) == BOXRIG_UI_OK);
+    CHECK(operations->font.text_direction(component) == BOXRIG_TEXT_DIRECTION_LOGICAL);
+    CHECK(operations->font.set_text_direction(
               component,
               BOXRIG_TEXT_DIRECTION_AUTO) == BOXRIG_UI_OK);
 

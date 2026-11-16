@@ -115,7 +115,9 @@ static bool animation_scenario(FILE *report)
             if (key == 'm') {
                 if (!memory_frames()) return false;
             } else {
-                const char remove[] = "\033_Ga=d,d=I,i=202\033\\";
+                /* Deletion is silent; a non-storing query fences completion. */
+                const char remove[] = "\033_Ga=d,d=I,i=202\033\\"
+                    "\033_Ga=q,i=202,f=24,s=1,v=1;AAAA\033\\";
                 if (!write_bytes(STDOUT_FILENO, remove, sizeof(remove) - 1) ||
                     !read_response(202, true)) return false;
             }
@@ -158,9 +160,12 @@ static bool animation_scenario(FILE *report)
                 break;
             default: return false;
         }
-        char operation[160];
+        const char *completion = key == 's' || key == 'a' || key == 'c' ? "" :
+            "\033_Ga=q,i=101,f=24,s=1,v=1;AAAA\033\\";
+        char operation[256];
         int length = snprintf(operation, sizeof(operation),
-            "%s\033[1;1H\033[48;2;%u;43;173m  \033[0m", control, (71 + phase * 31) % 256);
+            "%s\033[1;1H\033[48;2;%u;43;173m  \033[0m%s",
+            control, (71 + phase * 31) % 256, completion);
         assert(length > 0 && (size_t)length < sizeof(operation));
         if (!write_bytes(STDOUT_FILENO, operation, (size_t)length) ||
             !read_response(101, true)) return false;

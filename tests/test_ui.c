@@ -2089,8 +2089,58 @@ static bool annotations_follow_moved_wide_and_combining_text(void)
     return true;
 }
 
+static bool block_glyph_mode_is_view_local(void)
+{
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    boxrig_ui_view_config options = boxrig_ui_view_config_default();
+    boxrig_terminal *terminal = NULL;
+    boxrig_ui_model *model = NULL;
+    boxrig_ui_view *first = NULL, *second = NULL, *invalid = NULL;
+    frame_counter frames = {0};
+    config.rows = 2;
+    config.columns = 4;
+    CHECK(options.block_glyph_mode == BOXRIG_UI_BLOCK_GLYPH_RECTANGLES);
+    CHECK(boxrig_ui_view_get_block_glyph_mode(NULL) == BOXRIG_UI_BLOCK_GLYPH_RECTANGLES);
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_create(model, &options, &first) == BOXRIG_UI_OK);
+    options.block_glyph_mode = BOXRIG_UI_BLOCK_GLYPH_FONT;
+    CHECK(boxrig_ui_view_create(model, &options, &second) == BOXRIG_UI_OK);
+    options.block_glyph_mode = (boxrig_ui_block_glyph_mode)2;
+    CHECK(boxrig_ui_view_create(model, &options, &invalid) == BOXRIG_UI_INVALID_ARGUMENT);
+    CHECK(invalid == NULL);
+    for (int layer = 0; layer < BOXRIG_UI_DIRTY_LAYER_COUNT; layer++) {
+        boxrig_ui_dirty dirty;
+        while (boxrig_ui_view_peek_dirty(first, (boxrig_ui_dirty_layer)layer, &dirty))
+            CHECK(boxrig_ui_view_consume_dirty(first, (boxrig_ui_dirty_layer)layer) == BOXRIG_UI_OK);
+        while (boxrig_ui_view_peek_dirty(second, (boxrig_ui_dirty_layer)layer, &dirty))
+            CHECK(boxrig_ui_view_consume_dirty(second, (boxrig_ui_dirty_layer)layer) == BOXRIG_UI_OK);
+    }
+    CHECK(boxrig_ui_view_set_frame_request_callback(first, count_frame_request, &frames) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_set_block_glyph_mode(first, BOXRIG_UI_BLOCK_GLYPH_RECTANGLES) == BOXRIG_UI_OK);
+    CHECK(!boxrig_ui_view_frame_requested(first) && frames.count == 0);
+    CHECK(boxrig_ui_view_set_block_glyph_mode(first, (boxrig_ui_block_glyph_mode)-1) == BOXRIG_UI_INVALID_ARGUMENT);
+    CHECK(boxrig_ui_view_set_block_glyph_mode(NULL, BOXRIG_UI_BLOCK_GLYPH_FONT) == BOXRIG_UI_INVALID_ARGUMENT);
+    CHECK(boxrig_ui_view_get_block_glyph_mode(first) == BOXRIG_UI_BLOCK_GLYPH_RECTANGLES);
+    CHECK(!boxrig_ui_view_frame_requested(first));
+    uint64_t revision = boxrig_terminal_text_revision(terminal);
+    CHECK(boxrig_ui_view_set_block_glyph_mode(first, BOXRIG_UI_BLOCK_GLYPH_FONT) == BOXRIG_UI_OK);
+    CHECK(frames.count == 1 && boxrig_ui_view_frame_requested(first));
+    CHECK(take_expected_dirty(first, BOXRIG_UI_DIRTY_MODEL, 0, 2, 0, 4));
+    CHECK(boxrig_ui_view_set_block_glyph_mode(first, BOXRIG_UI_BLOCK_GLYPH_RECTANGLES) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_get_block_glyph_mode(second) == BOXRIG_UI_BLOCK_GLYPH_FONT);
+    CHECK(!boxrig_ui_view_frame_requested(second));
+    CHECK(boxrig_terminal_text_revision(terminal) == revision);
+    boxrig_ui_view_destroy(first);
+    boxrig_ui_view_destroy(second);
+    boxrig_ui_model_destroy(model);
+    boxrig_terminal_destroy(terminal);
+    return true;
+}
+
 int main(void)
 {
+    if (!block_glyph_mode_is_view_local()) return 1;
     if (!annotations_follow_wrapping_views_and_screen_changes() ||
         !annotations_clip_partially_evicted_logical_lines() ||
         !annotations_follow_moved_wide_and_combining_text()) return 1;

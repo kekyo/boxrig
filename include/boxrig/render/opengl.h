@@ -42,7 +42,7 @@ typedef struct boxrig_ogl_renderer_limits {
     size_t maximum_image_entries;
     /** Maximum retained image and client-candidate texture bytes. */
     size_t maximum_image_bytes;
-    /** Maximum bytes staged by one upload. */
+    /** Maximum bytes staged by one upload rectangle; images may span uploads. */
     size_t maximum_staging_bytes;
     /** Maximum quad instances emitted by one frame. */
     size_t maximum_instances;
@@ -90,7 +90,7 @@ typedef struct boxrig_ogl_renderer_config {
     const boxrig_font_effective_metrics *effective_metrics;
     /** Glyph rasterization and output-scale policy. */
     boxrig_font_rendering_policy rendering_policy;
-    /** Base direction used when a line has no strong character. */
+    /** Text direction and cell ordering policy. */
     boxrig_text_direction_policy direction_policy;
 } boxrig_ogl_renderer_config;
 
@@ -256,10 +256,10 @@ unsigned int boxrig_ogl_renderer_cell_height(
     const boxrig_ogl_renderer *renderer);
 
 /**
- * Replaces the shaping base-direction policy and invalidates row state.
+ * Replaces the text direction and cell ordering policy and invalidates row state.
  *
  * @param renderer Renderer to update.
- * @param direction_policy New shaping direction policy.
+ * @param direction_policy New text direction and cell ordering policy.
  * @return Zero on success, otherwise -1.
  */
 int boxrig_ogl_renderer_set_direction_policy(
