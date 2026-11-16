@@ -2251,11 +2251,12 @@ static int build_portable_layout(
         inputs[cluster_index].font_key = font_key;
         column_count += cluster->column_count;
     }
-    if (boxrig_text_layout_create(
+    if (boxrig_ui_text_layout_create(
             inputs,
             shape->cluster_count,
             column_count,
             resolved_base_direction(analysis, policy),
+            policy == BOXRIG_TEXT_DIRECTION_LOGICAL,
             &shape->layout) != BOXRIG_TEXT_LAYOUT_OK) {
         free(inputs);
         return -1;

@@ -1608,7 +1608,8 @@ int boxrig_win32_renderer_set_direction_policy(
     if (renderer == NULL ||
         (policy != BOXRIG_TEXT_DIRECTION_AUTO &&
          policy != BOXRIG_TEXT_DIRECTION_FORCE_LTR &&
-         policy != BOXRIG_TEXT_DIRECTION_FORCE_RTL)) {
+         policy != BOXRIG_TEXT_DIRECTION_FORCE_RTL &&
+         policy != BOXRIG_TEXT_DIRECTION_LOGICAL)) {
         return -1;
     }
     if (renderer->direction_policy != policy) {

@@ -639,9 +639,44 @@ static bool test_individual_natural_advances(void)
     return true;
 }
 
+static bool test_logical_order_keeps_cells_and_native_glyphs(void)
+{
+    const boxrig_text_cluster_input clusters[] = {
+        {.logical_column = 0, .column_count = 1, .text_offset = 0, .text_length = 2, .bidi_level = 1},
+        {.logical_column = 1, .column_count = 2, .text_offset = 2, .text_length = 2, .bidi_level = 1},
+        {.logical_column = 3, .column_count = 1, .text_offset = 4, .text_length = 1, .bidi_level = 0},
+    };
+    boxrig_text_layout *layout = NULL;
+    CHECK(boxrig_ui_text_layout_create(clusters, 3, 4, BOXRIG_TEXT_DIRECTION_LTR,
+              true, &layout) == BOXRIG_TEXT_LAYOUT_OK);
+    for (size_t column = 0; column < 4; column++) {
+        size_t mapped = SIZE_MAX;
+        CHECK(boxrig_text_layout_logical_to_visual(layout, column, &mapped) == BOXRIG_TEXT_LAYOUT_OK);
+        CHECK(mapped == column);
+        CHECK(boxrig_text_layout_visual_to_logical(layout, column, &mapped) == BOXRIG_TEXT_LAYOUT_OK);
+        CHECK(mapped == column);
+    }
+    boxrig_text_layout_run run;
+    CHECK(boxrig_text_layout_get_run(layout, 0, &run) == BOXRIG_TEXT_LAYOUT_OK);
+    CHECK(run.bidi_level == 1 && run.direction == BOXRIG_TEXT_DIRECTION_RTL);
+    boxrig_text_layout_range range;
+    CHECK(boxrig_text_layout_visual_ranges(layout, 1, 2, &range, 1) == 1);
+    CHECK(range.column == 1 && range.column_count == 2);
+    boxrig_ui_glyph_span spans[] = {
+        {.text_offset = 0, .text_length = 2, .first_glyph = 1, .glyph_count = 1, .natural_width = 10},
+        {.text_offset = 2, .text_length = 2, .first_glyph = 0, .glyph_count = 1, .natural_width = 20},
+    };
+    CHECK(boxrig_ui_fit_glyph_spans(layout, spans, 2) == 2);
+    CHECK(spans[0].visual_column == 0 && spans[0].first_glyph == 1);
+    CHECK(spans[1].visual_column == 1 && spans[1].first_glyph == 0);
+    boxrig_text_layout_destroy(layout);
+    return true;
+}
+
 int main(void)
 {
-    if (!test_individual_natural_advances() || !test_bidi_cell_mapping_and_runs() ||
+    if (!test_logical_order_keeps_cells_and_native_glyphs() ||
+        !test_individual_natural_advances() || !test_bidi_cell_mapping_and_runs() ||
         !test_dirty_uses_shaping_context() ||
         !test_visual_ranges_follow_exact_bidi_cells() ||
         !test_invalid_layout_is_rejected() ||

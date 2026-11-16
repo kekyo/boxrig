@@ -98,7 +98,8 @@ static boxrig_ui_status create_terminal_component(
             &application->component);
         if (status == BOXRIG_UI_OK) {
             write_opengl_runtime_info();
-            return status;
+            return boxrig_x11_terminal_component_set_text_direction(
+                application->component, BOXRIG_TEXT_DIRECTION_LOGICAL);
         }
         if (config->renderer != BOXRIG_TERM_POSIX_RENDERER_AUTO ||
             status != BOXRIG_UI_UNAVAILABLE) {
@@ -117,6 +118,8 @@ static boxrig_ui_status create_terminal_component(
         &application->component);
     if (status == BOXRIG_UI_OK) {
         write_software_runtime_info();
+        status = boxrig_x11_terminal_component_set_text_direction(
+            application->component, BOXRIG_TEXT_DIRECTION_LOGICAL);
     }
     return status;
 }

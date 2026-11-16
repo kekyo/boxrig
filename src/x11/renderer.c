@@ -2992,7 +2992,8 @@ int boxrig_x11_renderer_set_direction_policy(
     if (renderer == NULL ||
         (policy != BOXRIG_TEXT_DIRECTION_AUTO &&
          policy != BOXRIG_TEXT_DIRECTION_FORCE_LTR &&
-         policy != BOXRIG_TEXT_DIRECTION_FORCE_RTL)) {
+         policy != BOXRIG_TEXT_DIRECTION_FORCE_RTL &&
+         policy != BOXRIG_TEXT_DIRECTION_LOGICAL)) {
         return -1;
     }
     if (renderer->direction_policy != policy) {
@@ -3674,7 +3675,8 @@ static bool item_overlaps_cluster(
 static int build_portable_layout(
     boxrig_x11_row_shape *shape,
     GList *items,
-    boxrig_text_direction base_direction)
+    boxrig_text_direction base_direction,
+    bool logical_order)
 {
     boxrig_text_cluster_input *inputs;
     size_t column_count = 0;
@@ -3727,11 +3729,12 @@ static int build_portable_layout(
         inputs[cluster_index].font_key = font_key;
         column_count += cluster->column_count;
     }
-    if (boxrig_text_layout_create(
+    if (boxrig_ui_text_layout_create(
             inputs,
             shape->cluster_count,
             column_count,
             base_direction,
+            logical_order,
             &shape->layout) != BOXRIG_TEXT_LAYOUT_OK) {
         free(inputs);
         return -1;
@@ -3935,7 +3938,8 @@ static int shape_text_fragment(
     base_direction = resolved_base_direction(
         items,
         renderer->direction_policy);
-    if (build_portable_layout(shape, items, base_direction) == -1 ||
+    if (build_portable_layout(shape, items, base_direction,
+            renderer->direction_policy == BOXRIG_TEXT_DIRECTION_LOGICAL) == -1 ||
         (render_glyphs && shape_items(shape, items) == -1)) {
         goto cleanup;
     }

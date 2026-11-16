@@ -55,6 +55,7 @@ typedef struct boxrig_ogl_row_shape {
     size_t item_count;
     boxrig_text_layout *layout;
     boxrig_text_direction direction;
+    bool logical_order;
     size_t glyph_count;
     size_t missing_glyph_count;
 } boxrig_ogl_row_shape;

@@ -2551,7 +2551,8 @@ int boxrig_pango_cairo_renderer_set_direction_policy(
     if (renderer == NULL ||
         (policy != BOXRIG_TEXT_DIRECTION_AUTO &&
          policy != BOXRIG_TEXT_DIRECTION_FORCE_LTR &&
-         policy != BOXRIG_TEXT_DIRECTION_FORCE_RTL)) {
+         policy != BOXRIG_TEXT_DIRECTION_FORCE_RTL &&
+         policy != BOXRIG_TEXT_DIRECTION_LOGICAL)) {
         return -1;
     }
     if (renderer->direction_policy != policy) {
@@ -3164,7 +3165,8 @@ static uint64_t pango_language_key(PangoLanguage *language)
 static int build_portable_layout(
     boxrig_pango_cairo_row_shape *shape,
     GList *items,
-    boxrig_text_direction base_direction)
+    boxrig_text_direction base_direction,
+    bool logical_order)
 {
     boxrig_text_cluster_input *inputs;
     size_t column_count = 0;
@@ -3238,11 +3240,12 @@ static int build_portable_layout(
         inputs[cluster_index].font_key = font_key;
         column_count += cluster->column_count;
     }
-    if (boxrig_text_layout_create(
+    if (boxrig_ui_text_layout_create(
             inputs,
             shape->cluster_count,
             column_count,
             base_direction,
+            logical_order,
             &shape->layout) != BOXRIG_TEXT_LAYOUT_OK) {
         free(inputs);
         return -1;
@@ -3263,11 +3266,11 @@ static int build_glyph_spans(boxrig_pango_cairo_shaped_item *item,
     if (item->spans == NULL) { free(placements); return -1; }
     item->span_count = count;
     PangoGlyphString *glyphs = item->glyph_item.glyphs;
+    bool reversed = count > 1 && placements[0].visual_column > placements[count - 1].visual_column;
     for (size_t i = 0; i < count; i++) {
         /* The fitted spans arrive in logical order. Store them in visual
          * order so a narrow paint range does not scan the complete item. */
-        size_t visual = (item->glyph_item.item->analysis.level & 1) != 0
-            ? count - i - 1 : i;
+        size_t visual = reversed ? count - i - 1 : i;
         boxrig_pango_cairo_glyph_span *span = &item->spans[visual];
         span->placement = placements[i];
         span->clusters = calloc(placements[i].glyph_count, sizeof(*span->clusters));
@@ -3500,7 +3503,8 @@ static int shape_text_fragment(
     base_direction = resolved_base_direction(
         items,
         renderer->direction_policy);
-    if (build_portable_layout(shape, items, base_direction) == -1 ||
+    if (build_portable_layout(shape, items, base_direction,
+            renderer->direction_policy == BOXRIG_TEXT_DIRECTION_LOGICAL) == -1 ||
         (render_glyphs && shape_items(shape, items) == -1)) {
         goto cleanup;
     }
@@ -3645,8 +3649,10 @@ static int refresh_row_paint(
     }
     /* The portable layout still exposes current style/link boundaries. Its
      * byte ranges, font identities and BiDi levels come from the cached shape. */
-    if (boxrig_text_layout_create(inputs, shape->cluster_count,
-            renderer->cached_columns, shape->base_direction, &layout) != BOXRIG_TEXT_LAYOUT_OK) {
+    if (boxrig_ui_text_layout_create(inputs, shape->cluster_count,
+            renderer->cached_columns, shape->base_direction,
+            renderer->direction_policy == BOXRIG_TEXT_DIRECTION_LOGICAL,
+            &layout) != BOXRIG_TEXT_LAYOUT_OK) {
         free(inputs);
         return -1;
     }

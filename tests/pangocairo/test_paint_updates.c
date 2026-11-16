@@ -224,14 +224,26 @@ static bool paint_updates(const char *prefix)
         CHECK(matches_fresh(terminal, renderer, &font, &policy, NULL,
             BOXRIG_TEXT_DIRECTION_AUTO, width, height));
     }
-    CHECK(boxrig_pango_cairo_renderer_set_direction_policy(renderer, BOXRIG_TEXT_DIRECTION_FORCE_RTL) == 0);
-    boxrig_pango_cairo_renderer_reset_render_statistics(renderer);
-    CHECK(boxrig_pango_cairo_renderer_draw_view(renderer, view) == 0);
-    boxrig_pango_cairo_render_statistics statistics;
-    CHECK(boxrig_pango_cairo_renderer_get_render_statistics(renderer, &statistics) == 0);
-    CHECK(statistics.row_shape_count == 4);
-    CHECK(matches_fresh(terminal, renderer, &font, &policy, NULL,
-        BOXRIG_TEXT_DIRECTION_FORCE_RTL, width, height));
+    const boxrig_text_direction_policy directions[] = {
+        BOXRIG_TEXT_DIRECTION_FORCE_RTL, BOXRIG_TEXT_DIRECTION_LOGICAL,
+        BOXRIG_TEXT_DIRECTION_AUTO, BOXRIG_TEXT_DIRECTION_LOGICAL};
+    for (size_t index = 0; index < sizeof(directions) / sizeof(directions[0]); index++) {
+        CHECK(boxrig_pango_cairo_renderer_set_direction_policy(renderer, directions[index]) == 0);
+        boxrig_pango_cairo_renderer_reset_render_statistics(renderer);
+        CHECK(boxrig_pango_cairo_renderer_draw_view(renderer, view) == 0);
+        boxrig_pango_cairo_render_statistics statistics;
+        CHECK(boxrig_pango_cairo_renderer_get_render_statistics(renderer, &statistics) == 0);
+        CHECK(statistics.row_shape_count == 4);
+        CHECK(matches_fresh(terminal, renderer, &font, &policy, NULL,
+            directions[index], width, height));
+        /* Recolor a shaped Arabic row after each switch. This exercises
+         * cached native clusters as well as rebuilding their layout map. */
+        CHECK(recolor(terminal, (unsigned int)(index % 3)));
+        CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+        CHECK(boxrig_pango_cairo_renderer_draw_view(renderer, view) == 0);
+        CHECK(matches_fresh(terminal, renderer, &font, &policy, NULL,
+            directions[index], width, height));
+    }
     for (size_t row = 0; row < 4; row++) boxrig_text_layout_destroy(layouts[row]);
     free(base);
     boxrig_pango_cairo_renderer_destroy(renderer);

@@ -4,6 +4,12 @@
 
 #include "boxrig/ui/text_layout.h"
 
+/* Keep native analysis for shaping while optionally bypassing cell reordering. */
+boxrig_text_layout_status boxrig_ui_text_layout_create(
+    const boxrig_text_cluster_input *clusters, size_t cluster_count,
+    size_t column_count, boxrig_text_direction base_direction,
+    bool logical_order, boxrig_text_layout **layout_out);
+
 typedef struct boxrig_ui_glyph_span {
     /* Offsets use the text engine's units, matching the portable layout. */
     size_t text_offset;

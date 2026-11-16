@@ -361,7 +361,7 @@ int boxrig_ogl_text_provider_create(
         config->rendering_policy.output_scale <= 0.0f ||
         config->rendering_policy.antialias == BOXRIG_FONT_ANTIALIAS_SUBPIXEL ||
         config->direction_policy < BOXRIG_TEXT_DIRECTION_AUTO ||
-        config->direction_policy > BOXRIG_TEXT_DIRECTION_FORCE_RTL ||
+        config->direction_policy > BOXRIG_TEXT_DIRECTION_LOGICAL ||
         (config->font_family == NULL && config->font_family_length != 0) ||
         config->font_family_length > (size_t)INT_MAX ||
         config->font_weight < 1 || config->font_weight > 1000 ||
@@ -551,7 +551,7 @@ int boxrig_ogl_text_provider_set_direction_policy(
 {
     if (provider == NULL ||
         direction_policy < BOXRIG_TEXT_DIRECTION_AUTO ||
-        direction_policy > BOXRIG_TEXT_DIRECTION_FORCE_RTL) {
+        direction_policy > BOXRIG_TEXT_DIRECTION_LOGICAL) {
         return -1;
     }
     provider->direction_policy = direction_policy;
@@ -978,11 +978,12 @@ static int build_layout(
         inputs[cluster_index].font_key = font_key;
         column_count += cluster->column_count;
     }
-    if (boxrig_text_layout_create(
+    if (boxrig_ui_text_layout_create(
             inputs,
             shape->cluster_count,
             column_count,
             direction,
+            shape->logical_order,
             layout_out) != BOXRIG_TEXT_LAYOUT_OK) {
         free(inputs);
         return -1;
@@ -1236,6 +1237,7 @@ static int shape_collected_clusters(
     }
     items = split_items(items, shape_out);
     direction = base_direction(items, direction_policy);
+    shape_out->logical_order = direction_policy == BOXRIG_TEXT_DIRECTION_LOGICAL;
     if (prepare_items(provider, shape_out, items) == -1 ||
         build_layout(shape_out, direction, &shape_out->layout) == -1 ||
         (render_glyphs && shape_items(shape_out) == -1)) {

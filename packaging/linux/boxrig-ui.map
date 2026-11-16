@@ -1,5 +1,6 @@
 BOXRIG_0 {
     global:
+        boxrig_ui_text_layout_create;
         boxrig_composite_premultiplied_image;
         boxrig_composite_premultiplied_image_behind;
         boxrig_composition_apply_event;

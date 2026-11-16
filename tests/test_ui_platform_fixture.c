@@ -136,7 +136,8 @@ static bool feed_bytes(
     return true;
 }
 
-static bool create_platform_renderer(platform_renderer_fixture *fixture)
+static bool create_platform_renderer_with_direction(platform_renderer_fixture *fixture,
+    boxrig_text_direction_policy direction)
 {
     memset(fixture, 0, sizeof(*fixture));
 #if defined(BOXRIG_TEST_FRONTEND_X11)
@@ -182,6 +183,7 @@ static bool create_platform_renderer(platform_renderer_fixture *fixture)
         CHECK(SUCCEEDED(ID3D11Device_CreateTexture2D(fixture->device, &desc,
             NULL, &fixture->texture)));
         config.device = fixture->device;
+        config.direction_policy = direction;
         config.target.texture = fixture->texture;
         config.target.width = 1; config.target.height = 1;
         fixture->target = config.target;
@@ -259,7 +261,21 @@ static bool create_platform_renderer(platform_renderer_fixture *fixture)
         boxrig_pango_cairo_renderer_cell_height(fixture->renderer);
 #endif
     CHECK(fixture->cell_width != 0 && fixture->cell_height != 0);
+#if defined(BOXRIG_TEST_FRONTEND_X11)
+    CHECK(boxrig_x11_renderer_set_direction_policy(fixture->renderer, direction) == 0);
+#elif defined(BOXRIG_TEST_FRONTEND_WIN32)
+    CHECK(boxrig_win32_renderer_set_direction_policy(fixture->renderer, direction) == 0);
+#elif defined(BOXRIG_TEST_FRONTEND_OPENGL)
+    CHECK(boxrig_ogl_renderer_set_direction_policy(fixture->renderer, direction) == 0);
+#elif defined(BOXRIG_TEST_FRONTEND_PANGO_CAIRO)
+    CHECK(boxrig_pango_cairo_renderer_set_direction_policy(fixture->renderer, direction) == 0);
+#endif
     return true;
+}
+
+static bool create_platform_renderer(platform_renderer_fixture *fixture)
+{
+    return create_platform_renderer_with_direction(fixture, BOXRIG_TEXT_DIRECTION_AUTO);
 }
 
 static bool size_platform_renderer(
@@ -2913,6 +2929,81 @@ static bool opengl_4k_terminal_grid_fixture(void)
 }
 #endif
 
+static bool common_logical_cell_order_fixture(void)
+{
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    boxrig_ui_view_config options = boxrig_ui_view_config_default();
+    platform_renderer_fixture renderer;
+    boxrig_terminal *terminal = NULL;
+    boxrig_ui_model *model = NULL;
+    boxrig_ui_view *view = NULL;
+    config.rows = 2;
+    config.columns = 16;
+    CHECK(create_platform_renderer_with_direction(&renderer, BOXRIG_TEXT_DIRECTION_LOGICAL));
+#if defined(BOXRIG_TEST_FRONTEND_OPENGL)
+    CHECK(boxrig_ogl_renderer_set_composited_scrollbar(renderer.renderer, false, 0) == 0);
+#endif
+    CHECK(size_platform_renderer(&renderer, config.rows, config.columns));
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    const char setup[] = "\033[?25l\033[38;2;200;200;200;48;2;0;0;0m\033[2J"
+        "אבג|0123456789\033[2;1Hא ב ג";
+    CHECK(feed_bytes(terminal, setup, sizeof(setup) - 1));
+    CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_create(model, &options, &view) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_acquire_layout_authority(view) == BOXRIG_UI_OK);
+    boxrig_ui_allocation_input allocation = {0};
+    allocation.allocation_width = pixels(renderer.cell_width * config.columns);
+    allocation.allocation_height = pixels(renderer.cell_height * config.rows);
+    allocation.cell_width = pixels(renderer.cell_width);
+    allocation.cell_height = pixels(renderer.cell_height);
+    allocation.cell_metrics_revision = 1;
+    allocation.window_state = BOXRIG_UI_WINDOW_NORMAL;
+    boxrig_ui_layout_result result;
+    CHECK(boxrig_ui_view_accept_allocation(view, &allocation, &result) == BOXRIG_UI_OK);
+    /* A style-only refresh must retain logical placement in cached rows. */
+    for (size_t phase = 0; phase < 2; phase++) {
+        if (phase != 0) {
+            const char repaint[] = "\033[38;2;200;0;0m\033[Hאבג|0123456789\033[2;1Hא ב ג";
+            CHECK(feed_bytes(terminal, repaint, sizeof(repaint) - 1));
+            CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+        }
+        CHECK(draw_platform_view(&renderer, view, NULL));
+        for (size_t column = 0; column < config.columns; column++) {
+            boxrig_ui_hit_test_result hit;
+            CHECK(boxrig_ui_view_hit_test(view, pixels(column * renderer.cell_width) +
+                      pixels(renderer.cell_width) / 2, pixels(renderer.cell_height) / 2,
+                      &hit) == BOXRIG_UI_OK);
+            CHECK(hit.inside_grid && hit.logical_column == column);
+        }
+        /* Hebrew letters have the same glyph in isolation. Comparing each
+         * adjacent letter with its spaced reference detects reordered or
+         * missing glyphs even when the layout map itself is correct. */
+        for (size_t column = 0; column < 3; column++) {
+            size_t ink = 0;
+            for (unsigned int y = 0; y < renderer.cell_height; y++) {
+                for (unsigned int x = 0; x < renderer.cell_width; x++) {
+                    platform_rgb adjacent, isolated;
+                    CHECK(get_platform_pixel(&renderer,
+                        (int)(column * renderer.cell_width + x), (int)y, &adjacent));
+                    CHECK(get_platform_pixel(&renderer,
+                        (int)(column * 2 * renderer.cell_width + x),
+                        (int)(renderer.cell_height + y), &isolated));
+                    CHECK(adjacent.red == isolated.red && adjacent.green == isolated.green &&
+                          adjacent.blue == isolated.blue);
+                    ink += adjacent.red > 20;
+                }
+            }
+            CHECK(ink > 3);
+        }
+    }
+    boxrig_ui_view_destroy(view);
+    boxrig_ui_model_destroy(model);
+    boxrig_terminal_destroy(terminal);
+    destroy_platform_renderer(&renderer);
+    puts("PASS logical cell order preserves RTL glyphs, hit testing and cached repaint");
+    return true;
+}
+
 static bool common_block_geometry_fixture(void)
 {
     /* Expected occupied eighths from the Block Elements character names.
@@ -3169,7 +3260,8 @@ static bool common_block_presentation_fixture(void)
 int boxrig_test_d3d11_fixture(D3D_DRIVER_TYPE driver)
 {
     d3d11_fixture_driver = driver;
-    if (!common_block_geometry_fixture() || !common_block_mode_switch_fixture() ||
+    if (!common_logical_cell_order_fixture() ||
+        !common_block_geometry_fixture() || !common_block_mode_switch_fixture() ||
         !common_block_presentation_fixture()) return 1;
     if (!common_layout_action_fixture() || !common_grid_negotiation_fixture() ||
         !common_text_overlay_fixture() || !common_image_alpha_fixture()) return 1;
@@ -3179,6 +3271,7 @@ int boxrig_test_d3d11_fixture(D3D_DRIVER_TYPE driver)
 #else
 int main(void)
 {
+    if (!common_logical_cell_order_fixture()) return 1;
     if (!common_block_presentation_fixture()) return 1;
     if (!common_block_geometry_fixture()) return 1;
     if (!common_block_mode_switch_fixture()) return 1;

@@ -21,11 +21,16 @@ typedef uint64_t boxrig_font_resource_id;
 /** A zero identifier selects no registered font resource. */
 #define BOXRIG_FONT_RESOURCE_NONE UINT64_C(0)
 
-/** Base direction policy used when resolving a terminal row. */
+/** Cell ordering policy used when resolving a terminal row. */
 typedef enum boxrig_text_direction_policy {
+    /** Resolve the paragraph base direction and reorder bidirectional runs. */
     BOXRIG_TEXT_DIRECTION_AUTO = 0,
+    /** Use a left-to-right paragraph base while reordering bidirectional runs. */
     BOXRIG_TEXT_DIRECTION_FORCE_LTR,
-    BOXRIG_TEXT_DIRECTION_FORCE_RTL
+    /** Use a right-to-left paragraph base while reordering bidirectional runs. */
+    BOXRIG_TEXT_DIRECTION_FORCE_RTL,
+    /** Preserve terminal cell order, retaining contextual font shaping. */
+    BOXRIG_TEXT_DIRECTION_LOGICAL
 } boxrig_text_direction_policy;
 
 /** Resolved direction of a text run. */
