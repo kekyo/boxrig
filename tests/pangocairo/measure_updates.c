@@ -54,14 +54,21 @@ static char *make_input(const char *mode, size_t rows, size_t columns,
                 (strcmp(mode, "boundaries") == 0 && phase != 0);
             unsigned int shade = stripes && column % 2 != 0 ? 96 : 32;
             unsigned int blue = phase != 0 ? 64 : 16;
+            unsigned int green = 32;
+            if (strcmp(mode, "palette") == 0) {
+                unsigned int color = (unsigned int)(row * columns + column) * 0x27d4ebu + phase * 31u;
+                shade = (color >> 16) & 255u;
+                green = (color >> 8) & 255u;
+                blue = color & 255u;
+            }
             bool foreground = strcmp(mode, "foreground") == 0;
             unsigned int ink_red = foreground && (column + phase) % 2 != 0 ? 64 : 240;
             unsigned int ink_green = foreground && (column + phase) % 2 == 0 ? 64 : 224;
             char glyph = text && phase != 0 ? 'W' : 'M';
             if (used + 80 >= capacity) { free(input); return NULL; }
             used += (size_t)snprintf(input + used, capacity - used,
-                "\033[0;38;2;%u;%u;192;48;2;%u;32;%um%c",
-                ink_red, ink_green, shade, blue, glyph);
+                "\033[0;38;2;%u;%u;192;48;2;%u;%u;%um%c",
+                ink_red, ink_green, shade, green, blue, glyph);
         }
     }
     (void)snprintf(input + used, capacity - used, "\033[1;1H");
@@ -154,12 +161,19 @@ static bool measure(const char *mode, size_t rows, size_t columns,
     printf("{\"mode\":\"%s\",\"rows\":%zu,\"columns\":%zu,\"iterations\":%zu,\"cursor\":%s,"
            "\"feed_cpu\":%.9f,\"synchronize_cpu\":%.9f,\"draw_cpu\":%.9f,\"elapsed\":%.9f,"
            "\"row_shapes\":%zu,\"row_rasters\":%zu,\"signature_cells\":%zu,"
-           "\"cluster_visits\":%zu,\"font_descriptions\":%zu,\"glyph_raster_pixels\":%zu,\"pixels\":\"%016" PRIx64 "\"}\n",
+           "\"cluster_visits\":%zu,\"font_descriptions\":%zu,\"glyph_raster_pixels\":%zu,"
+           "\"color_lookups\":%zu,\"color_comparisons\":%zu,\"color_creations\":%zu,\"color_evictions\":%zu,"
+           "\"glyph_groups\":%zu,\"glyph_draws\":%zu,\"glyph_composite_pixels\":%zu,"
+           "\"pixels\":\"%016" PRIx64 "\"}\n",
         mode, rows, columns, iterations, cursor ? "true" : "false",
         result->feed_cpu, result->synchronize_cpu, result->draw_cpu, result->elapsed,
         result->work.row_shape_count, result->work.row_raster_count,
         result->work.signature_cell_count, result->work.cluster_visit_count,
-        result->work.font_description_count, result->work.glyph_raster_pixel_count, result->pixels);
+        result->work.font_description_count, result->work.glyph_raster_pixel_count,
+        result->work.color_source_lookup_count, result->work.color_source_comparison_count,
+        result->work.color_source_creation_count, result->work.color_source_eviction_count,
+        result->work.glyph_group_count, result->work.glyph_draw_count,
+        result->work.glyph_composite_pixel_count, result->pixels);
     free(inputs[0]); free(inputs[1]);
     boxrig_pango_cairo_renderer_destroy(reference);
     boxrig_pango_cairo_renderer_destroy(renderer);
@@ -185,12 +199,22 @@ static bool self_test(void)
             /* A paint slice may include neighboring ink for antialiasing,
              * but must not rasterize the whole row for every cell color. */
             CHECK(result.work.glyph_raster_pixel_count <= result.pixel_area * 3 * 4);
+            if (strcmp(modes[i], "foreground") == 0) {
+                /* Identical native batches and underlays share a raster.
+                 * Row edges and cursor inversion retain independent rasters. */
+                CHECK(result.work.glyph_group_count <= 3 * 3 * 6 + 3);
+                CHECK(result.work.glyph_draw_count <= 3 * 3 * 6 + 3);
+            }
             if (strcmp(modes[i], "paint") == 0 || strcmp(modes[i], "boundaries") == 0 ||
                 strcmp(modes[i], "foreground") == 0) {
                 CHECK(result.work.row_shape_count == 0);
             }
         }
     }
+    update_result palette;
+    CHECK(measure("palette", 9, 80, 3, false, "-", &palette));
+    CHECK(palette.work.color_source_eviction_count > 512);
+    CHECK(palette.work.color_source_comparison_count <= palette.work.color_source_lookup_count * 4);
     return true;
 }
 
@@ -206,7 +230,8 @@ int main(int argc, char **argv)
         unsigned int cursor = (unsigned int)strtoul(argv[5], NULL, 10);
         bool mode = strcmp(argv[1], "paint") == 0 || strcmp(argv[1], "boundaries") == 0 ||
             strcmp(argv[1], "text") == 0 || strcmp(argv[1], "solid-text") == 0 ||
-            strcmp(argv[1], "foreground") == 0 || strcmp(argv[1], "expose") == 0;
+            strcmp(argv[1], "foreground") == 0 || strcmp(argv[1], "expose") == 0 ||
+            strcmp(argv[1], "palette") == 0;
         update_result result;
         if (mode && rows > 0 && rows <= 1000 && columns > 0 && columns <= 1000 &&
             iterations > 0 && iterations <= 100000 && cursor <= 1 && strcmp(argv[6], "png") == 0) {

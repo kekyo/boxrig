@@ -6,6 +6,7 @@
 
 /* Verify image throughput without a machine-dependent time threshold. */
 #include "graphics.h"
+#include "terminal_internal.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -55,7 +56,31 @@ int main(void)
     for (size_t i = 0; i < image.rgba_length; i++) assert(image.rgba[i] == 255);
     printf("scalar_calls=%zu bytes=%zu\n", scalar_calls, length);
     assert(scalar_calls < 100);
+    printf("scalar_decode_bytes=%zu\n", terminal->graphics_protocol.scalar_decode_byte_count);
+    fflush(stdout);
+    assert(terminal->graphics_protocol.scalar_decode_byte_count < 100);
     boxrig_terminal_destroy(terminal);
+    const size_t chunks[] = {1, 2, 3, 4, 5, 7, 17, 4096};
+    for (size_t chunk = 0; chunk < sizeof(chunks) / sizeof(chunks[0]); chunk++) {
+        assert(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+        assert(boxrig_terminal_set_cell_pixel_geometry(terminal, 7, 14) == BOXRIG_STATUS_OK);
+        for (size_t offset = 0; offset < length;) {
+            size_t count = length - offset;
+            if (count > chunks[chunk]) count = chunks[chunk];
+            assert(boxrig_terminal_feed(terminal, (const uint8_t *)input + offset,
+                count, &consumed) == BOXRIG_STATUS_OK && consumed == count);
+            offset += consumed;
+        }
+        assert(boxrig_terminal_image_count(terminal) == 1);
+        assert(boxrig_terminal_image_placement_count(terminal) == 1);
+        assert(boxrig_terminal_image_handle_at(terminal, 0, &handle) == BOXRIG_STATUS_OK);
+        assert(boxrig_terminal_get_image(terminal, handle, &image) == BOXRIG_STATUS_OK);
+        assert(image.rgba_length == 24 * 24 * 4);
+        for (size_t i = 0; i < image.rgba_length; i++) assert(image.rgba[i] == 255);
+        const uint8_t *reply;
+        assert(boxrig_terminal_output_peek(terminal, &reply) == 0);
+        boxrig_terminal_destroy(terminal);
+    }
     puts("PASS direct image pixels and bounded scalar dispatch");
     return 0;
 }

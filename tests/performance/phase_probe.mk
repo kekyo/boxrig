@@ -23,6 +23,8 @@ $(PHASE_TRACE_BINARY): PHASE_TRACE_FLAGS = -DBOXRIG_PHASE_TRACE \
 	-Wl,--wrap=boxrig_terminal_resume_text_recognizers \
 	-Wl,--wrap=boxrig_text_line_projection_cursor_resume \
 	-Wl,--wrap=boxrig_regex_cursor_resume -Wl,--wrap=boxrig_regex_cursor_create_result \
+	-Wl,--wrap=boxrig_ui_model_synchronize \
+	-Wl,--wrap=boxrig_gtk_gl_surface_draw -Wl,--wrap=boxrig_gtk_gl_surface_present \
 	-Wl,--wrap=read
 $(PHASE_TRACE_BINARY): tests/performance/phase_trace.c tests/performance/interval_trace.c \
 	tests/performance/interval_trace.h

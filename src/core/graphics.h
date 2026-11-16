@@ -257,6 +257,8 @@ typedef struct boxrig_kitty_graphics_protocol_state {
     size_t transport_name_capacity;
     size_t animation_storage_capacity;
     size_t frame_capacity;
+    /** Encoded upload bytes dispatched through the scalar decoder. */
+    size_t scalar_decode_byte_count;
     uint64_t monotonic_time_milliseconds;
     uint64_t revision;
     uint64_t next_image_handle;

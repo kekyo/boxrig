@@ -13,7 +13,7 @@ for trace in "${traces[@]}"; do
             if ($1 != "read" && $7 != 0) exit 1
         }
         END {
-            split("session read feed core_recognition projection regex policy cairo frame final_marker", names, " ")
+            split("session read feed model paint core_recognition projection regex policy cairo frame final_marker", names, " ")
             for (i in names) if (!counts[names[i]]) exit 1
         }
     ' "$trace"
