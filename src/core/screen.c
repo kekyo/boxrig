@@ -21,7 +21,9 @@ boxrig_status boxrig_screen_measure_text_cluster(const boxrig_screen *screen,
     boxrig_text_cluster_measurement measurement;
     if (measurement_out == NULL) return BOXRIG_STATUS_INVALID_ARGUMENT;
     boxrig_status status = boxrig_unicode_measure_text_cluster(text, text_length,
-        screen->ambiguous_width == BOXRIG_AMBIGUOUS_WIDTH_WIDE, &measurement);
+        screen->ambiguous_width == BOXRIG_AMBIGUOUS_WIDTH_WIDE,
+        screen->emoji_variation_width == BOXRIG_EMOJI_VARIATION_WIDTH_WIDE,
+        &measurement);
     if (status != BOXRIG_STATUS_OK) return status;
     measurement.font_dependent = screen->ambiguous_width == BOXRIG_AMBIGUOUS_WIDTH_FONT &&
         boxrig_unicode_text_is_ambiguous(text, measurement.text_length);
@@ -393,6 +395,7 @@ boxrig_status boxrig_screen_initialize_configured(
     size_t columns,
     size_t scrollback_capacity,
     boxrig_ambiguous_width ambiguous_width,
+    boxrig_emoji_variation_width emoji_variation_width,
     boxrig_cursor_column_mode cursor_column_mode)
 {
     size_t cell_count;
@@ -442,6 +445,7 @@ boxrig_status boxrig_screen_initialize_configured(
     }
     screen->history_capacity = scrollback_capacity;
     screen->ambiguous_width = ambiguous_width;
+    screen->emoji_variation_width = emoji_variation_width;
     screen->cursor_column_mode = cursor_column_mode;
     screen->active_buffer_revision = 1;
     screen->style = default_style();
@@ -490,6 +494,7 @@ boxrig_status boxrig_screen_initialize(
         columns,
         0,
         BOXRIG_AMBIGUOUS_WIDTH_NARROW,
+        BOXRIG_EMOJI_VARIATION_WIDTH_WIDE,
         BOXRIG_CURSOR_COLUMN_MODE_TERMINAL);
 }
 
@@ -1663,6 +1668,7 @@ boxrig_status boxrig_screen_resize_with_markers(
         columns,
         screen->history_capacity,
         screen->ambiguous_width,
+        screen->emoji_variation_width,
         screen->cursor_column_mode);
     if (status != BOXRIG_STATUS_OK) {
         return status;
@@ -2627,7 +2633,8 @@ boxrig_status boxrig_screen_put_codepoint(
         bool breaks = !boxrig_unicode_cluster_analyzer_accept(
             &candidate,
             codepoint,
-            ambiguous_is_wide);
+            ambiguous_is_wide,
+            screen->emoji_variation_width == BOXRIG_EMOJI_VARIATION_WIDTH_WIDE);
 
         if (!breaks &&
             cell->text_length >
@@ -2702,7 +2709,8 @@ boxrig_status boxrig_screen_put_codepoint(
     (void)boxrig_unicode_cluster_analyzer_accept(
         &screen->grapheme_analyzer,
         codepoint,
-        ambiguous_is_wide);
+        ambiguous_is_wide,
+        screen->emoji_variation_width == BOXRIG_EMOJI_VARIATION_WIDTH_WIDE);
     {
         uint8_t width = screen->grapheme_analyzer.column_width;
         if (screen->ambiguous_width == BOXRIG_AMBIGUOUS_WIDTH_FONT) {
@@ -2809,7 +2817,8 @@ size_t boxrig_screen_put_ascii_run(
     (void)boxrig_unicode_cluster_analyzer_accept(
         &screen->grapheme_analyzer,
         (int32_t)bytes[count - 1],
-        screen->ambiguous_width == BOXRIG_AMBIGUOUS_WIDTH_WIDE);
+        screen->ambiguous_width == BOXRIG_AMBIGUOUS_WIDTH_WIDE,
+        screen->emoji_variation_width == BOXRIG_EMOJI_VARIATION_WIDTH_WIDE);
     screen->grapheme_active = true;
     screen->last_printed_text[0] = (char)bytes[count - 1];
     screen->last_printed_length = 1;

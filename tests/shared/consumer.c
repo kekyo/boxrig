@@ -38,9 +38,11 @@ int main(void)
 
     boxrig_terminal_config config = boxrig_terminal_config_default();
     config.ambiguous_width = BOXRIG_AMBIGUOUS_WIDTH_FONT;
+    config.emoji_variation_width = BOXRIG_EMOJI_VARIATION_WIDTH_PRESERVE;
     boxrig_terminal *terminal = NULL;
     assert(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
     assert(boxrig_terminal_ambiguous_width(terminal) == BOXRIG_AMBIGUOUS_WIDTH_FONT);
+    assert(boxrig_terminal_emoji_variation_width(terminal) == BOXRIG_EMOJI_VARIATION_WIDTH_PRESERVE);
     assert(boxrig_terminal_set_font_width_resolver(terminal, font_width, NULL) == BOXRIG_STATUS_OK);
     size_t consumed = 0;
     assert(boxrig_terminal_feed(terminal, (const uint8_t *)"①", 3, &consumed) == BOXRIG_STATUS_OK);

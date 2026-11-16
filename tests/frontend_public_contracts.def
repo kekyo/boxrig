@@ -329,6 +329,7 @@ BOXRIG_PUBLIC_CONTRACT(
     OPERATION, "include/boxrig/terminal.h", VALUE_CORE_UI_SEMANTICS, 31u,
     "boxrig_terminal_config_default "
     "boxrig_terminal_ambiguous_width "
+    "boxrig_terminal_emoji_variation_width "
     "boxrig_terminal_create "
     "boxrig_terminal_destroy "
     "boxrig_terminal_set_font_width_resolver "
