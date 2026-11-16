@@ -61,6 +61,12 @@ typedef struct boxrig_pango_cairo_render_statistics {
     size_t color_source_creation_count;
     /** Patterns replaced after reaching the fixed cache capacity. */
     size_t color_source_eviction_count;
+    /** Temporary groups created to rasterize fitted glyphs. */
+    size_t glyph_group_count;
+    /** Pango glyph drawing calls for fitted glyphs. */
+    size_t glyph_draw_count;
+    /** Glyph composite bounding area before outer dirty/color clipping. */
+    size_t glyph_composite_pixel_count;
 } boxrig_pango_cairo_render_statistics;
 
 int boxrig_pango_cairo_renderer_create(

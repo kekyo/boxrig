@@ -254,7 +254,7 @@ static bool paint_updates(const char *prefix)
     return true;
 }
 
-static bool partial_paint_updates(void)
+static bool partial_paint_updates(bool repeated)
 {
     boxrig_terminal_config config = boxrig_terminal_config_default();
     config.rows = 1; config.columns = 24;
@@ -278,12 +278,22 @@ static bool partial_paint_updates(void)
     unsigned int cw = boxrig_pango_cairo_renderer_cell_width(renderer);
     unsigned int ch = boxrig_pango_cairo_renderer_cell_height(renderer);
     CHECK(boxrig_pango_cairo_renderer_set_surface_size(renderer, 24 * cw, ch) == 0);
-    CHECK(feed(terminal, "\033[?7l\033[?25l\033[3;48;2;40;50;60mAB\xe7\x95\x8c CDMMMMMMMMMMMMMMMMM"));
+    if (repeated) {
+        CHECK(boxrig_terminal_set_cell_pixel_geometry(terminal, cw, ch) == BOXRIG_STATUS_OK);
+        CHECK(feed(terminal, "\033[?7l\033[?25l\033[3m"
+            "\033_Ga=T,f=32,s=1,v=1,c=24,r=1,z=-1,C=1,q=2;/wAA/w==\033\\"));
+        for (size_t column = 0; column < 24; column++)
+            CHECK(feed(terminal, column % 2 == 0 ? "\033[31mM" : "\033[32mM"));
+    } else {
+        CHECK(feed(terminal, "\033[?7l\033[?25l\033[3;48;2;40;50;60mAB\xe7\x95\x8c CDMMMMMMMMMMMMMMMMM"));
+    }
     CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
     CHECK(boxrig_pango_cairo_renderer_draw_view(renderer, view) == 0);
     /* A single-cell foreground change splits or joins an existing paint run.
      * Neighboring antialiased glyphs must still match a complete repaint. */
-    const char *updates[] = {"\033[1;5H\033[31m ", "\033[1;5H\033[39m ",
+    const char *updates[] = {
+        repeated ? "\033[1;5H\033[33mM" : "\033[1;5H\033[31m ",
+        repeated ? "\033[1;5H\033[31mM" : "\033[1;5H\033[39m ",
         "\033[1;12H\033[32mM", "\033[1;12H\033[39mM"};
     for (size_t i = 0; i < sizeof(updates) / sizeof(updates[0]); i++) {
         CHECK(feed(terminal, updates[i]));
@@ -295,6 +305,12 @@ static bool partial_paint_updates(void)
         CHECK(statistics.row_shape_count == 0);
         CHECK(matches_fresh(terminal, renderer, &font, &policy, &transparency,
             BOXRIG_TEXT_DIRECTION_AUTO, 24 * cw, ch));
+        if (repeated) {
+            CHECK(boxrig_pango_cairo_renderer_expose(renderer, 5 * cw + 1, 1, 12 * cw - 2, ch - 2) == 0);
+            CHECK(boxrig_pango_cairo_renderer_draw_view(renderer, view) == 0);
+            CHECK(matches_fresh(terminal, renderer, &font, &policy, &transparency,
+                BOXRIG_TEXT_DIRECTION_AUTO, 24 * cw, ch));
+        }
     }
     boxrig_pango_cairo_renderer_destroy(renderer);
     boxrig_ui_view_destroy(view);
@@ -306,7 +322,8 @@ static bool partial_paint_updates(void)
 
 int main(int argc, char **argv)
 {
-    bool passed = paint_updates(argc == 2 ? argv[1] : NULL) && partial_paint_updates();
+    bool passed = paint_updates(argc == 2 ? argv[1] : NULL) &&
+        partial_paint_updates(false) && partial_paint_updates(true);
     if (!passed) return 1;
     cairo_debug_reset_static_data();
     FcFini();

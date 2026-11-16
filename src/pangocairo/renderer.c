@@ -4203,6 +4203,7 @@ static int draw_fitted_item_segment(
     cairo_clip(renderer->cairo);
     cairo_surface_t *underlay = cairo_get_group_target(renderer->cairo);
     cairo_pattern_t *ink = cairo_pattern_reference(cairo_get_source(renderer->cairo));
+    renderer->render_statistics.glyph_group_count++;
     cairo_push_group(renderer->cairo);
     cairo_set_operator(renderer->cairo, CAIRO_OPERATOR_SOURCE);
     cairo_set_source_surface(renderer->cairo, underlay, 0, 0);
@@ -4219,6 +4220,7 @@ static int draw_fitted_item_segment(
     glyphs.num_glyphs = (int)(last->first_glyph + last->glyph_count - begin->first_glyph);
     glyphs.glyphs += begin->first_glyph;
     glyphs.log_clusters += begin->first_glyph;
+    renderer->render_statistics.glyph_draw_count++;
     pango_cairo_show_glyph_string(renderer->cairo, item->glyph_item.item->analysis.font, &glyphs);
     cairo_pattern_t *raster = cairo_pop_group(renderer->cairo);
     cairo_restore(renderer->cairo);
@@ -4228,6 +4230,8 @@ static int draw_fitted_item_segment(
     cairo_clip(renderer->cairo);
     cairo_set_source(renderer->cairo, raster);
     cairo_set_operator(renderer->cairo, CAIRO_OPERATOR_SOURCE);
+    renderer->render_statistics.glyph_composite_pixel_count +=
+        clip_column_count * renderer->cell_width * renderer->cell_height;
     cairo_paint(renderer->cairo);
     cairo_restore(renderer->cairo);
     cairo_pattern_destroy(raster);
@@ -4280,6 +4284,75 @@ static int draw_shaped_item_segment(
         } else if (draw_fitted_item_segment(renderer, item, &item->spans[i], row, first,
                        end - first, foreground) == -1) return -1;
     }
+    return 0;
+}
+
+/* A repeated foreground can share one glyph raster across disjoint cell clips.
+ * Keep integer-advance ASCII as the eligible case: changing the glyph batch for
+ * fractional positioning, ligatures, marks or color fonts can change Cairo's
+ * coverage/rounding. Those cases retain the original segment path. */
+static int draw_repeated_foregrounds(
+    boxrig_pango_cairo_renderer *renderer,
+    const boxrig_terminal *terminal,
+    const boxrig_pango_cairo_shaped_item *item,
+    size_t row,
+    bool *painted_out)
+{
+    *painted_out = false;
+    size_t first = item->visual_column;
+    size_t count = item->visual_column_count;
+    if (count < 8 || item->span_count != 1 || item->logical_column != first ||
+        (item->glyph_item.item->analysis.level & 1) != 0) return 0;
+    const boxrig_pango_cairo_glyph_span *span = &item->spans[0];
+    double advance = (double)span->placement.natural_width / count;
+    if (span->cluster_count != count || span->placement.block_character != 0 ||
+        span->placement.visual_column != first || span->placement.column_count != count ||
+        advance <= 0 || (span->placement.preserve_advance &&
+        advance != (double)renderer->cell_width * PANGO_SCALE)) return 0;
+
+    unsigned long colors[4];
+    size_t color_count = 0, runs = 0;
+    for (size_t i = first; i < first + count; i++) {
+        unsigned long color = renderer->row_colors[i].foreground;
+        if (i != first && color == renderer->row_colors[i-1].foreground) continue;
+        runs++;
+        size_t c = 0;
+        while (c < color_count && colors[c] != color) c++;
+        if (c == color_count) {
+            if (color_count == sizeof(colors) / sizeof(colors[0])) return 0;
+            colors[color_count++] = color;
+        }
+    }
+    if (runs < 8 || color_count < 2) return 0;
+    for (size_t i = 0; i < count; i++) {
+        const boxrig_pango_cairo_glyph_bounds *bounds = &span->clusters[i];
+        if (bounds->glyph_count != 1 || bounds->advance != i * advance ||
+            bounds->advance_end != (i + 1) * advance ||
+            item->glyph_item.glyphs->glyphs[bounds->first_glyph].attr.is_color) return 0;
+        boxrig_cell_view cell;
+        if (boxrig_terminal_get_cell(terminal, row, first + i, &cell) != BOXRIG_STATUS_OK) return -1;
+        if (cell.text_length != 1 || cell.text[0] < ' ' || cell.text[0] > '~' ||
+            cell.continuation || (cell.attributes & BOXRIG_CELL_CONCEALED) != 0 ||
+            !boxrig_ui_view_text_blink_visible(renderer->color_view, cell.attributes)) return 0;
+    }
+    for (size_t c = 0; c < color_count; c++) {
+        cairo_save(renderer->cairo);
+        for (size_t column = first; column < first + count;) {
+            size_t end = column + 1;
+            while (end < first + count && renderer->row_colors[end].foreground ==
+                   renderer->row_colors[column].foreground) end++;
+            if (renderer->row_colors[column].foreground == colors[c])
+                cairo_rectangle(renderer->cairo, column * (double)renderer->cell_width,
+                    row * (double)renderer->cell_height,
+                    (end - column) * (double)renderer->cell_width, renderer->cell_height);
+            column = end;
+        }
+        cairo_clip(renderer->cairo);
+        int status = draw_shaped_item_segment(renderer, item, row, first, count, colors[c]);
+        cairo_restore(renderer->cairo);
+        if (status != 0) return status;
+    }
+    *painted_out = true;
     return 0;
 }
 
@@ -4354,6 +4427,11 @@ static int draw_shaped_item(
                 break;
             }
             segment_end++;
+        }
+        if (column == item->visual_column && segment_end < end && !concealed) {
+            bool painted;
+            int status = draw_repeated_foregrounds(renderer, terminal, item, row, &painted);
+            if (status != 0 || painted) return status;
         }
         if (!concealed && segment_end > clip_column &&
             draw_shaped_item_segment(

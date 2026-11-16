@@ -163,6 +163,7 @@ static bool measure(const char *mode, size_t rows, size_t columns,
            "\"row_shapes\":%zu,\"row_rasters\":%zu,\"signature_cells\":%zu,"
            "\"cluster_visits\":%zu,\"font_descriptions\":%zu,\"glyph_raster_pixels\":%zu,"
            "\"color_lookups\":%zu,\"color_comparisons\":%zu,\"color_creations\":%zu,\"color_evictions\":%zu,"
+           "\"glyph_groups\":%zu,\"glyph_draws\":%zu,\"glyph_composite_pixels\":%zu,"
            "\"pixels\":\"%016" PRIx64 "\"}\n",
         mode, rows, columns, iterations, cursor ? "true" : "false",
         result->feed_cpu, result->synchronize_cpu, result->draw_cpu, result->elapsed,
@@ -170,7 +171,9 @@ static bool measure(const char *mode, size_t rows, size_t columns,
         result->work.signature_cell_count, result->work.cluster_visit_count,
         result->work.font_description_count, result->work.glyph_raster_pixel_count,
         result->work.color_source_lookup_count, result->work.color_source_comparison_count,
-        result->work.color_source_creation_count, result->work.color_source_eviction_count, result->pixels);
+        result->work.color_source_creation_count, result->work.color_source_eviction_count,
+        result->work.glyph_group_count, result->work.glyph_draw_count,
+        result->work.glyph_composite_pixel_count, result->pixels);
     free(inputs[0]); free(inputs[1]);
     boxrig_pango_cairo_renderer_destroy(reference);
     boxrig_pango_cairo_renderer_destroy(renderer);
@@ -196,6 +199,12 @@ static bool self_test(void)
             /* A paint slice may include neighboring ink for antialiasing,
              * but must not rasterize the whole row for every cell color. */
             CHECK(result.work.glyph_raster_pixel_count <= result.pixel_area * 3 * 4);
+            if (strcmp(modes[i], "foreground") == 0) {
+                /* Repeated foregrounds share a raster within each row. Cursor
+                 * inversion may add one independent composite per frame. */
+                CHECK(result.work.glyph_group_count <= 3 * 3 * 3 + 3);
+                CHECK(result.work.glyph_draw_count <= 3 * 3 * 3 + 3);
+            }
             if (strcmp(modes[i], "paint") == 0 || strcmp(modes[i], "boundaries") == 0 ||
                 strcmp(modes[i], "foreground") == 0) {
                 CHECK(result.work.row_shape_count == 0);
