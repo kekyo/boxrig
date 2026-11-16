@@ -49,6 +49,9 @@ typedef struct action_log {
     size_t largest_print_run;
     size_t run_block_after;
     bool block_run;
+    size_t string_put_count;
+    size_t string_run_count;
+    size_t largest_string_run;
 } action_log;
 
 static void log_byte(action_log *log, uint8_t byte)
@@ -210,8 +213,28 @@ static boxrig_status record_string_put(void *context, uint8_t byte)
 
     if (status == BOXRIG_STATUS_OK) {
         log_byte(log, byte);
+        log->string_put_count++;
     }
     return status;
+}
+
+static boxrig_status record_string_run(void *context, const uint8_t *bytes,
+                                       size_t length, size_t *consumed_out)
+{
+    action_log *log = context;
+    log->string_run_count++;
+    if (length > log->largest_string_run) log->largest_string_run = length;
+    *consumed_out = 0;
+    while (*consumed_out < length) {
+        if (log->block_run && log->string_put_count >= log->run_block_after) {
+            log->block_run = false;
+            return BOXRIG_STATUS_WOULD_BLOCK;
+        }
+        boxrig_status status = record_string_put(context, bytes[*consumed_out]);
+        if (status != BOXRIG_STATUS_OK) return status;
+        (*consumed_out)++;
+    }
+    return BOXRIG_STATUS_OK;
 }
 
 static boxrig_status record_string_end(
@@ -315,6 +338,7 @@ static boxrig_parser_actions actions_for(action_log *log)
     actions.dispatch_csi = record_csi;
     actions.string_start = record_string_start;
     actions.string_put = record_string_put;
+    actions.string_put_run = NULL;
     actions.string_end = record_string_end;
     actions.dcs_hook = record_dcs_hook;
     actions.dcs_put = record_dcs_put;
@@ -944,12 +968,115 @@ static bool test_ascii_run_retry_has_bounded_lookahead(void)
     return true;
 }
 
+static bool test_string_runs_preserve_limits_boundaries_and_retry(void)
+{
+    static const uint8_t input[] =
+        "\x1b_Ga=t;AAAA\x07" "BBBB\xc3\xa9\x1b\x1b\\"
+        "\x1b]2;title\x07" "tail\x1b_Gcancelled\x18"
+        "\x1b_Gsub\x1a" "\x1b_Gfinished\x1b\\";
+    for (size_t capacity = 0; capacity <= 64; capacity++) {
+        action_log expected = {0};
+        boxrig_parser reference;
+        boxrig_parser_actions actions = actions_for(&expected);
+        size_t consumed;
+        boxrig_parser_initialize(&reference, &actions, capacity);
+        CHECK(boxrig_parser_feed(&reference, input, sizeof(input) - 1,
+              &consumed) == BOXRIG_STATUS_OK);
+        for (size_t split = 0; split <= sizeof(input) - 1; split++) {
+            action_log actual = {0};
+            boxrig_parser parser;
+            actions = actions_for(&actual);
+            actions.string_put_run = record_string_run;
+            boxrig_parser_initialize(&parser, &actions, capacity);
+            CHECK(boxrig_parser_feed(&parser, input, split, &consumed) == BOXRIG_STATUS_OK);
+            CHECK(consumed == split);
+            CHECK(boxrig_parser_feed(&parser, input + split, sizeof(input) - 1 - split,
+                  &consumed) == BOXRIG_STATUS_OK);
+            CHECK(consumed == sizeof(input) - 1 - split);
+            CHECK(logs_equal(&expected, &actual));
+            CHECK(expected.hash == actual.hash);
+            CHECK(parser.state == reference.state);
+            if (capacity == 64) {
+                CHECK(actual.string_run_count != 0);
+            }
+        }
+    }
+    static const uint8_t run[] = "\x1b_Gabcdefghij\x1b\\\r";
+    action_log expected = {0};
+    boxrig_parser reference;
+    boxrig_parser_actions actions = actions_for(&expected);
+    boxrig_parser_initialize(&reference, &actions, 64);
+    size_t consumed;
+    CHECK(boxrig_parser_feed(&reference, run, sizeof(run) - 1, &consumed) == BOXRIG_STATUS_OK);
+    for (size_t accepted = 0; accepted < 10; accepted++) {
+        action_log actual = {0};
+        boxrig_parser parser;
+        actual.block_run = true;
+        actual.run_block_after = accepted;
+        actions = actions_for(&actual);
+        actions.string_put_run = record_string_run;
+        boxrig_parser_initialize(&parser, &actions, 64);
+        CHECK(boxrig_parser_feed(&parser, run, sizeof(run) - 1, &consumed) == BOXRIG_STATUS_WOULD_BLOCK);
+        CHECK(consumed == accepted + 2);
+        CHECK(parser.string_length == accepted);
+        size_t offset = consumed;
+        CHECK(boxrig_parser_feed(&parser, run + offset, sizeof(run) - 1 - offset,
+              &consumed) == BOXRIG_STATUS_OK);
+        CHECK(consumed == sizeof(run) - 1 - offset);
+        CHECK(logs_equal(&expected, &actual));
+        CHECK(parser.last_input_was_cr);
+    }
+    return true;
+}
+
+static bool test_string_run_retry_has_bounded_lookahead(void)
+{
+    uint8_t input[8192];
+    action_log expected = {0};
+    action_log actual = {0};
+    boxrig_parser reference;
+    boxrig_parser parser;
+    boxrig_parser_actions actions = actions_for(&expected);
+    size_t consumed;
+
+    memset(input, 'A', sizeof(input));
+    input[0] = 0x1b;
+    input[1] = '_';
+    input[sizeof(input) - 2] = 0x1b;
+    input[sizeof(input) - 1] = '\\';
+    boxrig_parser_initialize(&reference, &actions, sizeof(input));
+    CHECK(boxrig_parser_feed(&reference, input, sizeof(input), &consumed) ==
+          BOXRIG_STATUS_OK);
+    actions = actions_for(&actual);
+    actions.string_put_run = record_string_run;
+    boxrig_parser_initialize(&parser, &actions, sizeof(input));
+    for (size_t offset = 0; offset < sizeof(input); offset += consumed) {
+        actual.block_run = true;
+        actual.run_block_after = actual.string_put_count + 1;
+        boxrig_status status = boxrig_parser_feed(
+            &parser, input + offset, sizeof(input) - offset, &consumed);
+
+        CHECK(status == BOXRIG_STATUS_OK || status == BOXRIG_STATUS_WOULD_BLOCK);
+        CHECK(consumed > 0);
+        CHECK(actual.largest_string_run <= 4096);
+    }
+    CHECK(actual.string_put_count == expected.string_put_count);
+    CHECK(actual.hash == expected.hash);
+    CHECK(actual.action_count == expected.action_count);
+    CHECK(logs_equal(&expected, &actual));
+    return true;
+}
+
 int main(void)
 {
     static const struct {
         const char *name;
         bool (*run)(void);
     } tests[] = {
+        {"string runs preserve limits boundaries and retry",
+         test_string_runs_preserve_limits_boundaries_and_retry},
+        {"string run retry has bounded lookahead",
+         test_string_run_retry_has_bounded_lookahead},
         {"ASCII run boundaries and retry",
          test_ascii_runs_preserve_boundaries_and_retry},
         {"ASCII run retry has bounded lookahead",

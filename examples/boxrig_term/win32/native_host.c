@@ -1370,6 +1370,8 @@ int boxrig_term_win32_native_host_create(
     if (component_status == BOXRIG_UI_OK &&
         boxrig_term_win32_opacity_initialize(application, config) == -1) return -1;
     if (component_status != BOXRIG_UI_OK ||
+        boxrig_win32_terminal_component_set_text_direction(application->component,
+            BOXRIG_TEXT_DIRECTION_LOGICAL) != BOXRIG_UI_OK ||
         (boxrig_term_color_demo_initialize(&application->color_demo,
             boxrig_win32_terminal_component_view(application->component)) == -1 ||
             boxrig_term_scrollbar_demo_initialize(&application->scrollbar_demo,

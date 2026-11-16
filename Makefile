@@ -1216,7 +1216,7 @@ test-pangocairo-partial: $(BUILD_DIR)/tests/measure_pangocairo_partial
 
 $(BUILD_DIR)/tests/measure_pangocairo_partial: PARTIAL_MEASUREMENT_FLAGS = \
 	-Wl,--wrap=cairo_fill -Wl,--wrap=boxrig_text_layout_visual_to_logical \
-	-Wl,--wrap=boxrig_ui_color_resolve_cell -Wl,--wrap=pango_cairo_show_glyph_item
+	-Wl,--wrap=boxrig_ui_color_resolve_cell -Wl,--wrap=pango_cairo_show_glyph_string
 $(BUILD_DIR)/tests/measure_pangocairo_partial_unwrapped: PARTIAL_MEASUREMENT_FLAGS = \
 	-DBOXRIG_BACKGROUND_MEASURE_UNWRAPPED
 
@@ -6328,3 +6328,40 @@ annotation-gtk-stress: $(BUILD_DIR)/tests/performance/annotation_gtk_peer $(BUIL
 	node tests/performance/run_annotation_gtk_stress.mjs artifacts/plan11/gtk-matrix
 
 include tests/performance/plan18.mk
+
+$(BUILD_DIR)/tests/performance/notcurses_replay: tests/performance/notcurses_replay.c $(LIBRARY) | $(BUILD_DIR)/tests/performance
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(LIBRARY) -o $@
+
+.PHONY: test-graphics-work
+test: test-graphics-work
+test-graphics-work: $(BUILD_DIR)/tests/test_graphics_work
+	$(BUILD_DIR)/tests/test_graphics_work
+
+$(BUILD_DIR)/tests/test_graphics_work: tests/test_graphics_work.c $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(LIBRARY) -Wl,--wrap=boxrig_kitty_graphics_put -o $@
+
+.PHONY: test-pangocairo-updates
+test: test-pangocairo-updates
+test-pangocairo-updates: $(BUILD_DIR)/tests/test_pangocairo_updates $(BUILD_DIR)/tests/test_pangocairo_paint_updates
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $< self-test
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(BUILD_DIR)/tests/test_pangocairo_paint_updates
+
+$(BUILD_DIR)/tests/test_pangocairo_updates: CAIRO_UPDATE_SANITIZERS = $(SANITIZERS)
+$(BUILD_DIR)/tests/test_pangocairo_updates $(BUILD_DIR)/tests/performance/measure_pangocairo_updates: \
+		tests/pangocairo/measure_updates.c src/pangocairo/renderer.c \
+		src/pangocairo/renderer.h src/pangocairo/renderer_private.h src/pangocairo/glyph_fit.h \
+		src/ui/glyph_fit.h src/ui/view_private.h src/ui/color_private.h \
+		$(PANGO_CANDIDATE_OBJECT) $(UI_HEADERS) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests/performance
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) -Isrc $(POSIX_CPPFLAGS) \
+		$(PANGO_CAIRO_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(CAIRO_UPDATE_SANITIZERS) \
+		tests/pangocairo/measure_updates.c src/pangocairo/renderer.c \
+		$(PANGO_CANDIDATE_OBJECT) $(UI_LIBRARY) $(LIBRARY) \
+		$(PANGO_CAIRO_LIBS) $(CAIRO_UPDATE_SANITIZERS) -o $@
+
+$(BUILD_DIR)/tests/test_pangocairo_paint_updates: tests/pangocairo/test_paint_updates.c \
+		src/pangocairo/renderer.c src/pangocairo/renderer.h src/pangocairo/renderer_private.h \
+		src/pangocairo/glyph_fit.h src/ui/glyph_fit.h src/ui/view_private.h src/ui/color_private.h \
+		$(PANGO_CANDIDATE_OBJECT) $(UI_HEADERS) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) -Isrc $(POSIX_CPPFLAGS) $(PANGO_CAIRO_CPPFLAGS) \
+		$(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< src/pangocairo/renderer.c \
+		$(PANGO_CANDIDATE_OBJECT) $(UI_LIBRARY) $(LIBRARY) $(PANGO_CAIRO_LIBS) $(SANITIZERS) -o $@

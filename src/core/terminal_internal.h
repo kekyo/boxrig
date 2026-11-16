@@ -257,6 +257,7 @@ typedef struct boxrig_screen {
     size_t viewport_offset;
     size_t viewport_anchor_column;
     boxrig_ambiguous_width ambiguous_width;
+    boxrig_emoji_variation_width emoji_variation_width;
     boxrig_font_width_resolver font_width_resolver;
     void *font_width_context;
     bool remeasure_widths;
@@ -342,6 +343,7 @@ boxrig_status boxrig_screen_initialize_configured(
     size_t columns,
     size_t scrollback_capacity,
     boxrig_ambiguous_width ambiguous_width,
+    boxrig_emoji_variation_width emoji_variation_width,
     boxrig_cursor_column_mode cursor_column_mode);
 void boxrig_screen_destroy(boxrig_screen *screen);
 boxrig_status boxrig_screen_measure_text_cluster(const boxrig_screen *screen,

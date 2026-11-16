@@ -82,6 +82,29 @@ static boxrig_status consumer_commit(void *context)
     return BOXRIG_STATUS_OK;
 }
 
+static boxrig_status consumer_put_run(
+    void *context, const uint8_t *bytes, size_t length, size_t *consumed_out)
+{
+    consumer_log *log = context;
+
+    *consumed_out = 0;
+    while (*consumed_out < length) {
+        /* Exercise partial acceptance before the blocked byte. */
+        if (log->block == CONSUMER_BLOCK_PUT && !log->blocked &&
+            log->put_count == 1) {
+            log->put_attempts++;
+            log->blocked = true;
+            return BOXRIG_STATUS_WOULD_BLOCK;
+        }
+        log->put_attempts++;
+        log->digest ^= bytes[*consumed_out];
+        log->digest *= UINT64_C(1099511628211);
+        log->put_count++;
+        (*consumed_out)++;
+    }
+    return BOXRIG_STATUS_OK;
+}
+
 static void consumer_abort(void *context)
 {
     consumer_log *log = context;
@@ -96,6 +119,7 @@ static boxrig_kitty_graphics_consumer make_consumer(consumer_log *log)
     consumer.context = log;
     consumer.begin = consumer_begin;
     consumer.put = consumer_put;
+    consumer.put_run = NULL;
     consumer.commit = consumer_commit;
     consumer.abort = consumer_abort;
     return consumer;
@@ -406,52 +430,57 @@ static bool test_apc_consumer_retries_are_atomic(void)
 
     config.rows = 1;
     config.columns = 1;
-    for (block = CONSUMER_BLOCK_BEGIN;
-         block <= CONSUMER_BLOCK_COMMIT;
-         block++) {
-        boxrig_terminal *terminal = NULL;
-        boxrig_kitty_graphics_consumer consumer;
-        consumer_log log;
-        size_t consumed = 0;
-        size_t remaining;
+    for (size_t use_run = 0; use_run <= 1; use_run++) {
+        for (block = CONSUMER_BLOCK_BEGIN;
+             block <= CONSUMER_BLOCK_COMMIT;
+             block++) {
+            boxrig_terminal *terminal = NULL;
+            boxrig_kitty_graphics_consumer consumer;
+            consumer_log log;
+            size_t consumed = 0;
+            size_t remaining;
 
-        memset(&log, 0, sizeof(log));
-        log.block = block;
-        log.digest = UINT64_C(1469598103934665603);
-        consumer = make_consumer(&log);
-        CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
-        boxrig_kitty_graphics_set_consumer(&terminal->graphics, &consumer);
-        CHECK(boxrig_terminal_feed(
-                  terminal,
-                  input,
-                  sizeof(input) - 1,
-                  &consumed) == BOXRIG_STATUS_WOULD_BLOCK);
-        CHECK(consumed < sizeof(input) - 1);
-        if (block == CONSUMER_BLOCK_BEGIN) {
-            CHECK(input[consumed] == (uint8_t)';');
-        } else if (block == CONSUMER_BLOCK_PUT) {
-            CHECK(input[consumed] == (uint8_t)'A');
-        } else {
-            CHECK(input[consumed] == (uint8_t)'\\');
+            memset(&log, 0, sizeof(log));
+            log.block = block;
+            log.digest = UINT64_C(1469598103934665603);
+            consumer = make_consumer(&log);
+            if (use_run != 0) {
+                consumer.put_run = consumer_put_run;
+            }
+            CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+            boxrig_kitty_graphics_set_consumer(&terminal->graphics, &consumer);
+            CHECK(boxrig_terminal_feed(
+                      terminal,
+                      input,
+                      sizeof(input) - 1,
+                      &consumed) == BOXRIG_STATUS_WOULD_BLOCK);
+            CHECK(consumed < sizeof(input) - 1);
+            if (block == CONSUMER_BLOCK_BEGIN) {
+                CHECK(input[consumed] == (uint8_t)';');
+            } else if (block == CONSUMER_BLOCK_PUT) {
+                CHECK(input[consumed] == (uint8_t)(use_run != 0 ? 'B' : 'A'));
+            } else {
+                CHECK(input[consumed] == (uint8_t)'\\');
+            }
+            remaining = sizeof(input) - 1 - consumed;
+            CHECK(boxrig_terminal_feed(
+                      terminal,
+                      input + consumed,
+                      remaining,
+                      &consumed) == BOXRIG_STATUS_OK);
+            CHECK(consumed == remaining);
+            CHECK(log.begin_count == 1);
+            CHECK(log.put_count == 3);
+            CHECK(log.commit_count == 1);
+            CHECK(log.abort_count == 0);
+            CHECK(log.begin_attempts ==
+                  (block == CONSUMER_BLOCK_BEGIN ? 2u : 1u));
+            CHECK(log.put_attempts ==
+                  (block == CONSUMER_BLOCK_PUT ? 4u : 3u));
+            CHECK(log.commit_attempts ==
+                  (block == CONSUMER_BLOCK_COMMIT ? 2u : 1u));
+            boxrig_terminal_destroy(terminal);
         }
-        remaining = sizeof(input) - 1 - consumed;
-        CHECK(boxrig_terminal_feed(
-                  terminal,
-                  input + consumed,
-                  remaining,
-                  &consumed) == BOXRIG_STATUS_OK);
-        CHECK(consumed == remaining);
-        CHECK(log.begin_count == 1);
-        CHECK(log.put_count == 3);
-        CHECK(log.commit_count == 1);
-        CHECK(log.abort_count == 0);
-        CHECK(log.begin_attempts ==
-              (block == CONSUMER_BLOCK_BEGIN ? 2u : 1u));
-        CHECK(log.put_attempts ==
-              (block == CONSUMER_BLOCK_PUT ? 4u : 3u));
-        CHECK(log.commit_attempts ==
-              (block == CONSUMER_BLOCK_COMMIT ? 2u : 1u));
-        boxrig_terminal_destroy(terminal);
     }
     return true;
 }
@@ -813,91 +842,42 @@ static bool test_graphics_command_profile_semantics_and_quiet_responses(void)
 
 static bool test_static_delete_selector_semantics(void)
 {
-    struct fixture {
-        const char *input;
-        const char *expected;
-    } fixtures[] = {
-        {"\x1b_Ga=d,d=a,i=51\x1b\\", "\x1b_Gi=51;OK\x1b\\"},
-        {"\x1b_Ga=d,d=A,i=52\x1b\\", "\x1b_Gi=52;OK\x1b\\"},
-        {
-            "\x1b_Ga=d,d=i,i=53\x1b\\",
-            "\x1b_Gi=53;ENOENT:image not found\x1b\\"
-        },
-        {
-            "\x1b_Ga=d,d=I,i=54\x1b\\",
-            "\x1b_Gi=54;ENOENT:image not found\x1b\\"
-        },
-        {
-            "\x1b_Ga=d,d=n,I=55\x1b\\",
-            "\x1b_Gi=0,I=55;ENOENT:image not found\x1b\\"
-        },
-        {
-            "\x1b_Ga=d,d=R,i=56,x=1,y=10\x1b\\",
-            "\x1b_Gi=56;ENOENT:image not found\x1b\\"
-        },
-        {"\x1b_Ga=d,d=c,i=57\x1b\\", "\x1b_Gi=57;OK\x1b\\"},
-        {"\x1b_Ga=d,d=p,i=58,x=1,y=1\x1b\\", "\x1b_Gi=58;OK\x1b\\"},
-        {
-            "\x1b_Ga=d,d=q,i=59,x=1,y=1,z=-2\x1b\\",
-            "\x1b_Gi=59;OK\x1b\\"
-        },
-        {"\x1b_Ga=d,d=x,i=60,x=1\x1b\\", "\x1b_Gi=60;OK\x1b\\"},
-        {"\x1b_Ga=d,d=y,i=61,y=1\x1b\\", "\x1b_Gi=61;OK\x1b\\"},
-        {"\x1b_Ga=d,d=z,i=62,z=0\x1b\\", "\x1b_Gi=62;OK\x1b\\"},
-        {
-            "\x1b_Ga=d,d=f,i=63\x1b\\",
-            "\x1b_Gi=63;ENOENT:image not found\x1b\\"
-        },
-        {
-            "\x1b_Ga=d,d=F,i=63,r=2\x1b\\",
-            "\x1b_Gi=63;ENOENT:image not found\x1b\\"
-        },
-        {
-            "\x1b_Ga=d,d=f,i=63,p=1\x1b\\",
-            "\x1b_Gi=63,p=1;EINVAL:invalid command\x1b\\"
-        },
-        {
-            "\x1b_Ga=d,d=f,i=63,x=1\x1b\\",
-            "\x1b_Gi=63;EINVAL:invalid command\x1b\\"
-        },
-        {
-            "\x1b_Ga=d,d=i,i=63,r=2\x1b\\",
-            "\x1b_Gi=63;EINVAL:invalid command\x1b\\"
-        },
-        {
-            "\x1b_Ga=d,d=p,i=64,x=0,y=1\x1b\\",
-            "\x1b_Gi=64;EINVAL:invalid command\x1b\\"
-        },
-        {
-            "\x1b_Ga=d,d=q,i=65,x=1,y=1\x1b\\",
-            "\x1b_Gi=65;EINVAL:invalid command\x1b\\"
-        },
-        {
-            "\x1b_Ga=d,d=b,i=66\x1b\\",
-            "\x1b_Gi=66;EINVAL:invalid command\x1b\\"
-        }
+    /* Missing images and invalid selectors are silent, like valid deletions. */
+    static const char *const commands[] = {
+        "\x1b_Ga=d,d=a,i=51\x1b\\",
+        "\x1b_Ga=d,d=A,i=52\x1b\\",
+        "\x1b_Ga=d,d=i,i=53\x1b\\",
+        "\x1b_Ga=d,d=I,i=54\x1b\\",
+        "\x1b_Ga=d,d=n,I=55\x1b\\",
+        "\x1b_Ga=d,d=R,i=56,x=1,y=10\x1b\\",
+        "\x1b_Ga=d,d=c,i=57\x1b\\",
+        "\x1b_Ga=d,d=p,i=58,x=1,y=1\x1b\\",
+        "\x1b_Ga=d,d=q,i=59,x=1,y=1,z=-2\x1b\\",
+        "\x1b_Ga=d,d=x,i=60,x=1\x1b\\",
+        "\x1b_Ga=d,d=y,i=61,y=1\x1b\\",
+        "\x1b_Ga=d,d=z,i=62,z=0\x1b\\",
+        "\x1b_Ga=d,d=f,i=63\x1b\\",
+        "\x1b_Ga=d,d=F,i=63,r=2\x1b\\",
+        "\x1b_Ga=d,d=f,i=63,p=1\x1b\\",
+        "\x1b_Ga=d,d=f,i=63,x=1\x1b\\",
+        "\x1b_Ga=d,d=i,i=63,r=2\x1b\\",
+        "\x1b_Ga=d,d=p,i=64,x=0,y=1\x1b\\",
+        "\x1b_Ga=d,d=q,i=65,x=1,y=1\x1b\\",
+        "\x1b_Ga=d,d=b,i=66\x1b\\"
     };
     boxrig_terminal_config config = boxrig_terminal_config_default();
-    size_t index;
-
     config.rows = 1;
     config.columns = 1;
-    for (index = 0; index < sizeof(fixtures) / sizeof(fixtures[0]); index++) {
+    for (size_t index = 0; index < sizeof(commands) / sizeof(commands[0]); index++) {
         boxrig_terminal *terminal = NULL;
         const uint8_t *output = NULL;
         size_t consumed = 0;
-        size_t output_length;
-
         CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
-        CHECK(boxrig_terminal_feed(
-                  terminal,
-                  (const uint8_t *)fixtures[index].input,
-                  strlen(fixtures[index].input),
-                  &consumed) == BOXRIG_STATUS_OK);
-        CHECK(consumed == strlen(fixtures[index].input));
-        output_length = boxrig_terminal_output_peek(terminal, &output);
-        CHECK(output_length == strlen(fixtures[index].expected));
-        CHECK(memcmp(output, fixtures[index].expected, output_length) == 0);
+        CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)commands[index],
+                  strlen(commands[index]), &consumed) == BOXRIG_STATUS_OK);
+        CHECK(consumed == strlen(commands[index]));
+        CHECK(boxrig_terminal_output_peek(terminal, &output) == 0);
+        CHECK(boxrig_terminal_image_count(terminal) == 0);
         boxrig_terminal_destroy(terminal);
     }
     return true;
@@ -3317,9 +3297,13 @@ static bool test_frame_delete_renumbers_and_reclaims_storage(void)
         const uint8_t *output = NULL;
         CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)steps[index].command,
                   strlen(steps[index].command), &consumed) == BOXRIG_STATUS_OK);
-        CHECK(boxrig_terminal_output_peek(terminal, &output) == sizeof(ok) - 1);
-        CHECK(memcmp(output, ok, sizeof(ok) - 1) == 0);
-        CHECK(boxrig_terminal_output_consume(terminal, sizeof(ok) - 1) == BOXRIG_STATUS_OK);
+        if (strstr(steps[index].command, "a=d") != NULL) {
+            CHECK(boxrig_terminal_output_peek(terminal, &output) == 0);
+        } else {
+            CHECK(boxrig_terminal_output_peek(terminal, &output) == sizeof(ok) - 1);
+            CHECK(memcmp(output, ok, sizeof(ok) - 1) == 0);
+            CHECK(boxrig_terminal_output_consume(terminal, sizeof(ok) - 1) == BOXRIG_STATUS_OK);
+        }
         CHECK(terminal->graphics_protocol.storage_usage == 4);
         CHECK(terminal->graphics_protocol.animation_storage_usage == steps[index].extra_frames * 4);
         CHECK(terminal->graphics_protocol.animation_frame_count == steps[index].extra_frames);
@@ -3408,7 +3392,7 @@ static bool test_frame_delete_current_pixels_and_deadlines(void)
     return true;
 }
 
-static bool test_frame_delete_retry_cancel_and_image_number(void)
+static bool test_frame_delete_cancel_and_image_number(void)
 {
     static const uint8_t setup[] =
         "\x1b_Ga=t,I=7,f=32,s=1,v=1,q=2;/wAA/w==\x1b\\"
@@ -3417,12 +3401,11 @@ static bool test_frame_delete_retry_cancel_and_image_number(void)
     static const uint8_t cancelled[] = "\x1b_Ga=d,d=F,I=7,r=1\x18";
     static const uint8_t partial[] = "\x1b_Ga=f,I=7,f=32,s=1,v=1,m=1,q=2;AAAA\x1b\\";
     static const uint8_t deletion[] = "\x1b_Ga=d,d=f,I=7,r=1\x1b\\";
-    static const uint8_t ok[] = "\x1b_Gi=2,I=7;OK\x1b\\";
     static const uint8_t blue[] = {0,0,255,255};
     boxrig_terminal_config config = boxrig_terminal_config_default();
     config.rows = 1;
     config.columns = 1;
-    config.output_capacity = sizeof(ok) - 1;
+    config.output_capacity = 32;
     config.graphics_animation_storage_capacity = 4;
     config.graphics_frame_capacity = 1;
     boxrig_terminal *terminal = NULL;
@@ -3436,22 +3419,18 @@ static bool test_frame_delete_retry_cancel_and_image_number(void)
     boxrig_dirty dirty;
     while (boxrig_terminal_take_image_dirty(terminal, &dirty)) {}
     uint64_t revision = boxrig_terminal_image_revision(terminal);
-    char fill[sizeof(ok) - 1];
+    char fill[32];
     memset(fill, 'x', sizeof(fill));
     CHECK(boxrig_terminal_send_text(terminal, fill, sizeof(fill)) == BOXRIG_STATUS_OK);
-    CHECK(boxrig_terminal_feed(terminal, deletion, sizeof(deletion) - 1, &consumed) == BOXRIG_STATUS_WOULD_BLOCK);
-    CHECK(consumed < sizeof(deletion) - 1 && deletion[consumed] == '\\');
-    CHECK(terminal->graphics_protocol.animation_storage_usage == 4);
-    CHECK(boxrig_terminal_image_revision(terminal) == revision);
-    CHECK(!boxrig_terminal_take_image_dirty(terminal, &dirty));
-    CHECK(boxrig_terminal_output_consume(terminal, sizeof(fill)) == BOXRIG_STATUS_OK);
-    size_t remaining = sizeof(deletion) - 1 - consumed;
-    CHECK(boxrig_terminal_feed(terminal, deletion + consumed, remaining, &consumed) == BOXRIG_STATUS_OK);
-    CHECK(consumed == remaining);
+    /* Deletion must not wait for output space: it has no response. */
+    CHECK(boxrig_terminal_feed(terminal, deletion, sizeof(deletion) - 1, &consumed) == BOXRIG_STATUS_OK);
+    CHECK(consumed == sizeof(deletion) - 1);
+    CHECK(boxrig_terminal_image_revision(terminal) != revision);
     const uint8_t *output = NULL;
-    CHECK(boxrig_terminal_output_peek(terminal, &output) == sizeof(ok) - 1);
-    CHECK(memcmp(output, ok, sizeof(ok) - 1) == 0);
-    CHECK(boxrig_terminal_output_consume(terminal, sizeof(ok) - 1) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == sizeof(fill));
+    CHECK(memcmp(output, fill, sizeof(fill)) == 0);
+    CHECK(boxrig_terminal_output_consume(terminal, sizeof(fill)) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 0);
     CHECK(terminal->graphics_protocol.animation_storage_usage == 0);
     CHECK(boxrig_terminal_image_count(terminal) == 2);
     boxrig_image_handle handle = 0;
@@ -3751,6 +3730,75 @@ static bool test_raw_base64_validation_and_query_is_non_mutating(void)
               sizeof(query_response) - 1);
         CHECK(memcmp(output, query_response, sizeof(query_response) - 1) == 0);
         boxrig_terminal_destroy(terminal);
+    }
+    return true;
+}
+
+static bool test_notcurses_transmit_with_placement_id(void)
+{
+    /* notcurses 3.0.7 sends p=1 with a=t, then places the image separately.
+     * Its chunked form sets q=2 only on the final APC. */
+    static const char *const uploads[] = {
+        "\x1b_Gf=32,s=1,v=1,i=14024436,p=1,a=t,q=2;/wAA/w==\x1b\\",
+        "\x1b_Gf=32,s=1,v=1,i=14024436,p=1,a=t,m=1;/wAA\x1b\\"
+        "\x1b_Gq=2,m=0;/w==\x1b\\"
+    };
+    static const uint8_t display[] =
+        "\x1b[3;4H\x1b_Ga=p,i=14024436,p=2,q=2,C=1\x1b\\";
+    static const uint8_t expected[] = {255, 0, 0, 255};
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    config.rows = 6;
+    config.columns = 8;
+
+    for (size_t index = 0; index < sizeof(uploads) / sizeof(uploads[0]); index++) {
+        size_t length = strlen(uploads[index]);
+        for (size_t split = 0; split <= length; split++) {
+            boxrig_terminal *terminal = NULL;
+            boxrig_image_handle handle;
+            boxrig_image_view image;
+            boxrig_image_placement_view placement;
+            const uint8_t *output;
+            size_t consumed = 0;
+            CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+            CHECK(boxrig_terminal_set_cell_pixel_geometry(terminal, 7, 14) ==
+                  BOXRIG_STATUS_OK);
+            CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)uploads[index],
+                  split, &consumed) == BOXRIG_STATUS_OK);
+            CHECK(consumed == split);
+            CHECK(boxrig_terminal_feed(terminal,
+                  (const uint8_t *)uploads[index] + split, length - split,
+                  &consumed) == BOXRIG_STATUS_OK);
+            CHECK(consumed == length - split);
+            CHECK(boxrig_terminal_image_count(terminal) == 1);
+            CHECK(boxrig_terminal_image_placement_count(terminal) == 0);
+            CHECK(terminal->screen.active->cursor.row == 0);
+            CHECK(terminal->screen.active->cursor.column == 0);
+            CHECK(boxrig_terminal_output_peek(terminal, &output) == 0);
+            CHECK(boxrig_terminal_image_handle_at(terminal, 0, &handle) ==
+                  BOXRIG_STATUS_OK);
+            CHECK(boxrig_terminal_get_image(terminal, handle, &image) ==
+                  BOXRIG_STATUS_OK);
+            CHECK(image.rgba_length == sizeof(expected));
+            CHECK(memcmp(image.rgba, expected, sizeof(expected)) == 0);
+            CHECK(boxrig_terminal_feed(terminal, display, sizeof(display) - 1,
+                  &consumed) == BOXRIG_STATUS_OK);
+            CHECK(consumed == sizeof(display) - 1);
+            CHECK(boxrig_terminal_image_placement_count(terminal) == 1);
+            CHECK(boxrig_terminal_get_image_placement(terminal, 0, &placement) ==
+                  BOXRIG_STATUS_OK);
+            CHECK(placement.image_handle == handle && placement.placement_id == 2);
+            CHECK(placement.visual_row == 2 && placement.visual_column == 3);
+            CHECK(placement.clip_width == 1 && placement.clip_height == 1);
+            CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)uploads[index],
+                  length, &consumed) == BOXRIG_STATUS_OK);
+            CHECK(consumed == length);
+            CHECK(boxrig_terminal_image_count(terminal) == 1);
+            CHECK(boxrig_terminal_image_placement_count(terminal) == 0);
+            CHECK(terminal->screen.active->cursor.row == 2);
+            CHECK(terminal->screen.active->cursor.column == 3);
+            CHECK(boxrig_terminal_output_peek(terminal, &output) == 0);
+            boxrig_terminal_destroy(terminal);
+        }
     }
     return true;
 }
@@ -5984,16 +6032,10 @@ static bool test_delete_identity_lifetime_and_backpressure(void)
         "\x1b_Gi=102,p=1;OK\x1b\\";
     static const uint8_t delete_pair[] =
         "\x1b_Ga=d,d=i,i=101,p=1\x1b\\";
-    static const uint8_t delete_pair_response[] =
-        "\x1b_Gi=101,p=1;OK\x1b\\";
     static const uint8_t delete_remaining[] =
         "\x1b_Ga=d,d=i,i=101\x1b\\";
-    static const uint8_t delete_remaining_response[] =
-        "\x1b_Gi=101;OK\x1b\\";
     static const uint8_t free_101[] =
         "\x1b_Ga=d,d=I,i=101\x1b\\";
-    static const uint8_t free_101_response[] =
-        "\x1b_Gi=101;OK\x1b\\";
     static const uint8_t numbered[] =
         "\x1b_Ga=t,I=77,f=24,s=1,v=1;BwgJ\x1b\\"
         "\x1b_Ga=t,I=77,f=24,s=1,v=1;CgsM\x1b\\"
@@ -6004,12 +6046,8 @@ static bool test_delete_identity_lifetime_and_backpressure(void)
         "\x1b_Gi=2,I=77,p=5;OK\x1b\\";
     static const uint8_t delete_number_pair[] =
         "\x1b_Ga=d,d=n,I=77,p=5\x1b\\";
-    static const uint8_t delete_number_pair_response[] =
-        "\x1b_Gi=2,I=77,p=5;OK\x1b\\";
     static const uint8_t free_latest_number[] =
         "\x1b_Ga=d,d=N,I=77\x1b\\";
-    static const uint8_t free_latest_number_response[] =
-        "\x1b_Gi=2,I=77;OK\x1b\\";
     static const uint8_t place_older_number[] =
         "\x1b_Ga=p,I=77,p=6,C=1\x1b\\";
     static const uint8_t place_older_number_response[] =
@@ -6023,7 +6061,6 @@ static bool test_delete_identity_lifetime_and_backpressure(void)
     uint8_t fill[256];
     uint64_t revision;
     size_t consumed = 0;
-    size_t remaining;
 
     config.rows = 4;
     config.columns = 6;
@@ -6057,35 +6094,13 @@ static bool test_delete_identity_lifetime_and_backpressure(void)
               sizeof(fill)) == BOXRIG_STATUS_OK);
     revision = boxrig_terminal_image_revision(terminal);
     consumed = 0;
-    CHECK(boxrig_terminal_feed(
-              terminal,
-              delete_pair,
-              sizeof(delete_pair) - 1,
-              &consumed) == BOXRIG_STATUS_WOULD_BLOCK);
-    CHECK(consumed < sizeof(delete_pair) - 1);
-    CHECK(delete_pair[consumed] == (uint8_t)'\\');
-    CHECK(boxrig_terminal_image_count(terminal) == 2);
-    CHECK(boxrig_terminal_image_placement_count(terminal) == 3);
-    CHECK(boxrig_terminal_image_revision(terminal) == revision);
-    CHECK(!boxrig_terminal_take_image_dirty(terminal, &dirty));
-    CHECK(boxrig_terminal_output_consume(terminal, sizeof(fill)) ==
-          BOXRIG_STATUS_OK);
-    remaining = sizeof(delete_pair) - 1 - consumed;
-    CHECK(boxrig_terminal_feed(
-              terminal,
-              delete_pair + consumed,
-              remaining,
+    CHECK(boxrig_terminal_feed(terminal, delete_pair, sizeof(delete_pair) - 1,
               &consumed) == BOXRIG_STATUS_OK);
-    CHECK(consumed == remaining);
-    CHECK(boxrig_terminal_output_peek(terminal, &output) ==
-          sizeof(delete_pair_response) - 1);
-    CHECK(memcmp(
-              output,
-              delete_pair_response,
-              sizeof(delete_pair_response) - 1) == 0);
-    CHECK(boxrig_terminal_output_consume(
-              terminal,
-              sizeof(delete_pair_response) - 1) == BOXRIG_STATUS_OK);
+    CHECK(consumed == sizeof(delete_pair) - 1);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == sizeof(fill));
+    CHECK(memcmp(output, fill, sizeof(fill)) == 0);
+    CHECK(boxrig_terminal_output_consume(terminal, sizeof(fill)) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 0);
     CHECK(boxrig_terminal_image_count(terminal) == 2);
     CHECK(boxrig_terminal_image_placement_count(terminal) == 2);
     CHECK(boxrig_terminal_image_revision(terminal) != revision);
@@ -6099,11 +6114,7 @@ static bool test_delete_identity_lifetime_and_backpressure(void)
               delete_remaining,
               sizeof(delete_remaining) - 1,
               &consumed) == BOXRIG_STATUS_OK);
-    CHECK(boxrig_terminal_output_peek(terminal, &output) ==
-          sizeof(delete_remaining_response) - 1);
-    CHECK(boxrig_terminal_output_consume(
-              terminal,
-              sizeof(delete_remaining_response) - 1) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 0);
     CHECK(boxrig_terminal_image_count(terminal) == 2);
     CHECK(boxrig_terminal_image_placement_count(terminal) == 1);
     consumed = 0;
@@ -6112,11 +6123,7 @@ static bool test_delete_identity_lifetime_and_backpressure(void)
               free_101,
               sizeof(free_101) - 1,
               &consumed) == BOXRIG_STATUS_OK);
-    CHECK(boxrig_terminal_output_peek(terminal, &output) ==
-          sizeof(free_101_response) - 1);
-    CHECK(boxrig_terminal_output_consume(
-              terminal,
-              sizeof(free_101_response) - 1) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 0);
     CHECK(boxrig_terminal_image_count(terminal) == 1);
 
     consumed = 0;
@@ -6142,15 +6149,7 @@ static bool test_delete_identity_lifetime_and_backpressure(void)
               delete_number_pair,
               sizeof(delete_number_pair) - 1,
               &consumed) == BOXRIG_STATUS_OK);
-    CHECK(boxrig_terminal_output_peek(terminal, &output) ==
-          sizeof(delete_number_pair_response) - 1);
-    CHECK(memcmp(
-              output,
-              delete_number_pair_response,
-              sizeof(delete_number_pair_response) - 1) == 0);
-    CHECK(boxrig_terminal_output_consume(
-              terminal,
-              sizeof(delete_number_pair_response) - 1) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 0);
     CHECK(boxrig_terminal_image_count(terminal) == 3);
     CHECK(boxrig_terminal_image_placement_count(terminal) == 1);
     consumed = 0;
@@ -6159,15 +6158,7 @@ static bool test_delete_identity_lifetime_and_backpressure(void)
               free_latest_number,
               sizeof(free_latest_number) - 1,
               &consumed) == BOXRIG_STATUS_OK);
-    CHECK(boxrig_terminal_output_peek(terminal, &output) ==
-          sizeof(free_latest_number_response) - 1);
-    CHECK(memcmp(
-              output,
-              free_latest_number_response,
-              sizeof(free_latest_number_response) - 1) == 0);
-    CHECK(boxrig_terminal_output_consume(
-              terminal,
-              sizeof(free_latest_number_response) - 1) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 0);
     CHECK(boxrig_terminal_image_count(terminal) == 2);
     consumed = 0;
     CHECK(boxrig_terminal_feed(
@@ -6857,12 +6848,8 @@ static bool check_virtual_placements_and_unicode_placeholders(
         "\xf4\x8e\xbb\xae\xcc\x85\xcc\x90";
     static const uint8_t delete_active[] =
         "\x1b_Ga=d,d=a,i=33554474\x1b\\";
-    static const uint8_t delete_active_response[] =
-        "\x1b_Gi=33554474;OK\x1b\\";
     static const uint8_t delete_virtual[] =
         "\x1b_Ga=d,d=i,i=33554474,p=7\x1b\\";
-    static const uint8_t delete_virtual_response[] =
-        "\x1b_Gi=33554474,p=7;OK\x1b\\";
     static const uint8_t boundary_upload_and_place[] =
         "\x1b_Ga=t,i=4278190123,f=24,s=1,v=1;AQID\x1b\\"
         "\x1b_Ga=p,i=4278190123,p=9,c=297,r=297,U=1,C=1\x1b\\";
@@ -6992,15 +6979,7 @@ static bool check_virtual_placements_and_unicode_placeholders(
               delete_active,
               sizeof(delete_active) - 1,
               &consumed) == BOXRIG_STATUS_OK);
-    CHECK(boxrig_terminal_output_peek(terminal, &output) ==
-          sizeof(delete_active_response) - 1);
-    CHECK(memcmp(
-              output,
-              delete_active_response,
-              sizeof(delete_active_response) - 1) == 0);
-    CHECK(boxrig_terminal_output_consume(
-              terminal,
-              sizeof(delete_active_response) - 1) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 0);
     CHECK(boxrig_terminal_image_placement_count(terminal) == 4);
     CHECK(!boxrig_terminal_take_image_dirty(terminal, &dirty));
 
@@ -7010,15 +6989,7 @@ static bool check_virtual_placements_and_unicode_placeholders(
               delete_virtual,
               sizeof(delete_virtual) - 1,
               &consumed) == BOXRIG_STATUS_OK);
-    CHECK(boxrig_terminal_output_peek(terminal, &output) ==
-          sizeof(delete_virtual_response) - 1);
-    CHECK(memcmp(
-              output,
-              delete_virtual_response,
-              sizeof(delete_virtual_response) - 1) == 0);
-    CHECK(boxrig_terminal_output_consume(
-              terminal,
-              sizeof(delete_virtual_response) - 1) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 0);
     CHECK(boxrig_terminal_image_count(terminal) == 1);
     CHECK(boxrig_terminal_image_placement_count(terminal) == 0);
     CHECK(boxrig_terminal_take_image_dirty(terminal, &dirty));
@@ -7196,8 +7167,6 @@ static bool test_relative_placement_validation_and_resolution(void)
         "\x1b_Gi=1001,p=1;OK\x1b\\";
     static const uint8_t delete_parent[] =
         "\x1b_Ga=d,d=i,i=1001,p=1\x1b\\";
-    static const uint8_t delete_parent_response[] =
-        "\x1b_Gi=1001,p=1;OK\x1b\\";
     boxrig_terminal_config config = boxrig_terminal_config_default();
     boxrig_terminal *terminal = NULL;
     boxrig_image_placement_view placement;
@@ -7208,7 +7177,6 @@ static bool test_relative_placement_validation_and_resolution(void)
     uint8_t fill[128];
     uint64_t revision;
     size_t consumed = 0;
-    size_t remaining;
     size_t index;
     bool found_1001 = false;
     bool found_1004 = false;
@@ -7350,32 +7318,14 @@ static bool test_relative_placement_validation_and_resolution(void)
               sizeof(fill)) == BOXRIG_STATUS_OK);
     revision = boxrig_terminal_image_revision(terminal);
     consumed = 0;
-    CHECK(boxrig_terminal_feed(
-              terminal,
-              delete_parent,
-              sizeof(delete_parent) - 1,
-              &consumed) == BOXRIG_STATUS_WOULD_BLOCK);
-    CHECK(consumed < sizeof(delete_parent) - 1);
-    CHECK(delete_parent[consumed] == (uint8_t)'\\');
-    CHECK(boxrig_terminal_image_count(terminal) == 4);
-    CHECK(boxrig_terminal_image_placement_count(terminal) == 3);
-    CHECK(boxrig_terminal_image_revision(terminal) == revision);
-    CHECK(!boxrig_terminal_take_image_dirty(terminal, &dirty));
-    CHECK(boxrig_terminal_output_consume(terminal, sizeof(fill)) ==
-          BOXRIG_STATUS_OK);
-    remaining = sizeof(delete_parent) - 1 - consumed;
-    CHECK(boxrig_terminal_feed(
-              terminal,
-              delete_parent + consumed,
-              remaining,
+    CHECK(boxrig_terminal_feed(terminal, delete_parent, sizeof(delete_parent) - 1,
               &consumed) == BOXRIG_STATUS_OK);
-    CHECK(consumed == remaining);
-    CHECK(boxrig_terminal_output_peek(terminal, &output) ==
-          sizeof(delete_parent_response) - 1);
-    CHECK(memcmp(
-              output,
-              delete_parent_response,
-              sizeof(delete_parent_response) - 1) == 0);
+    CHECK(consumed == sizeof(delete_parent) - 1);
+    CHECK(boxrig_terminal_image_revision(terminal) != revision);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == sizeof(fill));
+    CHECK(memcmp(output, fill, sizeof(fill)) == 0);
+    CHECK(boxrig_terminal_output_consume(terminal, sizeof(fill)) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 0);
     CHECK(boxrig_terminal_image_placement_count(terminal) == 0);
     CHECK(boxrig_terminal_image_count(terminal) == 2);
     for (index = 0; index < boxrig_terminal_image_count(terminal); index++) {
@@ -7405,8 +7355,6 @@ static bool test_relative_placement_depth_and_cascade(void)
         "\x1b_Gi=5000,p=1;OK\x1b\\";
     static const uint8_t delete_parent[] =
         "\x1b_Ga=d,d=i,i=5000,p=1\x1b\\";
-    static const uint8_t delete_parent_response[] =
-        "\x1b_Gi=5000,p=1;OK\x1b\\";
     boxrig_terminal_config config = boxrig_terminal_config_default();
     boxrig_terminal *terminal = NULL;
     boxrig_dirty dirty;
@@ -7518,12 +7466,7 @@ static bool test_relative_placement_depth_and_cascade(void)
               delete_parent,
               sizeof(delete_parent) - 1,
               &consumed) == BOXRIG_STATUS_OK);
-    CHECK(boxrig_terminal_output_peek(terminal, &output) ==
-          sizeof(delete_parent_response) - 1);
-    CHECK(memcmp(
-              output,
-              delete_parent_response,
-              sizeof(delete_parent_response) - 1) == 0);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 0);
     CHECK(boxrig_terminal_image_placement_count(terminal) == 0);
     CHECK(boxrig_terminal_image_count(terminal) == 1);
     CHECK(boxrig_terminal_take_image_dirty(terminal, &dirty));
@@ -7550,16 +7493,12 @@ static bool test_virtual_parent_relative_lifecycle(void)
         "\x1b[2;6H\xf4\x8e\xbb\xae\xcc\x85\xcc\x85";
     static const uint8_t delete_active[] =
         "\x1b_Ga=d,d=a,i=3001\x1b\\";
-    static const uint8_t delete_active_response[] =
-        "\x1b_Gi=3001;OK\x1b\\";
     static const uint8_t recreate_child[] =
         "\x1b_Ga=p,i=3002,p=2,P=3001,Q=1,H=1,V=1\x1b\\";
     static const uint8_t recreate_child_response[] =
         "\x1b_Gi=3002,p=2;OK\x1b\\";
     static const uint8_t delete_virtual[] =
         "\x1b_Ga=d,d=i,i=3001,p=1\x1b\\";
-    static const uint8_t delete_virtual_response[] =
-        "\x1b_Gi=3001,p=1;OK\x1b\\";
     boxrig_terminal_config config = boxrig_terminal_config_default();
     boxrig_terminal *terminal = NULL;
     boxrig_image_placement_view placement;
@@ -7661,11 +7600,7 @@ static bool test_virtual_parent_relative_lifecycle(void)
               delete_active,
               sizeof(delete_active) - 1,
               &consumed) == BOXRIG_STATUS_OK);
-    CHECK(boxrig_terminal_output_peek(terminal, &output) ==
-          sizeof(delete_active_response) - 1);
-    CHECK(boxrig_terminal_output_consume(
-              terminal,
-              sizeof(delete_active_response) - 1) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 0);
     CHECK(boxrig_terminal_image_placement_count(terminal) == 1);
     CHECK(boxrig_terminal_image_count(terminal) == 2);
 
@@ -7718,12 +7653,7 @@ static bool test_virtual_parent_relative_lifecycle(void)
               delete_virtual,
               sizeof(delete_virtual) - 1,
               &consumed) == BOXRIG_STATUS_OK);
-    CHECK(boxrig_terminal_output_peek(terminal, &output) ==
-          sizeof(delete_virtual_response) - 1);
-    CHECK(memcmp(
-              output,
-              delete_virtual_response,
-              sizeof(delete_virtual_response) - 1) == 0);
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == 0);
     CHECK(boxrig_terminal_image_placement_count(terminal) == 0);
     CHECK(boxrig_terminal_image_count(terminal) == 1);
     CHECK(boxrig_terminal_get_cell(terminal, 3, 4, &cell) ==
@@ -7958,7 +7888,7 @@ int main(void)
         {"frame deletion current pixels and deadlines",
          test_frame_delete_current_pixels_and_deadlines},
         {"frame deletion retry cancel and image number",
-         test_frame_delete_retry_cancel_and_image_number},
+         test_frame_delete_cancel_and_image_number},
         {"frame deletion loading gapless tail and final placements",
          test_frame_delete_loading_gapless_tail_and_final_placements},
         {"static graphics delete selector semantics",
@@ -8007,6 +7937,8 @@ int main(void)
          test_raw_rgb_and_rgba_normalize_at_every_input_split},
         {"raw Base64 validation and query is non-mutating",
          test_raw_base64_validation_and_query_is_non_mutating},
+        {"notcurses transmit with placement id",
+         test_notcurses_transmit_with_placement_id},
         {"raw APC chunks and empty final chunk",
          test_raw_apc_chunks_and_empty_final_chunk},
         {"independently padded chunks at every input split",

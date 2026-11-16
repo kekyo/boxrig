@@ -24,6 +24,10 @@ typedef struct boxrig_pango_cairo_shape_statistics {
     size_t glyph_count;
     size_t missing_glyph_count;
     size_t font_run_count;
+    /** Cluster/item comparisons performed while preparing this shape. */
+    size_t cluster_visit_count;
+    /** Font descriptions serialized while preparing this shape. */
+    size_t font_description_count;
 } boxrig_pango_cairo_shape_statistics;
 
 typedef struct boxrig_pango_cairo_render_statistics {
@@ -41,6 +45,14 @@ typedef struct boxrig_pango_cairo_render_statistics {
     size_t image_pixel_count;
     /** Color payload bytes consumed while constructing cell style keys. */
     size_t color_hash_byte_count;
+    /** Cells inspected to validate a cached row. */
+    size_t signature_cell_count;
+    /** Cluster/item comparisons performed while preparing row shapes. */
+    size_t cluster_visit_count;
+    /** Font descriptions serialized while preparing row shapes. */
+    size_t font_description_count;
+    /** Pixel area rasterized into temporary glyph groups before clipping. */
+    size_t glyph_raster_pixel_count;
 } boxrig_pango_cairo_render_statistics;
 
 int boxrig_pango_cairo_renderer_create(

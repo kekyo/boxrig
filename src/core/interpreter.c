@@ -601,6 +601,30 @@ static boxrig_status interpreter_string_put(void *context, uint8_t byte)
     return BOXRIG_STATUS_OK;
 }
 
+static boxrig_status interpreter_string_put_run(
+    void *context,
+    const uint8_t *bytes,
+    size_t length,
+    size_t *consumed_out)
+{
+    boxrig_terminal *terminal = context;
+
+    if (terminal->active_string_kind == BOXRIG_PARSER_STRING_APC) {
+        return boxrig_kitty_graphics_put_run(
+            &terminal->graphics, bytes, length, consumed_out);
+    }
+    for (size_t index = 0; index < length; index++) {
+        boxrig_status status = interpreter_string_put(context, bytes[index]);
+
+        if (status != BOXRIG_STATUS_OK) {
+            *consumed_out = index;
+            return status;
+        }
+    }
+    *consumed_out = length;
+    return BOXRIG_STATUS_OK;
+}
+
 static bool is_host_text_control(utf8proc_int32_t codepoint)
 {
     return (codepoint >= 0 && codepoint <= 0x1f) ||
@@ -1739,6 +1763,7 @@ boxrig_parser_actions boxrig_interpreter_actions(boxrig_terminal *terminal)
     actions.dcs_unhook = interpreter_dcs_unhook;
     actions.string_start = interpreter_string_start;
     actions.string_put = interpreter_string_put;
+    actions.string_put_run = interpreter_string_put_run;
     actions.string_end = interpreter_string_end;
     return actions;
 }

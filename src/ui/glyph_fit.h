@@ -4,6 +4,12 @@
 
 #include "boxrig/ui/text_layout.h"
 
+/* Keep native analysis for shaping while optionally bypassing cell reordering. */
+boxrig_text_layout_status boxrig_ui_text_layout_create(
+    const boxrig_text_cluster_input *clusters, size_t cluster_count,
+    size_t column_count, boxrig_text_direction base_direction,
+    bool logical_order, boxrig_text_layout **layout_out);
+
 typedef struct boxrig_ui_glyph_span {
     /* Offsets use the text engine's units, matching the portable layout. */
     size_t text_offset;
@@ -14,7 +20,21 @@ typedef struct boxrig_ui_glyph_span {
     size_t visual_column;
     size_t column_count;
     bool preserve_advance;
+    /* A complete, standalone Block Element, or zero for normal font shaping. */
+    uint32_t block_character;
 } boxrig_ui_glyph_span;
+
+/* Cell-relative, nonoverlapping, opaque integer rectangles. */
+typedef struct boxrig_ui_block_rectangle {
+    unsigned int x, y, width, height;
+} boxrig_ui_block_rectangle;
+
+bool boxrig_ui_block_glyph_supported(uint32_t character);
+uint32_t boxrig_ui_block_glyph_utf8(const char *text, size_t length);
+/* The width covers the complete grapheme, including continuation columns.
+ * Round shared eighth boundaries once; empty partitions at tiny sizes vanish. */
+size_t boxrig_ui_block_glyph_rectangles(uint32_t character,
+    unsigned int width, unsigned int height, boxrig_ui_block_rectangle rectangles[3]);
 
 /* Input spans are native shaping clusters in logical text order. Merge any
  * that share a terminal grapheme, then adjacent spans with the same advance

@@ -22,12 +22,12 @@ boxrig_ui_status __wrap_boxrig_ui_color_resolve_cell(
         terminal, cell, annotation, opacity, colors, input);
 }
 
-void __real_pango_cairo_show_glyph_item(cairo_t *, const char *, PangoGlyphItem *);
-void __wrap_pango_cairo_show_glyph_item(
-    cairo_t *context, const char *text, PangoGlyphItem *item)
+void __real_pango_cairo_show_glyph_string(cairo_t *, PangoFont *, PangoGlyphString *);
+void __wrap_pango_cairo_show_glyph_string(
+    cairo_t *context, PangoFont *font, PangoGlyphString *glyphs)
 {
     glyph_calls++;
-    __real_pango_cairo_show_glyph_item(context, text, item);
+    __real_pango_cairo_show_glyph_string(context, font, glyphs);
 }
 #endif
 

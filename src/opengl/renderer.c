@@ -1045,7 +1045,9 @@ static bool resource_in_flight(
         return true;
     }
     for (index = 0; index < renderer->in_flight_count; index++) {
-        if (renderer->in_flight[index].serial >= last_used_serial) {
+        /* A pending frame protects resources used by it or later work.
+         * Resources last used before every pending frame have completed. */
+        if (renderer->in_flight[index].serial <= last_used_serial) {
             return true;
         }
     }
@@ -1516,7 +1518,8 @@ static int upload_image(
 {
     uint8_t *staging;
     size_t byte_count;
-    size_t pixel;
+    size_t tile_width;
+    size_t tile_height;
     image_entry entry;
 
     if (view->width == 0 || view->height == 0 || view->width > UINT32_MAX ||
@@ -1526,35 +1529,21 @@ static int upload_image(
         return -1;
     }
     byte_count = view->width * view->height * 4;
-    if (byte_count > renderer->config.limits.maximum_staging_bytes ||
+    if (renderer->config.limits.maximum_staging_bytes < 4 ||
         byte_count > renderer->config.limits.maximum_image_bytes ||
         consume_failure(renderer, BOXRIG_OGL_FAILURE_ALLOCATION) ||
         reserve_image(renderer, byte_count) == -1) {
         return -1;
     }
-    staging = malloc(byte_count);
+    /* Staging bounds one transfer, not the full texture. Split both axes when
+     * the buffer cannot hold one complete image row. */
+    tile_width = renderer->config.limits.maximum_staging_bytes / 4;
+    if (tile_width > view->width) tile_width = view->width;
+    tile_height = renderer->config.limits.maximum_staging_bytes / (tile_width * 4);
+    if (tile_height > view->height) tile_height = view->height;
+    staging = malloc(tile_width * tile_height * 4);
     if (staging == NULL) {
         return -1;
-    }
-    for (pixel = 0; pixel < view->width * view->height; pixel++) {
-        size_t x = pixel % view->width;
-        size_t y = pixel / view->width;
-        const uint8_t *source = view->rgba + y * view->stride + x * 4;
-        uint8_t alpha = source[3];
-
-        if (renderer->target.format == BOXRIG_GL_TARGET_SRGB8_ALPHA8) {
-            staging[pixel * 4] = linear_premultiplied(source[0], alpha);
-            staging[pixel * 4 + 1] = linear_premultiplied(source[1], alpha);
-            staging[pixel * 4 + 2] = linear_premultiplied(source[2], alpha);
-        } else {
-            staging[pixel * 4] =
-                (uint8_t)(((unsigned int)source[0] * alpha + 127u) / 255u);
-            staging[pixel * 4 + 1] =
-                (uint8_t)(((unsigned int)source[1] * alpha + 127u) / 255u);
-            staging[pixel * 4 + 2] =
-                (uint8_t)(((unsigned int)source[2] * alpha + 127u) / 255u);
-        }
-        staging[pixel * 4 + 3] = alpha;
     }
     memset(&entry, 0, sizeof(entry));
     if (boxrig_gl_runtime_create_texture(
@@ -1563,28 +1552,36 @@ static int upload_image(
             (uint32_t)view->height,
             BOXRIG_GL_TEXTURE_PREMULTIPLIED_RGBA8,
             &entry.texture,
-            NULL) != BOXRIG_GL_OK ||
-        consume_failure(renderer, BOXRIG_OGL_FAILURE_UPLOAD) ||
-        boxrig_gl_runtime_upload_texture(
-            renderer->runtime,
-            entry.texture,
-            BOXRIG_GL_TEXTURE_PREMULTIPLIED_RGBA8,
-            0,
-            0,
-            (uint32_t)view->width,
-            (uint32_t)view->height,
-            staging,
-            byte_count,
             NULL) != BOXRIG_GL_OK) {
-        if (entry.texture != 0) {
-            (void)boxrig_gl_runtime_delete_texture(
-                renderer->runtime,
-                renderer->config.runtime.context_generation,
-                &entry.texture,
-                NULL);
+        goto failure;
+    }
+    for (size_t y = 0; y < view->height; y += tile_height) {
+        size_t height = view->height - y;
+        if (height > tile_height) height = tile_height;
+        for (size_t x = 0; x < view->width; x += tile_width) {
+            size_t width = view->width - x;
+            if (width > tile_width) width = tile_width;
+            for (size_t row = 0; row < height; row++) {
+                for (size_t column = 0; column < width; column++) {
+                    const uint8_t *source = view->rgba + (y + row) * view->stride + (x + column) * 4;
+                    uint8_t *destination = staging + (row * width + column) * 4;
+                    uint8_t alpha = source[3];
+                    for (size_t channel = 0; channel < 3; channel++) {
+                        destination[channel] = renderer->target.format == BOXRIG_GL_TARGET_SRGB8_ALPHA8
+                            ? linear_premultiplied(source[channel], alpha)
+                            : (uint8_t)(((unsigned int)source[channel] * alpha + 127u) / 255u);
+                    }
+                    destination[3] = alpha;
+                }
+            }
+            if (consume_failure(renderer, BOXRIG_OGL_FAILURE_UPLOAD) ||
+                boxrig_gl_runtime_upload_texture(renderer->runtime, entry.texture,
+                    BOXRIG_GL_TEXTURE_PREMULTIPLIED_RGBA8, (uint32_t)x, (uint32_t)y,
+                    (uint32_t)width, (uint32_t)height, staging, width * height * 4,
+                    NULL) != BOXRIG_GL_OK) {
+                goto failure;
+            }
         }
-        free(staging);
-        return -1;
     }
     free(staging);
     entry.handle = view->handle;
@@ -1604,6 +1601,14 @@ static int upload_image(
         renderer->statistics.upload_bytes,
         byte_count);
     return 0;
+
+failure:
+    if (entry.texture != 0) {
+        (void)boxrig_gl_runtime_delete_texture(renderer->runtime,
+            renderer->config.runtime.context_generation, &entry.texture, NULL);
+    }
+    free(staging);
+    return -1;
 }
 
 static int ensure_image_entry(
@@ -1928,6 +1933,43 @@ static boxrig_gl_clip glyph_span_clip(const boxrig_ogl_renderer *renderer,
         bottom > top ? bottom-top : 0};
 }
 
+static int draw_block_span(boxrig_ogl_renderer *renderer,
+    const boxrig_terminal *terminal, size_t row, const boxrig_ogl_row_shape *shape,
+    const boxrig_ui_glyph_span *span, const dirty_interval *dirty,
+    const boxrig_gl_clip *clip, const uint32_t *foreground)
+{
+    boxrig_ui_block_rectangle rectangles[3];
+    size_t count = boxrig_ui_block_glyph_rectangles(span->block_character,
+        (unsigned int)span->column_count * renderer->cell_width,
+        renderer->cell_height, rectangles);
+    size_t first = span->visual_column > dirty->column ? span->visual_column : dirty->column;
+    size_t end = span->visual_column + span->column_count;
+    if (end > dirty->column + dirty->column_count) end = dirty->column + dirty->column_count;
+    for (size_t column = first; column < end; column++) {
+        size_t logical;
+        boxrig_cell_view cell;
+        if (boxrig_text_layout_visual_to_logical(shape->layout, column, &logical) != BOXRIG_TEXT_LAYOUT_OK ||
+            boxrig_terminal_get_cell(terminal, row, logical, &cell) != BOXRIG_STATUS_OK) return -1;
+        if ((cell.attributes & BOXRIG_CELL_CONCEALED) != 0 ||
+            !boxrig_ui_view_text_blink_visible(renderer->color_view, cell.attributes)) continue;
+        boxrig_gl_clip cell_clip = glyph_span_clip(renderer, row, column, 1, clip);
+        uint32_t ink = foreground != NULL ? *foreground : renderer->row_colors[column].foreground;
+        for (size_t r = 0; r < count; r++) {
+            const boxrig_ui_block_rectangle *rectangle = &rectangles[r];
+            uint32_t left = (uint32_t)(span->visual_column * renderer->cell_width) + rectangle->x;
+            uint32_t top = (uint32_t)(row * renderer->cell_height) + rectangle->y;
+            uint32_t right = left + rectangle->width, bottom = top + rectangle->height;
+            if (left < cell_clip.x) left = cell_clip.x;
+            if (top < cell_clip.y) top = cell_clip.y;
+            if (right > cell_clip.x + cell_clip.width) right = cell_clip.x + cell_clip.width;
+            if (bottom > cell_clip.y + cell_clip.height) bottom = cell_clip.y + cell_clip.height;
+            if (left < right && top < bottom && emit_solid(renderer, (float)left, (float)top,
+                    (float)(right - left), (float)(bottom - top), ink, 255, false) == -1) return -1;
+        }
+    }
+    return 0;
+}
+
 static int draw_glyph_items(
     boxrig_ogl_renderer *renderer,
     const boxrig_terminal *terminal,
@@ -1963,6 +2005,13 @@ static int draw_glyph_items(
             boxrig_gl_clip bounded = glyph_span_clip(renderer, row, span->visual_column,
                 span->column_count, clip);
             if (bounded.width == 0 || bounded.height == 0) continue;
+
+            if (span->block_character != 0 && boxrig_ui_view_get_block_glyph_mode(
+                    renderer->color_view) == BOXRIG_UI_BLOCK_GLYPH_RECTANGLES) {
+                if (draw_block_span(renderer, terminal, row, shape, span, dirty,
+                        &bounded, foreground) == -1) return -1;
+                continue;
+            }
 
             for (glyph_index = span->first_glyph;
                  glyph_index < span->first_glyph + span->glyph_count; glyph_index++) {
@@ -4020,8 +4069,15 @@ boxrig_renderer_status boxrig_ogl_renderer_lifecycle_create(
     }
     config.initial_target = *target;
     config.backend_context = renderer;
-    config.limits.maximum_upload_bytes =
-        renderer->config.limits.maximum_staging_bytes;
+    /* A frame can upload multiple textures. Bound their sum by retained image,
+     * background and atlas storage, independently of the per-transfer buffer. */
+    size_t page_bytes = (size_t)renderer->config.limits.glyph_page_extent *
+        renderer->config.limits.glyph_page_extent * 4;
+    size_t atlas_bytes = renderer->config.limits.maximum_glyph_pages > SIZE_MAX / page_bytes
+        ? SIZE_MAX : renderer->config.limits.maximum_glyph_pages * page_bytes;
+    config.limits.maximum_upload_bytes = saturated_add(atlas_bytes,
+        saturated_add(renderer->config.limits.maximum_image_bytes,
+            renderer->config.limits.maximum_image_bytes));
     config.limits.maximum_dirty_rectangle_count =
         renderer->config.limits.maximum_dirty_rectangles;
     config.limits.maximum_draw_count =

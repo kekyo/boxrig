@@ -185,12 +185,14 @@ static boxrig_kitty_graphics_result validate_transmission(
         FIELD_BIT(BOXRIG_KITTY_GRAPHICS_FIELD_DATA_OFFSET) |
         FIELD_BIT(BOXRIG_KITTY_GRAPHICS_FIELD_IMAGE_ID) |
         FIELD_BIT(BOXRIG_KITTY_GRAPHICS_FIELD_IMAGE_NUMBER) |
+        /* Clients such as notcurses include a placement ID in a=t uploads.
+         * It is echoed in responses, but only a=T or a=p creates a placement. */
+        FIELD_BIT(BOXRIG_KITTY_GRAPHICS_FIELD_PLACEMENT_ID) |
         FIELD_BIT(BOXRIG_KITTY_GRAPHICS_FIELD_MORE) |
         FIELD_BIT(BOXRIG_KITTY_GRAPHICS_FIELD_USAGE_HINTS);
 
     if (display) {
         transmission_fields |=
-            FIELD_BIT(BOXRIG_KITTY_GRAPHICS_FIELD_PLACEMENT_ID) |
             FIELD_BIT(BOXRIG_KITTY_GRAPHICS_FIELD_SOURCE_X) |
             FIELD_BIT(BOXRIG_KITTY_GRAPHICS_FIELD_SOURCE_Y) |
             FIELD_BIT(BOXRIG_KITTY_GRAPHICS_FIELD_SOURCE_WIDTH) |
@@ -750,7 +752,9 @@ static bool should_respond(
          command->image_id != 0) ||
         command_has(command, BOXRIG_KITTY_GRAPHICS_FIELD_IMAGE_NUMBER);
 
-    if (!has_selector || command->quiet == 2) {
+    /* Kitty deletion has no acknowledgement, even when an image ID is given.
+     * Sending one leaks unsolicited input into applications during teardown. */
+    if (!has_selector || command->quiet == 2 || command->action == (uint8_t)'d') {
         return false;
     }
     return !(command->quiet == 1 && result == BOXRIG_KITTY_GRAPHICS_RESULT_OK);
@@ -5749,6 +5753,24 @@ static boxrig_status protocol_put(void *context, uint8_t byte)
     return BOXRIG_STATUS_OK;
 }
 
+static boxrig_status protocol_put_run(
+    void *context,
+    const uint8_t *bytes,
+    size_t length,
+    size_t *consumed_out)
+{
+    for (size_t index = 0; index < length; index++) {
+        boxrig_status status = protocol_put(context, bytes[index]);
+
+        if (status != BOXRIG_STATUS_OK) {
+            *consumed_out = index;
+            return status;
+        }
+    }
+    *consumed_out = length;
+    return BOXRIG_STATUS_OK;
+}
+
 static boxrig_status protocol_commit(void *context)
 {
     boxrig_terminal *terminal = context;
@@ -5922,6 +5944,7 @@ void boxrig_kitty_graphics_protocol_initialize(
     consumer.context = terminal;
     consumer.begin = protocol_begin;
     consumer.put = protocol_put;
+    consumer.put_run = protocol_put_run;
     consumer.commit = protocol_commit;
     consumer.abort = protocol_abort;
     boxrig_kitty_graphics_set_consumer(&terminal->graphics, &consumer);

@@ -135,6 +135,7 @@ boxrig_term_win32_config boxrig_term_win32_config_default(
     config.enable_raster_detail_trace = false;
     config.enable_row_state_trace = false;
     config.terminal = boxrig_terminal_config_default();
+    config.terminal.emoji_variation_width = BOXRIG_EMOJI_VARIATION_WIDTH_PRESERVE;
     const char *width_policy = getenv("BOXRIG_AMBIGUOUS_WIDTH");
     if (width_policy != NULL) {
         if (strcmp(width_policy, "wide") == 0) config.terminal.ambiguous_width = BOXRIG_AMBIGUOUS_WIDTH_WIDE;

@@ -483,7 +483,9 @@ static void activate_application(
         "map",
         G_CALLBACK(widget_mapped),
         application);
-    if (boxrig_gtk4_terminal_widget_set_window_state(
+    if (boxrig_gtk4_terminal_widget_set_text_direction(application->widget,
+            BOXRIG_TEXT_DIRECTION_LOGICAL) != BOXRIG_UI_OK ||
+        boxrig_gtk4_terminal_widget_set_window_state(
             application->widget,
             BOXRIG_UI_WINDOW_NORMAL) != BOXRIG_UI_OK ||
         (boxrig_term_color_demo_initialize(

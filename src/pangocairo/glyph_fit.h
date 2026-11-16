@@ -21,6 +21,8 @@ static boxrig_ui_glyph_span *boxrig_pango_glyph_spans(PangoGlyphItem *item,
         boxrig_ui_glyph_span *span = &spans[count++];
         span->text_offset = (size_t)iter.start_index;
         span->text_length = (size_t)(iter.end_index - iter.start_index);
+        span->block_character = boxrig_ui_block_glyph_utf8(
+            text + span->text_offset, span->text_length);
         /* Pango uses visual glyph order, but the iterator walks logical text.
          * In RTL the inclusive start is greater than the exclusive end. */
         int first = iter.start_glyph < iter.end_glyph ? iter.start_glyph : iter.end_glyph + 1;

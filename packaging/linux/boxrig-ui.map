@@ -1,5 +1,6 @@
 BOXRIG_0 {
     global:
+        boxrig_ui_text_layout_create;
         boxrig_composite_premultiplied_image;
         boxrig_composite_premultiplied_image_behind;
         boxrig_composition_apply_event;
@@ -175,6 +176,7 @@ BOXRIG_0 {
         boxrig_ui_view_get_background_color;
         boxrig_ui_view_get_background_image;
         boxrig_ui_view_get_blink_config;
+        boxrig_ui_view_get_block_glyph_mode;
         boxrig_ui_view_get_candidates;
         boxrig_ui_view_get_cursor_style;
         boxrig_ui_view_get_geometry_capabilities;
@@ -219,6 +221,7 @@ BOXRIG_0 {
         boxrig_ui_view_set_background_color;
         boxrig_ui_view_set_background_image;
         boxrig_ui_view_set_blink_config;
+        boxrig_ui_view_set_block_glyph_mode;
         boxrig_ui_view_set_candidates;
         boxrig_ui_view_set_color_filter;
         boxrig_ui_view_get_cell_background_mode;
@@ -254,6 +257,9 @@ BOXRIG_PRIVATE_0 {
         boxrig_ui_accessible_snapshot_destroy;
         boxrig_ui_accessible_snapshot_diff;
         boxrig_ui_accessible_snapshot_is_current;
+        boxrig_ui_block_glyph_rectangles;
+        boxrig_ui_block_glyph_supported;
+        boxrig_ui_block_glyph_utf8;
         boxrig_ui_candidates_place;
         boxrig_ui_cursor_contrast_color;
         boxrig_ui_cursor_visual_range;

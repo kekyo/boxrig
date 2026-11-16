@@ -26,6 +26,8 @@ static D3D_DRIVER_TYPE d3d11_fixture_driver;
 #elif defined(BOXRIG_TEST_FRONTEND_OPENGL)
 #include "opengl/renderer.h"
 #include "opengl_host.h"
+#include <GL/gl.h>
+#include <GL/glext.h>
 #include <cairo/cairo.h>
 #include <fontconfig/fontconfig.h>
 #else
@@ -134,7 +136,8 @@ static bool feed_bytes(
     return true;
 }
 
-static bool create_platform_renderer(platform_renderer_fixture *fixture)
+static bool create_platform_renderer_with_direction(platform_renderer_fixture *fixture,
+    boxrig_text_direction_policy direction)
 {
     memset(fixture, 0, sizeof(*fixture));
 #if defined(BOXRIG_TEST_FRONTEND_X11)
@@ -180,6 +183,7 @@ static bool create_platform_renderer(platform_renderer_fixture *fixture)
         CHECK(SUCCEEDED(ID3D11Device_CreateTexture2D(fixture->device, &desc,
             NULL, &fixture->texture)));
         config.device = fixture->device;
+        config.direction_policy = direction;
         config.target.texture = fixture->texture;
         config.target.width = 1; config.target.height = 1;
         fixture->target = config.target;
@@ -257,7 +261,21 @@ static bool create_platform_renderer(platform_renderer_fixture *fixture)
         boxrig_pango_cairo_renderer_cell_height(fixture->renderer);
 #endif
     CHECK(fixture->cell_width != 0 && fixture->cell_height != 0);
+#if defined(BOXRIG_TEST_FRONTEND_X11)
+    CHECK(boxrig_x11_renderer_set_direction_policy(fixture->renderer, direction) == 0);
+#elif defined(BOXRIG_TEST_FRONTEND_WIN32)
+    CHECK(boxrig_win32_renderer_set_direction_policy(fixture->renderer, direction) == 0);
+#elif defined(BOXRIG_TEST_FRONTEND_OPENGL)
+    CHECK(boxrig_ogl_renderer_set_direction_policy(fixture->renderer, direction) == 0);
+#elif defined(BOXRIG_TEST_FRONTEND_PANGO_CAIRO)
+    CHECK(boxrig_pango_cairo_renderer_set_direction_policy(fixture->renderer, direction) == 0);
+#endif
     return true;
+}
+
+static bool create_platform_renderer(platform_renderer_fixture *fixture)
+{
+    return create_platform_renderer_with_direction(fixture, BOXRIG_TEXT_DIRECTION_AUTO);
 }
 
 static bool size_platform_renderer(
@@ -273,6 +291,12 @@ static bool size_platform_renderer(
         fixture->window,
         (unsigned int)columns * fixture->cell_width,
         (unsigned int)rows * fixture->cell_height);
+    CHECK(boxrig_x11_renderer_set_target_extent(fixture->renderer,
+        (unsigned int)columns * fixture->cell_width,
+        (unsigned int)rows * fixture->cell_height) == 0);
+    CHECK(boxrig_x11_renderer_set_viewport(fixture->renderer, 0, 0,
+        (unsigned int)columns * fixture->cell_width,
+        (unsigned int)rows * fixture->cell_height) == 0);
     CHECK(boxrig_x11_renderer_set_surface_size(
               fixture->renderer,
               (unsigned int)columns * fixture->cell_width,
@@ -1725,6 +1749,214 @@ static bool common_image_alpha_fixture(void)
 }
 
 #if defined(BOXRIG_TEST_FRONTEND_OPENGL)
+static size_t largest_image_upload;
+
+static void APIENTRY observe_image_upload(GLenum target, GLint level,
+    GLint x, GLint y, GLsizei width, GLsizei height,
+    GLenum format, GLenum type, const void *data)
+{
+    size_t bytes = (size_t)width * (size_t)height * (format == GL_RGBA ? 4u : 1u);
+    if (bytes > largest_image_upload) largest_image_upload = bytes;
+    glTexSubImage2D(target, level, x, y, width, height, format, type, data);
+}
+
+static boxrig_gl_function resolve_image_upload(void *context, const char *name)
+{
+    if (strcmp(name, "glTexSubImage2D") == 0) {
+        void (APIENTRY *upload)(GLenum, GLint, GLint, GLint, GLsizei, GLsizei,
+            GLenum, GLenum, const void *) = observe_image_upload;
+        boxrig_gl_function result;
+        memcpy(&result, &upload, sizeof(result));
+        return result;
+    }
+    return opengl_host_resolve(context, name);
+}
+
+static bool opengl_image_upload_budget_fixture(void)
+{
+    /* Each image is 36 bytes. Exercise a frame larger than the upload buffer,
+     * vertical strips with a partial final strip, and buffers narrower than
+     * one image row. All variants must display the same translucent pixels. */
+    const size_t budgets[] = {256, 28, 36, 8, 5};
+    const char content[] = "\033[?25l\033]11;#000000\007\033[H"
+        "\033_Ga=T,i=7101,f=32,s=3,v=3,c=1,r=1,C=1,q=2;"
+        "/wAA/wD/AIAAAP//AP//QP8A/wD//wDA/4AA/4CAgID/////\033\\"
+        "\033[1;2H\033_Ga=T,i=7102,f=32,s=3,v=3,c=1,r=1,C=1,q=2;"
+        "/wAA/wD/AIAAAP//AP//QP8A/wD//wDA/4AA/4CAgID/////\033\\";
+    for (size_t format = 0; format < 2; format++) {
+        platform_rgb *reference = NULL;
+        size_t reference_count = 0;
+        for (size_t pass = 0; pass < sizeof(budgets) / sizeof(budgets[0]); pass++) {
+            platform_renderer_fixture renderer;
+            boxrig_ogl_renderer_config config = boxrig_ogl_renderer_config_default();
+            boxrig_terminal_config terminal_config = boxrig_terminal_config_default();
+            boxrig_ui_view_config view_config = boxrig_ui_view_config_default();
+            boxrig_terminal *terminal = NULL;
+            boxrig_ui_model *model = NULL;
+            boxrig_ui_view *view = NULL;
+            CHECK(create_platform_renderer(&renderer));
+            CHECK(boxrig_ogl_renderer_destroy(&renderer.renderer,
+                renderer.context_generation, NULL) == BOXRIG_GL_OK);
+            config.runtime.resolver_context = renderer.host;
+            config.runtime.resolve = resolve_image_upload;
+            config.runtime.current_context_query_context = renderer.host;
+            config.runtime.query_current_context = opengl_host_query_current;
+            config.runtime.context_generation = renderer.context_generation;
+            config.runtime.target_generation = renderer.target.generation;
+            config.initial_target = renderer.target;
+            config.limits.maximum_staging_bytes = budgets[pass];
+            config.limits.maximum_image_bytes = 72;
+            CHECK(boxrig_ogl_renderer_create(&config, &renderer.renderer, NULL) == BOXRIG_GL_OK);
+            renderer.target.format = format == 0 ? BOXRIG_GL_TARGET_RGBA8 : BOXRIG_GL_TARGET_SRGB8_ALPHA8;
+            CHECK(size_platform_renderer(&renderer, 1, 2));
+            terminal_config.rows = 1;
+            terminal_config.columns = 2;
+            view_config.blink.cursor_enabled = view_config.blink.text_enabled = false;
+            CHECK(boxrig_terminal_create(&terminal_config, &terminal) == BOXRIG_STATUS_OK);
+            CHECK(boxrig_terminal_set_cell_pixel_geometry(terminal,
+                renderer.cell_width, renderer.cell_height) == BOXRIG_STATUS_OK);
+            CHECK(feed_bytes(terminal, content, sizeof(content) - 1));
+            CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
+            CHECK(boxrig_ui_view_create(model, &view_config, &view) == BOXRIG_UI_OK);
+            largest_image_upload = 0;
+            if (pass == 1) {
+                boxrig_ogl_renderer_fail_next(renderer.renderer, BOXRIG_OGL_FAILURE_UPLOAD);
+                CHECK(boxrig_ogl_renderer_draw_view(renderer.renderer, view) == -1);
+                CHECK(boxrig_ui_view_frame_requested(view));
+            }
+            fprintf(stderr, "image upload budget=%zu format=%zu\n", budgets[pass], format);
+            CHECK(draw_platform_view(&renderer, view, NULL));
+            CHECK(!boxrig_ui_view_frame_requested(view));
+            CHECK(largest_image_upload != 0 && largest_image_upload <= budgets[pass]);
+            size_t count = (size_t)renderer.target.width * renderer.target.height;
+            if (pass == 0) {
+                reference_count = count;
+                reference = malloc(count * sizeof(*reference));
+                CHECK(reference != NULL);
+            }
+            CHECK(count == reference_count);
+            for (size_t index = 0; index < count; index++) {
+                platform_rgb color;
+                CHECK(get_platform_pixel(&renderer, (int)(index % renderer.target.width),
+                    (int)(index / renderer.target.width), &color));
+                if (pass == 0) reference[index] = color;
+                else CHECK(color.red == reference[index].red &&
+                    color.green == reference[index].green && color.blue == reference[index].blue);
+            }
+            boxrig_ogl_render_statistics statistics;
+            CHECK(boxrig_ogl_renderer_get_render_statistics(renderer.renderer, &statistics) == 0);
+            CHECK(statistics.image_cache_upload_count == 2 && statistics.upload_bytes == 72);
+            boxrig_ui_view_destroy(view);
+            boxrig_ui_model_destroy(model);
+            boxrig_terminal_destroy(terminal);
+            destroy_platform_renderer(&renderer);
+        }
+        free(reference);
+    }
+    puts("PASS images larger than the staging buffer preserve pixels and recover after upload failure");
+    return true;
+}
+
+static GLsync first_image_fence;
+static bool first_image_fence_completed;
+
+static GLenum APIENTRY image_fence_status(GLsync fence, GLbitfield flags, GLuint64 timeout)
+{
+    if (flags != 0 || timeout != 0) return GL_WAIT_FAILED;
+    if (first_image_fence == NULL) first_image_fence = fence;
+    return fence == first_image_fence && first_image_fence_completed
+        ? GL_ALREADY_SIGNALED : GL_TIMEOUT_EXPIRED;
+}
+
+static boxrig_gl_function resolve_image_fence(void *context, const char *name)
+{
+    if (strcmp(name, "glClientWaitSync") == 0) {
+        PFNGLCLIENTWAITSYNCPROC poll = image_fence_status;
+        boxrig_gl_function result;
+        memcpy(&result, &poll, sizeof(result));
+        return result;
+    }
+    return opengl_host_resolve(context, name);
+}
+
+static bool opengl_image_cache_pending_frame_fixture(void)
+{
+    /* Exercise entry and byte limits independently, with a newer frame still
+     * pending when the oldest image becomes reusable. Readback completes the
+     * real GPU work; controlled fence results make this independent of speed. */
+    for (size_t pass = 0; pass < 2; pass++) {
+        platform_renderer_fixture renderer;
+        boxrig_ogl_renderer_config config = boxrig_ogl_renderer_config_default();
+        boxrig_terminal_config terminal_config = boxrig_terminal_config_default();
+        boxrig_ui_view_config view_config = boxrig_ui_view_config_default();
+        boxrig_terminal *terminal = NULL;
+        boxrig_ui_model *model = NULL;
+        boxrig_ui_view *view = NULL;
+        boxrig_ogl_render_statistics statistics;
+        platform_rgb color;
+        const char *images[] = {"/wAA/w==", "AP8A/w==", "AAD//w=="};
+        char content[160];
+
+        CHECK(create_platform_renderer(&renderer));
+        CHECK(boxrig_ogl_renderer_destroy(&renderer.renderer,
+            renderer.context_generation, NULL) == BOXRIG_GL_OK);
+        config.runtime.resolver_context = renderer.host;
+        config.runtime.resolve = resolve_image_fence;
+        config.runtime.current_context_query_context = renderer.host;
+        config.runtime.query_current_context = opengl_host_query_current;
+        config.runtime.context_generation = renderer.context_generation;
+        config.runtime.target_generation = renderer.target.generation;
+        config.initial_target = renderer.target;
+        if (pass == 0) config.limits.maximum_image_entries = 2;
+        else config.limits.maximum_image_bytes = 8;
+        first_image_fence = NULL;
+        first_image_fence_completed = false;
+        CHECK(boxrig_ogl_renderer_create(&config, &renderer.renderer, NULL) == BOXRIG_GL_OK);
+        CHECK(size_platform_renderer(&renderer, 1, 1));
+        terminal_config.rows = terminal_config.columns = 1;
+        view_config.blink.cursor_enabled = view_config.blink.text_enabled = false;
+        CHECK(boxrig_terminal_create(&terminal_config, &terminal) == BOXRIG_STATUS_OK);
+        CHECK(boxrig_terminal_set_cell_pixel_geometry(terminal,
+            renderer.cell_width, renderer.cell_height) == BOXRIG_STATUS_OK);
+        CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
+        CHECK(boxrig_ui_view_create(model, &view_config, &view) == BOXRIG_UI_OK);
+
+        for (size_t image = 0; image < 3; image++) {
+            int length = snprintf(content, sizeof(content),
+                "\033[?25l\033[H\033_Ga=d,d=a,q=2\033\\"
+                "\033_Ga=T,i=%zu,f=32,s=1,v=1,c=1,r=1,C=1,q=2;%s\033\\",
+                image + 7001, images[image]);
+            CHECK(length > 0 && (size_t)length < sizeof(content));
+            CHECK(feed_bytes(terminal, content, (size_t)length));
+            CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+            if (image == 2) {
+                CHECK(first_image_fence != NULL);
+                /* Neither cached image may be evicted while both are pending. */
+                CHECK(boxrig_ogl_renderer_draw_view(renderer.renderer, view) == -1);
+                CHECK(boxrig_ui_view_frame_requested(view));
+                CHECK(boxrig_ogl_renderer_get_render_statistics(renderer.renderer, &statistics) == 0);
+                CHECK(statistics.image_eviction_count == 0);
+                first_image_fence_completed = true;
+            }
+            CHECK(draw_platform_view(&renderer, view, NULL));
+            CHECK(get_platform_pixel(&renderer,
+                (int)(renderer.cell_width / 2), (int)(renderer.cell_height / 2), &color));
+            CHECK(color.red == (image == 0 ? 255 : 0));
+            CHECK(color.green == (image == 1 ? 255 : 0));
+            CHECK(color.blue == (image == 2 ? 255 : 0));
+        }
+        CHECK(boxrig_ogl_renderer_get_render_statistics(renderer.renderer, &statistics) == 0);
+        CHECK(statistics.image_cache_upload_count == 3);
+        CHECK(statistics.image_eviction_count == 1);
+        CHECK(statistics.in_flight_frame_count == 2);
+        boxrig_ui_view_destroy(view);
+        boxrig_ui_model_destroy(model);
+        boxrig_terminal_destroy(terminal);
+        destroy_platform_renderer(&renderer);
+    }
+    return true;
+}
+
 static bool opengl_multiline_image_alpha_fixture(void)
 {
     static const char content[] =
@@ -2805,10 +3037,359 @@ static bool opengl_4k_terminal_grid_fixture(void)
 }
 #endif
 
+static bool common_logical_cell_order_fixture(void)
+{
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    boxrig_ui_view_config options = boxrig_ui_view_config_default();
+    platform_renderer_fixture renderer;
+    boxrig_terminal *terminal = NULL;
+    boxrig_ui_model *model = NULL;
+    boxrig_ui_view *view = NULL;
+    config.rows = 2;
+    config.columns = 16;
+    CHECK(create_platform_renderer_with_direction(&renderer, BOXRIG_TEXT_DIRECTION_LOGICAL));
+#if defined(BOXRIG_TEST_FRONTEND_OPENGL)
+    CHECK(boxrig_ogl_renderer_set_composited_scrollbar(renderer.renderer, false, 0) == 0);
+#endif
+    CHECK(size_platform_renderer(&renderer, config.rows, config.columns));
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    const char setup[] = "\033[?25l\033[38;2;200;200;200;48;2;0;0;0m\033[2J"
+        "אבג|0123456789\033[2;1Hא ב ג";
+    CHECK(feed_bytes(terminal, setup, sizeof(setup) - 1));
+    CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_create(model, &options, &view) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_acquire_layout_authority(view) == BOXRIG_UI_OK);
+    boxrig_ui_allocation_input allocation = {0};
+    allocation.allocation_width = pixels(renderer.cell_width * config.columns);
+    allocation.allocation_height = pixels(renderer.cell_height * config.rows);
+    allocation.cell_width = pixels(renderer.cell_width);
+    allocation.cell_height = pixels(renderer.cell_height);
+    allocation.cell_metrics_revision = 1;
+    allocation.window_state = BOXRIG_UI_WINDOW_NORMAL;
+    boxrig_ui_layout_result result;
+    CHECK(boxrig_ui_view_accept_allocation(view, &allocation, &result) == BOXRIG_UI_OK);
+    /* A style-only refresh must retain logical placement in cached rows. */
+    for (size_t phase = 0; phase < 2; phase++) {
+        if (phase != 0) {
+            const char repaint[] = "\033[38;2;200;0;0m\033[Hאבג|0123456789\033[2;1Hא ב ג";
+            CHECK(feed_bytes(terminal, repaint, sizeof(repaint) - 1));
+            CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+        }
+        CHECK(draw_platform_view(&renderer, view, NULL));
+        for (size_t column = 0; column < config.columns; column++) {
+            boxrig_ui_hit_test_result hit;
+            CHECK(boxrig_ui_view_hit_test(view, pixels(column * renderer.cell_width) +
+                      pixels(renderer.cell_width) / 2, pixels(renderer.cell_height) / 2,
+                      &hit) == BOXRIG_UI_OK);
+            CHECK(hit.inside_grid && hit.logical_column == column);
+            CHECK(hit.trailing_half);
+            CHECK(boxrig_ui_view_hit_test(view, pixels(column * renderer.cell_width) +
+                      pixels(renderer.cell_width) / 4, pixels(renderer.cell_height) / 2,
+                      &hit) == BOXRIG_UI_OK);
+            CHECK(hit.text_position_valid && !hit.trailing_half);
+        }
+        /* Hebrew letters have the same glyph in isolation. Comparing each
+         * adjacent letter with its spaced reference detects reordered or
+         * missing glyphs even when the layout map itself is correct. */
+        for (size_t column = 0; column < 3; column++) {
+            size_t ink = 0;
+            for (unsigned int y = 0; y < renderer.cell_height; y++) {
+                for (unsigned int x = 0; x < renderer.cell_width; x++) {
+                    platform_rgb adjacent, isolated;
+                    CHECK(get_platform_pixel(&renderer,
+                        (int)(column * renderer.cell_width + x), (int)y, &adjacent));
+                    CHECK(get_platform_pixel(&renderer,
+                        (int)(column * 2 * renderer.cell_width + x),
+                        (int)(renderer.cell_height + y), &isolated));
+                    CHECK(adjacent.red == isolated.red && adjacent.green == isolated.green &&
+                          adjacent.blue == isolated.blue);
+                    ink += adjacent.red > 20;
+                }
+            }
+            CHECK(ink > 3);
+        }
+    }
+    boxrig_ui_hit_test_result anchor, focus;
+    CHECK(boxrig_ui_view_hit_test(view, pixels(renderer.cell_width) / 4,
+              pixels(renderer.cell_height) / 2, &anchor) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_hit_test(view, pixels(renderer.cell_width) * 11 / 4,
+              pixels(renderer.cell_height) / 2, &focus) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_begin_selection(view, BOXRIG_UI_SELECTION_CHARACTER,
+              &anchor) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_update_selection(view, &focus) == BOXRIG_UI_OK);
+    boxrig_text_snapshot *snapshot = NULL;
+    CHECK(boxrig_ui_view_create_selection_snapshot(view, &snapshot) == BOXRIG_UI_OK);
+    size_t length = 0;
+    const uint8_t *copied = boxrig_text_snapshot_data(snapshot, &length);
+    CHECK(length == sizeof("אבג") - 1 && memcmp(copied, "אבג", length) == 0);
+    boxrig_text_snapshot_destroy(snapshot);
+    boxrig_ui_view_destroy(view);
+    boxrig_ui_model_destroy(model);
+    boxrig_terminal_destroy(terminal);
+    destroy_platform_renderer(&renderer);
+    puts("PASS logical cell order preserves RTL glyphs, hit testing, copy and cached repaint");
+    return true;
+}
+
+static bool common_block_geometry_fixture(void)
+{
+    /* Expected occupied eighths from the Block Elements character names.
+     * Empty neighboring cells also detect font ink escaping its grid cell. */
+    static const struct { const char *text; uint8_t rows[8]; } cases[] = {
+        {"█", {255,255,255,255,255,255,255,255}},
+        {"▀", {255,255,255,255,0,0,0,0}},
+        {"▄", {0,0,0,0,255,255,255,255}},
+        {"▌", {240,240,240,240,240,240,240,240}},
+        {"▐", {15,15,15,15,15,15,15,15}},
+        {"▖", {0,0,0,0,240,240,240,240}},
+        {"▗", {0,0,0,0,15,15,15,15}},
+        {"▘", {240,240,240,240,0,0,0,0}},
+        {"▙", {240,240,240,240,255,255,255,255}},
+        {"▚", {240,240,240,240,15,15,15,15}},
+        {"▛", {255,255,255,255,240,240,240,240}},
+        {"▜", {255,255,255,255,15,15,15,15}},
+        {"▝", {15,15,15,15,0,0,0,0}},
+        {"▞", {15,15,15,15,240,240,240,240}},
+        {"▟", {15,15,15,15,255,255,255,255}},
+        {"▔", {255,0,0,0,0,0,0,0}},
+        {"▕", {1,1,1,1,1,1,1,1}},
+        {"▁", {0,0,0,0,0,0,0,255}},
+        {"▂", {0,0,0,0,0,0,255,255}},
+        {"▃", {0,0,0,0,0,255,255,255}},
+        {"▅", {0,0,0,255,255,255,255,255}},
+        {"▆", {0,0,255,255,255,255,255,255}},
+        {"▇", {0,255,255,255,255,255,255,255}},
+        {"▉", {254,254,254,254,254,254,254,254}},
+        {"▊", {252,252,252,252,252,252,252,252}},
+        {"▋", {248,248,248,248,248,248,248,248}},
+        {"▍", {224,224,224,224,224,224,224,224}},
+        {"▎", {192,192,192,192,192,192,192,192}},
+        {"▏", {128,128,128,128,128,128,128,128}}
+    };
+    const size_t count = sizeof(cases) / sizeof(cases[0]);
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    boxrig_ui_view_config view_config = boxrig_ui_view_config_default();
+    platform_renderer_fixture renderer;
+    boxrig_terminal *terminal = NULL;
+    boxrig_ui_model *model = NULL;
+    boxrig_ui_view *view = NULL;
+    config.rows = 2;
+    config.columns = 2 * count + 1;
+    CHECK(create_platform_renderer(&renderer));
+#if defined(BOXRIG_TEST_FRONTEND_OPENGL)
+    CHECK(boxrig_ogl_renderer_set_composited_scrollbar(renderer.renderer, false, 0) == 0);
+#endif
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    const char setup[] = "\033[?25l\033[38;2;136;136;136;48;2;32;32;32m\033[2J";
+    CHECK(feed_bytes(terminal, setup, sizeof(setup) - 1));
+    for (size_t i = 0; i < count; i++) {
+        char sequence[32];
+        int length = snprintf(sequence, sizeof(sequence), "\033[1;%zuH%s", 2 * i + 2, cases[i].text);
+        CHECK(length > 0 && (size_t)length < sizeof(sequence));
+        CHECK(feed_bytes(terminal, sequence, (size_t)length));
+    }
+    CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_create(model, &view_config, &view) == BOXRIG_UI_OK);
+    CHECK(size_platform_renderer(&renderer, config.rows, config.columns));
+    CHECK(draw_platform_view(&renderer, view, NULL));
+    for (size_t column = 0; column < config.columns; column++) {
+        for (unsigned int y = 0; y < renderer.cell_height; y++) {
+            for (unsigned int x = 0; x < renderer.cell_width; x++) {
+                unsigned int expected = 32;
+                if (column % 2 != 0) {
+                    unsigned int bx = 0, by = 0;
+                    while (bx < 7 && x >= (renderer.cell_width * (bx + 1) + 4) / 8) bx++;
+                    while (by < 7 && y >= (renderer.cell_height * (by + 1) + 4) / 8) by++;
+                    if ((cases[column / 2].rows[by] & (128u >> bx)) != 0) expected = 136;
+                }
+                platform_rgb pixel;
+                CHECK(get_platform_pixel(&renderer,
+                    (int)(column * renderer.cell_width + x), (int)y, &pixel));
+                if (pixel.red != expected || pixel.green != expected || pixel.blue != expected) {
+                    fprintf(stderr, "block pixel column=%zu x=%u y=%u expected=%u actual=%u,%u,%u\n",
+                        column, x, y, expected, pixel.red, pixel.green, pixel.blue);
+                    CHECK(false);
+                }
+            }
+        }
+    }
+    boxrig_ui_view_destroy(view);
+    boxrig_ui_model_destroy(model);
+    boxrig_terminal_destroy(terminal);
+    destroy_platform_renderer(&renderer);
+    puts("PASS block glyphs cover exact cell rectangles without seams or color fringes");
+    return true;
+}
+
+static bool common_block_mode_switch_fixture(void)
+{
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    boxrig_ui_view_config options = boxrig_ui_view_config_default();
+    platform_renderer_fixture renderer;
+    boxrig_terminal *terminal = NULL;
+    boxrig_ui_model *model = NULL;
+    boxrig_ui_view *view = NULL;
+    config.rows = 2;
+    config.columns = 8;
+    options.block_glyph_mode = BOXRIG_UI_BLOCK_GLYPH_FONT;
+    CHECK(create_platform_renderer(&renderer));
+#if defined(BOXRIG_TEST_FRONTEND_OPENGL)
+    CHECK(boxrig_ogl_renderer_set_composited_scrollbar(renderer.renderer, false, 0) == 0);
+#endif
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    const char content[] = "\033[?25l\033[38;2;136;136;136;48;2;32;32;32m\033[2J"
+        "████\033[2;1HA░▒▓█\xcc\x81";
+    CHECK(feed_bytes(terminal, content, sizeof(content) - 1));
+    CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_create(model, &options, &view) == BOXRIG_UI_OK);
+    CHECK(size_platform_renderer(&renderer, config.rows, config.columns));
+    size_t width = config.columns * renderer.cell_width;
+    size_t height = config.rows * renderer.cell_height;
+    platform_rgb *font = calloc(width * height, sizeof(*font));
+    CHECK(font != NULL);
+    for (size_t phase = 0; phase < 4; phase++) {
+        boxrig_ui_block_glyph_mode mode = phase % 2 == 0
+            ? BOXRIG_UI_BLOCK_GLYPH_FONT : BOXRIG_UI_BLOCK_GLYPH_RECTANGLES;
+        CHECK(boxrig_ui_view_set_block_glyph_mode(view, mode) == BOXRIG_UI_OK);
+        CHECK(draw_platform_view(&renderer, view, NULL));
+        /* A partial repaint must not reintroduce font edges or old pixels. */
+        if (phase == 3) {
+            CHECK(boxrig_ui_view_invalidate(view, BOXRIG_UI_DIRTY_OVERLAY,
+                (boxrig_ui_dirty){0, 1, 1, 1}) == BOXRIG_UI_OK);
+            CHECK(draw_platform_view(&renderer, view, NULL));
+        }
+        for (size_t y = 0; y < height; y++) for (size_t x = 0; x < width; x++) {
+            platform_rgb pixel = {0};
+            CHECK(get_platform_pixel(&renderer, (int)x, (int)y, &pixel));
+            if (phase == 0) font[y * width + x] = pixel;
+            else if (mode == BOXRIG_UI_BLOCK_GLYPH_FONT || y >= renderer.cell_height) {
+                CHECK(pixel.red == font[y * width + x].red &&
+                    pixel.green == font[y * width + x].green && pixel.blue == font[y * width + x].blue);
+            } else {
+                uint8_t expected = x < 4 * renderer.cell_width ? 136 : 32;
+                CHECK(pixel.red == expected && pixel.green == expected && pixel.blue == expected);
+            }
+        }
+    }
+    free(font);
+    boxrig_ui_view_destroy(view);
+    boxrig_ui_model_destroy(model);
+    boxrig_terminal_destroy(terminal);
+    destroy_platform_renderer(&renderer);
+    puts("PASS live block mode changes preserve font fallback and partial redraws");
+    return true;
+}
+
+static bool common_block_presentation_fixture(void)
+{
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    boxrig_ui_view_config options = boxrig_ui_view_config_default();
+    platform_renderer_fixture renderer;
+    boxrig_terminal *terminal = NULL;
+    boxrig_ui_model *model = NULL;
+    boxrig_ui_view *view = NULL;
+    config.rows = 2;
+    config.columns = 16;
+    config.ambiguous_width = BOXRIG_AMBIGUOUS_WIDTH_WIDE;
+    options.blink.cursor_enabled = false;
+    CHECK(create_platform_renderer(&renderer));
+#if defined(BOXRIG_TEST_FRONTEND_OPENGL)
+    CHECK(boxrig_ogl_renderer_set_composited_scrollbar(renderer.renderer, false, 0) == 0);
+#endif
+    CHECK(size_platform_renderer(&renderer, config.rows, config.columns));
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_set_cell_pixel_geometry(terminal,
+        renderer.cell_width, renderer.cell_height) == BOXRIG_STATUS_OK);
+    /* Each block spans two columns. A cursor addressed at a continuation
+     * covers the whole grapheme; images exercise both sides of the text layer. */
+    const char content[] = "\033[38;2;136;136;136;48;2;32;32;32m\033[2J\033[H"
+        "▀\033[7m▀\033[27;8m█\033[28;5m▀\033[25m▀▀▀▀"
+        "\033[1;13H\033_Ga=T,f=32,s=1,v=1,c=2,r=1,z=-1,C=1;AP8A/w==\033\\"
+        "\033[1;15H\033_Ga=T,f=32,s=1,v=1,c=2,r=1,z=0,C=1;/wAA/w==\033\\"
+        "\033[2;1H▌▌\033[1;12H\033[?25h";
+    CHECK(feed_bytes(terminal, content, sizeof(content) - 1));
+    boxrig_cell_view cell;
+    CHECK(boxrig_terminal_get_cell(terminal, 0, 0, &cell) == BOXRIG_STATUS_OK);
+    CHECK(cell.column_width == 2);
+    CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_create(model, &options, &view) == BOXRIG_UI_OK);
+    boxrig_ui_allocation_input allocation = {0};
+    allocation.allocation_width = pixels(config.columns * renderer.cell_width);
+    allocation.allocation_height = pixels(config.rows * renderer.cell_height);
+    allocation.cell_width = pixels(renderer.cell_width);
+    allocation.cell_height = pixels(renderer.cell_height);
+    allocation.cell_metrics_revision = 1;
+    boxrig_ui_layout_result layout;
+    CHECK(boxrig_ui_view_acquire_layout_authority(view) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_accept_allocation(view, &allocation, &layout) == BOXRIG_UI_OK);
+    boxrig_ui_cursor_style cursor = boxrig_ui_cursor_style_default();
+    cursor.shape = BOXRIG_UI_CURSOR_SHAPE_BLOCK;
+    cursor.block_presentation = BOXRIG_UI_CURSOR_BLOCK_FILL;
+    cursor.color_policy = BOXRIG_UI_CURSOR_COLOR_RGB;
+    cursor.color = (boxrig_rgb){240, 208, 128};
+    CHECK(boxrig_ui_view_set_cursor_style(view, &cursor) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_update_monotonic_time(view, 0) == BOXRIG_UI_OK);
+    CHECK(draw_platform_view(&renderer, view, NULL));
+    boxrig_ui_hit_test_result first, last;
+    CHECK(boxrig_ui_view_hit_test(view, pixels(8 * renderer.cell_width + 1),
+        pixels(1), &first) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_hit_test(view, pixels(10 * renderer.cell_width - 1),
+        pixels(1), &last) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_begin_selection(view, BOXRIG_UI_SELECTION_CHARACTER, &first) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_update_selection(view, &last) == BOXRIG_UI_OK);
+    boxrig_ui_selection_style selection = boxrig_ui_selection_style_default();
+    selection.presentation = BOXRIG_UI_SELECTION_FILL;
+    selection.background = (boxrig_rgb){60, 80, 100};
+    selection.foreground_policy = BOXRIG_UI_SELECTION_FOREGROUND_RGB;
+    selection.foreground = (boxrig_rgb){20, 100, 200};
+    CHECK(boxrig_ui_view_set_selection_style(view, &selection) == BOXRIG_UI_OK);
+    for (size_t phase = 0; phase < 3; phase++) {
+        CHECK(boxrig_ui_view_update_monotonic_time(view, phase * 500) == BOXRIG_UI_OK);
+        if (phase == 2) CHECK(boxrig_ui_view_invalidate(view, BOXRIG_UI_DIRTY_OVERLAY,
+            (boxrig_ui_dirty){1, 1, 1, 1}) == BOXRIG_UI_OK);
+        CHECK(draw_platform_view(&renderer, view, NULL));
+        for (unsigned int y = 0; y < config.rows * renderer.cell_height; y++) {
+            bool upper = y < (renderer.cell_height + 1) / 2;
+            for (unsigned int x = 0; x < config.columns * renderer.cell_width; x++) {
+                size_t column = x / renderer.cell_width;
+                uint8_t gray = upper ? 136 : 32;
+                if (column == 2 || column == 3) gray = upper ? 32 : 136;
+                if (column == 4 || column == 5 ||
+                    ((column == 6 || column == 7) && phase == 1)) gray = 32;
+                platform_rgb expected = {gray, gray, gray}, actual;
+                if (column == 8 || column == 9) expected = upper
+                    ? (platform_rgb){20, 100, 200} : (platform_rgb){60, 80, 100};
+                if (column == 10 || column == 11) expected = upper
+                    ? (platform_rgb){32, 32, 32} : (platform_rgb){240, 208, 128};
+                if ((column == 12 || column == 13) && !upper) expected = (platform_rgb){0, 255, 0};
+                if (column >= 14) expected = (platform_rgb){255, 0, 0};
+                if (y >= renderer.cell_height) expected = column == 0 || column == 2
+                    ? (platform_rgb){136, 136, 136} : (platform_rgb){32, 32, 32};
+                CHECK(get_platform_pixel(&renderer, (int)x, (int)y, &actual));
+                if (actual.red != expected.red || actual.green != expected.green || actual.blue != expected.blue) {
+                    fprintf(stderr, "block presentation phase=%zu column=%zu x=%u y=%u expected=%u,%u,%u actual=%u,%u,%u\n",
+                        phase, column, x, y, expected.red, expected.green, expected.blue,
+                        actual.red, actual.green, actual.blue);
+                    CHECK(false);
+                }
+            }
+        }
+    }
+    boxrig_ui_view_destroy(view);
+    boxrig_ui_model_destroy(model);
+    boxrig_terminal_destroy(terminal);
+    destroy_platform_renderer(&renderer);
+    puts("PASS wide block colors, inverse, concealment, blinking, selection, cursor and image layers");
+    return true;
+}
+
 #if defined(BOXRIG_TEST_FRONTEND_D3D11)
 int boxrig_test_d3d11_fixture(D3D_DRIVER_TYPE driver)
 {
     d3d11_fixture_driver = driver;
+    if (!common_logical_cell_order_fixture() ||
+        !common_block_geometry_fixture() || !common_block_mode_switch_fixture() ||
+        !common_block_presentation_fixture()) return 1;
     if (!common_layout_action_fixture() || !common_grid_negotiation_fixture() ||
         !common_text_overlay_fixture() || !common_image_alpha_fixture()) return 1;
     puts("PASS shared cell-grid fixture through D3D11 public API");
@@ -2817,6 +3398,10 @@ int boxrig_test_d3d11_fixture(D3D_DRIVER_TYPE driver)
 #else
 int main(void)
 {
+    if (!common_logical_cell_order_fixture()) return 1;
+    if (!common_block_presentation_fixture()) return 1;
+    if (!common_block_geometry_fixture()) return 1;
+    if (!common_block_mode_switch_fixture()) return 1;
 #if !defined(BOXRIG_TEST_FRONTEND_WIN32) && !defined(BOXRIG_TEST_FRONTEND_D3D11)
     if (!color_glyph_policy_fixture()) return 1;
 #endif
@@ -2829,8 +3414,10 @@ int main(void)
     if (!pango_cairo_retained_presentation_fixture()) return 1;
 #endif
 #if defined(BOXRIG_TEST_FRONTEND_OPENGL)
-    if (!opengl_partial_frame_work_fixture() ||
+    if (!opengl_image_upload_budget_fixture() ||
+        !opengl_partial_frame_work_fixture() ||
         !opengl_multiline_image_alpha_fixture() ||
+        !opengl_image_cache_pending_frame_fixture() ||
         !opengl_composition_text_fixture() ||
         !opengl_glyph_position_reuse_fixture() ||
         !opengl_glyph_cache_pressure_fixture() ||

@@ -353,6 +353,9 @@ int main(int argc, char **argv)
     test_toggle_failure = strcmp(argv[2], "toggle") == 0;
     boxrig_gtk3_terminal_widget_config config = boxrig_gtk3_terminal_widget_config_default();
     config.accessibility_enabled = true;
+    /* These tests inject composition directly. Host IME discovery must not
+     * switch input owners and cancel the synthetic preedit asynchronously. */
+    config.ime_policy = BOXRIG_GTK_IME_GTK;
     CHECK(config.render_policy == BOXRIG_GTK_RENDER_CAIRO);
     if (strcmp(argv[1], "prefer") == 0) config.render_policy = BOXRIG_GTK_RENDER_OPENGL_PREFERRED;
     else if (strcmp(argv[1], "require") == 0) config.render_policy = BOXRIG_GTK_RENDER_OPENGL_REQUIRED;

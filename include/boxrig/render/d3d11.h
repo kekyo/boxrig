@@ -52,7 +52,7 @@ typedef struct boxrig_d3d11_renderer_config {
     boxrig_font_specification font;
     /** Text policy; DPI must match the target. Output scale is applied to text. */
     boxrig_font_rendering_policy rendering_policy;
-    /** Base direction for shaping. */
+    /** Text direction and cell ordering policy. */
     boxrig_text_direction_policy direction_policy;
     /** Default-background alpha, applied only to premultiplied targets. */
     uint8_t background_opacity;
