@@ -771,19 +771,17 @@ static GList *split_items(GList *items, const boxrig_ogl_row_shape *shape)
 {
     GList *result = NULL;
     GList *node;
+    size_t cluster_index = 1;
 
     for (node = items; node != NULL; node = node->next) {
         PangoItem *remaining = node->data;
         size_t original_end =
             (size_t)remaining->offset + (size_t)remaining->length;
-        size_t cluster_index;
-
-        for (cluster_index = 1;
-             cluster_index < shape->cluster_count;
-             cluster_index++) {
+        for (; cluster_index < shape->cluster_count; cluster_index++) {
             size_t boundary = shape->clusters[cluster_index].text_offset;
 
-            if (boundary > (size_t)remaining->offset && boundary < original_end &&
+            if (boundary >= original_end) break;
+            if (boundary > (size_t)remaining->offset &&
                 new_render_style(shape, cluster_index)) {
                 size_t split_index = boundary - (size_t)remaining->offset;
                 glong split_chars = g_utf8_strlen(
@@ -794,13 +792,13 @@ static GList *split_items(GList *items, const boxrig_ogl_row_shape *shape)
                     (int)split_index,
                     (int)split_chars);
 
-                result = g_list_append(result, prefix);
+                result = g_list_prepend(result, prefix);
             }
         }
-        result = g_list_append(result, remaining);
+        result = g_list_prepend(result, remaining);
     }
     g_list_free(items);
-    return result;
+    return g_list_reverse(result);
 }
 
 size_t boxrig_ogl_text_provider_font_key_count(
@@ -849,17 +847,6 @@ static uint64_t language_key(PangoLanguage *language)
                      strlen(name));
 }
 
-static bool item_overlaps_cluster(
-    const PangoItem *item,
-    const boxrig_ogl_logical_cluster *cluster)
-{
-    size_t item_start = (size_t)item->offset;
-    size_t item_end = item_start + (size_t)item->length;
-    size_t cluster_end = cluster->text_offset + cluster->text_length;
-
-    return item_start < cluster_end && cluster->text_offset < item_end;
-}
-
 static boxrig_text_direction base_direction(
     GList *items,
     boxrig_text_direction_policy policy)
@@ -892,6 +879,8 @@ static int prepare_items(
     size_t count = (size_t)g_list_length(items);
     size_t item_index = 0;
     GList *node;
+    PangoFont *previous_font = NULL;
+    uint64_t font_key = 0;
 
     if (count == 0 || count > SIZE_MAX / sizeof(*shape->items)) {
         return -1;
@@ -915,21 +904,27 @@ static int prepare_items(
         boxrig_ogl_shaped_item *shaped = &shape->items[item_index];
 
         ((PangoGlyphItem *)shaped->native_item)->item = node->data;
-        /* The owned Pango item keeps its font alive for this shape. Share the
-         * serialized identity with both layout construction and later draws. */
-        shaped->font_key = text_font_key(provider, &((PangoGlyphItem *)shaped->native_item)->item->analysis);
+        /* The owned items keep their fonts alive. Adjacent paint runs can
+         * share the same serialized identity for layout and later draws. */
+        const PangoAnalysis *analysis = &((PangoItem *)node->data)->analysis;
+        if (analysis->font != previous_font || font_key == 0) {
+            font_key = text_font_key(provider, analysis);
+            previous_font = analysis->font;
+        }
+        shaped->font_key = font_key;
     }
     return 0;
 }
 
 static int build_layout(
-    const boxrig_ogl_row_shape *shape,
+    boxrig_ogl_row_shape *shape,
     boxrig_text_direction direction,
     boxrig_text_layout **layout_out)
 {
     boxrig_text_cluster_input *inputs;
     size_t column_count = 0;
     size_t cluster_index;
+    size_t first_item = 0;
 
     if (shape->cluster_count > SIZE_MAX / sizeof(*inputs)) {
         return -1;
@@ -954,13 +949,18 @@ static int build_layout(
         inputs[cluster_index].preserve_advance = cluster->font_dependent;
         inputs[cluster_index].style_key = cluster->style_key;
         inputs[cluster_index].hyperlink_key = cluster->hyperlink_key;
-        for (item_index = 0; item_index < shape->item_count; item_index++) {
-            const boxrig_ogl_shaped_item *shaped = &shape->items[item_index];
+        /* Items and terminal clusters are both in logical byte order. A font
+         * change may split a cluster, including one that spans two cells. */
+        size_t cluster_end = cluster->text_offset + cluster->text_length;
+        for (item_index = first_item; item_index < shape->item_count; item_index++) {
+            boxrig_ogl_shaped_item *shaped = &shape->items[item_index];
             PangoItem *item = ((PangoGlyphItem *)shaped->native_item)->item;
-
-            if (!item_overlaps_cluster(item, cluster)) {
-                continue;
-            }
+            size_t item_end = (size_t)item->offset + (size_t)item->length;
+            if ((size_t)item->offset >= cluster_end) break;
+            if ((size_t)item->offset >= cluster->text_offset)
+                shaped->logical_column = cluster->logical_column;
+            shaped->logical_column_count =
+                cluster->logical_column + cluster->column_count - shaped->logical_column;
             if (!found) {
                 inputs[cluster_index].bidi_level = item->analysis.level;
                 inputs[cluster_index].script_key =
@@ -970,6 +970,10 @@ static int build_layout(
             }
             font_key = hash_u64(font_key, shaped->font_key);
             found = true;
+            if (item_end >= cluster_end) {
+                first_item = item_end == cluster_end ? item_index + 1 : item_index;
+                break;
+            }
         }
         if (!found) {
             free(inputs);
@@ -999,8 +1003,6 @@ static int shape_items(boxrig_ogl_row_shape *shape)
     for (item_index = 0; item_index < shape->item_count; item_index++) {
         boxrig_ogl_shaped_item *shaped = &shape->items[item_index];
         PangoItem *item = ((PangoGlyphItem *)shaped->native_item)->item;
-        size_t cluster_index;
-        size_t logical_end = 0;
         size_t visual_begin = SIZE_MAX;
         size_t visual_end = 0;
         int glyph_index;
@@ -1016,38 +1018,13 @@ static int shape_items(boxrig_ogl_row_shape *shape)
             NULL,
             ((PangoGlyphItem *)shaped->native_item)->glyphs,
             PANGO_SHAPE_NONE);
-        for (cluster_index = 0;
-             cluster_index < shape->cluster_count;
-             cluster_index++) {
-            const boxrig_ogl_logical_cluster *cluster =
-                &shape->clusters[cluster_index];
-            size_t offset;
-
-            if (!item_overlaps_cluster(item, cluster)) {
-                continue;
-            }
-            if (shaped->logical_column_count == 0) {
-                shaped->logical_column = cluster->logical_column;
-            }
-            logical_end = cluster->logical_column + cluster->column_count;
-            for (offset = 0; offset < cluster->column_count; offset++) {
-                size_t visual;
-
-                if (boxrig_text_layout_logical_to_visual(
-                        shape->layout,
-                        cluster->logical_column + offset,
-                        &visual) != BOXRIG_TEXT_LAYOUT_OK) {
-                    return -1;
-                }
-                if (visual < visual_begin) {
-                    visual_begin = visual;
-                }
-                if (visual + 1 > visual_end) {
-                    visual_end = visual + 1;
-                }
-            }
-            shaped->logical_column_count =
-                logical_end - shaped->logical_column;
+        for (size_t offset = 0; offset < shaped->logical_column_count; offset++) {
+            size_t visual;
+            if (boxrig_text_layout_logical_to_visual(shape->layout,
+                    shaped->logical_column + offset, &visual) != BOXRIG_TEXT_LAYOUT_OK)
+                return -1;
+            if (visual < visual_begin) visual_begin = visual;
+            if (visual + 1 > visual_end) visual_end = visual + 1;
         }
         if (shaped->logical_column_count == 0 || visual_begin == SIZE_MAX) {
             return -1;

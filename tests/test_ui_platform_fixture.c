@@ -3027,6 +3027,17 @@ static bool opengl_4k_terminal_grid_fixture(void)
                   color.blue == colors[index].blue);
         }
     }
+#ifndef _WIN32
+    /* Alternating ANSI colors on one ASCII row still use a single font. */
+    before = after;
+    static const char colored[] = "\033[H\033[2K\033[31mA\033[32mB\033[33mC\033[34mD\033[35mE\033[36mF";
+    CHECK(feed_bytes(terminal, colored, sizeof(colored) - 1));
+    CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+    CHECK(draw_platform_view(&renderer, view, NULL));
+    CHECK(boxrig_ogl_renderer_get_render_statistics(renderer.renderer, &after) == 0);
+    CHECK(after.row_shape_count == before.row_shape_count + 1);
+    CHECK(after.font_key_count - before.font_key_count <= 2);
+#endif
     free(content);
 
     boxrig_ui_view_destroy(view);
