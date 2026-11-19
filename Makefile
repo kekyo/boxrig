@@ -3438,7 +3438,23 @@ $(OPENGL_UPDATE_PROBES): tests/performance/opengl_update_probe.c
 .PHONY: opengl-update-probes
 opengl-update-probes: $(OPENGL_UPDATE_PROBES)
 
-$(EXAMPLE_BINARY) $(BUILD_DIR)/boxrig_term/x11/boxrig_term_work: $(EXAMPLE_SOURCES) \
+IMAGE_PHASE_PROBES := $(BUILD_DIR)/boxrig_term/x11/boxrig_term_image_work $(BUILD_DIR)/boxrig_term/gtk3/boxrig_term_image_work
+IMAGE_PHASE_FLAGS := -Wl,--wrap=boxrig_kitty_graphics_set_consumer -Wl,--wrap=boxrig_terminal_feed \
+	-Wl,--wrap=boxrig_renderer_lifecycle_prepare_frame -Wl,--wrap=boxrig_gl_runtime_upload_texture
+$(IMAGE_PHASE_PROBES): UPDATE_PROBE_SOURCE := tests/performance/image_phase_probe.c
+$(BUILD_DIR)/boxrig_term/x11/boxrig_term_image_work: UPDATE_PROBE_FLAGS := $(IMAGE_PHASE_FLAGS) \
+	$(PANGO_CAIRO_CPPFLAGS) -Wl,--wrap=eglSwapBuffers -Wl,--wrap=glBlitFramebuffer
+$(BUILD_DIR)/boxrig_term/gtk3/boxrig_term_image_work: UPDATE_PROBE_FLAGS := $(IMAGE_PHASE_FLAGS) \
+	-DBOXRIG_IMAGE_GTK -Wl,--wrap=boxrig_pango_cairo_renderer_draw_view_composition \
+	-Wl,--wrap=boxrig_premultiplied_image_create -Wl,--wrap=boxrig_composite_premultiplied_image \
+	-Wl,--wrap=boxrig_pango_cairo_renderer_surface -Wl,--wrap=cairo_surface_mark_dirty \
+	-Wl,--wrap=boxrig_gtk_gl_surface_present -Wl,--wrap=gtk_gl_area_queue_render \
+	-Wl,--wrap=gtk_widget_add_tick_callback
+$(IMAGE_PHASE_PROBES): tests/performance/image_phase_probe.c
+.PHONY: image-phase-probes
+image-phase-probes: $(IMAGE_PHASE_PROBES)
+
+$(EXAMPLE_BINARY) $(BUILD_DIR)/boxrig_term/x11/boxrig_term_work $(BUILD_DIR)/boxrig_term/x11/boxrig_term_image_work: $(EXAMPLE_SOURCES) \
 	$(UI_HEADERS) $(X11_HEADERS) include/boxrig/posix.h \
 	$(X11_OPENGL_LIBRARY) $(X11_LIBRARY) $(OPENGL_RENDERER_LIBRARY) \
 	$(POSIX_LIBRARY) $(SESSION_LIBRARY) $(UI_LIBRARY) $(LIBRARY) \
@@ -3467,7 +3483,7 @@ $(GTK3_GRAYSCALE_SAMPLE): UPDATE_PROBE_SOURCE := tests/performance/gtk3_grayscal
 $(GTK3_GRAYSCALE_SAMPLE): UPDATE_PROBE_FLAGS := -Wl,--wrap=boxrig_font_rendering_policy_default
 $(GTK3_GRAYSCALE_SAMPLE): tests/performance/gtk3_grayscale.c
 
-$(GTK3_EXAMPLE_BINARY) $(BUILD_DIR)/boxrig_term/gtk3/boxrig_term_work $(GTK3_GRAYSCALE_SAMPLE): $(GTK3_EXAMPLE_SOURCES) \
+$(GTK3_EXAMPLE_BINARY) $(BUILD_DIR)/boxrig_term/gtk3/boxrig_term_work $(BUILD_DIR)/boxrig_term/gtk3/boxrig_term_image_work $(GTK3_GRAYSCALE_SAMPLE): $(GTK3_EXAMPLE_SOURCES) \
 	examples/boxrig_term/gtk3/geometry_trace.h \
 	examples/boxrig_term/gtk3/resize_frame.h \
 	$(UI_HEADERS) $(GTK3_HEADERS) include/boxrig/posix.h \
