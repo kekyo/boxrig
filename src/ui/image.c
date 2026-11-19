@@ -278,6 +278,23 @@ void boxrig_premultiplied_image_destroy(boxrig_premultiplied_image *image)
     }
 }
 
+static void composite_unscaled_row(uint32_t *destination, const uint32_t *source,
+    size_t width, bool behind)
+{
+    for (size_t x = 0; x < width; x++) {
+        uint32_t pixel = source[x];
+        if (pixel == 0) continue;
+        if (behind) {
+            uint32_t foreground = destination[x];
+            if ((foreground >> 24) == 255) continue;
+            if (foreground != 0) pixel = boxrig_ui_argb32_source_over(foreground, pixel);
+        } else if ((pixel >> 24) != 255) {
+            pixel = boxrig_ui_argb32_source_over(pixel, destination[x]);
+        }
+        destination[x] = pixel;
+    }
+}
+
 static bool composite_image(
     uint32_t *destination,
     size_t destination_width,
@@ -295,7 +312,7 @@ static bool composite_image(
     int64_t bottom;
     size_t dirty_right;
     size_t dirty_bottom;
-    size_t pixel_count = 0;
+    size_t pixel_count;
     int64_t y;
 
     if (pixel_count_out == NULL) {
@@ -365,9 +382,25 @@ static bool composite_image(
     if (left >= right || top >= bottom) {
         return true;
     }
+    size_t width = (size_t)(right - left);
+    if (!multiply_size(width, (size_t)(bottom - top), &pixel_count) ||
+        operation->source_width > SIZE_MAX / 256 || operation->source_height > SIZE_MAX / 256) {
+        return false;
+    }
+    bool unscaled = operation->source_width == operation->destination_width &&
+                    operation->source_height == operation->destination_height;
+    size_t first_x = operation->destination_clip_x + (size_t)(left - operation->target_x);
     for (y = top; y < bottom; y++) {
         size_t scaled_y = operation->destination_clip_y +
                           (size_t)(y - operation->target_y);
+        /* At 1:1, every destination pixel center samples exactly one texel. */
+        if (unscaled) {
+            const uint32_t *source = image->pixels +
+                (operation->source_y + scaled_y) * image->stride + operation->source_x + first_x;
+            composite_unscaled_row(destination + (size_t)y * destination_stride + (size_t)left,
+                source, width, behind);
+            continue;
+        }
         size_t y_coordinate;
         int64_t x;
 
@@ -379,8 +412,7 @@ static bool composite_image(
             return false;
         }
         for (x = left; x < right; x++) {
-            size_t scaled_x = operation->destination_clip_x +
-                              (size_t)(x - operation->target_x);
+            size_t scaled_x = first_x + (size_t)(x - left);
             size_t x_coordinate;
             uint32_t source;
             uint32_t *target;
@@ -404,10 +436,6 @@ static bool composite_image(
             *target = behind ? boxrig_ui_argb32_source_over(*target, source) :
                 boxrig_ui_argb32_source_over(source, *target);
         }
-        if ((size_t)(right - left) > SIZE_MAX - pixel_count) {
-            return false;
-        }
-        pixel_count += (size_t)(right - left);
     }
     *pixel_count_out = pixel_count;
     return true;
