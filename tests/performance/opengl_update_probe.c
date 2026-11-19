@@ -1,6 +1,7 @@
 /* Test-only observation of terminal changes and renderer work in the Linux samples. */
 #include "../../src/opengl/renderer.h"
 
+#include <pango/pango.h>
 #include <assert.h>
 #include <inttypes.h>
 #include <stdio.h>
@@ -13,6 +14,8 @@ typedef struct cell_snapshot {
     uint32_t font_style;
     bool boundary;
     bool digit;
+    bool changed;
+    bool shaped;
 } cell_snapshot;
 
 typedef struct row_changes {
@@ -27,6 +30,8 @@ static cell_snapshot *previous;
 static row_changes *changes;
 static size_t previous_rows, previous_columns, frame_number;
 static size_t sync_ends, matched_bytes;
+static boxrig_ogl_row_shape *active_shape;
+static size_t active_row;
 
 boxrig_status __real_boxrig_terminal_feed(boxrig_terminal *, const uint8_t *, size_t, size_t *);
 boxrig_status __wrap_boxrig_terminal_feed(boxrig_terminal *terminal,
@@ -117,11 +122,31 @@ boxrig_renderer_status __wrap_boxrig_ogl_renderer_lifecycle_create(
 int __real_boxrig_ogl_text_provider_shape_row(
     boxrig_ogl_text_provider *, const boxrig_terminal *, size_t, boxrig_ogl_row_shape *);
 int __wrap_boxrig_ogl_text_provider_shape_row(
-    boxrig_ogl_text_provider *provider, const boxrig_terminal *terminal, size_t row, boxrig_ogl_row_shape *shape)
+    boxrig_ogl_text_provider *provider, const boxrig_terminal *terminal, size_t row,
+    boxrig_ogl_row_shape *shape)
 {
+    active_row = row;
+    active_shape = shape;
     int result = __real_boxrig_ogl_text_provider_shape_row(provider, terminal, row, shape);
+    active_shape = NULL;
     if (result == 0 && changes != NULL && row < previous_rows) changes[row].shaped = true;
     return result;
+}
+
+void __real_pango_shape_item(PangoItem *, const char *, int, PangoLogAttr *, PangoGlyphString *, PangoShapeFlags);
+void __wrap_pango_shape_item(PangoItem *item, const char *text, int length, PangoLogAttr *attrs,
+    PangoGlyphString *glyphs, PangoShapeFlags flags)
+{
+    __real_pango_shape_item(item, text, length, attrs, glyphs, flags);
+    if (active_shape == NULL || previous == NULL || active_row >= previous_rows) return;
+    for (size_t i = 0; i < active_shape->cluster_count; i++) {
+        const boxrig_ogl_logical_cluster *cluster = &active_shape->clusters[i];
+        if (cluster->text_offset >= (size_t)item->offset + (size_t)item->length ||
+            cluster->text_offset + cluster->text_length <= (size_t)item->offset) continue;
+        assert(cluster->logical_column + cluster->column_count <= previous_columns);
+        for (size_t c = cluster->logical_column; c < cluster->logical_column + cluster->column_count; c++)
+            previous[active_row * previous_columns + c].shaped = true;
+    }
 }
 
 boxrig_renderer_status __real_boxrig_renderer_lifecycle_prepare_frame(boxrig_renderer_lifecycle *,
@@ -158,7 +183,8 @@ boxrig_renderer_status __wrap_boxrig_renderer_lifecycle_prepare_frame(boxrig_ren
             }
             cell_snapshot old = previous[row * columns + column];
             bool text_changed = current.text != old.text || current.font_style != old.font_style;
-            changes[row].changed += text_changed || current.style != old.style;
+            current.changed = text_changed || current.style != old.style;
+            changes[row].changed += current.changed;
             changes[row].boundaries += current.boundary != old.boundary;
             changes[row].text += text_changed;
             changes[row].digits += text_changed && current.digit && old.digit && current.style == old.style;
@@ -172,7 +198,7 @@ boxrig_renderer_status __wrap_boxrig_renderer_lifecycle_prepare_frame(boxrig_ren
     assert(boxrig_ogl_renderer_get_render_statistics(observed_renderer, &after) == 0);
     if (status != BOXRIG_RENDERER_OK) return status;
     size_t changed = 0, text = 0, digits = 0, unchanged = 0, digit_rows = 0;
-    size_t shaped = 0, text_rows = 0, boundary_rows = 0, other_rows = 0;
+    size_t shaped = 0, shaped_columns = 0, text_rows = 0, boundary_rows = 0, other_rows = 0;
     for (size_t row = 0; row < rows; row++) {
         const row_changes *value = &changes[row];
         changed += value->changed;
@@ -180,14 +206,18 @@ boxrig_renderer_status __wrap_boxrig_renderer_lifecycle_prepare_frame(boxrig_ren
         digits += value->digits;
         if (!value->shaped) continue;
         shaped++;
-        unchanged += columns - value->changed;
+        for (size_t c = 0; c < columns; c++) {
+            const cell_snapshot *cell = &previous[row * columns + c];
+            shaped_columns += cell->shaped;
+            unchanged += cell->shaped && !cell->changed;
+        }
         digit_rows += value->digits > 0 && value->digits == value->text && value->boundaries == 0;
         if (value->text > 0) text_rows++;
         else if (value->boundaries > 0) boundary_rows++;
         else other_rows++;
     }
     fprintf(output, "%zu\t%zu\t%08" PRIx32 "\t%zu\t%zu\t%zu\t%zu\t%zu\t%zu\t%zu\t%zu\t%zu\t%zu\t%zu\t%zu\t%zu\n",
-        frame_number++, sync_ends, background, rows, columns, changed, text, digits, shaped, shaped * columns, unchanged,
+        frame_number++, sync_ends, background, rows, columns, changed, text, digits, shaped, shaped_columns, unchanged,
         digit_rows, text_rows, boundary_rows, other_rows, after.cell_raster_count - before.cell_raster_count);
     fflush(output);
     return status;

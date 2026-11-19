@@ -3433,7 +3433,7 @@ OPENGL_UPDATE_PROBES := $(BUILD_DIR)/boxrig_term/x11/boxrig_term_work $(BUILD_DI
 $(OPENGL_UPDATE_PROBES): UPDATE_PROBE_SOURCE := tests/performance/opengl_update_probe.c
 $(OPENGL_UPDATE_PROBES): UPDATE_PROBE_FLAGS := -Wl,--wrap=boxrig_ogl_renderer_lifecycle_create \
 	-Wl,--wrap=boxrig_ogl_text_provider_shape_row -Wl,--wrap=boxrig_renderer_lifecycle_prepare_frame \
-	-Wl,--wrap=boxrig_terminal_feed
+	-Wl,--wrap=boxrig_terminal_feed -Wl,--wrap=pango_shape_item $(PANGO_CAIRO_CPPFLAGS)
 $(OPENGL_UPDATE_PROBES): tests/performance/opengl_update_probe.c
 .PHONY: opengl-update-probes
 opengl-update-probes: $(OPENGL_UPDATE_PROBES)
