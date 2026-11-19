@@ -382,6 +382,32 @@ static bool conceal_preserves_neighboring_ascii(bool repeated)
     return true;
 }
 
+static bool glyph_groups_copy_the_backing_pixels(void)
+{
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    config.rows = 1;
+    config.columns = 8;
+    boxrig_terminal *terminal;
+    boxrig_pango_cairo_renderer *renderer;
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_pango_cairo_renderer_create(56, 14, &renderer) == 0);
+    CHECK(feed(terminal, "\033[?7l\033[?25lABCDEFGH"));
+    CHECK(boxrig_pango_cairo_renderer_draw(renderer, terminal) == 0);
+    boxrig_pango_cairo_render_statistics work;
+    CHECK(boxrig_pango_cairo_renderer_get_render_statistics(renderer, &work) == 0);
+    CHECK(work.glyph_group_count > 0 && work.glyph_underlay_paint_count == 0);
+    /* A translated backing surface needs Cairo's source coordinate mapping. */
+    cairo_surface_set_device_offset(boxrig_pango_cairo_renderer_surface(renderer), 1, 0);
+    CHECK(feed(terminal, "\033[H12345678"));
+    boxrig_pango_cairo_renderer_reset_render_statistics(renderer);
+    CHECK(boxrig_pango_cairo_renderer_draw(renderer, terminal) == 0);
+    CHECK(boxrig_pango_cairo_renderer_get_render_statistics(renderer, &work) == 0);
+    CHECK(work.glyph_group_count > 0 && work.glyph_underlay_paint_count == work.glyph_group_count);
+    boxrig_pango_cairo_renderer_destroy(renderer);
+    boxrig_terminal_destroy(terminal);
+    return true;
+}
+
 static bool outline_updates(const char *prefix)
 {
     boxrig_terminal_config config = boxrig_terminal_config_default();
@@ -447,7 +473,8 @@ static bool outline_updates(const char *prefix)
 
 int main(int argc, char **argv)
 {
-    bool passed = paint_updates(argc == 2 ? argv[1] : NULL) &&
+    bool passed = glyph_groups_copy_the_backing_pixels() &&
+        paint_updates(argc == 2 ? argv[1] : NULL) &&
         partial_paint_updates(false) && partial_paint_updates(true) &&
         conceal_preserves_neighboring_ascii(false) && conceal_preserves_neighboring_ascii(true) &&
         outline_updates(argc == 2 ? argv[1] : NULL);

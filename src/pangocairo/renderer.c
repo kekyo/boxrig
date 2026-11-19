@@ -4245,6 +4245,47 @@ static cairo_surface_t *get_outline_mask(boxrig_pango_cairo_renderer *renderer, 
     return surface;
 }
 
+/* A Cairo glyph group is clipped to the device bounds of its raster. Copy
+ * premultiplied pixels directly only when its storage maps exactly onto an
+ * integer rectangle in the renderer's backing image. */
+static bool copy_glyph_underlay(cairo_t *cr, cairo_surface_t *backing,
+    cairo_surface_t *group)
+{
+    if (cairo_surface_get_type(group) != CAIRO_SURFACE_TYPE_IMAGE ||
+        cairo_image_surface_get_format(group) != CAIRO_FORMAT_ARGB32)
+        return false;
+    cairo_matrix_t matrix;
+    cairo_get_matrix(cr, &matrix);
+    if (matrix.xx != 1 || matrix.yy != 1 || matrix.xy != 0 || matrix.yx != 0 ||
+        matrix.x0 != 0 || matrix.y0 != 0) return false;
+    double x, y;
+    cairo_surface_get_device_scale(backing, &x, &y);
+    if (x != 1 || y != 1) return false;
+    cairo_surface_get_device_offset(backing, &x, &y);
+    if (x != 0 || y != 0) return false;
+    cairo_surface_get_device_offset(group, &x, &y);
+    x = -x;
+    y = -y;
+    int width = cairo_image_surface_get_width(group);
+    int height = cairo_image_surface_get_height(group);
+    if (width <= 0 || height <= 0 ||
+        !(x >= 0 && x <= cairo_image_surface_get_width(backing) - width) ||
+        !(y >= 0 && y <= cairo_image_surface_get_height(backing) - height) ||
+        x != (int)x || y != (int)y) return false;
+    cairo_surface_flush(backing);
+    cairo_surface_flush(group);
+    size_t source_stride = (size_t)cairo_image_surface_get_stride(backing);
+    size_t dest_stride = (size_t)cairo_image_surface_get_stride(group);
+    const uint8_t *source = cairo_image_surface_get_data(backing) +
+        (size_t)y * source_stride + (size_t)x * 4;
+    uint8_t *dest = cairo_image_surface_get_data(group);
+    for (int row_index = 0; row_index < height; row_index++)
+        memcpy(dest + (size_t)row_index * dest_stride,
+            source + (size_t)row_index * source_stride, (size_t)width * 4);
+    cairo_surface_mark_dirty(group);
+    return true;
+}
+
 static int draw_fitted_item_segment(
     boxrig_pango_cairo_renderer *renderer,
     const boxrig_pango_cairo_shaped_item *item,
@@ -4397,15 +4438,19 @@ static int draw_fitted_item_segment(
         cairo_rectangle(renderer->cairo, raster_x, y, raster_end - raster_x, renderer->cell_height);
         cairo_clip(renderer->cairo);
         cairo_surface_t *underlay = cairo_get_group_target(renderer->cairo);
-        cairo_pattern_t *ink = cairo_pattern_reference(cairo_get_source(renderer->cairo));
         renderer->render_statistics.glyph_group_count++;
         cairo_push_group(renderer->cairo);
-        cairo_set_operator(renderer->cairo, CAIRO_OPERATOR_SOURCE);
-        cairo_set_source_surface(renderer->cairo, underlay, 0, 0);
-        cairo_paint(renderer->cairo);
+        if (underlay != renderer->backing_surface ||
+            !copy_glyph_underlay(renderer->cairo, underlay, cairo_get_group_target(renderer->cairo))) {
+            cairo_pattern_t *ink = cairo_pattern_reference(cairo_get_source(renderer->cairo));
+            cairo_set_operator(renderer->cairo, CAIRO_OPERATOR_SOURCE);
+            cairo_set_source_surface(renderer->cairo, underlay, 0, 0);
+            renderer->render_statistics.glyph_underlay_paint_count++;
+            cairo_paint(renderer->cairo);
+            cairo_set_source(renderer->cairo, ink);
+            cairo_pattern_destroy(ink);
+        }
         cairo_set_operator(renderer->cairo, CAIRO_OPERATOR_OVER);
-        cairo_set_source(renderer->cairo, ink);
-        cairo_pattern_destroy(ink);
         cairo_translate(renderer->cairo, glyph_x, y + renderer->ascent);
         cairo_scale(renderer->cairo, horizontal_scale, 1.0);
         cairo_move_to(renderer->cairo, 0.0, 0.0);

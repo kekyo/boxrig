@@ -63,6 +63,8 @@ typedef struct boxrig_pango_cairo_render_statistics {
     size_t color_source_eviction_count;
     /** Temporary groups created to rasterize fitted glyphs. */
     size_t glyph_group_count;
+    /** Cairo paint calls used to initialize glyph groups from the backing image. */
+    size_t glyph_underlay_paint_count;
     /** Pango glyph drawing calls for fitted glyphs. */
     size_t glyph_draw_count;
     /** Glyph composite bounding area before outer dirty/color clipping. */
