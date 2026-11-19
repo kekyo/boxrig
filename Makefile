@@ -2434,7 +2434,7 @@ $(UTF8_TEST_BINARY): tests/test_utf8.c src/ui/utf8.c src/ui/utf8.h | \
 		$(SANITIZERS) -o $@
 
 $(IMAGE_COMPOSITOR_TEST_BINARY): tests/test_image_compositor.c $(UI_LIBRARY) | $(BUILD_DIR)/tests
-	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) tests/test_image_compositor.c $(UI_LIBRARY) $(SANITIZERS) -o $@
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) tests/test_image_compositor.c $(UI_LIBRARY) -Wl,--wrap=boxrig_ui_argb32_source_over $(SANITIZERS) -o $@
 
 $(UI_LIFECYCLE_TEST_BINARY): tests/test_ui_lifecycle.c $(UI_LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) tests/test_ui_lifecycle.c $(UI_LIBRARY) $(SANITIZERS) -o $@
