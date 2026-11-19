@@ -1029,6 +1029,34 @@ static bool test_string_runs_preserve_limits_boundaries_and_retry(void)
     return true;
 }
 
+static bool test_string_run_byte_boundaries(void)
+{
+    uint8_t input[40];
+    memset(input, '~', sizeof(input));
+    input[0] = 0x1b;
+    input[1] = '_';
+    input[sizeof(input) - 2] = 0x1b;
+    input[sizeof(input) - 1] = '\\';
+    for (size_t position = 10; position < 18; position++) {
+        for (unsigned int byte = 0; byte < 256; byte++) {
+            input[position] = (uint8_t)byte;
+            action_log expected = {0}, actual = {0};
+            boxrig_parser parser;
+            size_t consumed;
+            boxrig_parser_actions actions = actions_for(&expected);
+            boxrig_parser_initialize(&parser, &actions, sizeof(input));
+            CHECK(boxrig_parser_feed(&parser, input, sizeof(input), &consumed) == BOXRIG_STATUS_OK);
+            actions = actions_for(&actual);
+            actions.string_put_run = record_string_run;
+            boxrig_parser_initialize(&parser, &actions, sizeof(input));
+            CHECK(boxrig_parser_feed(&parser, input, sizeof(input), &consumed) == BOXRIG_STATUS_OK);
+            CHECK(consumed == sizeof(input) && logs_equal(&actual, &expected) && actual.hash == expected.hash);
+        }
+        input[position] = '~';
+    }
+    return true;
+}
+
 static bool test_string_run_retry_has_bounded_lookahead(void)
 {
     uint8_t input[8192];
@@ -1073,6 +1101,7 @@ int main(void)
         const char *name;
         bool (*run)(void);
     } tests[] = {
+        {"string run byte boundaries", test_string_run_byte_boundaries},
         {"string runs preserve limits boundaries and retry",
          test_string_runs_preserve_limits_boundaries_and_retry},
         {"string run retry has bounded lookahead",
