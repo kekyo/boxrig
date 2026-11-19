@@ -66,6 +66,10 @@ struct _BoxrigGtk3TerminalWidget {
     bool gl_failed;
     bool in_gl_render;
     bool cairo_failed;
+    guint cairo_tick_id;
+    GSource *cairo_idle;
+    bool cairo_awaiting_paint;
+    boxrig_ui_status cairo_tick_status;
     bool gl_pending;
     bool gl_presented;
 #if BOXRIG_GTK_OPENGL
@@ -328,6 +332,52 @@ static void request_application_frame(BoxrigGtk3TerminalWidget *widget)
 
     if (callback != NULL && !widget->disposed) {
         callback(context);
+    }
+}
+
+static void cancel_scheduled_cairo(BoxrigGtk3TerminalWidget *widget)
+{
+    if (widget->cairo_tick_id != 0) {
+        gtk_widget_remove_tick_callback(GTK_WIDGET(widget), widget->cairo_tick_id);
+        widget->cairo_tick_id = 0;
+    }
+    if (widget->cairo_idle != NULL) {
+        g_source_destroy(widget->cairo_idle);
+        g_clear_pointer(&widget->cairo_idle, g_source_unref);
+    }
+}
+
+static gboolean prepare_scheduled_cairo(gpointer data)
+{
+    BoxrigGtk3TerminalWidget *widget = g_object_ref(data);
+    boxrig_ui_component_frame_result result;
+    widget->cairo_tick_status = boxrig_gtk3_terminal_widget_frame(widget, &result);
+    if (widget->cairo_tick_status != BOXRIG_UI_OK || result.additional_dispatch)
+        request_application_frame(widget);
+    g_object_unref(widget);
+    return G_SOURCE_REMOVE;
+}
+
+static gboolean prepare_cairo_on_tick(GtkWidget *gtk_widget, GdkFrameClock *clock, gpointer data)
+{
+    (void)clock;
+    (void)data;
+    BoxrigGtk3TerminalWidget *widget = BOXRIG_GTK3_TERMINAL_WIDGET(gtk_widget);
+    widget->cairo_tick_id = 0;
+    return prepare_scheduled_cairo(widget);
+}
+
+static void schedule_cairo(BoxrigGtk3TerminalWidget *widget)
+{
+    if (widget->cairo_tick_id != 0) return;
+    widget->cairo_tick_id = gtk_widget_add_tick_callback(
+        GTK_WIDGET(widget), prepare_cairo_on_tick, NULL, NULL);
+    /* After GTK has painted the previous image an idle PTY can prepare the
+     * next one early. Continuous input still gets the frame clock deadline. */
+    if (!widget->cairo_awaiting_paint) {
+        widget->cairo_idle = g_idle_source_new();
+        g_source_set_callback(widget->cairo_idle, prepare_scheduled_cairo, widget, NULL);
+        g_source_attach(widget->cairo_idle, widget->main_context);
     }
 }
 
@@ -1882,6 +1932,8 @@ static gboolean boxrig_gtk3_terminal_widget_draw(
         return TRUE;
     }
     drawing_context = gdk_cairo_get_drawing_context(cairo);
+    if (drawing_context != NULL && gdk_drawing_context_is_valid(drawing_context))
+        widget->cairo_awaiting_paint = false;
     if (accepts_calls(widget) && widget->allocated && !widget->allocation_pending &&
         widget->presentation_visible && gtk_widget_get_mapped(gtk_widget) &&
         drawing_context != NULL &&
@@ -2001,6 +2053,7 @@ static void boxrig_gtk3_terminal_widget_dispose(GObject *object)
     BoxrigGtk3TerminalWidget *widget = BOXRIG_GTK3_TERMINAL_WIDGET(object);
 
     if (!widget->disposed) {
+        cancel_scheduled_cairo(widget);
         if (widget->gl_area != NULL) gtk_widget_destroy(widget->gl_area);
         if (widget->scroll_container != NULL) {
             g_object_remove_weak_pointer(G_OBJECT(widget->scroll_container), (gpointer *)&widget->scroll_container);
@@ -2489,6 +2542,7 @@ boxrig_ui_status boxrig_gtk3_terminal_widget_quiesce(
         boxrig_ui_lifecycle_begin_shutdown(&widget->lifecycle) == -1) {
         return BOXRIG_UI_UNAVAILABLE;
     }
+    cancel_scheduled_cairo(widget);
     boxrig_ui_scrollbar_visibility_cancel(&widget->scrollbar_visibility);
     widget->scrollbar_native_pending = false;
     boxrig_ui_animation_runtime_detach(widget->view);
@@ -3354,9 +3408,10 @@ boxrig_ui_status boxrig_gtk3_terminal_widget_get_diagnostic(
     return BOXRIG_UI_OK;
 }
 
-boxrig_ui_status boxrig_gtk3_terminal_widget_frame(
+static boxrig_ui_status dispatch_widget_frame(
     BoxrigGtk3TerminalWidget *widget,
-    boxrig_ui_component_frame_result *result_out)
+    boxrig_ui_component_frame_result *result_out,
+    bool use_frame_clock)
 {
     boxrig_terminal *terminal;
     cairo_surface_t *candidate;
@@ -3375,6 +3430,12 @@ boxrig_ui_status boxrig_gtk3_terminal_widget_frame(
     if (widget->in_frame || widget->in_gl_render) {
         return BOXRIG_UI_BUSY;
     }
+    if (widget->cairo_tick_status != BOXRIG_UI_OK) {
+        status = widget->cairo_tick_status;
+        widget->cairo_tick_status = BOXRIG_UI_OK;
+        return status;
+    }
+    if (!use_frame_clock) cancel_scheduled_cairo(widget);
 #if BOXRIG_GTK_OPENGL
     if (widget->gl_failed && widget->gl_retry_desktop) {
         /* Retry outside GTK's render signal so the failed area's resources
@@ -3485,7 +3546,15 @@ boxrig_ui_status boxrig_gtk3_terminal_widget_frame(
             gtk_gl_area_queue_render(GTK_GL_AREA(widget->gl_area));
         } else
 #endif
-        {
+        if (use_frame_clock && widget->presentation != NULL &&
+            widget->render_state.active_backend == BOXRIG_GTK_RENDER_BACKEND_CAIRO &&
+            !widget->render_state.pending && !widget->zoom_generation_active &&
+            widget->presentation_allocation_generation == widget->allocation_generation &&
+            widget->presentation_visible && gtk_widget_get_mapped(GTK_WIDGET(widget))) {
+            /* The view keeps all dirty ranges until the frame clock update.
+             * Later PTY dispatches must neither postpone it nor spin waiting. */
+            schedule_cairo(widget);
+        } else {
 #ifdef BOXRIG_PLAN18_TRACE_BUILD
             gint64 cairo_started = g_get_monotonic_time();
 #endif
@@ -3526,6 +3595,7 @@ boxrig_ui_status boxrig_gtk3_terminal_widget_frame(
             if (widget->presentation_generation != UINT64_MAX) {
                 widget->presentation_generation++;
             }
+            widget->cairo_awaiting_paint = true;
             gtk_widget_queue_draw(GTK_WIDGET(widget));
             if (widget->render_state.active_backend != BOXRIG_GTK_RENDER_BACKEND_CAIRO)
                 widget->render_state.target_generation++;
@@ -3557,10 +3627,11 @@ presentation_complete:
     memset(result_out, 0, sizeof(*result_out));
     result_out->frame_pending =
         waiting_for_grid_resize ||
+        widget->cairo_tick_id != 0 ||
         boxrig_ui_view_frame_requested(widget->view);
     result_out->input_blocked = input_blocked;
     result_out->additional_dispatch =
-        (!widget->gl_pending && !waiting_for_allocation && !waiting_for_grid_resize &&
+        (!widget->gl_pending && widget->cairo_tick_id == 0 && !waiting_for_allocation && !waiting_for_grid_resize &&
          !boxrig_terminal_synchronized_output(terminal) && result_out->frame_pending) ||
         grid_resize_ready(widget) || input_dispatch || candidate_prepared ||
         surface_candidate_preparation_pending(widget);
@@ -3585,6 +3656,18 @@ presentation_complete:
     widget->in_frame = false;
     g_object_unref(widget);
     return status;
+}
+
+boxrig_ui_status boxrig_gtk3_terminal_widget_frame(
+    BoxrigGtk3TerminalWidget *widget, boxrig_ui_component_frame_result *result_out)
+{
+    return dispatch_widget_frame(widget, result_out, false);
+}
+
+boxrig_ui_status boxrig_gtk3_terminal_widget_dispatch_frame(
+    BoxrigGtk3TerminalWidget *widget, boxrig_ui_component_frame_result *result_out)
+{
+    return dispatch_widget_frame(widget, result_out, true);
 }
 
 bool boxrig_gtk3_terminal_widget_has_presentation(

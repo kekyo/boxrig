@@ -6352,6 +6352,10 @@ test-frame-latency: $(PHASE_TRACE_BINARY) $(BUILD_DIR)/tests/performance/frame_l
 	output=$$(mktemp -d $(BUILD_DIR)/tests/performance/frame-latency.XXXXXXXX); \
 		xvfb-run -a -s '-screen 0 1280x800x24' bash tests/performance/run_frame_latency.sh \
 		$(PHASE_TRACE_BINARY) cairo 24 80 "$$output/cairo"
+	output=$$(mktemp -d $(BUILD_DIR)/tests/performance/frame-burst.XXXXXXXX); \
+		BOXRIG_LATENCY_CONTINUOUS=1 xvfb-run -a -s '-screen 0 1280x800x24' bash tests/performance/run_frame_latency.sh \
+		$(PHASE_TRACE_BINARY) cairo 24 80 "$$output/cairo" && \
+		awk 'NR > 1 && $$2 == 0 { exit 1 } END { if (NR != 24) exit 1 }' "$$output/cairo/burst.tsv"
 
 .PHONY: test-graphics-work
 test: test-graphics-work

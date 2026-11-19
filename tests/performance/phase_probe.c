@@ -20,16 +20,9 @@ static boxrig_terminal *observed_terminal;
 static boxrig_ui_view *observed_view;
 static boxrig_phase_state phase_state;
 static bool recorded;
-#ifdef BOXRIG_PHASE_TRACE
 static bool observing_draw;
+#ifdef BOXRIG_PHASE_TRACE
 static uint64_t drawn_revision;
-
-static gboolean observe_paint(GtkWidget *widget, cairo_t *context, gpointer data)
-{
-    (void)widget; (void)context; (void)data;
-    boxrig_interval_end("paint", boxrig_interval_begin(), 1, drawn_revision, 0, false);
-    return FALSE;
-}
 #endif
 
 static uint64_t monotonic_nanoseconds(void)
@@ -91,6 +84,20 @@ static void record_if_settled(boxrig_ui_view *view)
     } else {
         phase_state.settled_ns = 0;
     }
+}
+
+static gboolean observe_paint(GtkWidget *widget, cairo_t *context, gpointer data)
+{
+    (void)widget; (void)context; (void)data;
+#ifdef BOXRIG_PHASE_TRACE
+    boxrig_interval_end("paint", boxrig_interval_begin(), 1, drawn_revision, 0, false);
+#endif
+    if (observed_view != NULL && !boxrig_ui_view_frame_requested(observed_view)) {
+        boxrig_phase_observe_frame(&phase_state, phase_state.recent_cairo_revision,
+            monotonic_nanoseconds());
+        record_if_settled(observed_view);
+    }
+    return FALSE;
 }
 
 int __real_boxrig_term_text_policy_create(
@@ -187,6 +194,7 @@ int __wrap_boxrig_pango_cairo_renderer_draw_view_composition(
     int result = __real_boxrig_pango_cairo_renderer_draw_view_composition(
         renderer, view, composition);
 #ifdef BOXRIG_PHASE_TRACE
+    if (result == 0) drawn_revision = boxrig_terminal_text_revision(observed_terminal);
     boxrig_interval_end("cairo", start, 1u,
         boxrig_terminal_text_revision(observed_terminal), result, false);
     boxrig_pango_cairo_render_statistics statistics;
@@ -205,25 +213,26 @@ int __wrap_boxrig_pango_cairo_renderer_draw_view_composition(
     return result;
 }
 
-boxrig_ui_status __real_boxrig_gtk3_terminal_widget_frame(
+boxrig_ui_status __real_boxrig_gtk3_terminal_widget_dispatch_frame(
     BoxrigGtk3TerminalWidget *widget,
     boxrig_ui_component_frame_result *result_out);
 
-boxrig_ui_status __wrap_boxrig_gtk3_terminal_widget_frame(
+boxrig_ui_status __wrap_boxrig_gtk3_terminal_widget_dispatch_frame(
     BoxrigGtk3TerminalWidget *widget,
     boxrig_ui_component_frame_result *result_out)
 {
 #ifdef BOXRIG_PHASE_TRACE
     boxrig_interval_start start = boxrig_interval_begin();
+#endif
     if (!observing_draw && widget != NULL) {
         g_signal_connect_after(widget, "draw", G_CALLBACK(observe_paint), NULL);
         observing_draw = true;
     }
-#endif
-    boxrig_ui_status status = __real_boxrig_gtk3_terminal_widget_frame(
+    boxrig_ui_status status = __real_boxrig_gtk3_terminal_widget_dispatch_frame(
         widget, result_out);
 #ifdef BOXRIG_PHASE_TRACE
-    drawn_revision = boxrig_terminal_text_revision(observed_terminal);
+    if (status == BOXRIG_UI_OK && !result_out->frame_pending)
+        drawn_revision = boxrig_terminal_text_revision(observed_terminal);
     boxrig_interval_end("frame", start, 1u,
         boxrig_terminal_text_revision(observed_terminal), status, false);
 #endif

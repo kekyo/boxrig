@@ -246,6 +246,53 @@ static void feed(fixture *test, const char *text)
     CHECK(consumed == strlen(text));
 }
 
+static void test_cairo_updates_before_paint(fixture *test, const boxrig_font_effective_metrics *metrics)
+{
+    uint64_t generation = boxrig_gtk3_terminal_widget_presentation_generation(test->widget);
+    boxrig_ui_component_frame_result result;
+    feed(test, "\033[3;3H\033[48;2;254;17;32m \033[0m");
+    CHECK(boxrig_gtk3_terminal_widget_dispatch_frame(test->widget, &result) == BOXRIG_UI_OK);
+    feed(test, "\033[5;8H\033[48;2;23;253;47m \033[0m\033[5n");
+    CHECK(boxrig_gtk3_terminal_widget_dispatch_frame(test->widget, &result) == BOXRIG_UI_OK);
+    const uint8_t *reply;
+    CHECK(boxrig_terminal_output_peek(test->terminal, &reply) == 4);
+    CHECK(memcmp(reply, "\033[0n", 4) == 0);
+    CHECK(boxrig_terminal_output_consume(test->terminal, 4) == BOXRIG_STATUS_OK);
+    uint64_t prepared = boxrig_gtk3_terminal_widget_presentation_generation(test->widget) - generation;
+    fprintf(stderr, "Cairo preparations before native paint: %" G_GUINT64_FORMAT "\n", prepared);
+    CHECK(prepared == 0);
+    CHECK(result.frame_pending && !result.additional_dispatch);
+    guint timeout = g_timeout_add_seconds(30, deadline, NULL);
+    while (test->drawn_generation == generation) g_main_context_iteration(NULL, TRUE);
+    CHECK(g_source_remove(timeout));
+    CHECK(test->drawn_generation == generation + 1);
+    cairo_surface_t *image = capture(GTK_WIDGET(test->widget));
+    const uint32_t *pixels = (const uint32_t *)cairo_image_surface_get_data(image);
+    size_t stride = (size_t)cairo_image_surface_get_stride(image) / sizeof(*pixels);
+    CHECK(pixels[2 * metrics->cell_height * stride + 2 * metrics->cell_width] == 0xfffe1120u);
+    CHECK(pixels[4 * metrics->cell_height * stride + 7 * metrics->cell_width] == 0xff17fd2fu);
+    cairo_surface_destroy(image);
+
+    feed(test, "\033[?2026h\033[3;3H\033[48;2;11;17;203m \033[0m");
+    CHECK(boxrig_gtk3_terminal_widget_dispatch_frame(test->widget, &result) == BOXRIG_UI_OK);
+    CHECK(result.frame_pending && !result.additional_dispatch);
+    image = capture(GTK_WIDGET(test->widget));
+    pixels = (const uint32_t *)cairo_image_surface_get_data(image);
+    CHECK(pixels[2 * metrics->cell_height * stride + 2 * metrics->cell_width] == 0xfffe1120u);
+    cairo_surface_destroy(image);
+
+    feed(test, "\033[?2026l");
+    CHECK(boxrig_gtk3_terminal_widget_dispatch_frame(test->widget, &result) == BOXRIG_UI_OK);
+    timeout = g_timeout_add_seconds(30, deadline, NULL);
+    while (test->drawn_generation == generation + 1) g_main_context_iteration(NULL, TRUE);
+    CHECK(g_source_remove(timeout));
+    CHECK(test->drawn_generation == generation + 2);
+    image = capture(GTK_WIDGET(test->widget));
+    pixels = (const uint32_t *)cairo_image_surface_get_data(image);
+    CHECK(pixels[2 * metrics->cell_height * stride + 2 * metrics->cell_width] == 0xff0b11cbu);
+    cairo_surface_destroy(image);
+}
+
 static void test_zoom_retains_complete_frame(fixture *test)
 {
     const boxrig_font_zoom_direction directions[] = {
@@ -409,6 +456,8 @@ int main(int argc, char **argv)
             CHECK(observed_alpha_mode == BOXRIG_GL_ALPHA_OPAQUE);
         }
         test_commits_without_preedit(&test);
+        if (config.render_policy == BOXRIG_GTK_RENDER_CAIRO)
+            test_cairo_updates_before_paint(&test, &metrics);
         cairo_surface_t *before = capture(GTK_WIDGET(test.widget));
         uint32_t *before_pixels = (uint32_t *)cairo_image_surface_get_data(before);
         CHECK(before_pixels[0] == 0xff285078u);

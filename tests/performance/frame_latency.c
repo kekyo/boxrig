@@ -2,7 +2,9 @@
 #define _POSIX_C_SOURCE 200809L
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
+#include <errno.h>
 #include <inttypes.h>
+#include <poll.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -39,6 +41,30 @@ static unsigned long image_color(unsigned int sequence)
     return colors[sequence % 4];
 }
 
+static int wait_for_observation(FILE *control, FILE *burst, unsigned int sequence)
+{
+    if (burst != NULL) {
+        struct pollfd descriptors[] = {
+            {.fd = fileno(control), .events = POLLIN},
+            {.fd = STDOUT_FILENO, .events = POLLOUT}};
+        size_t batches = 0;
+        /* Keep changing a separate cell until the observer has seen the
+         * numbered update. A renderer waiting for quiet cannot make progress. */
+        for (;;) {
+            int ready = poll(descriptors, 2, -1);
+            if (ready < 0 && errno == EINTR) continue;
+            if (ready < 0 || (descriptors[1].revents & (POLLERR | POLLHUP))) return EOF;
+            if (descriptors[0].revents != 0) break;
+            for (unsigned int i = 0; i < 32; i++)
+                if (fputs(i % 2 ? "\033[1;40HX" : "\033[1;40HO", stdout) == EOF) return EOF;
+            if (fflush(stdout) != 0) return EOF;
+            batches++;
+        }
+        fprintf(burst, "%u\t%zu\n", sequence, batches);
+    }
+    return fgetc(control);
+}
+
 static int peer(const char *directory)
 {
     struct winsize size;
@@ -47,10 +73,15 @@ static int peer(const char *directory)
     CHECK(report != NULL);
     fputs("sequence\temitted_ns\twritten_ns\n", report);
     FILE *control = NULL;
+    FILE *burst = NULL;
+    if (getenv("BOXRIG_LATENCY_CONTINUOUS") != NULL) {
+        burst = open_output(directory, "burst.tsv", "w");
+        CHECK(burst != NULL);
+    }
     const char *rgba[] = {"/wAA/w==", "AP8A/w==", "AAD//w=="};
     fputs("\033]11;#000000\033\\", stdout);
     for (unsigned int sequence = 0; sequence < 24; sequence++) {
-        if (sequence != 0) CHECK(fgetc(control) == 'n');
+        if (sequence != 0) CHECK(wait_for_observation(control, burst, sequence - 1) == 'n');
         uint64_t start = now_ns();
         fputs("\033[?2026h\033[?7l\033[?25l\033[0m\033[2J\033[H", stdout);
         /* ED already removed the placement. Delete the resource by ID, since
@@ -76,7 +107,8 @@ static int peer(const char *directory)
             CHECK(control != NULL);
         }
     }
-    CHECK(fgetc(control) == 'q');
+    CHECK(wait_for_observation(control, burst, 23) == 'q');
+    if (burst != NULL) CHECK(fclose(burst) == 0);
     CHECK(fclose(control) == 0 && fclose(report) == 0);
     return 0;
 }
