@@ -142,5 +142,10 @@ if (existsSync(join(directory, 'terminal-cpu.tsv'))) {
     assert(samples[i][0] === i && (i === 0 || samples[i][1] > samples[i - 1][1]));
   summary.process_cpu_ms_per_update = (samples.at(-1)[1] - samples[0][1]) / 23e6;
 }
+if (existsSync(join(directory, 'host-cpu.tsv'))) {
+  const [first, last] = table('host-cpu.tsv');
+  assert(first[0] === 0 && last[0] === 23 && last[1] > first[1]);
+  summary.host_busy_percent = 100 * (1 - (last[2] - first[2]) / (last[1] - first[1]));
+}
 writeFileSync(join(directory, 'summary.json'), `${JSON.stringify(summary, null, 2)}\n`);
 console.log(`PASS ${renderer} ${columns}x${rows}: 24 visible transitions, ${frames.length} video frames`);

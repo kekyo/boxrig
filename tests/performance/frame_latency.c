@@ -174,6 +174,21 @@ static unsigned long rss_kib(const char *pid)
     return rss;
 }
 
+static bool record_host_cpu(FILE *output, unsigned int sequence)
+{
+    FILE *input = fopen("/proc/stat", "r");
+    if (input == NULL) return false;
+    uint64_t ticks[8], total = 0;
+    int fields = fscanf(input, "cpu %" SCNu64 " %" SCNu64 " %" SCNu64 " %" SCNu64
+        " %" SCNu64 " %" SCNu64 " %" SCNu64 " %" SCNu64,
+        &ticks[0], &ticks[1], &ticks[2], &ticks[3], &ticks[4], &ticks[5], &ticks[6], &ticks[7]);
+    if (fclose(input) != 0 || fields != 8) return false;
+    /* Guest ticks are already included in user and nice. Count idle and
+     * iowait together, as in the live terminal process measurements. */
+    for (size_t i = 0; i < 8; i++) total += ticks[i];
+    return fprintf(output, "%u\t%" PRIu64 "\t%" PRIu64 "\n", sequence, total, ticks[3] + ticks[4]) > 0;
+}
+
 static int probe(char **argv)
 {
     Window window = (Window)strtoul(argv[2], NULL, 0);
@@ -187,7 +202,9 @@ static int probe(char **argv)
     CHECK(XGetWindowAttributes(display, window, &attributes));
     FILE *report = open_output(directory, "probe.tsv", "w");
     FILE *frames = open_output(directory, "frames.tsv", "w");
-    CHECK(report != NULL && frames != NULL);
+    FILE *host_cpu = open_output(directory, "host-cpu.tsv", "w");
+    CHECK(report != NULL && frames != NULL && host_cpu != NULL);
+    fputs("sequence\ttotal_ticks\tidle_ticks\n", host_cpu);
     FILE *unstable = NULL;
     size_t disagreements = 0;
     if (getenv("BOXRIG_VERIFY_STABLE_READBACK") != NULL) {
@@ -281,6 +298,7 @@ static int probe(char **argv)
                     frame_index++, sampled, observed, background, ink);
                 CHECK(fflush(frames) == 0);
                 if (observed == (int)sequence && (isolated || (background == image_color(sequence) && ink > 0))) {
+                    if (sequence == 0 || sequence == 23) CHECK(record_host_cpu(host_cpu, sequence));
                     unsigned long rss = rss_kib(argv[8]);
                     CHECK(rss != 0);
                     fprintf(report, "%u\t%" PRIu64 "\t%" PRIu64 "\t%lu\n", sequence, sent, sampled, rss);
@@ -315,6 +333,7 @@ static int probe(char **argv)
     CHECK(fclose(control) == 0 && fclose(report) == 0 && fclose(frames) == 0);
     if (cpu != NULL) CHECK(fclose(cpu) == 0);
     if (unstable != NULL) CHECK(fclose(unstable) == 0);
+    CHECK(fclose(host_cpu) == 0);
     XCloseDisplay(display);
     return 0;
 }
