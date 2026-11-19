@@ -119,6 +119,8 @@ if (captureInput) {
   summary.input_sha256 = JSON.parse(readFileSync(join(captureInput, 'manifest.json'), 'utf8')).warmupAndFramesSha256;
 } else if (isolated) {
   summary.input_bytes_per_update = 1;
+  if (process.env.BOXRIG_LATENCY_KEY_ECHO)
+    summary.key_to_visible_ms = statistics(probe.slice(1).map(([, sent, visible]) => (visible - sent) / 1e6));
 } else {
   const imageStates = trace.filter(event => event.name === 'image_state');
   assert(imageStates.length > 0 && imageStates.every(event => event.units <= 1 && event.revision <= 4));

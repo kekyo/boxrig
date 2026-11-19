@@ -2,6 +2,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
+#include <X11/keysym.h>
 #include <errno.h>
 #include <inttypes.h>
 #include <poll.h>
@@ -74,13 +75,14 @@ static int peer(const char *directory)
     fputs("sequence\temitted_ns\twritten_ns\n", report);
     FILE *control = NULL;
     if (getenv("BOXRIG_LATENCY_ISOLATED_CELL") != NULL) {
+        bool key_echo = getenv("BOXRIG_LATENCY_KEY_ECHO") != NULL;
         /* With autowrap disabled the cursor stays on the last column. Every
          * measured event changes exactly one printable byte at that cell. */
         printf("\033[?7l\033[?25l\033[H\033[48;2;64;80;80m        "
             "\033[2;%uH\033[38;2;255;255;255;48;2;0;0;0m", size.ws_col);
         CHECK(fflush(stdout) == 0);
         for (unsigned int sequence = 0; sequence < 24; sequence++) {
-            if (sequence != 0) CHECK(fgetc(control) == 'n');
+            if (sequence != 0) CHECK(fgetc(key_echo ? stdin : control) == 'n');
             uint64_t start = now_ns();
             CHECK(fputc(sequence % 2 == 0 ? 'M' : ' ', stdout) != EOF && fflush(stdout) == 0);
             fprintf(report, "%u\t%" PRIu64 "\t%" PRIu64 "\n", sequence, start, now_ns());
@@ -230,12 +232,27 @@ static int probe(char **argv)
     fputs("frame\ttimestamp_ns\tsequence\timage_pixel\tink\n", frames);
     int gx = -1, gy = -1;
     bool isolated = getenv("BOXRIG_LATENCY_ISOLATED_CELL") != NULL;
+    bool key_echo = isolated && getenv("BOXRIG_LATENCY_KEY_ECHO") != NULL;
     size_t frame_index = 0;
     uint64_t diagnostic_time = 0;
     FILE *control = NULL;
     for (unsigned int sequence = 0; sequence < 24; sequence++) {
         uint64_t sent = now_ns();
-        if (sequence != 0) CHECK(fputc('n', control) != EOF && fflush(control) == 0);
+        if (sequence != 0 && key_echo) {
+            XEvent event = {0};
+            event.xkey.display = display;
+            event.xkey.window = window;
+            event.xkey.root = DefaultRootWindow(display);
+            event.xkey.same_screen = True;
+            event.xkey.keycode = XKeysymToKeycode(display, XK_n);
+            event.type = KeyPress;
+            CHECK(XSendEvent(display, window, False, KeyPressMask, &event));
+            event.type = KeyRelease;
+            CHECK(XSendEvent(display, window, False, KeyReleaseMask, &event));
+            XFlush(display);
+        } else if (sequence != 0) {
+            CHECK(fputc('n', control) != EOF && fflush(control) == 0);
+        }
         uint64_t deadline = now_ns() + UINT64_C(30000000000);
         bool seen = false;
         while (!seen && now_ns() < deadline) {
