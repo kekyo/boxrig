@@ -6,6 +6,7 @@
 
 #include "boxrig/posix.h"
 #include "boxrig/x11.h"
+#include "../../examples/boxrig_term/x11/output_frame.h"
 
 #include <X11/Xlib.h>
 
@@ -448,8 +449,27 @@ static bool test_pty_input_batch_preserves_backpressured_bytes_and_eof(void)
     return true;
 }
 
+static bool test_output_frame_deadline(void)
+{
+    boxrig_term_x11_output_frame frame = {0};
+    CHECK(boxrig_term_x11_output_frame_delay(&frame, 100, true, false) == 0);
+    boxrig_term_x11_output_frame_complete(&frame, 100, false);
+    CHECK(boxrig_term_x11_output_frame_delay(&frame, 101, false, false) == 0);
+    int delay = boxrig_term_x11_output_frame_delay(&frame, 101, true, false);
+    CHECK(delay > 1);
+    CHECK(boxrig_term_x11_output_frame_delay(&frame, 102, true, false) == delay - 1);
+    CHECK(boxrig_term_x11_output_frame_delay(&frame, 102, false, false) == delay - 1);
+    CHECK(boxrig_term_x11_output_frame_delay(&frame, 101 + delay, false, false) == 0);
+    boxrig_term_x11_output_frame_complete(&frame, 101 + delay, false);
+    CHECK(boxrig_term_x11_output_frame_delay(&frame, 102 + delay, true, true) == 0);
+    boxrig_term_x11_output_frame_complete(&frame, 102 + delay, true);
+    CHECK(boxrig_term_x11_output_frame_delay(&frame, 200, true, false) == 0);
+    return true;
+}
+
 int main(void)
 {
+    if (!test_output_frame_deadline()) return 1;
     if (!test_buffered_x_event_is_ready_without_descriptor_activity()) {
         fprintf(stderr, "Test failed: buffered X event wakes event loop\n");
         return 1;
