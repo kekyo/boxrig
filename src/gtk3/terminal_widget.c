@@ -376,6 +376,9 @@ static void schedule_cairo(BoxrigGtk3TerminalWidget *widget)
      * next one early. Continuous input still gets the frame clock deadline. */
     if (!widget->cairo_awaiting_paint) {
         widget->cairo_idle = g_idle_source_new();
+        /* Let an already-ready native redraw use this committed image. GTK
+         * allocation work still runs first, and the tick bounds a busy PTY. */
+        g_source_set_priority(widget->cairo_idle, GDK_PRIORITY_REDRAW - 1);
         g_source_set_callback(widget->cairo_idle, prepare_scheduled_cairo, widget, NULL);
         g_source_attach(widget->cairo_idle, widget->main_context);
     }

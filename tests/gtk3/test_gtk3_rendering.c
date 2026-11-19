@@ -246,6 +246,18 @@ static void feed(fixture *test, const char *text)
     CHECK(consumed == strlen(text));
 }
 
+typedef struct {
+    BoxrigGtk3TerminalWidget *widget;
+    uint64_t generation;
+} redraw_capture;
+
+static gboolean capture_for_redraw(gpointer data)
+{
+    redraw_capture *snapshot = data;
+    snapshot->generation = boxrig_gtk3_terminal_widget_presentation_generation(snapshot->widget);
+    return G_SOURCE_REMOVE;
+}
+
 static void test_cairo_updates_before_paint(fixture *test, const boxrig_font_effective_metrics *metrics)
 {
     uint64_t generation = boxrig_gtk3_terminal_widget_presentation_generation(test->widget);
@@ -281,9 +293,17 @@ static void test_cairo_updates_before_paint(fixture *test, const boxrig_font_eff
     CHECK(pixels[2 * metrics->cell_height * stride + 2 * metrics->cell_width] == 0xfffe1120u);
     cairo_surface_destroy(image);
 
+    /* A host redraw that is ready while an isolated update arrives should
+     * receive the newly committed picture on its next drawing opportunity. */
+    redraw_capture next_draw = {test->widget, 0};
+    g_idle_add_full(GDK_PRIORITY_REDRAW, capture_for_redraw, &next_draw, NULL);
     feed(test, "\033[?2026l");
     CHECK(boxrig_gtk3_terminal_widget_dispatch_frame(test->widget, &result) == BOXRIG_UI_OK);
     timeout = g_timeout_add_seconds(30, deadline, NULL);
+    while (next_draw.generation == 0) g_main_context_iteration(NULL, TRUE);
+    fprintf(stderr, "Isolated update available at the next host redraw: %d\n",
+        next_draw.generation == generation + 2);
+    CHECK(next_draw.generation == generation + 2);
     while (test->drawn_generation == generation + 1) g_main_context_iteration(NULL, TRUE);
     CHECK(g_source_remove(timeout));
     CHECK(test->drawn_generation == generation + 2);
