@@ -44,6 +44,7 @@ typedef struct boxrig_pango_cairo_logical_cluster {
 typedef struct boxrig_pango_cairo_glyph_bounds {
     size_t first_glyph;
     size_t glyph_count;
+    bool monochrome_box;
     /* Pango units from the fitted span's visual origin. The ink envelopes
      * include every preceding/following cluster, respectively. */
     double advance;
@@ -157,6 +158,18 @@ typedef struct boxrig_pango_cairo_frame_surface {
     bool presentation_valid;
 } boxrig_pango_cairo_frame_surface;
 
+/* Coverage is independent of the foreground and destination only in explicit
+ * grayscale mode. Each entry owns its font and up to 4096 bytes of A8 pixels. */
+typedef struct box_outline_mask {
+    PangoFont *font;
+    cairo_surface_t *surface;
+    size_t width;
+    size_t glyph_count;
+    double scale;
+    double offset;
+    PangoGlyphInfo glyphs[4];
+} box_outline_mask;
+
 struct boxrig_pango_cairo_renderer {
     boxrig_ui_fragment_layout_provider *fragment_layout_provider;
     boxrig_ui_rgba background_color;
@@ -202,6 +215,8 @@ struct boxrig_pango_cairo_renderer {
     uint16_t color_source_buckets[BOXRIG_PANGO_CAIRO_COLOR_BUCKET_COUNT];
     size_t color_source_count;
     size_t color_source_replacement;
+    box_outline_mask outline_masks[64];
+    size_t next_outline_mask;
     uint64_t color_revision;
     boxrig_pango_cairo_image_cache_entry *image_cache;
     size_t image_cache_count;
@@ -459,10 +474,24 @@ static int snapshot_image_placements(
     return 0;
 }
 
+static void clear_outline_masks(boxrig_pango_cairo_renderer *renderer)
+{
+    for (size_t i = 0; i < G_N_ELEMENTS(renderer->outline_masks); i++) {
+        box_outline_mask *mask = &renderer->outline_masks[i];
+        if (mask->surface != NULL) {
+            cairo_surface_destroy(mask->surface);
+            g_object_unref(mask->font);
+            mask->surface = NULL;
+        }
+    }
+    renderer->next_outline_mask = 0;
+}
+
 static void destroy_row_cache(boxrig_pango_cairo_renderer *renderer)
 {
     size_t row;
 
+    clear_outline_masks(renderer);
     for (row = 0; row < renderer->cached_rows; row++) {
         row_shape_destroy(&renderer->row_cache[row].shape);
     }
@@ -1564,6 +1593,7 @@ boxrig_font_catalog_status boxrig_pango_cairo_renderer_commit_font(
     pango_context_set_font_description(
         renderer->pango_context,
         candidate->description);
+    clear_outline_masks(renderer);
     pango_cairo_context_set_resolution(renderer->pango_context, 96.0);
     pango_cairo_context_set_font_options(
         renderer->pango_context,
@@ -2388,6 +2418,7 @@ boxrig_font_catalog_status boxrig_pango_cairo_renderer_set_line_height_adjustmen
     renderer->natural_metrics = natural;
     renderer->effective_metrics = effective;
     renderer->line_height_adjustment_dip = adjustment_dip;
+    clear_outline_masks(renderer);
     renderer->cell_width = effective.cell_width;
     renderer->cell_height = effective.cell_height;
     renderer->ascent = (int)effective.baseline;
@@ -2456,6 +2487,7 @@ static boxrig_font_catalog_status commit_visual_step(
         pango_font_description_free(description);
         return status;
     }
+    clear_outline_masks(renderer);
     pango_context_set_font_description(renderer->pango_context, description);
     pango_font_description_free(renderer->font_description);
     renderer->font_description = description;
@@ -3288,6 +3320,10 @@ static int build_glyph_spans(boxrig_pango_cairo_shaped_item *item,
             boxrig_pango_cairo_glyph_bounds *cluster = &span->clusters[span->cluster_count++];
             cluster->first_glyph = first;
             cluster->glyph_count = next - first;
+            const uint8_t *character = (const uint8_t *)text + item->glyph_item.item->offset + glyphs->log_clusters[first];
+            /* U+2500..U+257F encodes as E2 94 xx or E2 95 xx. */
+            cluster->monochrome_box = next == first + 1 && !glyphs->glyphs[first].attr.is_color &&
+                character[0] == 0xe2 && (character[1] == 0x94 || character[1] == 0x95);
             cluster->advance = advance;
             PangoRectangle ink;
             pango_glyph_string_extents_range(glyphs, (int)first, (int)next,
@@ -4150,6 +4186,65 @@ typedef struct glyph_raster_reuse {
     size_t count;
 } glyph_raster_reuse;
 
+static bool same_glyph_geometry(const PangoGlyphInfo *left, const PangoGlyphInfo *right, size_t count)
+{
+    for (size_t i = 0; i < count; i++) {
+        const PangoGlyphInfo *a = &left[i], *b = &right[i];
+        if (a->glyph != b->glyph || a->geometry.width != b->geometry.width ||
+            a->geometry.x_offset != b->geometry.x_offset || a->geometry.y_offset != b->geometry.y_offset)
+            return false;
+    }
+    return true;
+}
+
+static cairo_surface_t *get_outline_mask(boxrig_pango_cairo_renderer *renderer, PangoFont *font,
+    PangoGlyphString *glyphs, size_t width, double scale, double offset)
+{
+    for (size_t i = 0; i < G_N_ELEMENTS(renderer->outline_masks); i++) {
+        box_outline_mask *mask = &renderer->outline_masks[i];
+        if (mask->surface != NULL && mask->font == font && mask->width == width &&
+            mask->scale == scale && mask->offset == offset && mask->glyph_count == (size_t)glyphs->num_glyphs &&
+            same_glyph_geometry(mask->glyphs, glyphs->glyphs, mask->glyph_count))
+            return mask->surface;
+    }
+    cairo_surface_t *surface = cairo_image_surface_create(CAIRO_FORMAT_A8, (int)width, (int)renderer->cell_height);
+    cairo_t *cr = cairo_create(surface);
+    cairo_font_options_t *options = cairo_font_options_create();
+    cairo_get_font_options(renderer->cairo, options);
+    cairo_set_font_options(cr, options);
+    cairo_font_options_destroy(options);
+    cairo_set_source_rgba(cr, 1, 1, 1, 1);
+    cairo_translate(cr, offset, renderer->ascent);
+    cairo_scale(cr, scale, 1);
+    cairo_move_to(cr, 0, 0);
+    pango_cairo_show_glyph_string(cr, font, glyphs);
+    cairo_status_t status = cairo_status(cr);
+    cairo_destroy(cr);
+    if (status != CAIRO_STATUS_SUCCESS) {
+        cairo_surface_destroy(surface);
+        return NULL;
+    }
+
+    box_outline_mask *mask = &renderer->outline_masks[renderer->next_outline_mask];
+    renderer->next_outline_mask = (renderer->next_outline_mask + 1) % G_N_ELEMENTS(renderer->outline_masks);
+    if (mask->surface != NULL) {
+        cairo_surface_destroy(mask->surface);
+        g_object_unref(mask->font);
+    }
+    mask->surface = surface;
+    mask->font = g_object_ref(font);
+    mask->width = width;
+    mask->scale = scale;
+    mask->offset = offset;
+    mask->glyph_count = (size_t)glyphs->num_glyphs;
+    memcpy(mask->glyphs, glyphs->glyphs, mask->glyph_count * sizeof(*mask->glyphs));
+    renderer->render_statistics.glyph_draw_count++;
+    size_t area = width * renderer->cell_height;
+    size_t previous = renderer->render_statistics.glyph_raster_pixel_count;
+    renderer->render_statistics.glyph_raster_pixel_count = area > SIZE_MAX - previous ? SIZE_MAX : previous + area;
+    return surface;
+}
+
 static int draw_fitted_item_segment(
     boxrig_pango_cairo_renderer *renderer,
     const boxrig_pango_cairo_shaped_item *item,
@@ -4212,6 +4307,39 @@ static int draw_fitted_item_segment(
     const PangoGlyphInfo *glyph_info = item->glyph_item.glyphs->glyphs + begin->first_glyph;
     double glyph_x = origin + begin->advance / units_per_pixel;
     double relative_x = glyph_x - raster_x;
+    if (renderer->rendering_policy.antialias == BOXRIG_FONT_ANTIALIAS_GRAYSCALE &&
+        glyph_count <= G_N_ELEMENTS(renderer->outline_masks[0].glyphs) && raster_width > 0 && area <= 4096 &&
+        cairo_get_group_target(renderer->cairo) == renderer->backing_surface) {
+        int stride = cairo_format_stride_for_width(CAIRO_FORMAT_A8, (int)raster_width);
+        bool eligible = stride > 0 && renderer->cell_height <= 4096u / (unsigned int)stride;
+        for (size_t i = first; eligible && i < low; i++) eligible = span->clusters[i].monochrome_box;
+        if (eligible) {
+            cairo_matrix_t matrix;
+            cairo_get_matrix(renderer->cairo, &matrix);
+            eligible = matrix.xx == 1 && matrix.yy == 1 && matrix.xy == 0 && matrix.yx == 0 &&
+                       matrix.x0 == 0 && matrix.y0 == 0;
+        }
+        if (eligible) {
+            PangoGlyphString glyphs = *item->glyph_item.glyphs;
+            glyphs.num_glyphs = (int)glyph_count;
+            glyphs.glyphs += begin->first_glyph;
+            glyphs.log_clusters += begin->first_glyph;
+            cairo_surface_t *mask = get_outline_mask(renderer, item->glyph_item.item->analysis.font,
+                &glyphs, raster_width, horizontal_scale, relative_x);
+            if (mask != NULL) {
+                if (!set_cairo_source_pixel(renderer, foreground, 255)) return -1;
+                cairo_save(renderer->cairo);
+                cairo_rectangle(renderer->cairo, clip_x, y, clip_end - clip_x, renderer->cell_height);
+                cairo_clip(renderer->cairo);
+                cairo_set_operator(renderer->cairo, CAIRO_OPERATOR_OVER);
+                cairo_mask_surface(renderer->cairo, mask, raster_x, y);
+                cairo_restore(renderer->cairo);
+                renderer->render_statistics.glyph_composite_pixel_count +=
+                    clip_column_count * renderer->cell_width * renderer->cell_height;
+                return cairo_status(renderer->cairo) == CAIRO_STATUS_SUCCESS ? 0 : -1;
+            }
+        }
+    }
     cairo_pattern_t *raster = NULL;
     glyph_raster_reuse_entry *remember = NULL;
     /* At most 16 rasters of 4096 pixels, plus their equally bounded underlays.
@@ -4228,12 +4356,7 @@ static int draw_fitted_item_segment(
             glyph_raster_reuse_entry *entry = &reuse->entries[i];
             if (entry->width != raster_width || entry->foreground != foreground ||
                 entry->relative_x != relative_x || entry->glyph_count != glyph_count) continue;
-            bool equal = true;
-            for (size_t g = 0; g < glyph_count && equal; g++) {
-                const PangoGlyphInfo *a = &entry->glyphs[g], *b = &glyph_info[g];
-                equal = a->glyph == b->glyph && a->geometry.width == b->geometry.width &&
-                    a->geometry.x_offset == b->geometry.x_offset && a->geometry.y_offset == b->geometry.y_offset;
-            }
+            bool equal = same_glyph_geometry(entry->glyphs, glyph_info, glyph_count);
             for (size_t line = 0; line < renderer->cell_height && equal; line++)
                 equal = memcmp(entry->underlay + line * bytes, data + line * stride, bytes) == 0;
             if (!equal) continue;

@@ -3462,7 +3462,12 @@ $(GTK4_EXAMPLE_BINARY): $(GTK4_EXAMPLE_SOURCES) \
 		$(GTK4_LIBRARY) $(NOTIFICATION_LIBRARY) $(POSIX_LIBRARY) $(SESSION_LIBRARY) $(UI_LIBRARY) \
 		$(LIBRARY) $(GTK4_LIBS) -lutil $(POSIX_URI_LIBS) -o $@
 
-$(GTK3_EXAMPLE_BINARY) $(BUILD_DIR)/boxrig_term/gtk3/boxrig_term_work: $(GTK3_EXAMPLE_SOURCES) \
+GTK3_GRAYSCALE_SAMPLE := $(BUILD_DIR)/boxrig_term/gtk3/boxrig_term_grayscale
+$(GTK3_GRAYSCALE_SAMPLE): UPDATE_PROBE_SOURCE := tests/performance/gtk3_grayscale.c
+$(GTK3_GRAYSCALE_SAMPLE): UPDATE_PROBE_FLAGS := -Wl,--wrap=boxrig_font_rendering_policy_default
+$(GTK3_GRAYSCALE_SAMPLE): tests/performance/gtk3_grayscale.c
+
+$(GTK3_EXAMPLE_BINARY) $(BUILD_DIR)/boxrig_term/gtk3/boxrig_term_work $(GTK3_GRAYSCALE_SAMPLE): $(GTK3_EXAMPLE_SOURCES) \
 	examples/boxrig_term/gtk3/geometry_trace.h \
 	examples/boxrig_term/gtk3/resize_frame.h \
 	$(UI_HEADERS) $(GTK3_HEADERS) include/boxrig/posix.h \
@@ -6381,6 +6386,14 @@ test-pangocairo-updates: $(BUILD_DIR)/tests/test_pangocairo_updates $(BUILD_DIR)
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(BUILD_DIR)/tests/test_pangocairo_paint_updates
 
 $(BUILD_DIR)/tests/test_pangocairo_updates: CAIRO_UPDATE_SANITIZERS = $(SANITIZERS)
+$(BUILD_DIR)/tests/performance/cairo_grid_replay: tests/performance/cairo_grid_replay.c \
+		src/pangocairo/renderer.c src/pangocairo/renderer.h src/pangocairo/renderer_private.h \
+		src/pangocairo/glyph_fit.h src/ui/glyph_fit.h $(PANGO_CANDIDATE_OBJECT) $(UI_HEADERS) \
+		$(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests/performance
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) -Isrc $(POSIX_CPPFLAGS) $(PANGO_CAIRO_CPPFLAGS) \
+		$(CFLAGS) $(PROJECT_CFLAGS) $< src/pangocairo/renderer.c $(PANGO_CANDIDATE_OBJECT) \
+		$(UI_LIBRARY) $(LIBRARY) $(PANGO_CAIRO_LIBS) -o $@
+
 $(BUILD_DIR)/tests/test_pangocairo_updates $(BUILD_DIR)/tests/performance/measure_pangocairo_updates: \
 		tests/pangocairo/measure_updates.c src/pangocairo/renderer.c \
 		src/pangocairo/renderer.h src/pangocairo/renderer_private.h src/pangocairo/glyph_fit.h \
