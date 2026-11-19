@@ -3429,14 +3429,39 @@ $(PNG_CONFIG): deps/libpng/scripts/pnglibconf.h.prebuilt | $(PNG_CONFIG_DIR)
 	sed -e '/^#define PNG_FLOATING_ARITHMETIC_SUPPORTED$$/d' \
 		-e '/^#define PNG_FLOATING_POINT_SUPPORTED$$/d' $< > $@
 
-$(EXAMPLE_BINARY): $(EXAMPLE_SOURCES) \
+OPENGL_UPDATE_PROBES := $(BUILD_DIR)/boxrig_term/x11/boxrig_term_work $(BUILD_DIR)/boxrig_term/gtk3/boxrig_term_work
+$(OPENGL_UPDATE_PROBES): UPDATE_PROBE_SOURCE := tests/performance/opengl_update_probe.c
+$(OPENGL_UPDATE_PROBES): UPDATE_PROBE_FLAGS := -Wl,--wrap=boxrig_ogl_renderer_lifecycle_create \
+	-Wl,--wrap=boxrig_ogl_text_provider_shape_row -Wl,--wrap=boxrig_renderer_lifecycle_prepare_frame \
+	-Wl,--wrap=boxrig_terminal_feed -Wl,--wrap=pango_shape_item $(PANGO_CAIRO_CPPFLAGS)
+$(OPENGL_UPDATE_PROBES): tests/performance/opengl_update_probe.c
+.PHONY: opengl-update-probes
+opengl-update-probes: $(OPENGL_UPDATE_PROBES)
+
+IMAGE_PHASE_PROBES := $(BUILD_DIR)/boxrig_term/x11/boxrig_term_image_work $(BUILD_DIR)/boxrig_term/gtk3/boxrig_term_image_work
+IMAGE_PHASE_FLAGS := -Wl,--wrap=boxrig_kitty_graphics_set_consumer -Wl,--wrap=boxrig_terminal_feed \
+	-Wl,--wrap=boxrig_renderer_lifecycle_prepare_frame -Wl,--wrap=boxrig_gl_runtime_upload_texture
+$(IMAGE_PHASE_PROBES): UPDATE_PROBE_SOURCE := tests/performance/image_phase_probe.c
+$(BUILD_DIR)/boxrig_term/x11/boxrig_term_image_work: UPDATE_PROBE_FLAGS := $(IMAGE_PHASE_FLAGS) \
+	$(PANGO_CAIRO_CPPFLAGS) -Wl,--wrap=eglSwapBuffers -Wl,--wrap=glBlitFramebuffer
+$(BUILD_DIR)/boxrig_term/gtk3/boxrig_term_image_work: UPDATE_PROBE_FLAGS := $(IMAGE_PHASE_FLAGS) \
+	-DBOXRIG_IMAGE_GTK -Wl,--wrap=boxrig_pango_cairo_renderer_draw_view_composition \
+	-Wl,--wrap=boxrig_premultiplied_image_create -Wl,--wrap=boxrig_composite_premultiplied_image \
+	-Wl,--wrap=boxrig_pango_cairo_renderer_surface -Wl,--wrap=cairo_surface_mark_dirty \
+	-Wl,--wrap=boxrig_gtk_gl_surface_present -Wl,--wrap=gtk_gl_area_queue_render \
+	-Wl,--wrap=gtk_widget_add_tick_callback
+$(IMAGE_PHASE_PROBES): tests/performance/image_phase_probe.c
+.PHONY: image-phase-probes
+image-phase-probes: $(IMAGE_PHASE_PROBES)
+
+$(EXAMPLE_BINARY) $(BUILD_DIR)/boxrig_term/x11/boxrig_term_work $(BUILD_DIR)/boxrig_term/x11/boxrig_term_image_work: $(EXAMPLE_SOURCES) \
 	$(UI_HEADERS) $(X11_HEADERS) include/boxrig/posix.h \
 	$(X11_OPENGL_LIBRARY) $(X11_LIBRARY) $(OPENGL_RENDERER_LIBRARY) \
 	$(POSIX_LIBRARY) $(SESSION_LIBRARY) $(UI_LIBRARY) $(LIBRARY) \
 	| $(BUILD_DIR)/boxrig_term/x11
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_URI_CPPFLAGS) $(POSIX_CPPFLAGS) \
 		$(X11_CPPFLAGS) $(XEXT_CPPFLAGS) $(DBUS_CPPFLAGS) $(CFLAGS) \
-		$(PROJECT_CFLAGS) $(EXAMPLE_SOURCES) \
+		$(PROJECT_CFLAGS) $(EXAMPLE_SOURCES) $(UPDATE_PROBE_SOURCE) $(UPDATE_PROBE_FLAGS) \
 		$(X11_OPENGL_LIBRARY) $(X11_LIBRARY) $(OPENGL_RENDERER_LIBRARY) \
 		$(POSIX_LIBRARY) $(SESSION_LIBRARY) $(UI_LIBRARY) $(LIBRARY) \
 		$(X11_LIBS) $(XEXT_LIBS) $(DBUS_LIBS) $(OPENGL_RENDERER_LIBS) \
@@ -3453,7 +3478,12 @@ $(GTK4_EXAMPLE_BINARY): $(GTK4_EXAMPLE_SOURCES) \
 		$(GTK4_LIBRARY) $(NOTIFICATION_LIBRARY) $(POSIX_LIBRARY) $(SESSION_LIBRARY) $(UI_LIBRARY) \
 		$(LIBRARY) $(GTK4_LIBS) -lutil $(POSIX_URI_LIBS) -o $@
 
-$(GTK3_EXAMPLE_BINARY): $(GTK3_EXAMPLE_SOURCES) \
+GTK3_GRAYSCALE_SAMPLE := $(BUILD_DIR)/boxrig_term/gtk3/boxrig_term_grayscale
+$(GTK3_GRAYSCALE_SAMPLE): UPDATE_PROBE_SOURCE := tests/performance/gtk3_grayscale.c
+$(GTK3_GRAYSCALE_SAMPLE): UPDATE_PROBE_FLAGS := -Wl,--wrap=boxrig_font_rendering_policy_default
+$(GTK3_GRAYSCALE_SAMPLE): tests/performance/gtk3_grayscale.c
+
+$(GTK3_EXAMPLE_BINARY) $(BUILD_DIR)/boxrig_term/gtk3/boxrig_term_work $(BUILD_DIR)/boxrig_term/gtk3/boxrig_term_image_work $(GTK3_GRAYSCALE_SAMPLE): $(GTK3_EXAMPLE_SOURCES) \
 	examples/boxrig_term/gtk3/geometry_trace.h \
 	examples/boxrig_term/gtk3/resize_frame.h \
 	$(UI_HEADERS) $(GTK3_HEADERS) include/boxrig/posix.h \
@@ -3462,7 +3492,7 @@ $(GTK3_EXAMPLE_BINARY): $(GTK3_EXAMPLE_SOURCES) \
 	| $(BUILD_DIR)/boxrig_term/gtk3
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_URI_CPPFLAGS) $(POSIX_CPPFLAGS) \
 		$(GTK3_CPPFLAGS) $(CFLAGS) $(GTK3_PROJECT_CFLAGS) \
-		$(GTK3_EXAMPLE_SOURCES) \
+		$(GTK3_EXAMPLE_SOURCES) $(UPDATE_PROBE_SOURCE) $(UPDATE_PROBE_FLAGS) \
 		$(GTK3_LIBRARY) $(NOTIFICATION_LIBRARY) $(POSIX_LIBRARY) $(SESSION_LIBRARY) $(UI_LIBRARY) \
 		$(LIBRARY) $(GTK3_LIBS) -lutil $(POSIX_URI_LIBS) -o $@
 
@@ -6352,6 +6382,10 @@ test-frame-latency: $(PHASE_TRACE_BINARY) $(BUILD_DIR)/tests/performance/frame_l
 	output=$$(mktemp -d $(BUILD_DIR)/tests/performance/frame-latency.XXXXXXXX); \
 		xvfb-run -a -s '-screen 0 1280x800x24' bash tests/performance/run_frame_latency.sh \
 		$(PHASE_TRACE_BINARY) cairo 24 80 "$$output/cairo"
+	output=$$(mktemp -d $(BUILD_DIR)/tests/performance/frame-burst.XXXXXXXX); \
+		BOXRIG_LATENCY_CONTINUOUS=1 xvfb-run -a -s '-screen 0 1280x800x24' bash tests/performance/run_frame_latency.sh \
+		$(PHASE_TRACE_BINARY) cairo 24 80 "$$output/cairo" && \
+		awk 'NR > 1 && $$2 == 0 { exit 1 } END { if (NR != 24) exit 1 }' "$$output/cairo/burst.tsv"
 
 .PHONY: test-graphics-work
 test: test-graphics-work
@@ -6368,6 +6402,14 @@ test-pangocairo-updates: $(BUILD_DIR)/tests/test_pangocairo_updates $(BUILD_DIR)
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(BUILD_DIR)/tests/test_pangocairo_paint_updates
 
 $(BUILD_DIR)/tests/test_pangocairo_updates: CAIRO_UPDATE_SANITIZERS = $(SANITIZERS)
+$(BUILD_DIR)/tests/performance/cairo_grid_replay: tests/performance/cairo_grid_replay.c \
+		src/pangocairo/renderer.c src/pangocairo/renderer.h src/pangocairo/renderer_private.h \
+		src/pangocairo/glyph_fit.h src/ui/glyph_fit.h $(PANGO_CANDIDATE_OBJECT) $(UI_HEADERS) \
+		$(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests/performance
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) -Isrc $(POSIX_CPPFLAGS) $(PANGO_CAIRO_CPPFLAGS) \
+		$(CFLAGS) $(PROJECT_CFLAGS) $< src/pangocairo/renderer.c $(PANGO_CANDIDATE_OBJECT) \
+		$(UI_LIBRARY) $(LIBRARY) $(PANGO_CAIRO_LIBS) -o $@
+
 $(BUILD_DIR)/tests/test_pangocairo_updates $(BUILD_DIR)/tests/performance/measure_pangocairo_updates: \
 		tests/pangocairo/measure_updates.c src/pangocairo/renderer.c \
 		src/pangocairo/renderer.h src/pangocairo/renderer_private.h src/pangocairo/glyph_fit.h \

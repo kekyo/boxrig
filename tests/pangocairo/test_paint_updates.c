@@ -382,11 +382,75 @@ static bool conceal_preserves_neighboring_ascii(bool repeated)
     return true;
 }
 
+static bool outline_updates(const char *prefix)
+{
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    config.rows = 2;
+    config.columns = 24;
+    boxrig_terminal *terminal;
+    boxrig_pango_cairo_renderer *renderer;
+    boxrig_font_specification font = boxrig_font_specification_default();
+    boxrig_font_rendering_policy policy = boxrig_font_rendering_policy_default();
+    policy.antialias = BOXRIG_FONT_ANTIALIAS_GRAYSCALE;
+    boxrig_ui_transparency_state alpha = {0};
+    alpha.effective = BOXRIG_UI_TRANSPARENCY_PREMULTIPLIED_ALPHA;
+    alpha.effective_scopes = BOXRIG_UI_TRANSPARENCY_VIEW_SURFACE;
+    alpha.effective_background_opacity = 119;
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_pango_cairo_renderer_create(168, 28, &renderer) == 0);
+    CHECK(boxrig_pango_cairo_renderer_apply_transparency_state(renderer, &alpha) == 0);
+    size_t recolor_draws = 0;
+    for (int scale = 0; scale < 2; scale++) {
+        policy.output_scale = scale == 0 ? 1.0f : 1.25f;
+        font.size_dip += scale * 0.75f;
+        CHECK(boxrig_pango_cairo_renderer_set_font(renderer, &font, &policy) == BOXRIG_FONT_CATALOG_OK);
+        unsigned int cw = boxrig_pango_cairo_renderer_cell_width(renderer);
+        unsigned int ch = boxrig_pango_cairo_renderer_cell_height(renderer);
+        CHECK(boxrig_terminal_set_cell_pixel_geometry(terminal, cw, ch) == BOXRIG_STATUS_OK);
+        CHECK(boxrig_pango_cairo_renderer_set_surface_size(renderer, 24 * cw, 2 * ch) == 0);
+        CHECK(feed(terminal, "\033[?7l\033[?25l\033[H\033_Ga=T,f=32,s=1,v=1,i=7,p=1,c=12,r=2,z=-1,C=1,q=2;/wAAgA==\033\\"));
+        for (int phase = 0; phase < 4; phase++) {
+            if (phase == 3) {
+                CHECK(boxrig_pango_cairo_renderer_expose(renderer, 4 * cw + 1, 1, 8 * cw - 2, ch - 2) == 0);
+            } else {
+                for (size_t row = 0; row < config.rows; row++) {
+                    for (size_t column = 0; column < config.columns; column++) {
+                        char input[90];
+                        const char *glyph = (column + (phase == 2)) % 5 == 0 ? "╼" : "┿";
+                        snprintf(input, sizeof(input), "\033[%zu;%zuH\033[0;%s38;2;%zu;%d;%zum%s",
+                            row + 1, column + 1, row == 1 ? "3;" : "",
+                            (column * 17 + phase * 11) % 256, 61 + phase, (column * 19) % 256, glyph);
+                        CHECK(feed(terminal, input));
+                    }
+                }
+            }
+            boxrig_pango_cairo_renderer_reset_render_statistics(renderer);
+            CHECK(boxrig_pango_cairo_renderer_draw(renderer, terminal) == 0);
+            CHECK(matches_fresh(terminal, renderer, &font, &policy, &alpha, BOXRIG_TEXT_DIRECTION_AUTO, 24 * cw, 2 * ch));
+            boxrig_pango_cairo_render_statistics work;
+            CHECK(boxrig_pango_cairo_renderer_get_render_statistics(renderer, &work) == 0);
+            if (phase == 1) recolor_draws += work.glyph_draw_count;
+            if (prefix != NULL) {
+                char path[4096];
+                int length = snprintf(path, sizeof(path), "%s-%d-%d.png", prefix, scale, phase);
+                CHECK(length > 0 && (size_t)length < sizeof(path));
+                CHECK(cairo_surface_write_to_png(boxrig_pango_cairo_renderer_surface(renderer), path) == CAIRO_STATUS_SUCCESS);
+            }
+        }
+    }
+    boxrig_pango_cairo_renderer_destroy(renderer);
+    boxrig_terminal_destroy(terminal);
+    fprintf(stderr, "Cairo glyph draws for two 48-cell outline recolors: %zu\n", recolor_draws);
+    CHECK(recolor_draws < 48);
+    return true;
+}
+
 int main(int argc, char **argv)
 {
     bool passed = paint_updates(argc == 2 ? argv[1] : NULL) &&
         partial_paint_updates(false) && partial_paint_updates(true) &&
-        conceal_preserves_neighboring_ascii(false) && conceal_preserves_neighboring_ascii(true);
+        conceal_preserves_neighboring_ascii(false) && conceal_preserves_neighboring_ascii(true) &&
+        outline_updates(argc == 2 ? argv[1] : NULL);
     if (!passed) return 1;
     cairo_debug_reset_static_data();
     FcFini();
