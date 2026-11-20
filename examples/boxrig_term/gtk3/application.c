@@ -64,12 +64,12 @@ static int initialize_background_effect(boxrig_term_gtk3_application *applicatio
 #endif
 }
 
-static boxrig_ui_status set_color_glyphs(void *context, bool enabled)
+static boxrig_ui_status set_demo_font_policy(void *context, const boxrig_term_font_demo *demo)
 {
     boxrig_font_rendering_policy policy;
     boxrig_ui_status status = boxrig_gtk3_terminal_widget_get_font_rendering_policy(context, &policy);
     if (status != BOXRIG_UI_OK) return status;
-    policy.color_glyphs = enabled;
+    boxrig_term_font_demo_update_policy(demo, &policy);
     return boxrig_gtk3_terminal_widget_set_font_rendering_policy(context, &policy);
 }
 
@@ -689,7 +689,7 @@ static void activate_application(
             boxrig_gtk3_terminal_widget_view(application->widget)) == -1 ||
             boxrig_term_font_demo_initialize(&application->font_demo,
             boxrig_gtk3_terminal_widget_view(application->widget),
-            set_color_glyphs, application->widget) == -1 ||
+            set_demo_font_policy, application->widget) == -1 ||
         boxrig_term_scrollbar_demo_initialize(&application->scrollbar_demo,
             boxrig_gtk3_terminal_widget_view(application->widget),
             set_scrollbar_policy, application->widget) == -1 ||

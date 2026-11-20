@@ -25,12 +25,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-static boxrig_ui_status set_color_glyphs(void *context, bool enabled)
+static boxrig_ui_status set_demo_font_policy(void *context, const boxrig_term_font_demo *demo)
 {
     boxrig_font_rendering_policy policy;
     boxrig_ui_status status = boxrig_x11_terminal_component_get_font_rendering_policy(context, &policy);
     if (status != BOXRIG_UI_OK) return status;
-    policy.color_glyphs = enabled;
+    boxrig_term_font_demo_update_policy(demo, &policy);
     return boxrig_x11_terminal_component_set_font_rendering_policy(context, &policy);
 }
 
@@ -895,7 +895,7 @@ int boxrig_term_x11_native_host_create(
             &component_config) != BOXRIG_UI_OK ||
         boxrig_term_font_demo_initialize(&application->font_demo,
             boxrig_x11_terminal_component_view(application->component),
-            set_color_glyphs, application->component) == -1 ||
+            set_demo_font_policy, application->component) == -1 ||
         boxrig_term_scrollbar_demo_initialize(&application->scrollbar_demo,
             boxrig_x11_terminal_component_view(application->component),
             set_scrollbar_policy, application->component) == -1 ||

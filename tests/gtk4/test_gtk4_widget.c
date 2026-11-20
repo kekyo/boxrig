@@ -1711,6 +1711,8 @@ static bool test_widget_lifecycle_layout_and_frame(const char *font_path)
     CHECK(boxrig_gtk4_terminal_widget_get_font_rendering_policy(
               widget,
               &rendering_policy) == BOXRIG_UI_OK);
+    CHECK(rendering_policy.box_drawing == BOXRIG_BOX_DRAWING_CONSERVATIVE);
+    rendering_policy.box_drawing = BOXRIG_BOX_DRAWING_BULK;
     rendering_policy.dpi_x = 120.0f;
     rendering_policy.dpi_y = 120.0f;
     CHECK(boxrig_gtk4_terminal_widget_set_font_rendering_policy(
@@ -1719,6 +1721,7 @@ static bool test_widget_lifecycle_layout_and_frame(const char *font_path)
     CHECK(boxrig_gtk4_terminal_widget_get_font_rendering_policy(
               widget,
               &reported_policy) == BOXRIG_UI_OK);
+    CHECK(reported_policy.box_drawing == BOXRIG_BOX_DRAWING_BULK);
     CHECK(reported_policy.dpi_x == 120.0f);
     CHECK(reported_policy.dpi_y == 120.0f);
     CHECK(reported_policy.output_scale == (float)scale);
