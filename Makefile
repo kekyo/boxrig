@@ -1166,6 +1166,9 @@ $(BUILD_DIR)/tests/test_resize_history: tests/test_resize_history.c $(CORE_HEADE
 $(BUILD_DIR)/tests/measure_resize_history: tests/performance/resize_history.c $(CORE_HEADERS) $(LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(LIBRARY) $(SANITIZERS) -o $@
 
+$(BUILD_DIR)/tests/measure_scrollback_compression: tests/performance/scrollback_compression.c $(CORE_HEADERS) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(LIBRARY) -o $@
+
 .PHONY: test-cell-text-storage
 test: test-cell-text-storage
 test-cell-text-storage: $(BUILD_DIR)/tests/test_cell_text_storage
