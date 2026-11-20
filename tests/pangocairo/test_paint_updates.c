@@ -408,7 +408,8 @@ static bool glyph_groups_copy_the_backing_pixels(void)
     return true;
 }
 
-static bool outline_updates(const char *prefix)
+static bool outline_updates(const char *prefix, boxrig_box_drawing_mode mode,
+    boxrig_font_antialias antialias)
 {
     boxrig_terminal_config config = boxrig_terminal_config_default();
     config.rows = 2;
@@ -417,7 +418,8 @@ static bool outline_updates(const char *prefix)
     boxrig_pango_cairo_renderer *renderer;
     boxrig_font_specification font = boxrig_font_specification_default();
     boxrig_font_rendering_policy policy = boxrig_font_rendering_policy_default();
-    policy.antialias = BOXRIG_FONT_ANTIALIAS_GRAYSCALE;
+    policy.antialias = antialias;
+    policy.box_drawing = mode;
     boxrig_ui_transparency_state alpha = {0};
     alpha.effective = BOXRIG_UI_TRANSPARENCY_PREMULTIPLIED_ALPHA;
     alpha.effective_scopes = BOXRIG_UI_TRANSPARENCY_VIEW_SURFACE;
@@ -429,6 +431,8 @@ static bool outline_updates(const char *prefix)
     for (int scale = 0; scale < 2; scale++) {
         policy.output_scale = scale == 0 ? 1.0f : 1.25f;
         font.size_dip += scale * 0.75f;
+        boxrig_font_rendering_policy reference = policy;
+        reference.box_drawing = BOXRIG_BOX_DRAWING_LEGACY;
         CHECK(boxrig_pango_cairo_renderer_set_font(renderer, &font, &policy) == BOXRIG_FONT_CATALOG_OK);
         unsigned int cw = boxrig_pango_cairo_renderer_cell_width(renderer);
         unsigned int ch = boxrig_pango_cairo_renderer_cell_height(renderer);
@@ -452,7 +456,7 @@ static bool outline_updates(const char *prefix)
             }
             boxrig_pango_cairo_renderer_reset_render_statistics(renderer);
             CHECK(boxrig_pango_cairo_renderer_draw(renderer, terminal) == 0);
-            CHECK(matches_fresh(terminal, renderer, &font, &policy, &alpha, BOXRIG_TEXT_DIRECTION_AUTO, 24 * cw, 2 * ch));
+            CHECK(matches_fresh(terminal, renderer, &font, &reference, &alpha, BOXRIG_TEXT_DIRECTION_AUTO, 24 * cw, 2 * ch));
             boxrig_pango_cairo_render_statistics work;
             CHECK(boxrig_pango_cairo_renderer_get_render_statistics(renderer, &work) == 0);
             if (phase == 1) recolor_draws += work.glyph_draw_count;
@@ -467,7 +471,7 @@ static bool outline_updates(const char *prefix)
     boxrig_pango_cairo_renderer_destroy(renderer);
     boxrig_terminal_destroy(terminal);
     fprintf(stderr, "Cairo glyph draws for two 48-cell outline recolors: %zu\n", recolor_draws);
-    CHECK(recolor_draws < 48);
+    if (antialias == BOXRIG_FONT_ANTIALIAS_GRAYSCALE) CHECK(recolor_draws < 48);
     return true;
 }
 
@@ -524,7 +528,15 @@ int main(int argc, char **argv)
         paint_updates(argc == 2 ? argv[1] : NULL) &&
         partial_paint_updates(false) && partial_paint_updates(true) &&
         conceal_preserves_neighboring_ascii(false) && conceal_preserves_neighboring_ascii(true) &&
-        outline_updates(argc == 2 ? argv[1] : NULL);
+        outline_updates(argc == 2 ? argv[1] : NULL, BOXRIG_BOX_DRAWING_CONSERVATIVE,
+            BOXRIG_FONT_ANTIALIAS_GRAYSCALE);
+    const boxrig_box_drawing_mode modes[] = {BOXRIG_BOX_DRAWING_LEGACY,
+        BOXRIG_BOX_DRAWING_CONSERVATIVE, BOXRIG_BOX_DRAWING_BULK};
+    for (size_t i = 0; passed && i < sizeof(modes)/sizeof(modes[0]); i++) {
+        passed = outline_updates(NULL, modes[i], BOXRIG_FONT_ANTIALIAS_SYSTEM);
+        if (passed && modes[i] != BOXRIG_BOX_DRAWING_CONSERVATIVE)
+            passed = outline_updates(NULL, modes[i], BOXRIG_FONT_ANTIALIAS_GRAYSCALE);
+    }
     if (!passed) return 1;
     cairo_debug_reset_static_data();
     FcFini();
