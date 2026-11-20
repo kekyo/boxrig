@@ -111,9 +111,18 @@ static size_t retained(boxrig_scrollback_compression mode)
     scans = inflations;
     assert(boxrig_terminal_set_viewport_offset(term, 255) == BOXRIG_STATUS_OK);
     assert(inflations - scans <= 2);
+    /* Move the offscreen decoder to another block before repainting. */
+    assert(boxrig_terminal_get_text_fragment_cell(term, BOXRIG_TEXT_SCREEN_PRIMARY,
+        132, 0, &other) == BOXRIG_STATUS_OK);
     scans = inflations;
     assert(boxrig_terminal_get_cell(term, 0, 8, &other) == BOXRIG_STATUS_OK);
     assert(other.column_width == 2 && other.foreground.index == 1 && memcmp(other.text, "日", 3) == 0);
+    for (size_t frame = 0; frame < 4; frame++) {
+        for (size_t row = 0; row < config.rows; row++) {
+            for (size_t col = 0; col < config.columns; col++)
+                assert(boxrig_terminal_get_cell(term, row, col, &other) == BOXRIG_STATUS_OK);
+        }
+    }
     assert(calls == start_calls);
     assert(inflations == scans);
     assert(boxrig_terminal_resize(term, 4, 80) == BOXRIG_STATUS_OK);
