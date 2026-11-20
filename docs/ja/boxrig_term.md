@@ -110,6 +110,8 @@ Ctrl＋`+`／`-`で文字を拡大・縮小し、Ctrl＋`0`で既定へ戻しま
 | `BOXRIG_SELECTION_STYLE_DEMO=1` | 選択範囲の装飾 | Ctrl＋Shift＋F10 |
 | `BOXRIG_CURSOR_STYLE_DEMO=1` | カーソルの装飾 | Ctrl＋Shift＋F11 |
 | `BOXRIG_CURSOR_STYLE_DEMO=2` | フォーカスに応じて塗り分ける3形状の箱 | Ctrl＋Shift＋F11 |
+| `BOXRIG_FONT_ANTIALIAS=system/grayscale` | 文字の輪郭をシステム標準またはグレースケールで描く（既定は `system`） | — |
+| `BOXRIG_BOX_DRAWING=legacy/conservative/bulk` | Cairoの罫線描画（既定は `conservative`） | — |
 | `BOXRIG_COLOR_GLYPHS=0/1` | Linuxで絵文字などの単色／カラー表示 | Ctrl＋Shift＋F11 |
 | `BOXRIG_COLOR_FILTER_DEMO=1` | 表示色の補正 | Ctrl＋Shift＋F12 |
 | `BOXRIG_AMBIGUOUS_WIDTH=narrow/wide/font` | 曖昧幅文字を1列／2列／フォント依存で表示 | 起動時に指定 |

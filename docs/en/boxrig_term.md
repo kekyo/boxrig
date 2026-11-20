@@ -110,6 +110,8 @@ The space immediately before `q` is required.
 | `BOXRIG_SELECTION_STYLE_DEMO=1` | Selection decorations | Ctrl+Shift+F10 |
 | `BOXRIG_CURSOR_STYLE_DEMO=1` | Cursor decorations | Ctrl+Shift+F11 |
 | `BOXRIG_CURSOR_STYLE_DEMO=2` | Three focus-sensitive cursor boxes | Ctrl+Shift+F11 |
+| `BOXRIG_FONT_ANTIALIAS=system/grayscale` | System or grayscale text antialiasing (default `system`) | — |
+| `BOXRIG_BOX_DRAWING=legacy/conservative/bulk` | Cairo box-drawing method (default `conservative`) | — |
 | `BOXRIG_COLOR_GLYPHS=0/1` | Monochrome/color glyphs such as emoji on Linux | Ctrl+Shift+F11 |
 | `BOXRIG_COLOR_FILTER_DEMO=1` | Display color filters | Ctrl+Shift+F12 |
 | `BOXRIG_AMBIGUOUS_WIDTH=narrow/wide/font` | One, two, or font-dependent columns for ambiguous characters | Set at startup |

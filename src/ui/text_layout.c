@@ -644,6 +644,7 @@ boxrig_font_rendering_policy boxrig_font_rendering_policy_default(void)
     policy.fractional_positions = true;
     policy.subpixel_order = BOXRIG_FONT_SUBPIXEL_UNKNOWN;
     policy.color_glyphs = true;
+    policy.box_drawing = BOXRIG_BOX_DRAWING_CONSERVATIVE;
     return policy;
 }
 
@@ -1030,6 +1031,7 @@ boxrig_font_catalog_status boxrig_font_rendering_policy_validate(
         !finite_positive_float(policy->dpi_y) ||
         !finite_positive_float(policy->output_scale) ||
         (unsigned int)policy->antialias > BOXRIG_FONT_ANTIALIAS_NONE ||
+        (unsigned int)policy->box_drawing > BOXRIG_BOX_DRAWING_BULK ||
         (unsigned int)policy->hinting > BOXRIG_FONT_HINTING_DISABLED ||
         (unsigned int)policy->subpixel_order > BOXRIG_FONT_SUBPIXEL_VBGR) {
         return BOXRIG_FONT_CATALOG_INVALID_ARGUMENT;

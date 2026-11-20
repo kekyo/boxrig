@@ -5,6 +5,7 @@
 #include <glib.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 
 static void feed_file(boxrig_terminal *terminal, const char *path)
@@ -54,16 +55,22 @@ int main(int argc, char **argv)
     assert(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
     assert(boxrig_ui_view_create(model, &view_config, &view) == BOXRIG_UI_OK);
     assert(boxrig_pango_cairo_renderer_create(826, 630, &renderer) == 0);
-    if (getenv("BOXRIG_GRID_GRAYSCALE") != NULL) {
+    const char *mode = getenv("BOXRIG_BOX_DRAWING");
+    if (mode != NULL || getenv("BOXRIG_GRID_GRAYSCALE") != NULL) {
         boxrig_font_rendering_policy policy = boxrig_font_rendering_policy_default();
         boxrig_font_specification specification = boxrig_font_specification_default();
-        policy.antialias = BOXRIG_FONT_ANTIALIAS_GRAYSCALE;
+        if (getenv("BOXRIG_GRID_GRAYSCALE") != NULL) policy.antialias = BOXRIG_FONT_ANTIALIAS_GRAYSCALE;
+        if (mode != NULL) {
+            if (strcmp(mode, "legacy") == 0) policy.box_drawing = BOXRIG_BOX_DRAWING_LEGACY;
+            else if (strcmp(mode, "bulk") == 0) policy.box_drawing = BOXRIG_BOX_DRAWING_BULK;
+            else assert(strcmp(mode, "conservative") == 0);
+        }
         assert(boxrig_pango_cairo_renderer_set_font(renderer, &specification, &policy) == BOXRIG_FONT_CATALOG_OK);
     }
     assert(boxrig_pango_cairo_renderer_cell_width(renderer) == 7 &&
            boxrig_pango_cairo_renderer_cell_height(renderer) == 14);
     assert(boxrig_pango_cairo_renderer_bind_view(renderer, view) == BOXRIG_UI_OK);
-    puts("sequence\tdraw_ms\tglyph_draws\tglyph_pixels\tsha256\tglyph_groups\tunderlay_paints");
+    puts("sequence\tdraw_ms\tglyph_draws\tglyph_pixels\tsha256\tglyph_groups\tunderlay_paints\tscratch_allocations\tscratch_draws\tbulk_runs\tbulk_cells");
     for (int i = -1; i < 24; i++) {
         char file[4096];
         int n = i < 0 ? snprintf(file, sizeof(file), "%s/warmup.bin", argv[1])
@@ -83,8 +90,9 @@ int main(int argc, char **argv)
         char *sha = g_compute_checksum_for_data(G_CHECKSUM_SHA256, cairo_image_surface_get_data(surface),
             (size_t)cairo_image_surface_get_stride(surface) * cairo_image_surface_get_height(surface));
         assert(sha != NULL);
-        printf("%d\t%.6f\t%zu\t%zu\t%s\t%zu\t%zu\n", i, elapsed * 1000, work.glyph_draw_count,
-            work.glyph_raster_pixel_count, sha, work.glyph_group_count, work.glyph_underlay_paint_count);
+        printf("%d\t%.6f\t%zu\t%zu\t%s\t%zu\t%zu\t%zu\t%zu\t%zu\t%zu\n", i, elapsed * 1000, work.glyph_draw_count,
+            work.glyph_raster_pixel_count, sha, work.glyph_group_count, work.glyph_underlay_paint_count,
+            work.box_scratch_allocations, work.box_scratch_draws, work.box_bulk_runs, work.box_bulk_cells);
         g_free(sha);
         if (argc == 3) {
             n = snprintf(file, sizeof(file), "%s/frame-%02d.png", argv[2], i);

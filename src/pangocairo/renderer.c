@@ -18,6 +18,7 @@
 #include <pango/pangofc-fontmap.h>
 
 #include <limits.h>
+#include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -45,6 +46,7 @@ typedef struct boxrig_pango_cairo_glyph_bounds {
     size_t first_glyph;
     size_t glyph_count;
     bool monochrome_box;
+    bool fits_advance;
     /* Pango units from the fitted span's visual origin. The ink envelopes
      * include every preceding/following cluster, respectively. */
     double advance;
@@ -215,6 +217,7 @@ struct boxrig_pango_cairo_renderer {
     uint16_t color_source_buckets[BOXRIG_PANGO_CAIRO_COLOR_BUCKET_COUNT];
     size_t color_source_count;
     size_t color_source_replacement;
+    cairo_t *box_scratch;
     box_outline_mask outline_masks[64];
     size_t next_outline_mask;
     uint64_t color_revision;
@@ -476,6 +479,10 @@ static int snapshot_image_placements(
 
 static void clear_outline_masks(boxrig_pango_cairo_renderer *renderer)
 {
+    if (renderer->box_scratch != NULL) {
+        cairo_destroy(renderer->box_scratch);
+        renderer->box_scratch = NULL;
+    }
     for (size_t i = 0; i < G_N_ELEMENTS(renderer->outline_masks); i++) {
         box_outline_mask *mask = &renderer->outline_masks[i];
         if (mask->surface != NULL) {
@@ -3332,6 +3339,7 @@ static int build_glyph_spans(boxrig_pango_cairo_shaped_item *item,
             cluster->prefix_ink_end = advance + ink.x + ink.width;
             for (size_t g = first; g < next; g++) advance += glyphs->glyphs[g].geometry.width;
             cluster->advance_end = advance;
+            cluster->fits_advance = ink.x >= 0 && ink.x + (double)ink.width <= advance - cluster->advance;
             first = next;
         }
         /* Bearings need not be monotonic. These envelopes allow binary
@@ -4286,6 +4294,76 @@ static bool copy_glyph_underlay(cairo_t *cr, cairo_surface_t *backing,
     return true;
 }
 
+/* The scratch image has the same ARGB layout as the backing image. Keep the
+ * global pixel phase by subtracting only an integer origin. A transformed
+ * target, an outer group or an off-surface raster uses the original group. */
+static bool box_scratch_target(boxrig_pango_cairo_renderer *renderer)
+{
+    cairo_surface_t *target = cairo_get_group_target(renderer->cairo);
+    cairo_matrix_t matrix;
+    double sx, sy, ox, oy;
+    cairo_get_matrix(renderer->cairo, &matrix);
+    cairo_surface_get_device_scale(target, &sx, &sy);
+    cairo_surface_get_device_offset(target, &ox, &oy);
+    return target == renderer->backing_surface && sx == 1 && sy == 1 &&
+        ox == 0 && oy == 0 && matrix.xx == 1 && matrix.yy == 1 &&
+        matrix.xy == 0 && matrix.yx == 0 && matrix.x0 == 0 && matrix.y0 == 0;
+}
+
+static cairo_t *prepare_box_scratch(boxrig_pango_cairo_renderer *renderer,
+    int x, int y, int width)
+{
+    int height = (int)renderer->cell_height;
+    if (width <= 0 || height <= 0 || x < 0 || y < 0 ||
+        x > renderer->surface_width - width || y > renderer->surface_height - height)
+        return NULL;
+    cairo_t *cr = renderer->box_scratch;
+    if (cr == NULL || cairo_image_surface_get_width(cairo_get_target(cr)) < width ||
+        cairo_image_surface_get_height(cairo_get_target(cr)) != height) {
+        cairo_surface_t *surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height);
+        cairo_t *next = cairo_create(surface);
+        cairo_surface_destroy(surface);
+        cairo_font_options_t *options = cairo_font_options_create();
+        cairo_get_font_options(renderer->cairo, options);
+        cairo_set_font_options(next, options);
+        cairo_font_options_destroy(options);
+        if (cairo_status(next) != CAIRO_STATUS_SUCCESS) {
+            cairo_destroy(next);
+            return NULL;
+        }
+        if (cr != NULL) cairo_destroy(cr);
+        renderer->box_scratch = cr = next;
+        renderer->render_statistics.box_scratch_allocations++;
+    }
+    cairo_surface_t *source = renderer->backing_surface;
+    cairo_surface_t *dest = cairo_get_target(cr);
+    cairo_surface_flush(source);
+    cairo_surface_flush(dest);
+    int from_stride = cairo_image_surface_get_stride(source);
+    int to_stride = cairo_image_surface_get_stride(dest);
+    const uint8_t *from = cairo_image_surface_get_data(source) + (size_t)y * from_stride + (size_t)x * 4;
+    uint8_t *to = cairo_image_surface_get_data(dest);
+    for (int line = 0; line < height; line++)
+        memcpy(to + (size_t)line * to_stride, from + (size_t)line * from_stride, (size_t)width * 4);
+    cairo_surface_mark_dirty_rectangle(dest, 0, 0, width, height);
+    return cr;
+}
+
+static int paint_box_scratch(boxrig_pango_cairo_renderer *renderer, int x, int y,
+    double clip_x, double clip_width)
+{
+    cairo_t *cr = renderer->cairo;
+    cairo_save(cr);
+    cairo_rectangle(cr, clip_x, y, clip_width, renderer->cell_height);
+    cairo_clip(cr);
+    cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
+    cairo_set_source_surface(cr, cairo_get_target(renderer->box_scratch), x, y);
+    cairo_paint(cr);
+    cairo_restore(cr);
+    renderer->render_statistics.glyph_composite_pixel_count += (size_t)clip_width * renderer->cell_height;
+    return cairo_status(cr) == CAIRO_STATUS_SUCCESS ? 0 : -1;
+}
+
 static int draw_fitted_item_segment(
     boxrig_pango_cairo_renderer *renderer,
     const boxrig_pango_cairo_shaped_item *item,
@@ -4379,6 +4457,34 @@ static int draw_fitted_item_segment(
                     clip_column_count * renderer->cell_width * renderer->cell_height;
                 return cairo_status(renderer->cairo) == CAIRO_STATUS_SUCCESS ? 0 : -1;
             }
+        }
+    }
+    if (renderer->rendering_policy.box_drawing != BOXRIG_BOX_DRAWING_LEGACY &&
+        begin->monochrome_box && reuse == NULL && raster_width > 0 && raster_end <= renderer->surface_width &&
+        y + renderer->cell_height <= renderer->surface_height && box_scratch_target(renderer)) {
+        bool boxes = true;
+        for (size_t i = first + 1; i < low; i++) boxes &= span->clusters[i].monochrome_box;
+        cairo_t *cr = boxes ? prepare_box_scratch(renderer, (int)raster_x, (int)y, (int)raster_width) : NULL;
+        if (cr != NULL) {
+            if (!set_cairo_source_pixel(renderer, foreground, 255)) return -1;
+            PangoGlyphString glyphs = *item->glyph_item.glyphs;
+            glyphs.num_glyphs = (int)glyph_count;
+            glyphs.glyphs += begin->first_glyph;
+            glyphs.log_clusters += begin->first_glyph;
+            cairo_save(cr);
+            cairo_rectangle(cr, 0, 0, raster_width, renderer->cell_height);
+            cairo_clip(cr);
+            cairo_set_source(cr, cairo_get_source(renderer->cairo));
+            cairo_translate(cr, relative_x, renderer->ascent);
+            cairo_scale(cr, horizontal_scale, 1.0);
+            cairo_move_to(cr, 0, 0);
+            pango_cairo_show_glyph_string(cr, item->glyph_item.item->analysis.font, &glyphs);
+            cairo_restore(cr);
+            if (cairo_status(cr) != CAIRO_STATUS_SUCCESS) return -1;
+            renderer->render_statistics.box_scratch_draws++;
+            renderer->render_statistics.glyph_draw_count++;
+            renderer->render_statistics.glyph_raster_pixel_count += area;
+            return paint_box_scratch(renderer, (int)raster_x, (int)y, clip_x, clip_end - clip_x);
         }
     }
     cairo_pattern_t *raster = NULL;
@@ -4603,6 +4709,102 @@ static int draw_repeated_foregrounds(
     return 0;
 }
 
+typedef struct bulk_box_glyph {
+    size_t glyph;
+    double x;
+    double scale;
+} bulk_box_glyph;
+
+/* Only consume complete single-cell paint runs. A neighboring overhang or
+ * a glyph cluster shared by two cells must retain its original color clips. */
+static bool bulk_box_at(boxrig_pango_cairo_renderer *renderer, const boxrig_terminal *terminal,
+    const boxrig_pango_cairo_shaped_item *item, size_t row, size_t column, bulk_box_glyph *out)
+{
+    const resolved_cell_colors *colors = renderer->row_colors + column;
+    if (colors->background_opacity != 255 ||
+        (column > item->visual_column && colors[-1].foreground == colors->foreground) ||
+        (column + 1 < item->visual_column + item->visual_column_count &&
+            colors[1].foreground == colors->foreground)) return false;
+    size_t low = 0, high = item->span_count;
+    while (low < high) {
+        size_t mid = low + (high - low) / 2;
+        const boxrig_ui_glyph_span *p = &item->spans[mid].placement;
+        if (p->visual_column + p->column_count <= column) low = mid + 1;
+        else high = mid;
+    }
+    if (low == item->span_count) return false;
+    const boxrig_pango_cairo_glyph_span *span = &item->spans[low];
+    const boxrig_ui_glyph_span *p = &span->placement;
+    if (column < p->visual_column || p->column_count != span->cluster_count || p->natural_width <= 0)
+        return false;
+    size_t index = column - p->visual_column;
+    const boxrig_pango_cairo_glyph_bounds *g = &span->clusters[index];
+    if (!g->monochrome_box || !g->fits_advance) return false;
+    double width = renderer->cell_width;
+    double natural = p->natural_width / PANGO_SCALE;
+    double scale = p->preserve_advance ? 1.0 : p->column_count * width / natural;
+    double inset = p->preserve_advance ? (p->column_count * width - natural) / 2 : 0;
+    double left = (index * width - inset) * PANGO_SCALE / scale;
+    double right = ((index + 1) * width - inset) * PANGO_SCALE / scale;
+    /* The advances are integer Pango units. Allow only floating-point
+     * roundoff when fitting equal advances to the integer cell grid. */
+    if (fabs(g->advance - left) > 0.000001 || fabs(g->advance_end - right) > 0.000001 ||
+        (index > 0 && span->clusters[index - 1].prefix_ink_end > left) ||
+        (index + 1 < span->cluster_count && span->clusters[index + 1].suffix_ink_start < right))
+        return false;
+    boxrig_cell_view cell;
+    if (boxrig_terminal_get_cell(terminal, row, column, &cell) != BOXRIG_STATUS_OK ||
+        cell.text_length != 3 || cell.continuation || (cell.attributes & BOXRIG_CELL_CONCEALED) ||
+        !boxrig_ui_view_text_blink_visible(renderer->color_view, cell.attributes)) return false;
+    out->glyph = g->first_glyph;
+    out->x = p->visual_column * width + inset + g->advance / PANGO_SCALE * scale;
+    out->scale = scale;
+    return true;
+}
+
+static int draw_bulk_boxes(boxrig_pango_cairo_renderer *renderer, const boxrig_terminal *terminal,
+    const boxrig_pango_cairo_shaped_item *item, size_t row, size_t column, size_t end,
+    size_t *painted)
+{
+    /* Fixed storage also bounds the working surface. Starting each batch at
+     * the original paint boundary makes partial and full redraws identical. */
+    bulk_box_glyph boxes[64];
+    size_t count = 0;
+    while (count < G_N_ELEMENTS(boxes) && count < end - column &&
+        bulk_box_at(renderer, terminal, item, row, column + count, &boxes[count])) count++;
+    if (count < 2) return 0;
+    double start = column * (double)renderer->cell_width;
+    double y = row * (double)renderer->cell_height;
+    double width = count * (double)renderer->cell_width;
+    if (start + width > renderer->surface_width || y + renderer->cell_height > renderer->surface_height)
+        return 0;
+    cairo_t *cr = prepare_box_scratch(renderer, (int)start, (int)y, (int)width);
+    if (cr == NULL) return 0;
+    for (size_t i = 0; i < count; i++) {
+        PangoGlyphString glyph = *item->glyph_item.glyphs;
+        glyph.num_glyphs = 1;
+        glyph.glyphs += boxes[i].glyph;
+        glyph.log_clusters += boxes[i].glyph;
+        if (!set_cairo_source_pixel(renderer, renderer->row_colors[column + i].foreground, 255)) return -1;
+        cairo_save(cr);
+        cairo_rectangle(cr, (double)i * renderer->cell_width, 0, renderer->cell_width, renderer->cell_height);
+        cairo_clip(cr);
+        cairo_set_source(cr, cairo_get_source(renderer->cairo));
+        cairo_translate(cr, boxes[i].x - start, renderer->ascent);
+        cairo_scale(cr, boxes[i].scale, 1);
+        cairo_move_to(cr, 0, 0);
+        pango_cairo_show_glyph_string(cr, item->glyph_item.item->analysis.font, &glyph);
+        cairo_restore(cr);
+    }
+    if (cairo_status(cr) != CAIRO_STATUS_SUCCESS) return -1;
+    renderer->render_statistics.box_bulk_cells += count;
+    renderer->render_statistics.box_bulk_runs++;
+    renderer->render_statistics.glyph_draw_count += count;
+    renderer->render_statistics.glyph_raster_pixel_count += (size_t)width * renderer->cell_height;
+    *painted = count;
+    return paint_box_scratch(renderer, (int)start, (int)y, start, width);
+}
+
 static int draw_shaped_item(
     boxrig_pango_cairo_renderer *renderer,
     const boxrig_terminal *terminal,
@@ -4627,7 +4829,19 @@ static int draw_shaped_item(
     /* Keep the paint runs independent of the dirty clip. Changing a glyph
      * batch on partial exposes can change Cairo's alpha rounding, even when
      * the omitted glyph is a space. The outer row clip limits compositing. */
+    bool bulk = renderer->rendering_policy.box_drawing == BOXRIG_BOX_DRAWING_BULK &&
+        renderer->rendering_policy.output_scale == floor(renderer->rendering_policy.output_scale) &&
+        renderer->background_opacity == 255 && item->logical_column == column &&
+        (item->glyph_item.item->analysis.level & 1) == 0 && box_scratch_target(renderer);
     while (column < end && column < clip_column + clip_count) {
+        if (bulk) {
+            size_t painted = 0;
+            if (draw_bulk_boxes(renderer, terminal, item, row, column, end, &painted) == -1) return -1;
+            if (painted > 0) {
+                column += painted;
+                continue;
+            }
+        }
         boxrig_cell_view cell;
         resolved_cell_colors colors;
         size_t logical_column;

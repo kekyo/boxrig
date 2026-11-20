@@ -4841,6 +4841,19 @@ static void test_integer_output_scale_and_hit_test(void)
     CHECK(diagnostic.entered_output_count == 0);
     CHECK(diagnostic.scale_revision == 3);
 
+    boxrig_font_rendering_policy policy;
+    CHECK(boxrig_wayland_terminal_component_get_font_rendering_policy(component, &policy) == BOXRIG_UI_OK);
+    CHECK(policy.box_drawing == BOXRIG_BOX_DRAWING_CONSERVATIVE);
+    const boxrig_box_drawing_mode modes[] = {BOXRIG_BOX_DRAWING_BULK,
+        BOXRIG_BOX_DRAWING_LEGACY, BOXRIG_BOX_DRAWING_CONSERVATIVE};
+    for (size_t i = 0; i < sizeof(modes) / sizeof(modes[0]); i++) {
+        policy.box_drawing = modes[i];
+        CHECK(boxrig_wayland_terminal_component_set_font_rendering_policy(component, &policy) == BOXRIG_UI_OK);
+        boxrig_font_rendering_policy reported;
+        CHECK(boxrig_wayland_terminal_component_get_font_rendering_policy(component, &reported) == BOXRIG_UI_OK);
+        CHECK(reported.box_drawing == modes[i]);
+    }
+
     boxrig_wayland_terminal_component_destroy(component);
     wl_surface_destroy(parent);
     wl_compositor_destroy(host.compositor);

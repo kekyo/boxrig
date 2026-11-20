@@ -5347,6 +5347,14 @@ test-wayland-surrounding-compositor: $(BUILD_DIR)/tests/wayland_surrounding_comp
 $(EXAMPLE_BINARY) $(GTK3_EXAMPLE_BINARY) $(GTK4_EXAMPLE_BINARY) $(WAYLAND_EXAMPLE_BINARY) $(WAYLAND_NO_LIBDECOR_TEST_BINARY): examples/boxrig_term/common/font_demo.h
 
 .PHONY: test-color-glyphs test-color-glyph-videos
+.PHONY: test-sample-font-options
+test: test-sample-font-options
+test-sample-font-options: $(BUILD_DIR)/tests/test_sample_font_options
+	$<
+
+$(BUILD_DIR)/tests/test_sample_font_options: tests/test_sample_font_options.c examples/boxrig_term/common/font_demo.c examples/boxrig_term/common/font_demo.h $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< examples/boxrig_term/common/font_demo.c $(UI_LIBRARY) $(LIBRARY) -lm -o $@
+
 test-color-glyphs: $(PANGO_CAIRO_FIXTURE_TEST_BINARY) $(UI_PLATFORM_FIXTURE_TEST_BINARY) $(OPENGL_RENDERER_FIXTURE_TEST_BINARY)
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 $(PANGO_CAIRO_FIXTURE_TEST_BINARY)
 	$(XVFB_RUN) -a env ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 $(UI_PLATFORM_FIXTURE_TEST_BINARY)
@@ -6387,7 +6395,7 @@ $(BUILD_DIR)/tests/performance/terminal_geometry: tests/performance/terminal_geo
 notcurses-evaluation-tools: $(GTK3_EXAMPLE_BINARY) $(BUILD_DIR)/tests/performance/notcurses_replay $(BUILD_DIR)/tests/performance/terminal_geometry $(BUILD_DIR)/tests/performance/annotation_gl_vendor
 
 $(BUILD_DIR)/tests/performance/frame_latency: tests/performance/frame_latency.c | $(BUILD_DIR)/tests/performance
-	$(CC) $(CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $$(pkg-config --cflags --libs x11) -o $@
+	$(CC) $(CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $$(pkg-config --cflags --libs x11 xtst) -o $@
 
 .PHONY: test-frame-latency
 test: test-frame-latency
@@ -6399,6 +6407,10 @@ test-frame-latency: $(PHASE_TRACE_BINARY) $(BUILD_DIR)/tests/performance/frame_l
 		BOXRIG_LATENCY_CONTINUOUS=1 xvfb-run -a -s '-screen 0 1280x800x24' bash tests/performance/run_frame_latency.sh \
 		$(PHASE_TRACE_BINARY) cairo 24 80 "$$output/cairo" && \
 		awk 'NR > 1 && $$2 == 0 { exit 1 } END { if (NR != 24) exit 1 }' "$$output/cairo/burst.tsv"
+	output=$$(mktemp -d $(BUILD_DIR)/tests/performance/key-echo.XXXXXXXX); \
+		BOXRIG_PERFORMANCE_DIR=$(BUILD_DIR)/tests/performance BOXRIG_LATENCY_KEY_ECHO=1 \
+		BOXRIG_GTK_IME=gtk GTK_IM_MODULE=gtk-im-context-simple xvfb-run -a \
+		bash tests/performance/run_frame_latency.sh $(PHASE_TRACE_BINARY) cairo 24 80 "$$output/cairo"
 
 .PHONY: test-graphics-work
 test: test-graphics-work

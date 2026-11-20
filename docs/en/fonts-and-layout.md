@@ -82,6 +82,9 @@ Set color-glyph permission with `boxrig_font_rendering_policy.color_glyphs`.
 Allowing color glyphs does not make every color-font format available.
 Check actual capabilities and missing-character diagnostics.
 
+Select how Cairo draws box-drawing characters with `boxrig_font_rendering_policy.box_drawing`. The default, `BOXRIG_BOX_DRAWING_CONSERVATIVE`, reuses scratch storage and preserves legacy pixels. Select `BOXRIG_BOX_DRAWING_LEGACY` for the original temporary groups. `BOXRIG_BOX_DRAWING_BULK` batches independent opaque box cells and can change outline pixels.
+On GTK3, GTK4, and Wayland, read the current output policy with its `get_font_rendering_policy()`, change `box_drawing`, and apply it with `set_font_rendering_policy()`. The output repaints the visible box-drawing characters.
+
 ## Grid dimensions and display size
 
 Confirm terminal grid dimensions separately from window pixel dimensions.
