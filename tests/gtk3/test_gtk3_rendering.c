@@ -1,6 +1,7 @@
 /* boxrig - Under MIT. */
 #include "boxrig/gtk3.h"
 #include "../../src/gtk/gl_surface.h"
+#include "../../src/pangocairo/renderer.h"
 
 #include <epoxy/gl.h>
 #include <stdio.h>
@@ -27,6 +28,29 @@ static GtkGLArea *observed_area;
 static GLint observed_alpha_bits = -1;
 static boxrig_gl_target_format observed_format;
 static boxrig_gl_alpha_mode observed_alpha_mode;
+
+/* Advance time inside a single real draw without depending on CPU speed. */
+static gint64 simulated_time;
+static gint64 simulated_draw_duration;
+static gint64 last_simulated_time;
+gint64 __real_g_get_monotonic_time(void);
+gint64 __wrap_g_get_monotonic_time(void)
+{
+    if (simulated_time != 0) return simulated_time;
+    gint64 now = __real_g_get_monotonic_time();
+    return MAX(now, last_simulated_time);
+}
+
+int __real_boxrig_pango_cairo_renderer_draw_view_composition(boxrig_pango_cairo_renderer *,
+    boxrig_ui_view *, boxrig_composition *);
+int __wrap_boxrig_pango_cairo_renderer_draw_view_composition(boxrig_pango_cairo_renderer *renderer,
+    boxrig_ui_view *view, boxrig_composition *composition)
+{
+    int result = __real_boxrig_pango_cairo_renderer_draw_view_composition(renderer, view, composition);
+    simulated_time += simulated_draw_duration;
+    simulated_draw_duration = 0;
+    return result;
+}
 
 boxrig_ui_status __real_boxrig_gtk_gl_surface_draw(boxrig_gtk_gl_surface *,
     boxrig_ui_view *, boxrig_composition *, boxrig_gtk_render_state *);
@@ -260,6 +284,8 @@ static gboolean capture_for_redraw(gpointer data)
 
 static void test_cairo_updates_before_paint(fixture *test, const boxrig_font_effective_metrics *metrics)
 {
+    /* Exercise the fast-frame path independently of the host's render speed. */
+    simulated_time = __real_g_get_monotonic_time();
     uint64_t generation = boxrig_gtk3_terminal_widget_presentation_generation(test->widget);
     boxrig_ui_component_frame_result result;
     feed(test, "\033[3;3H\033[48;2;254;17;32m \033[0m");
@@ -311,6 +337,65 @@ static void test_cairo_updates_before_paint(fixture *test, const boxrig_font_eff
     pixels = (const uint32_t *)cairo_image_surface_get_data(image);
     CHECK(pixels[2 * metrics->cell_height * stride + 2 * metrics->cell_width] == 0xff0b11cbu);
     cairo_surface_destroy(image);
+    simulated_time = 0;
+}
+
+static void test_cairo_burst_after_slow_frame(fixture *test, const boxrig_font_effective_metrics *metrics)
+{
+    uint64_t generation = boxrig_gtk3_terminal_widget_presentation_generation(test->widget);
+    boxrig_ui_component_frame_result result;
+    GdkFrameClock *clock = gtk_widget_get_frame_clock(GTK_WIDGET(test->widget));
+    gint64 refresh_interval, presentation_time;
+    simulated_time = __real_g_get_monotonic_time();
+    gdk_frame_clock_get_refresh_info(clock, simulated_time, &refresh_interval, &presentation_time);
+    CHECK(refresh_interval > 0);
+    simulated_draw_duration = 2 * refresh_interval;
+    feed(test, "\033[4;3H\033[48;2;250;10;30m \033[0m");
+    CHECK(boxrig_gtk3_terminal_widget_dispatch_frame(test->widget, &result) == BOXRIG_UI_OK);
+    guint timeout = g_timeout_add_seconds(30, deadline, NULL);
+    while (test->drawn_generation == generation) g_main_context_iteration(NULL, TRUE);
+    CHECK(test->drawn_generation == generation + 1);
+
+    /* More PTY output can arrive while GTK processes the previous slow paint. */
+    redraw_capture redraw = {test->widget, 0};
+    g_idle_add_full(GDK_PRIORITY_REDRAW, capture_for_redraw, &redraw, NULL);
+    feed(test, "\033[4;3H\033[48;2;30;40;50m \033[0m");
+    CHECK(boxrig_gtk3_terminal_widget_dispatch_frame(test->widget, &result) == BOXRIG_UI_OK);
+    while (redraw.generation == 0) g_main_context_iteration(NULL, TRUE);
+    CHECK(redraw.generation == generation + 1);
+    feed(test, "\033[4;3H\033[48;2;17;151;63m \033[0m\033[5n");
+    CHECK(boxrig_gtk3_terminal_widget_dispatch_frame(test->widget, &result) == BOXRIG_UI_OK);
+    CHECK(result.frame_pending && !result.additional_dispatch);
+    const uint8_t *reply;
+    CHECK(boxrig_terminal_output_peek(test->terminal, &reply) == 4 && memcmp(reply, "\033[0n", 4) == 0);
+    CHECK(boxrig_terminal_output_consume(test->terminal, 4) == BOXRIG_STATUS_OK);
+
+    simulated_time += 2 * refresh_interval;
+    simulated_draw_duration = 2 * refresh_interval;
+    while (test->drawn_generation == generation + 1) g_main_context_iteration(NULL, TRUE);
+    CHECK(test->drawn_generation == generation + 2);
+    cairo_surface_t *image = capture(GTK_WIDGET(test->widget));
+    const uint32_t *pixels = (const uint32_t *)cairo_image_surface_get_data(image);
+    size_t stride = (size_t)cairo_image_surface_get_stride(image) / sizeof(*pixels);
+    CHECK(pixels[3 * metrics->cell_height * stride + 2 * metrics->cell_width] == 0xff11973fu);
+    cairo_surface_destroy(image);
+
+    /* A user's paste and its echo can use the very next redraw, even after
+     * another slow frame and before the output-only interval has elapsed. */
+    CHECK(boxrig_gtk3_terminal_widget_queue_paste(test->widget, (const uint8_t *)"k", 1) == BOXRIG_UI_OK);
+    CHECK(boxrig_terminal_output_peek(test->terminal, &reply) == 1 && *reply == 'k');
+    CHECK(boxrig_terminal_output_consume(test->terminal, 1) == BOXRIG_STATUS_OK);
+    redraw.generation = 0;
+    g_idle_add_full(GDK_PRIORITY_REDRAW, capture_for_redraw, &redraw, NULL);
+    feed(test, "k");
+    CHECK(boxrig_gtk3_terminal_widget_dispatch_frame(test->widget, &result) == BOXRIG_UI_OK);
+    while (redraw.generation == 0) g_main_context_iteration(NULL, TRUE);
+    CHECK(redraw.generation == generation + 3);
+    while (test->drawn_generation == generation + 2) g_main_context_iteration(NULL, TRUE);
+    CHECK(g_source_remove(timeout));
+    /* The widget's animation clock must stay monotonic when real time resumes. */
+    last_simulated_time = simulated_time;
+    simulated_time = 0;
 }
 
 static void test_zoom_retains_complete_frame(fixture *test)
@@ -476,8 +561,10 @@ int main(int argc, char **argv)
             CHECK(observed_alpha_mode == BOXRIG_GL_ALPHA_OPAQUE);
         }
         test_commits_without_preedit(&test);
-        if (config.render_policy == BOXRIG_GTK_RENDER_CAIRO)
+        if (config.render_policy == BOXRIG_GTK_RENDER_CAIRO) {
             test_cairo_updates_before_paint(&test, &metrics);
+            test_cairo_burst_after_slow_frame(&test, &metrics);
+        }
         cairo_surface_t *before = capture(GTK_WIDGET(test.widget));
         uint32_t *before_pixels = (uint32_t *)cairo_image_surface_get_data(before);
         CHECK(before_pixels[0] == 0xff285078u);
