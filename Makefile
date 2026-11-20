@@ -5347,6 +5347,14 @@ test-wayland-surrounding-compositor: $(BUILD_DIR)/tests/wayland_surrounding_comp
 $(EXAMPLE_BINARY) $(GTK3_EXAMPLE_BINARY) $(GTK4_EXAMPLE_BINARY) $(WAYLAND_EXAMPLE_BINARY) $(WAYLAND_NO_LIBDECOR_TEST_BINARY): examples/boxrig_term/common/font_demo.h
 
 .PHONY: test-color-glyphs test-color-glyph-videos
+.PHONY: test-sample-font-options
+test: test-sample-font-options
+test-sample-font-options: $(BUILD_DIR)/tests/test_sample_font_options
+	$<
+
+$(BUILD_DIR)/tests/test_sample_font_options: tests/test_sample_font_options.c examples/boxrig_term/common/font_demo.c examples/boxrig_term/common/font_demo.h $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< examples/boxrig_term/common/font_demo.c $(UI_LIBRARY) $(LIBRARY) -lm -o $@
+
 test-color-glyphs: $(PANGO_CAIRO_FIXTURE_TEST_BINARY) $(UI_PLATFORM_FIXTURE_TEST_BINARY) $(OPENGL_RENDERER_FIXTURE_TEST_BINARY)
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 $(PANGO_CAIRO_FIXTURE_TEST_BINARY)
 	$(XVFB_RUN) -a env ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 $(UI_PLATFORM_FIXTURE_TEST_BINARY)

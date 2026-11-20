@@ -21,6 +21,8 @@ struct boxrig_term_font_demo {
     bool color_glyphs; /**< Latest requested value. */
     bool enabled; /**< Explicit environment setting enables the shortcut. */
     bool pending; /**< Work to apply outside input dispatch. */
+    bool set_antialias; /**< Apply the explicit antialias setting on startup. */
+    boxrig_font_antialias antialias; /**< Requested outline antialiasing. */
     bool set_box_drawing; /**< Apply the explicit box method on startup. */
     boxrig_box_drawing_mode box_drawing; /**< Requested Cairo box method. */
 };
@@ -32,7 +34,7 @@ struct boxrig_term_font_demo {
 void boxrig_term_font_demo_update_policy(const boxrig_term_font_demo *demo,
     boxrig_font_rendering_policy *policy);
 
-/** Reads BOXRIG_COLOR_GLYPHS and BOXRIG_BOX_DRAWING at startup.
+/** Reads BOXRIG_COLOR_GLYPHS, BOXRIG_BOX_DRAWING and BOXRIG_FONT_ANTIALIAS at startup.
  * @param demo Caller-owned state.
  * @param view Borrowed view.
  * @param setter Native policy setter.
