@@ -2434,6 +2434,19 @@ static bool test_layout_frame_and_geometry_hints(void)
 
     CHECK(boxrig_ui_view_set_focused(
               boxrig_gtk3_terminal_widget_view(widget), true) == BOXRIG_UI_OK);
+    boxrig_font_rendering_policy policy;
+    CHECK(boxrig_gtk3_terminal_widget_get_font_rendering_policy(widget, &policy) == BOXRIG_UI_OK);
+    CHECK(policy.box_drawing == BOXRIG_BOX_DRAWING_CONSERVATIVE);
+    const boxrig_box_drawing_mode modes[] = {BOXRIG_BOX_DRAWING_BULK,
+        BOXRIG_BOX_DRAWING_LEGACY, BOXRIG_BOX_DRAWING_CONSERVATIVE};
+    for (size_t i = 0; i < sizeof(modes) / sizeof(modes[0]); i++) {
+        policy.box_drawing = modes[i];
+        CHECK(boxrig_gtk3_terminal_widget_set_font_rendering_policy(widget, &policy) == BOXRIG_UI_OK);
+        boxrig_font_rendering_policy reported;
+        CHECK(boxrig_gtk3_terminal_widget_get_font_rendering_policy(widget, &reported) == BOXRIG_UI_OK);
+        CHECK(reported.box_drawing == modes[i]);
+    }
+
     CHECK(boxrig_gtk3_terminal_widget_quiesce(widget) == BOXRIG_UI_OK);
     CHECK(!boxrig_ui_view_focused(boxrig_gtk3_terminal_widget_view(widget)));
     CHECK(!accessible_has_state(accessible, ATK_STATE_BUSY));
