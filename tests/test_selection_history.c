@@ -640,6 +640,20 @@ int main(void)
     CHECK(length == 17 && memcmp(bytes, "AA\nBB\nCC\nDD\nEE\nFF", 17) == 0);
     printf("offscreen-anchor=F rows=%zu copy=[%.*s]\n", selection.row_count, (int)length, bytes);
     boxrig_text_snapshot_destroy(copy);
+    const boxrig_scrollback_compression modes[] = {
+        BOXRIG_SCROLLBACK_COMPRESSION_PACKED, BOXRIG_SCROLLBACK_COMPRESSION_DEFLATE_LEVEL_1,
+        BOXRIG_SCROLLBACK_COMPRESSION_NONE
+    };
+    for (size_t i = 0; i < sizeof(modes) / sizeof(modes[0]); i++) {
+        CHECK(boxrig_terminal_set_scrollback_compression(terminal, modes[i]) == BOXRIG_STATUS_OK);
+        CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+        CHECK(boxrig_ui_view_get_selection(view, &selection));
+        CHECK(!selection.stale && selection.row_count == 6 && !selection.anchor_visual_row_valid);
+        CHECK(boxrig_ui_view_create_selection_snapshot(view, &copy) == BOXRIG_UI_OK);
+        bytes = boxrig_text_snapshot_data(copy, &length);
+        CHECK(length == 17 && memcmp(bytes, "AA\nBB\nCC\nDD\nEE\nFF", length) == 0);
+        boxrig_text_snapshot_destroy(copy);
+    }
     CHECK(boxrig_ui_view_hit_test(view, 11 * BOXRIG_UI_FIXED_ONE,
         BOXRIG_UI_FIXED_ONE, &anchor) == BOXRIG_UI_OK);
     CHECK(boxrig_ui_view_begin_selection_with_options(view, &options, &anchor) == BOXRIG_UI_OK);

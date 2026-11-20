@@ -7125,6 +7125,30 @@ static bool test_placeholder_row_inheritance_and_buffer_switch(void)
               terminal, leave_alternate, sizeof(leave_alternate) - 1,
               &consumed) == BOXRIG_STATUS_OK);
     CHECK(boxrig_terminal_image_placement_count(terminal) == 1);
+    CHECK(boxrig_terminal_set_scrollback_compression(terminal,
+              BOXRIG_SCROLLBACK_COMPRESSION_DEFLATE_LEVEL_1) == BOXRIG_STATUS_OK);
+    static const uint8_t scroll[] = "\x1b[3;1H\n\n\n";
+    CHECK(boxrig_terminal_feed(terminal, scroll, sizeof(scroll) - 1, &consumed) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_finish_input(terminal) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_image_placement_count(terminal) == 0);
+    CHECK(boxrig_terminal_set_viewport_offset(terminal, 3) == BOXRIG_STATUS_OK);
+    boxrig_dirty dirty;
+    while (boxrig_terminal_take_image_dirty(terminal, &dirty)) {}
+    uint64_t revision = boxrig_terminal_image_revision(terminal);
+    const boxrig_scrollback_compression modes[] = {
+        BOXRIG_SCROLLBACK_COMPRESSION_PACKED, BOXRIG_SCROLLBACK_COMPRESSION_NONE,
+        BOXRIG_SCROLLBACK_COMPRESSION_DEFLATE_LEVEL_1
+    };
+    for (size_t i = 0; i < sizeof(modes) / sizeof(modes[0]); i++) {
+        CHECK(boxrig_terminal_set_scrollback_compression(terminal, modes[i]) == BOXRIG_STATUS_OK);
+        CHECK(boxrig_terminal_image_placement_count(terminal) == 1);
+        CHECK(boxrig_terminal_get_image_placement(terminal, 0, &placement) == BOXRIG_STATUS_OK);
+        CHECK(placement.kind == BOXRIG_IMAGE_PLACEMENT_PLACEHOLDER);
+        CHECK(placement.image_id == 33554474 && placement.placement_id == 7);
+        CHECK(placement.visual_row == 1 && placement.visual_column == 0);
+        CHECK(boxrig_terminal_image_revision(terminal) == revision);
+        CHECK(!boxrig_terminal_take_image_dirty(terminal, &dirty));
+    }
     boxrig_terminal_destroy(terminal);
     return true;
 }

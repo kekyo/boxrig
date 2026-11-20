@@ -3,11 +3,12 @@
  * Under MIT.
  * https://github.com/kekyo/boxrig/
  */
-#include "terminal_internal.h"
+#include "boxrig/terminal.h"
 
 #include <assert.h>
 #include <malloc.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <zlib.h>
 
@@ -88,7 +89,7 @@ static size_t retained(boxrig_scrollback_compression mode)
     boxrig_terminal *term;
     assert(boxrig_terminal_create(&config, &term) == BOXRIG_STATUS_OK);
     size_t empty = allocated;
-    assert(boxrig_screen_set_history_compression(&term->screen, mode) == BOXRIG_STATUS_OK);
+    assert(boxrig_terminal_set_scrollback_compression(term, mode) == BOXRIG_STATUS_OK);
     for (size_t i = 0; i < 300; i++) {
         char row[96];
         snprintf(row, sizeof(row), "log %03zu \033[31m日本👩‍💻\033[m\r\n", i);
@@ -107,7 +108,9 @@ static size_t retained(boxrig_scrollback_compression mode)
     assert(emoji.text_length == strlen("👩‍💻") && memcmp(emoji.text, "👩‍💻", emoji.text_length) == 0);
     if (mode == BOXRIG_SCROLLBACK_COMPRESSION_DEFLATE_LEVEL_1)
         assert(inflations > scans && inflations - scans < 32);
+    scans = inflations;
     assert(boxrig_terminal_set_viewport_offset(term, 255) == BOXRIG_STATUS_OK);
+    assert(inflations - scans <= 2);
     scans = inflations;
     assert(boxrig_terminal_get_cell(term, 0, 8, &other) == BOXRIG_STATUS_OK);
     assert(other.column_width == 2 && other.foreground.index == 1 && memcmp(other.text, "日", 3) == 0);
@@ -123,6 +126,8 @@ static size_t retained(boxrig_scrollback_compression mode)
 
 static void same_document(boxrig_terminal *plain, boxrig_terminal *encoded)
 {
+    size_t rows, columns;
+    boxrig_terminal_size(plain, &rows, &columns);
     assert(boxrig_terminal_viewport_offset(plain) == boxrig_terminal_viewport_offset(encoded));
     assert(boxrig_terminal_text_revision(plain) == boxrig_terminal_text_revision(encoded));
     for (int screen = BOXRIG_TEXT_SCREEN_PRIMARY; screen <= BOXRIG_TEXT_SCREEN_ALTERNATE; screen++) {
@@ -134,7 +139,7 @@ static void same_document(boxrig_terminal *plain, boxrig_terminal *encoded)
             assert(boxrig_terminal_get_text_fragment(encoded, screen, row, &right) == BOXRIG_STATUS_OK);
             assert(left.line_id.serial == right.line_id.serial && left.line_revision == right.line_revision);
             assert(left.soft_wrapped == right.soft_wrapped && left.logical_column_offset == right.logical_column_offset);
-            for (size_t col = 0; col < plain->screen.columns; col++) {
+            for (size_t col = 0; col < columns; col++) {
                 boxrig_cell_view a, b;
                 assert(boxrig_terminal_get_text_fragment_cell(plain, screen, row, col, &a) == BOXRIG_STATUS_OK);
                 assert(boxrig_terminal_get_text_fragment_cell(encoded, screen, row, col, &b) == BOXRIG_STATUS_OK);
@@ -147,6 +152,8 @@ static void same_document(boxrig_terminal *plain, boxrig_terminal *encoded)
                 assert(!memcmp(&a.underline_color, &b.underline_color, sizeof(a.underline_color)));
                 assert(a.hyperlink_handle == b.hyperlink_handle && a.hyperlink_uri_length == b.hyperlink_uri_length);
                 if (a.hyperlink_uri_length) assert(!memcmp(a.hyperlink_uri, b.hyperlink_uri, a.hyperlink_uri_length));
+                assert(a.hyperlink_id_length == b.hyperlink_id_length);
+                if (a.hyperlink_id_length) assert(!memcmp(a.hyperlink_id, b.hyperlink_id, a.hyperlink_id_length));
             }
         }
     }
@@ -177,12 +184,12 @@ static void test_reflow_and_eviction(boxrig_scrollback_compression mode)
     boxrig_terminal *term[2];
     for (size_t t = 0; t < 2; t++) {
         assert(boxrig_terminal_create(&config, &term[t]) == BOXRIG_STATUS_OK);
-        if (t) assert(boxrig_screen_set_history_compression(&term[t]->screen, mode) == BOXRIG_STATUS_OK);
+        if (t) assert(boxrig_terminal_set_scrollback_compression(term[t], mode) == BOXRIG_STATUS_OK);
         for (size_t i = 0; i < 89; i++) {
             char line[192];
-            snprintf(line, sizeof(line), "%zu%s\033[1;4;38;2;1;2;3m界"
+            snprintf(line, sizeof(line), "%zu%s\033[1\"q\033[1;4;38;2;1;2;3m界"
                 "\033]8;id=k;https://boxrig.example\033\\👩‍💻\033]8;;\033\\"
-                "\033[0;44m\033[K\033[0m%s\r\n", i, i % 3 ? "·" : "α", i % 2 ? "   " : "a line that wraps across rows");
+                "\033[0\"q\033[0;44m\033[K\033[0m%s\r\n", i, i % 3 ? "·" : "α", i % 2 ? "   " : "a line that wraps across rows");
             feed(term[t], line);
         }
         assert(boxrig_terminal_set_viewport_offset(term[t], 71) == BOXRIG_STATUS_OK);
@@ -208,7 +215,7 @@ static size_t after_clear(size_t capacity)
     config.scrollback_capacity = capacity;
     boxrig_terminal *term;
     assert(boxrig_terminal_create(&config, &term) == BOXRIG_STATUS_OK);
-    assert(boxrig_screen_set_history_compression(&term->screen,
+    assert(boxrig_terminal_set_scrollback_compression(term,
         BOXRIG_SCROLLBACK_COMPRESSION_DEFLATE_LEVEL_1) == BOXRIG_STATUS_OK);
     for (size_t i = 0; i < 70; i++) feed(term, "log 日本👩‍💻\r\n");
     if (capacity) {
@@ -231,7 +238,7 @@ static void test_navigation_after_enabling(void)
     assert(boxrig_terminal_create(&config, &term) == BOXRIG_STATUS_OK);
     for (size_t i = 0; i < 50; i++) feed(term, "first 日本\r\n");
     assert(boxrig_terminal_set_viewport_offset(term, 35) == BOXRIG_STATUS_OK);
-    assert(boxrig_screen_set_history_compression(&term->screen,
+    assert(boxrig_terminal_set_scrollback_compression(term,
         BOXRIG_SCROLLBACK_COMPRESSION_DEFLATE_LEVEL_1) == BOXRIG_STATUS_OK);
     size_t before_scroll = calls;
     assert(boxrig_terminal_set_viewport_offset(term, 1) == BOXRIG_STATUS_OK);
@@ -247,7 +254,7 @@ static void test_output_allocation_failure(void)
     config.scrollback_capacity = 64;
     boxrig_terminal *term;
     assert(boxrig_terminal_create(&config, &term) == BOXRIG_STATUS_OK);
-    assert(boxrig_screen_set_history_compression(&term->screen,
+    assert(boxrig_terminal_set_scrollback_compression(term,
         BOXRIG_SCROLLBACK_COMPRESSION_DEFLATE_LEVEL_1) == BOXRIG_STATUS_OK);
     fail_deflate = true;
     for (size_t row = 0; row < 65; row++) feed(term, "α\r\n");
@@ -261,10 +268,161 @@ static void test_output_allocation_failure(void)
     boxrig_terminal_destroy(term);
 }
 
+static void test_mode_changes(void)
+{
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    config.rows = 3;
+    config.columns = 16;
+    config.scrollback_capacity = 40;
+    boxrig_terminal *plain, *term;
+    assert(boxrig_terminal_create(&config, &plain) == BOXRIG_STATUS_OK);
+    assert(boxrig_terminal_create(&config, &term) == BOXRIG_STATUS_OK);
+    assert(boxrig_terminal_scrollback_compression(term) == BOXRIG_SCROLLBACK_COMPRESSION_NONE);
+    for (size_t row = 0; row < 49; row++) {
+        char text[128];
+        snprintf(text, sizeof(text), "界\033]8;;https://example.org/\033\\👩‍💻\033]8;;\033\\%zu\r\n", row);
+        feed(plain, text);
+        feed(term, text);
+    }
+    assert(boxrig_terminal_set_viewport_offset(plain, 20) == BOXRIG_STATUS_OK);
+    assert(boxrig_terminal_set_viewport_offset(term, 20) == BOXRIG_STATUS_OK);
+    for (size_t pass = 0; pass < 2; pass++) {
+        if (pass) {
+            feed(plain, "\033[?47halt");
+            feed(term, "\033[?47halt");
+        }
+        boxrig_dirty dirty;
+        while (boxrig_terminal_take_dirty(term, &dirty)) {}
+        for (int from = 0; from <= BOXRIG_SCROLLBACK_COMPRESSION_DEFLATE_LEVEL_1; from++) {
+            for (int to = 0; to <= BOXRIG_SCROLLBACK_COMPRESSION_DEFLATE_LEVEL_1; to++) {
+                assert(boxrig_terminal_set_scrollback_compression(term, from) == BOXRIG_STATUS_OK);
+                boxrig_cell_view cell;
+                assert(boxrig_terminal_get_text_fragment_cell(term, BOXRIG_TEXT_SCREEN_PRIMARY,
+                    0, 2, &cell) == BOXRIG_STATUS_OK);
+                size_t before = calls;
+                assert(boxrig_terminal_set_scrollback_compression(term,
+                    (boxrig_scrollback_compression)99) == BOXRIG_STATUS_INVALID_ARGUMENT);
+                assert(boxrig_terminal_set_scrollback_compression(term, from) == BOXRIG_STATUS_OK);
+                assert(calls == before && !memcmp(cell.text, "👩‍💻", cell.text_length));
+                assert((int)boxrig_terminal_scrollback_compression(term) == from);
+                /* Fail each allocation of a real conversion once, including
+                 * the first and last row, grapheme copies and the zlib state. */
+                for (size_t nth = 1;; nth++) {
+                    size_t prior = allocated;
+                    fail_after = nth;
+                    boxrig_status status = boxrig_terminal_set_scrollback_compression(term, to);
+                    fail_after = 0;
+                    if (status == BOXRIG_STATUS_OK) break;
+                    assert(status == BOXRIG_STATUS_OUT_OF_MEMORY && allocated == prior);
+                    assert((int)boxrig_terminal_scrollback_compression(term) == from);
+                    assert(cell.text_length == strlen("👩‍💻") && !memcmp(cell.text, "👩‍💻", cell.text_length));
+                    same_document(plain, term);
+                    assert(!boxrig_terminal_take_dirty(term, &dirty));
+                }
+                assert((int)boxrig_terminal_scrollback_compression(term) == to);
+                same_document(plain, term);
+                assert(!boxrig_terminal_take_dirty(term, &dirty));
+            }
+        }
+    }
+    feed(plain, "\033[?47l");
+    feed(term, "\033[?47l");
+    same_document(plain, term);
+    assert(boxrig_terminal_set_scrollback_capacity(term, 0) == BOXRIG_STATUS_OK);
+    for (int mode = 0; mode <= BOXRIG_SCROLLBACK_COMPRESSION_DEFLATE_LEVEL_1; mode++) {
+        assert(boxrig_terminal_set_scrollback_compression(term, mode) == BOXRIG_STATUS_OK);
+        feed(term, "line\r\n");
+        assert(boxrig_terminal_scrollback_rows(term) == 0);
+        assert((int)boxrig_terminal_scrollback_compression(term) == mode);
+    }
+    boxrig_terminal_destroy(plain);
+    boxrig_terminal_destroy(term);
+    assert(!allocated);
+}
+
+static void test_oversized_row(void)
+{
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    config.rows = 2;
+    config.columns = 65537;
+    config.scrollback_capacity = 3;
+    boxrig_terminal *term;
+    assert(boxrig_terminal_create(&config, &term) == BOXRIG_STATUS_OK);
+    assert(boxrig_terminal_set_scrollback_compression(term,
+        BOXRIG_SCROLLBACK_COMPRESSION_DEFLATE_LEVEL_1) == BOXRIG_STATUS_OK);
+    char *line = malloc(config.columns + 1);
+    assert(line != NULL);
+    memset(line, 'q', config.columns);
+    line[config.columns - 1] = 'Z';
+    line[config.columns] = '\0';
+    feed(term, line);
+    free(line);
+    feed(term, "\r\nshort\r\n");
+    assert(boxrig_terminal_finish_input(term) == BOXRIG_STATUS_OK);
+    assert(boxrig_terminal_scrollback_rows(term) == 1);
+    size_t before = calls;
+    assert(boxrig_terminal_set_viewport_offset(term, 1) == BOXRIG_STATUS_OK);
+    boxrig_cell_view cell;
+    assert(boxrig_terminal_get_cell(term, 0, 32768, &cell) == BOXRIG_STATUS_OK && *cell.text == 'q');
+    assert(boxrig_terminal_get_cell(term, 0, config.columns - 1, &cell) == BOXRIG_STATUS_OK && *cell.text == 'Z');
+    assert(calls == before);
+    boxrig_terminal_destroy(term);
+    assert(!allocated);
+}
+
+static void test_resumable_search(void)
+{
+    static const char pattern[] = "界   é\n👩‍💻";
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    config.rows = 2;
+    config.columns = 10;
+    config.scrollback_capacity = 80;
+    boxrig_terminal *term;
+    assert(boxrig_terminal_create(&config, &term) == BOXRIG_STATUS_OK);
+    assert(boxrig_terminal_set_scrollback_compression(term, BOXRIG_SCROLLBACK_COMPRESSION_DEFLATE_LEVEL_1) == BOXRIG_STATUS_OK);
+    for (size_t i = 0; i < 67; i++)
+        feed(term, i == 31 ? "界\033[3Cé\r\n" : i == 32 ? "👩‍💻\r\n" : "x\r\n");
+    boxrig_text_search_options search = { .screen = BOXRIG_TEXT_SCREEN_PRIMARY,
+        .pattern = (const uint8_t *)pattern, .pattern_length = sizeof(pattern) - 1 };
+    boxrig_text_search_cursor *cursor;
+    assert(boxrig_terminal_create_text_search(term, &search, &cursor) == BOXRIG_STATUS_OK);
+    boxrig_text_search_progress progress;
+    boxrig_text_search_result match;
+    for (size_t step = 0;; step++) {
+        size_t used;
+        assert(boxrig_text_search_resume(cursor, 1, &used, &progress, &match) == BOXRIG_STATUS_OK);
+        assert(used <= 1);
+        if (progress != BOXRIG_TEXT_SEARCH_IN_PROGRESS) break;
+        boxrig_cell_view cell;
+        assert(boxrig_terminal_get_text_fragment_cell(term, BOXRIG_TEXT_SCREEN_PRIMARY,
+            step % 2 ? 0 : 63, 0, &cell) == BOXRIG_STATUS_OK);
+        if (step % 3 == 0)
+            assert(boxrig_terminal_set_scrollback_compression(term,
+                (boxrig_scrollback_compression)(step / 3 % 3)) == BOXRIG_STATUS_OK);
+    }
+    assert(progress == BOXRIG_TEXT_SEARCH_MATCH);
+    boxrig_text_snapshot_options options = { BOXRIG_TEXT_SCREEN_PRIMARY, &match.range, 64, 2 };
+    boxrig_text_snapshot *snapshot;
+    assert(boxrig_terminal_create_text_snapshot(term, &options, &snapshot) == BOXRIG_STATUS_OK);
+    size_t length;
+    const uint8_t *bytes = boxrig_text_snapshot_data(snapshot, &length);
+    assert(length == sizeof(pattern) - 1 && !memcmp(bytes, pattern, length));
+    boxrig_text_snapshot_destroy(snapshot);
+    boxrig_text_search_destroy(cursor);
+    boxrig_terminal_destroy(term);
+    assert(!allocated);
+}
+
 int main(void)
 {
+    assert(boxrig_terminal_scrollback_compression(NULL) == BOXRIG_SCROLLBACK_COMPRESSION_NONE);
+    assert(boxrig_terminal_set_scrollback_compression(NULL, BOXRIG_SCROLLBACK_COMPRESSION_PACKED) ==
+        BOXRIG_STATUS_INVALID_ARGUMENT);
     test_navigation_after_enabling();
     test_output_allocation_failure();
+    test_mode_changes();
+    test_oversized_row();
+    test_resumable_search();
     size_t plain = retained(BOXRIG_SCROLLBACK_COMPRESSION_NONE);
     size_t packed = retained(BOXRIG_SCROLLBACK_COMPRESSION_PACKED);
     fprintf(stderr, "retained bytes: none=%zu packed=%zu\n", plain, packed);

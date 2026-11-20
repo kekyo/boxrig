@@ -512,6 +512,20 @@ size_t boxrig_terminal_scrollback_capacity(const boxrig_terminal *terminal)
     return terminal == NULL ? 0 : terminal->screen.history_capacity;
 }
 
+boxrig_scrollback_compression boxrig_terminal_scrollback_compression(
+    const boxrig_terminal *terminal)
+{
+    return terminal == NULL ? BOXRIG_SCROLLBACK_COMPRESSION_NONE : terminal->screen.history_mode;
+}
+
+boxrig_status boxrig_terminal_set_scrollback_compression(
+    boxrig_terminal *terminal,
+    boxrig_scrollback_compression mode)
+{
+    if (terminal == NULL) return BOXRIG_STATUS_INVALID_ARGUMENT;
+    return boxrig_screen_set_history_compression(&terminal->screen, mode);
+}
+
 boxrig_status boxrig_terminal_set_scrollback_capacity(
     boxrig_terminal *terminal,
     size_t row_capacity)

@@ -50,6 +50,20 @@ primary画面に保存する履歴の上限は物理行単位です。`boxrig_te
 指定できる最大値は`BOXRIG_SCROLLBACK_CAPACITY_MAX`です。上限超過やメモリー不足で失敗した場合、容量、履歴、表示位置などは変更されません。
 coreを直接変更した場合は、利用中のUIモデルを同期してからフレーム処理を進めてください。
 
+## 履歴の圧縮方式を選ぶ
+
+生成直後の端末は履歴を無圧縮で保持します。画面外の履歴に使うメモリーを減らすには、端末ごとに`boxrig_terminal_set_scrollback_compression()`で方式を選びます。
+
+| 指定値 | 保存方式 |
+| --- | --- |
+| `BOXRIG_SCROLLBACK_COMPRESSION_NONE` | 無圧縮（既定） |
+| `BOXRIG_SCROLLBACK_COMPRESSION_PACKED` | セルの文字と属性を行ごとにまとめる独自形式 |
+| `BOXRIG_SCROLLBACK_COMPRESSION_DEFLATE_LEVEL_1` | 独自形式の行をまとめてDEFLATEレベル1で圧縮 |
+
+すでに保持している履歴も切り替えの対象です。切り替えに必要なメモリーを確保できない場合は`BOXRIG_STATUS_OUT_OF_MEMORY`が返り、元の方式で履歴を参照できます。現在の設定は`boxrig_terminal_scrollback_compression()`で取得します。
+
+表示中の行と書き込み先の画面は、どの方式でも展開した状態で使えます。スクロール、選択範囲のコピー、検索には既存のAPIを使います。
+
 ## 標準バーを設定する
 
 表示方針はALWAYS、AUTO、NEVERです。

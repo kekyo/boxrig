@@ -4,7 +4,7 @@
  * https://github.com/kekyo/boxrig/
  */
 
-#include "terminal_internal.h"
+#include "boxrig/terminal.h"
 
 #include <inttypes.h>
 #include <stdio.h>
@@ -59,7 +59,7 @@ int main(int argc, char **argv)
     boxrig_terminal_config config = boxrig_terminal_config_default();
     boxrig_terminal *terminal = NULL;
     if (boxrig_terminal_create(&config, &terminal) != BOXRIG_STATUS_OK) abort();
-    if (boxrig_screen_set_history_compression(&terminal->screen, mode) != BOXRIG_STATUS_OK) abort();
+    if (boxrig_terminal_set_scrollback_compression(terminal, mode) != BOXRIG_STATUS_OK) abort();
     static const char *const messages[] = {
         "completed", "\033[1;32mok\033[0m stage=compile",
         "日本語 👩‍💻 é", "a long line that wraps across physical rows "

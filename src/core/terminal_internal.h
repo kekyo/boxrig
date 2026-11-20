@@ -91,12 +91,6 @@ typedef struct boxrig_history_line {
     boxrig_text_fragment_metadata text;
 } boxrig_history_line;
 
-typedef enum boxrig_scrollback_compression {
-    BOXRIG_SCROLLBACK_COMPRESSION_NONE = 0,
-    BOXRIG_SCROLLBACK_COMPRESSION_PACKED,
-    BOXRIG_SCROLLBACK_COMPRESSION_DEFLATE_LEVEL_1
-} boxrig_scrollback_compression;
-
 typedef struct boxrig_saved_cursor {
     size_t row;
     size_t column;
