@@ -5,6 +5,7 @@
  */
 
 #include "application_internal.h"
+#include "output_frame.h"
 
 #include <errno.h>
 #include <glib.h>
@@ -294,11 +295,12 @@ int boxrig_term_x11_run_event_loop(
     size_t prepared_host_descriptor_count = 0;
     size_t prepared_uri_descriptor_count = 0;
     bool poll_pending = false;
+    bool additional_frame_work = false;
+    boxrig_term_x11_output_frame output_frame = {0};
     int result = -1;
 
     while (boxrig_ui_lifecycle_accepts_events(&application->lifecycle)) {
         boxrig_session_dispatch_result session_result;
-        int frame_result;
         uint32_t session_interests;
         uint32_t session_ready = BOXRIG_SESSION_READY_NONE;
         size_t host_descriptor_capacity;
@@ -340,15 +342,24 @@ int boxrig_term_x11_run_event_loop(
         }
         application->peer_closed =
             application->peer_closed || session_result.peer_closed;
+        bool native_work = application->blocked_event_valid || XPending(application->display) > 0;
         if (process_x_events(application) == -1 ||
             dispatch_writable_session_now(
                 application,
                 pty_descriptor) == -1) {
             goto cleanup;
         }
-        frame_result = frame_component(application);
-        if (frame_result == -1) {
-            goto cleanup;
+        int frame_delay = boxrig_term_x11_output_frame_delay(&output_frame,
+            g_get_monotonic_time() / 1000, session_result.terminal_bytes_fed != 0,
+            native_work || application->peer_closed || additional_frame_work);
+        if (frame_delay > 0) {
+            timeout_milliseconds = frame_delay;
+        } else {
+            int frame_result = frame_component(application);
+            if (frame_result == -1) goto cleanup;
+            additional_frame_work = frame_result == 1;
+            boxrig_term_x11_output_frame_complete(&output_frame, g_get_monotonic_time() / 1000,
+                boxrig_terminal_synchronized_output(application->terminal));
         }
         if (!boxrig_ui_lifecycle_accepts_events(&application->lifecycle)) {
             break;
@@ -360,7 +371,7 @@ int boxrig_term_x11_run_event_loop(
             }
             break;
         }
-        if (frame_result == 1) {
+        if (additional_frame_work) {
             /* Keep component progress immediate without skipping readiness
              * collection for PTY and X11 traffic. */
             timeout_milliseconds = 0;

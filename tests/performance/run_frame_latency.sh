@@ -1,12 +1,14 @@
 #!/bin/bash
 # Observe synchronized text/image updates on the caller's X11 display.
 set -euo pipefail
-[[ ( $# == 5 || ( $# == 7 && ${7:-} =~ ^(gtk3|x11)$ ) ) && $2 =~ ^(cairo|opengl)$ &&
+[[ ( $# == 5 || ( $# == 6 && ${6:-} =~ ^(gtk3|x11)$ ) || ( $# == 7 && ${7:-} =~ ^(gtk3|x11)$ ) ) && $2 =~ ^(cairo|opengl)$ &&
    $3 =~ ^[1-9][0-9]*$ && $4 =~ ^[1-9][0-9]*$ ]]
+[[ -z ${BOXRIG_LATENCY_KEY_ECHO:-} || $# != 7 ]]
 binary=$(realpath "$1")
 renderer=$2
 rows=$3
 columns=$4
+frontend=${7:-${6:-gtk3}}
 out=$(realpath -m "$5")
 performance=$(realpath "${BOXRIG_PERFORMANCE_DIR:-build/tests/performance}")
 mkdir -p "$(dirname "$out")"
@@ -24,8 +26,9 @@ if [[ $# == 7 ]]; then
   BOXRIG_CAPTURE_INPUT=$(realpath "$6")
   BOXRIG_CAPTURE_PEER=$(realpath tests/performance/replay_marked_capture.mjs)
   if [[ $(jq -r '.workload' "$BOXRIG_CAPTURE_INPUT/manifest.json") == btop ]]; then urls=1; fi
-  if [[ $7 == x11 ]]; then width=$((columns*7+14)); height=$((rows*14)); fi
 fi
+if [[ $frontend == x11 ]]; then width=$((columns*7+14)); height=$((rows*14)); fi
+if [[ -n ${BOXRIG_LATENCY_KEY_ECHO:-} ]]; then export BOXRIG_LATENCY_ISOLATED_CELL=1; fi
 export LC_ALL=C.UTF-8
 "$performance/annotation_gl_vendor" > "$out/gpu.txt"
 fc-match monospace > "$out/font.txt"
@@ -49,6 +52,7 @@ GDK_BACKEND=x11 NO_AT_BRIDGE=1 BOXRIG_AUTO_URLS="$urls" "$binary" "--renderer=$r
     node "$BOXRIG_CAPTURE_PEER" "$BOXRIG_CAPTURE_INPUT" "$BOXRIG_LATENCY_OUT"
     exit
   fi
+  if [[ -n ${BOXRIG_LATENCY_KEY_ECHO:-} ]]; then stty raw -echo; fi
   exec "$BOXRIG_LATENCY_TOOLS/frame_latency" peer "$BOXRIG_LATENCY_OUT"
 ' > "$out/terminal.log" 2>&1 &
 terminal=$!

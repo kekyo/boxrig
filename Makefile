@@ -3300,6 +3300,7 @@ $(X11_INPUT_TEST_BINARY): tests/x11/test_x11_input_adapter.c \
 		-Wl,--wrap=XExtendedMaxRequestSize -o $@
 
 $(X11_EVENT_WAIT_TEST_BINARY): tests/x11/test_x11_event_wait.c \
+		examples/boxrig_term/x11/output_frame.h \
 		$(X11_LIBRARY) $(POSIX_LIBRARY) $(SESSION_LIBRARY) $(UI_LIBRARY) \
 		$(LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(X11_CPPFLAGS) \
@@ -3455,6 +3456,7 @@ $(IMAGE_PHASE_PROBES): tests/performance/image_phase_probe.c
 image-phase-probes: $(IMAGE_PHASE_PROBES)
 
 $(EXAMPLE_BINARY) $(BUILD_DIR)/boxrig_term/x11/boxrig_term_work $(BUILD_DIR)/boxrig_term/x11/boxrig_term_image_work: $(EXAMPLE_SOURCES) \
+		examples/boxrig_term/x11/output_frame.h \
 	$(UI_HEADERS) $(X11_HEADERS) include/boxrig/posix.h \
 	$(X11_OPENGL_LIBRARY) $(X11_LIBRARY) $(OPENGL_RENDERER_LIBRARY) \
 	$(POSIX_LIBRARY) $(SESSION_LIBRARY) $(UI_LIBRARY) $(LIBRARY) \

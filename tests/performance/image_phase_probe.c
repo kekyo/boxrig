@@ -235,9 +235,11 @@ int __real_boxrig_pango_cairo_renderer_draw_view_composition(boxrig_pango_cairo_
 int __wrap_boxrig_pango_cairo_renderer_draw_view_composition(boxrig_pango_cairo_renderer *renderer,
     boxrig_ui_view *view, boxrig_composition *composition)
 {
+    event("draw_begin");
     uint64_t start = timestamp(CLOCK_THREAD_CPUTIME_ID);
     int result = __real_boxrig_pango_cairo_renderer_draw_view_composition(renderer, view, composition);
     add(DRAW, start, 1);
+    event("draw_end");
     return result;
 }
 
