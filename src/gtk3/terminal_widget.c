@@ -69,6 +69,7 @@ struct _BoxrigGtk3TerminalWidget {
     guint cairo_tick_id;
     GSource *cairo_idle;
     bool cairo_awaiting_paint;
+    gint64 cairo_output_resume_us;
     boxrig_ui_status cairo_tick_status;
     bool gl_pending;
     bool gl_presented;
@@ -337,6 +338,7 @@ static void request_application_frame(BoxrigGtk3TerminalWidget *widget)
 
 static void cancel_scheduled_cairo(BoxrigGtk3TerminalWidget *widget)
 {
+    widget->cairo_output_resume_us = 0;
     if (widget->cairo_tick_id != 0) {
         gtk_widget_remove_tick_callback(GTK_WIDGET(widget), widget->cairo_tick_id);
         widget->cairo_tick_id = 0;
@@ -351,7 +353,21 @@ static gboolean prepare_scheduled_cairo(gpointer data)
 {
     BoxrigGtk3TerminalWidget *widget = g_object_ref(data);
     boxrig_ui_component_frame_result result;
+    uint64_t generation = widget->presentation_generation;
+    gint64 started = g_get_monotonic_time();
     widget->cairo_tick_status = boxrig_gtk3_terminal_widget_frame(widget, &result);
+    GdkFrameClock *clock = gtk_widget_get_frame_clock(GTK_WIDGET(widget));
+    if (clock != NULL && widget->cairo_tick_status == BOXRIG_UI_OK &&
+        widget->presentation_generation != generation &&
+        widget->render_state.active_backend == BOXRIG_GTK_RENDER_BACKEND_CAIRO) {
+        gint64 finished = g_get_monotonic_time();
+        gint64 refresh_interval, presentation_time;
+        gdk_frame_clock_get_refresh_info(clock, finished, &refresh_interval, &presentation_time);
+        /* If drawing used a whole refresh interval, leave the next one for
+         * incoming updates before rasterizing another retained image. */
+        widget->cairo_output_resume_us = finished - started >= refresh_interval
+            ? finished + refresh_interval : 0;
+    }
     if (widget->cairo_tick_status != BOXRIG_UI_OK || result.additional_dispatch)
         request_application_frame(widget);
     g_object_unref(widget);
@@ -363,18 +379,21 @@ static gboolean prepare_cairo_on_tick(GtkWidget *gtk_widget, GdkFrameClock *cloc
     (void)clock;
     (void)data;
     BoxrigGtk3TerminalWidget *widget = BOXRIG_GTK3_TERMINAL_WIDGET(gtk_widget);
+    if (g_get_monotonic_time() < widget->cairo_output_resume_us) return G_SOURCE_CONTINUE;
     widget->cairo_tick_id = 0;
     return prepare_scheduled_cairo(widget);
 }
 
 static void schedule_cairo(BoxrigGtk3TerminalWidget *widget)
 {
-    if (widget->cairo_tick_id != 0) return;
-    widget->cairo_tick_id = gtk_widget_add_tick_callback(
-        GTK_WIDGET(widget), prepare_cairo_on_tick, NULL, NULL);
+    if (widget->cairo_tick_id == 0) {
+        widget->cairo_tick_id = gtk_widget_add_tick_callback(
+            GTK_WIDGET(widget), prepare_cairo_on_tick, NULL, NULL);
+    }
     /* After GTK has painted the previous image an idle PTY can prepare the
      * next one early. Continuous input still gets the frame clock deadline. */
-    if (!widget->cairo_awaiting_paint) {
+    if (widget->cairo_idle == NULL && !widget->cairo_awaiting_paint &&
+        g_get_monotonic_time() >= widget->cairo_output_resume_us) {
         widget->cairo_idle = g_idle_source_new();
         /* Let an already-ready native redraw use this committed image. GTK
          * allocation work still runs first, and the tick bounds a busy PTY. */
@@ -402,6 +421,7 @@ static void input_activity(void *context)
 {
     BoxrigGtk3TerminalWidget *widget = context;
 
+    widget->cairo_output_resume_us = 0;
     /* Pending dirty may be held by synchronized output without a scheduled
      * frame. Native input still needs its own dispatch wakeup in that state. */
     request_application_frame(widget);
