@@ -5778,40 +5778,18 @@ static boxrig_status protocol_put_run(
         }
         if (upload->result == BOXRIG_KITTY_GRAPHICS_RESULT_OK &&
             !upload->base64_ended && upload->quartet_length == 0) {
-            /* Zero means invalid; valid sextets are stored plus one. Neither
-             * '=' nor a control byte can be swallowed by this fast path. */
-            static const uint8_t values[256] = {
-                ['A']=1, ['B']=2, ['C']=3, ['D']=4, ['E']=5, ['F']=6, ['G']=7, ['H']=8,
-                ['I']=9, ['J']=10, ['K']=11, ['L']=12, ['M']=13, ['N']=14, ['O']=15, ['P']=16,
-                ['Q']=17, ['R']=18, ['S']=19, ['T']=20, ['U']=21, ['V']=22, ['W']=23, ['X']=24,
-                ['Y']=25, ['Z']=26, ['a']=27, ['b']=28, ['c']=29, ['d']=30, ['e']=31, ['f']=32,
-                ['g']=33, ['h']=34, ['i']=35, ['j']=36, ['k']=37, ['l']=38, ['m']=39, ['n']=40,
-                ['o']=41, ['p']=42, ['q']=43, ['r']=44, ['s']=45, ['t']=46, ['u']=47, ['v']=48,
-                ['w']=49, ['x']=50, ['y']=51, ['z']=52, ['0']=53, ['1']=54, ['2']=55, ['3']=56,
-                ['4']=57, ['5']=58, ['6']=59, ['7']=60, ['8']=61, ['9']=62, ['+']=63, ['/']=64
-            };
             size_t available = upload->raw_expected - upload->raw_received;
             if (available > upload->rgba_length - upload->rgba_offset)
                 available = upload->rgba_length - upload->rgba_offset;
             size_t quartets = (length - index) / 4;
             if (quartets > available / 3) quartets = available / 3;
-            size_t first = index, decoded = 0;
-            uint8_t *output = upload->rgba + upload->rgba_offset;
-            for (size_t i = 0; i < quartets; i++) {
-                unsigned int a = values[bytes[index]], b = values[bytes[index+1]];
-                unsigned int c = values[bytes[index+2]], d = values[bytes[index+3]];
-                if (a == 0 || b == 0 || c == 0 || d == 0) break;
-                a--; b--; c--; d--;
-                output[decoded] = (uint8_t)((a << 2) | (b >> 4));
-                output[decoded+1] = (uint8_t)((b << 4) | (c >> 2));
-                output[decoded+2] = (uint8_t)((c << 6) | d);
-                index += 4;
-                decoded += 3;
-            }
-            upload->raw_received += decoded;
-            upload->rgba_offset += decoded;
-            upload->chunk_encoded_length += index - first;
-            state->payload_length += index - first;
+            size_t written = boxrig_graphics_decode_quartets(bytes + index,
+                quartets, upload->rgba + upload->rgba_offset);
+            index += written * 4;
+            upload->raw_received += written * 3;
+            upload->rgba_offset += written * 3;
+            upload->chunk_encoded_length += written * 4;
+            state->payload_length += written * 4;
         }
     }
     for (; index < length; index++) {
