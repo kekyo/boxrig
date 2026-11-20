@@ -293,7 +293,7 @@ static const boxrig_cell *resize_cell_at(
 {
     if (row < screen->history_count) {
         size_t slot = (screen->history_start + row) % screen->history_capacity;
-        return &screen->history[slot].cell_storage[column];
+        return &screen->history[slot].storage.raw[column];
     }
     return &screen->primary.row_cells[row - screen->history_count][column];
 }

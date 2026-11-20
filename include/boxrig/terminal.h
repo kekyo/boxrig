@@ -493,6 +493,16 @@ typedef enum boxrig_encoding {
     BOXRIG_ENCODING_SHIFT_JIS
 } boxrig_encoding;
 
+/** Storage policy for offscreen primary-screen history, selected per terminal. */
+typedef enum boxrig_scrollback_compression {
+    /** Retain the original cells. This is the default. */
+    BOXRIG_SCROLLBACK_COMPRESSION_NONE = 0,
+    /** Pack cells and repeated renditions within each physical row. */
+    BOXRIG_SCROLLBACK_COMPRESSION_PACKED,
+    /** Apply DEFLATE level 1 to independent blocks of packed rows. */
+    BOXRIG_SCROLLBACK_COMPRESSION_DEFLATE_LEVEL_1
+} boxrig_scrollback_compression;
+
 /** Terminal construction settings copied or owned by the terminal. */
 typedef struct boxrig_terminal_config {
     /** Initial number of rows. */
@@ -1560,6 +1570,34 @@ size_t boxrig_terminal_scrollback_capacity(
 boxrig_status boxrig_terminal_set_scrollback_capacity(
     boxrig_terminal *terminal,
     size_t row_capacity);
+
+/**
+ * Reads the selected scrollback storage policy.
+ *
+ * @param terminal Terminal to inspect.
+ * @return The configured policy, or BOXRIG_SCROLLBACK_COMPRESSION_NONE for NULL.
+ */
+boxrig_scrollback_compression boxrig_terminal_scrollback_compression(
+    const boxrig_terminal *terminal);
+
+/**
+ * Selects the storage policy for existing and future offscreen history.
+ *
+ * @param terminal Terminal to configure.
+ * @param mode Scrollback storage policy.
+ * @return BOXRIG_STATUS_OK on success, BOXRIG_STATUS_INVALID_ARGUMENT for
+ *         NULL or an unknown mode, or BOXRIG_STATUS_OUT_OF_MEMORY if the
+ *         replacement storage could not be prepared.
+ *
+ * @remarks Visible rows and writable screen buffers remain uncompressed.
+ * During output a row may retain its current representation if compression
+ * needs more space or memory is unavailable. Changing the policy preserves
+ * viewport position, text revisions and dirty intervals. Selecting the current
+ * policy is a no-op. Failure preserves all history and borrowed cell views.
+ */
+boxrig_status boxrig_terminal_set_scrollback_compression(
+    boxrig_terminal *terminal,
+    boxrig_scrollback_compression mode);
 
 /**
  * Returns the revision of projected text and retained logical-line topology.

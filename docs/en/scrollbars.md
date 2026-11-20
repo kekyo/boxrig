@@ -50,6 +50,20 @@ Increasing capacity retains existing history; decreasing it immediately evicts t
 `BOXRIG_SCROLLBACK_CAPACITY_MAX` is the maximum accepted value. A limit or allocation failure leaves capacity, history, viewport position, and other state unchanged.
 After changing core directly, synchronize each UI model in use before advancing frame processing.
 
+## Choose a scrollback compression mode
+
+A new terminal stores history uncompressed. To reduce memory use for offscreen history, call `boxrig_terminal_set_scrollback_compression()` on that terminal.
+
+| Mode | Storage |
+| --- | --- |
+| `BOXRIG_SCROLLBACK_COMPRESSION_NONE` | Uncompressed cells (default) |
+| `BOXRIG_SCROLLBACK_COMPRESSION_PACKED` | A per-row encoding of cell text and attributes |
+| `BOXRIG_SCROLLBACK_COMPRESSION_DEFLATE_LEVEL_1` | DEFLATE level 1 applied to blocks of packed rows |
+
+The setting applies to existing history. If the switch returns `BOXRIG_STATUS_OUT_OF_MEMORY`, the history remains available in its previous mode. Read the selected mode with `boxrig_terminal_scrollback_compression()`.
+
+Visible rows and writable screens stay uncompressed in every mode. Use the existing APIs for scrolling, copying a selection and searching.
+
 ## Configure the built-in scrollbar
 
 Visibility policies are ALWAYS, AUTO, and NEVER.

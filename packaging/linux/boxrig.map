@@ -73,6 +73,7 @@ BOXRIG_0 {
         boxrig_terminal_resolve_viewport_cell;
         boxrig_terminal_resume_text_recognizers;
         boxrig_terminal_scrollback_capacity;
+        boxrig_terminal_scrollback_compression;
         boxrig_terminal_scrollback_rows;
         boxrig_terminal_send_bytes;
         boxrig_terminal_send_focus;
@@ -83,6 +84,7 @@ BOXRIG_0 {
         boxrig_terminal_set_cell_pixel_geometry;
         boxrig_terminal_set_input_config;
         boxrig_terminal_set_scrollback_capacity;
+        boxrig_terminal_set_scrollback_compression;
         boxrig_terminal_set_tty_erase;
         boxrig_terminal_set_viewport_offset;
         boxrig_terminal_size;
