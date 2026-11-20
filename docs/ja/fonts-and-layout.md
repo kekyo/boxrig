@@ -83,6 +83,7 @@ OpenType featureや可変フォントの軸を指定できますが、利用可�
 実際の能力や不足文字の診断を確認します。
 
 Cairoの罫線描画は `boxrig_font_rendering_policy.box_drawing` で選べます。既定の `BOXRIG_BOX_DRAWING_CONSERVATIVE` は作業用画像を再利用し、従来方式と同じ画素を描きます。個別の一時画像を使うには `BOXRIG_BOX_DRAWING_LEGACY` を指定します。`BOXRIG_BOX_DRAWING_BULK` は輪郭が重ならない不透明な罫線をまとめて描くため、輪郭の画素が変わる場合があります。
+GTK3、GTK4、Waylandでは、対象の出力の `get_font_rendering_policy()` で設定を取得し、`box_drawing` を変更して `set_font_rendering_policy()` に渡します。表示中の罫線にも反映されます。
 
 ## 行列数と表示寸法
 
