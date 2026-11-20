@@ -874,8 +874,8 @@ boxrig_ui_status boxrig_gtk3_terminal_widget_frame(
  * @param widget Widget to dispatch from its creation main context.
  * @param result_out Receives remaining work and animation scheduling state.
  * @return A portable UI status, including a failure from a scheduled draw.
- * @remarks Ordinary Cairo updates to a mapped widget share the next frame
- * clock update. An idle event loop can prepare an image early once GTK has
+ * @remarks The frame clock coalesces ordinary Cairo updates to a mapped
+ * widget. An idle event loop can prepare an image early once GTK has
  * painted the preceding image. When a Cairo frame takes a full refresh
  * interval, subsequent output can accumulate for one interval after it
  * finishes. Native input, initial presentation and resize boundaries still
