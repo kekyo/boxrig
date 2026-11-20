@@ -3,6 +3,7 @@
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <X11/keysym.h>
+#include <X11/extensions/XTest.h>
 #include <errno.h>
 #include <inttypes.h>
 #include <poll.h>
@@ -233,22 +234,25 @@ static int probe(char **argv)
     int gx = -1, gy = -1;
     bool isolated = getenv("BOXRIG_LATENCY_ISOLATED_CELL") != NULL;
     bool key_echo = isolated && getenv("BOXRIG_LATENCY_KEY_ECHO") != NULL;
+    if (key_echo) {
+        XSetInputFocus(display, window, RevertToParent, CurrentTime);
+        XSync(display, False);
+    }
     size_t frame_index = 0;
     uint64_t diagnostic_time = 0;
     FILE *control = NULL;
     for (unsigned int sequence = 0; sequence < 24; sequence++) {
         uint64_t sent = now_ns();
         if (sequence != 0 && key_echo) {
-            XEvent event = {0};
-            event.xkey.display = display;
-            event.xkey.window = window;
-            event.xkey.root = DefaultRootWindow(display);
-            event.xkey.same_screen = True;
-            event.xkey.keycode = XKeysymToKeycode(display, XK_n);
-            event.type = KeyPress;
-            CHECK(XSendEvent(display, window, False, KeyPressMask, &event));
-            event.type = KeyRelease;
-            CHECK(XSendEvent(display, window, False, KeyReleaseMask, &event));
+            /* GTK receives device key events through XInput. Send the same
+             * focused keyboard event for both GTK and native X11 samples. */
+            Window focus;
+            int revert;
+            XGetInputFocus(display, &focus, &revert);
+            CHECK(focus == window);
+            KeyCode key = XKeysymToKeycode(display, XK_n);
+            CHECK(key != 0 && XTestFakeKeyEvent(display, key, True, CurrentTime) &&
+                XTestFakeKeyEvent(display, key, False, CurrentTime));
             XFlush(display);
         } else if (sequence != 0) {
             CHECK(fputc('n', control) != EOF && fflush(control) == 0);
