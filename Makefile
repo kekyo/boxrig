@@ -1169,6 +1169,14 @@ $(BUILD_DIR)/tests/measure_resize_history: tests/performance/resize_history.c $(
 $(BUILD_DIR)/tests/measure_scrollback_compression: tests/performance/scrollback_compression.c $(CORE_HEADERS) $(LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(LIBRARY) -o $@
 
+.PHONY: test-scrollback-compression
+test: test-scrollback-compression
+test-scrollback-compression: $(BUILD_DIR)/tests/test_scrollback_compression
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
+
+$(BUILD_DIR)/tests/test_scrollback_compression: tests/test_scrollback_compression.c $(CORE_HEADERS) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(LIBRARY) $(SANITIZERS) -Wl,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=free -o $@
+
 .PHONY: test-cell-text-storage
 test: test-cell-text-storage
 test-cell-text-storage: $(BUILD_DIR)/tests/test_cell_text_storage
@@ -2410,8 +2418,8 @@ $(PARSER_TEST_BINARY): tests/test_parser.c src/core/parser.c src/core/parser.h |
 $(GRAPHICS_TEST_BINARY): tests/test_graphics.c $(LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(LIBRARY) $(SANITIZERS) -o $@
 
-$(SCREEN_TEST_BINARY): tests/test_screen.c src/core/screen.c src/core/text.c src/core/regex.c src/core/unicode.c $(UTF8PROC_SOURCE) $(CORE_HEADERS) | $(BUILD_DIR)/tests
-	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) tests/test_screen.c src/core/screen.c src/core/text.c src/core/regex.c src/core/unicode.c $(UTF8PROC_SOURCE) $(SANITIZERS) -o $@
+$(SCREEN_TEST_BINARY): tests/test_screen.c src/core/screen.c src/core/history.c src/core/text.c src/core/regex.c src/core/unicode.c $(UTF8PROC_SOURCE) $(CORE_HEADERS) $(ZLIB_OBJECTS) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) tests/test_screen.c src/core/screen.c src/core/history.c src/core/text.c src/core/regex.c src/core/unicode.c $(UTF8PROC_SOURCE) $(ZLIB_OBJECTS) $(SANITIZERS) -o $@
 
 $(TEXT_LAYOUT_TEST_BINARY): tests/test_text_layout.c $(UI_LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) tests/test_text_layout.c $(UI_LIBRARY) $(SANITIZERS) -o $@

@@ -369,25 +369,20 @@ static boxrig_status font_widths_changed(const boxrig_screen *screen, bool *chan
 {
     *changed_out = false;
     for (size_t row = 0; row < screen->history_count + screen->rows * 2; row++) {
-        const boxrig_cell *cells;
-        if (row < screen->history_count) {
-            size_t slot = (screen->history_start + row) % screen->history_capacity;
-            cells = screen->history[slot].cell_storage;
-        } else if (row - screen->history_count < screen->rows) {
-            cells = screen->primary.row_cells[row - screen->history_count];
-        } else {
-            cells = screen->alternate.row_cells[row - screen->history_count - screen->rows];
-        }
+        bool primary = row < screen->history_count + screen->rows;
+        size_t fragment = primary ? row : row - screen->history_count - screen->rows;
         for (size_t column = 0; column < screen->columns; column++) {
-            const boxrig_cell *cell = &cells[column];
+            const boxrig_cell *cell = boxrig_screen_text_fragment_cell(screen,
+                primary ? BOXRIG_TEXT_SCREEN_PRIMARY : BOXRIG_TEXT_SCREEN_ALTERNATE, fragment, column);
             if (cell->continuation || cell->text_length == 0) continue;
+            size_t old_width = cell->column_width;
             boxrig_text_cluster_measurement measurement;
             boxrig_status status = boxrig_screen_measure_text_cluster(screen,
                 (const uint8_t *)boxrig_cell_text(cell), cell->text_length,
                 cell->style.attributes, &measurement);
             if (status != BOXRIG_STATUS_OK) return status;
             size_t width = measurement.column_width > screen->columns ? 1 : measurement.column_width;
-            if (width != cell->column_width) {
+            if (width != old_width) {
                 *changed_out = true;
                 return BOXRIG_STATUS_OK;
             }
@@ -567,7 +562,7 @@ boxrig_status boxrig_terminal_set_viewport_offset(
     }
     if (terminal->screen.viewport_offset != row_offset) {
         boxrig_kitty_graphics_viewport_will_change(terminal);
-        terminal->screen.viewport_offset = row_offset;
+        boxrig_screen_change_history_view(&terminal->screen, row_offset);
         terminal->screen.viewport_anchor_column = 0;
         boxrig_kitty_graphics_viewport_did_change(terminal);
         boxrig_screen_mark_all(&terminal->screen);

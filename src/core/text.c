@@ -267,10 +267,10 @@ typedef struct boxrig_text_search_iterator {
     size_t previous_end;
     size_t blank_next;
     size_t blank_end;
-    const boxrig_cell *pending_cell;
+    bool pending_cell;
     size_t pending_cell_column;
     size_t pending_cell_width;
-    const uint8_t *token_bytes;
+    bool token_is_gap;
     size_t token_length;
     size_t token_offset;
     boxrig_text_position token_start;
@@ -492,8 +492,7 @@ static const boxrig_cell *document_cell(
 {
     if (text_screen == BOXRIG_TEXT_SCREEN_PRIMARY) {
         if (fragment_index < screen->history_count) {
-            return &screen->history[
-                history_slot(screen, fragment_index)].cell_storage[column];
+            return &boxrig_history_read(screen, fragment_index)[column];
         }
         return &screen->primary.row_cells[
             fragment_index - screen->history_count][column];
@@ -2327,7 +2326,7 @@ static void search_iterator_initialize(
 
 static void search_iterator_prepare_token(
     boxrig_text_search_iterator *iterator,
-    const uint8_t *bytes,
+    bool gap,
     size_t length,
     size_t start_column,
     size_t end_column)
@@ -2335,7 +2334,7 @@ static void search_iterator_prepare_token(
     const boxrig_text_fragment_metadata *metadata =
         search_iterator_metadata(iterator);
 
-    iterator->token_bytes = bytes;
+    iterator->token_is_gap = gap;
     iterator->token_length = length;
     iterator->token_offset = 0;
     iterator->token_start = make_position(
@@ -2356,7 +2355,6 @@ static void search_iterator_prepare_token(
 static boxrig_text_search_event search_iterator_next_event(
     boxrig_text_search_iterator *iterator)
 {
-    static const uint8_t space = (uint8_t)' ';
     boxrig_text_search_event event;
 
     memset(&event, 0, sizeof(event));
@@ -2382,22 +2380,23 @@ static boxrig_text_search_event search_iterator_next_event(
 
                 search_iterator_prepare_token(
                     iterator,
-                    &space,
+                    true,
                     1,
                     column,
                     column + 1);
                 continue;
             }
-            if (iterator->pending_cell != NULL) {
-                const boxrig_cell *cell = iterator->pending_cell;
+            if (iterator->pending_cell) {
+                const boxrig_cell *cell = document_cell(iterator->screen, iterator->text_screen,
+                    iterator->fragment_index, iterator->column - 1);
                 size_t column = iterator->pending_cell_column;
                 size_t width = iterator->pending_cell_width;
 
-                iterator->pending_cell = NULL;
+                iterator->pending_cell = false;
                 iterator->previous_end = column + width;
                 search_iterator_prepare_token(
                     iterator,
-                    (const uint8_t *)boxrig_cell_text(cell),
+                    false,
                     cell->text_length,
                     column,
                     column + width);
@@ -2435,7 +2434,7 @@ static boxrig_text_search_event search_iterator_next_event(
                         iterator->blank_end = logical_column;
                     }
                     iterator->saw_text = true;
-                    iterator->pending_cell = cell;
+                    iterator->pending_cell = true;
                     iterator->pending_cell_column = logical_column;
                     iterator->pending_cell_width = width;
                 }
@@ -2449,7 +2448,12 @@ static boxrig_text_search_event search_iterator_next_event(
             return event;
         case BOXRIG_TEXT_SEARCH_ITERATOR_TOKEN_BYTES:
             event.kind = BOXRIG_TEXT_SEARCH_EVENT_BYTE;
-            event.byte = iterator->token_bytes[iterator->token_offset++];
+            /* Another read or a storage-only mode switch may have reused the
+             * old address between dispatches. The logical coordinates survive. */
+            event.byte = iterator->token_is_gap ? (uint8_t)' ' :
+                (uint8_t)boxrig_cell_text(document_cell(iterator->screen, iterator->text_screen,
+                    iterator->fragment_index, iterator->column - 1))[iterator->token_offset];
+            iterator->token_offset++;
             if (iterator->token_offset == iterator->token_length) {
                 iterator->stage = BOXRIG_TEXT_SEARCH_ITERATOR_TOKEN_END;
             }
@@ -2497,7 +2501,7 @@ static boxrig_text_search_event search_iterator_next_event(
             iterator->previous_end = 0;
             iterator->blank_next = 0;
             iterator->blank_end = 0;
-            iterator->pending_cell = NULL;
+            iterator->pending_cell = false;
             iterator->saw_text = false;
             metadata = search_iterator_metadata(iterator);
             event.kind = BOXRIG_TEXT_SEARCH_EVENT_BOUNDARY;

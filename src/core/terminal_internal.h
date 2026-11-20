@@ -38,6 +38,8 @@ typedef struct boxrig_cell {
     size_t text_length;
     uint8_t column_width;
     bool continuation;
+    /* Read-only cells decoded from history borrow even short strings. */
+    bool borrowed_text;
     uint32_t hyperlink_handle;
     boxrig_cell_style style;
 } boxrig_cell;
@@ -48,7 +50,7 @@ static inline const char *boxrig_cell_text(const boxrig_cell *cell)
     if (cell->text_length == 0) {
         return NULL;
     }
-    return cell->text_length <= BOXRIG_CELL_INLINE_BYTES
+    return !cell->borrowed_text && cell->text_length <= BOXRIG_CELL_INLINE_BYTES
                ? cell->text_storage.bytes : cell->text_storage.heap;
 }
 
@@ -74,11 +76,25 @@ typedef struct boxrig_hyperlink_entry {
     size_t cell_references;
 } boxrig_hyperlink_entry;
 
+typedef struct boxrig_history_cache boxrig_history_cache;
+typedef struct boxrig_history_block boxrig_history_block;
+
 typedef struct boxrig_history_line {
-    boxrig_cell *cell_storage;
+    union {
+        boxrig_cell *raw;
+        boxrig_history_block *block;
+    } storage;
     bool soft_wrapped;
+    bool encoded;
+    bool has_links;
+    uint32_t block_offset;
     boxrig_text_fragment_metadata text;
 } boxrig_history_line;
+
+typedef enum boxrig_scrollback_compression {
+    BOXRIG_SCROLLBACK_COMPRESSION_NONE = 0,
+    BOXRIG_SCROLLBACK_COMPRESSION_PACKED
+} boxrig_scrollback_compression;
 
 typedef struct boxrig_saved_cursor {
     size_t row;
@@ -248,6 +264,8 @@ typedef struct boxrig_screen {
     boxrig_cursor_shape cursor_shape;
     bool cursor_blinking;
     boxrig_history_line *history;
+    boxrig_history_cache *history_cache;
+    boxrig_scrollback_compression history_mode;
     size_t history_capacity;
     size_t history_start;
     size_t history_count;
@@ -368,6 +386,20 @@ void boxrig_screen_apply_viewport_reflow_marker(
 boxrig_status boxrig_screen_set_scrollback_capacity(
     boxrig_screen *screen,
     size_t row_capacity);
+boxrig_status boxrig_screen_set_history_compression(
+    boxrig_screen *screen, boxrig_scrollback_compression mode);
+boxrig_history_cache *boxrig_history_cache_create(size_t rows, size_t columns,
+    boxrig_scrollback_compression mode);
+void boxrig_history_cache_destroy(boxrig_history_cache *cache);
+void boxrig_history_block_release(boxrig_history_block *block);
+boxrig_status boxrig_history_pack_row(boxrig_history_line *line,
+    const boxrig_cell *source, size_t columns);
+const boxrig_cell *boxrig_history_read(const boxrig_screen *screen, size_t logical_row);
+const boxrig_cell *boxrig_history_decode(boxrig_history_cache *cache,
+    const boxrig_history_line *line);
+void boxrig_history_refresh_view(boxrig_screen *screen);
+void boxrig_screen_change_history_view(boxrig_screen *screen, size_t offset);
+void boxrig_history_advance_head(boxrig_screen *screen, size_t discarded);
 void boxrig_screen_text_initialize(boxrig_screen *screen);
 void boxrig_screen_text_reset_fragment(
     boxrig_screen *screen,

@@ -156,9 +156,13 @@ static void recount_hyperlinks(boxrig_terminal *terminal)
     size_t count = terminal->screen.rows * terminal->screen.columns;
     count_cell_hyperlinks(terminal, terminal->screen.primary.cell_storage, count);
     count_cell_hyperlinks(terminal, terminal->screen.alternate.cell_storage, count);
-    for (size_t index = 0u; index < terminal->screen.history_capacity; index++) {
+    for (size_t index = 0u; index < terminal->screen.history_count; index++) {
+        boxrig_screen *screen = &terminal->screen;
+        const boxrig_history_line *line = &screen->history[
+            (screen->history_start + index) % screen->history_capacity];
+        if (line->encoded && !line->has_links) continue;
         count_cell_hyperlinks(terminal,
-            terminal->screen.history[index].cell_storage, terminal->screen.columns);
+            boxrig_history_read(screen, index), screen->columns);
     }
 }
 
@@ -265,7 +269,10 @@ static boxrig_status clone_cell(boxrig_cell *destination, const boxrig_cell *sou
     *destination = *source;
     if (source->text_length > BOXRIG_CELL_INLINE_BYTES) {
         destination->text_storage.heap = text;
+    } else if (source->borrowed_text && source->text_length) {
+        memcpy(destination->text_storage.bytes, boxrig_cell_text(source), source->text_length);
     }
+    destination->borrowed_text = false;
     return BOXRIG_STATUS_OK;
 }
 
@@ -286,7 +293,10 @@ static boxrig_status clone_cell_into_uninitialized(
     *destination = *source;
     if (text != NULL) {
         destination->text_storage.heap = text;
+    } else if (source->borrowed_text && source->text_length) {
+        memcpy(destination->text_storage.bytes, boxrig_cell_text(source), source->text_length);
     }
+    destination->borrowed_text = false;
     return BOXRIG_STATUS_OK;
 }
 
@@ -330,6 +340,54 @@ static void destroy_cells(boxrig_terminal *owner, boxrig_cell *cells_to_destroy,
         cell_destroy(owner, &cells_to_destroy[index]);
     }
     free(cells_to_destroy);
+}
+
+static void destroy_history_line(boxrig_screen *screen, boxrig_terminal *owner,
+    boxrig_history_line *line, size_t initialized_columns)
+{
+    if (line->encoded) {
+        if (owner != NULL && line->has_links) {
+            const boxrig_cell *row = boxrig_history_decode(screen->history_cache, line);
+            for (size_t col = 0; col < initialized_columns; col++)
+                release_cell_hyperlink(owner, row[col].hyperlink_handle);
+        }
+        boxrig_history_block_release(line->storage.block);
+    } else {
+        destroy_cells(owner, line->storage.raw, initialized_columns);
+    }
+    line->storage.raw = NULL;
+    line->encoded = false;
+}
+
+/* Packing transfers the existing hyperlink ownership; it never retains or
+ * releases handles. Allocation failure during ordinary output keeps the row. */
+static void pack_owned_row(boxrig_history_line *line, size_t columns)
+{
+    if (line->encoded || line->storage.raw == NULL) return;
+    boxrig_cell *raw = line->storage.raw;
+    (void)boxrig_history_pack_row(line, raw, columns);
+    if (line->encoded) destroy_cells(NULL, raw, columns);
+}
+
+static bool visible_history(const boxrig_screen *screen, size_t logical_row)
+{
+    size_t first = screen->history_count - screen->viewport_offset;
+    return !screen->alternate_active && logical_row >= first &&
+        logical_row - first < screen->rows;
+}
+
+void boxrig_screen_change_history_view(boxrig_screen *screen, size_t offset)
+{
+    size_t old = screen->viewport_offset;
+    screen->viewport_offset = offset;
+    if (screen->history_cache == NULL) return;
+    for (size_t i = 0; i < old && i < screen->rows; i++) {
+        size_t logical = screen->history_count - old + i;
+        if (!visible_history(screen, logical))
+            pack_owned_row(&screen->history[(screen->history_start + logical) %
+                screen->history_capacity], screen->columns);
+    }
+    boxrig_history_refresh_view(screen);
 }
 
 static void mark_interval(
@@ -504,8 +562,9 @@ void boxrig_screen_destroy(boxrig_screen *screen)
     size_t cell_count = screen->rows * screen->columns;
 
     for (index = 0; index < screen->history_capacity; index++) {
-        destroy_cells(screen->owner, screen->history[index].cell_storage, screen->columns);
+        destroy_history_line(screen, screen->owner, &screen->history[index], screen->columns);
     }
+    boxrig_history_cache_destroy(screen->history_cache);
     free(screen->last_printed_text);
     free(screen->history);
     free(screen->dirty_end);
@@ -520,6 +579,64 @@ void boxrig_screen_destroy(boxrig_screen *screen)
     free(screen->primary.row_cells);
     destroy_cells(screen->owner, screen->primary.cell_storage, cell_count);
     memset(screen, 0, sizeof(*screen));
+}
+
+boxrig_status boxrig_screen_set_history_compression(
+    boxrig_screen *screen, boxrig_scrollback_compression mode)
+{
+    if (mode != BOXRIG_SCROLLBACK_COMPRESSION_NONE && mode != BOXRIG_SCROLLBACK_COMPRESSION_PACKED)
+        return BOXRIG_STATUS_INVALID_ARGUMENT;
+    if (mode == screen->history_mode) return BOXRIG_STATUS_OK;
+    boxrig_screen next = *screen;
+    next.history_mode = mode;
+    next.history_cache = NULL;
+    if (mode != BOXRIG_SCROLLBACK_COMPRESSION_NONE) {
+        next.history_cache = boxrig_history_cache_create(screen->rows, screen->columns, mode);
+        if (next.history_cache == NULL) return BOXRIG_STATUS_OUT_OF_MEMORY;
+    }
+    boxrig_status status = BOXRIG_STATUS_OK;
+    next.history = NULL;
+    if (screen->history_capacity) {
+        next.history = calloc(screen->history_capacity, sizeof(*next.history));
+        if (next.history == NULL) status = BOXRIG_STATUS_OUT_OF_MEMORY;
+    }
+    next.history_start = 0;
+    for (size_t i = 0; status == BOXRIG_STATUS_OK && i < screen->history_count; i++) {
+        const boxrig_cell *source = boxrig_history_read(screen, i);
+        const boxrig_history_line *old = &screen->history[(screen->history_start + i) % screen->history_capacity];
+        boxrig_history_line *line = &next.history[i];
+        line->text = old->text;
+        line->soft_wrapped = old->soft_wrapped;
+        if (next.history_cache && !visible_history(screen, i))
+            status = boxrig_history_pack_row(line, source, screen->columns);
+        if (status != BOXRIG_STATUS_OK || line->encoded) continue;
+        line->storage.raw = calloc(screen->columns, sizeof(boxrig_cell));
+        if (line->storage.raw == NULL) {
+            status = BOXRIG_STATUS_OUT_OF_MEMORY;
+            break;
+        }
+        for (size_t col = 0; col < screen->columns && status == BOXRIG_STATUS_OK; col++)
+            status = clone_cell_into_uninitialized(&line->storage.raw[col], &source[col]);
+    }
+    if (status != BOXRIG_STATUS_OK) {
+        if (next.history != NULL) {
+            for (size_t i = 0; i < next.history_count; i++)
+                destroy_history_line(&next, NULL, &next.history[i], next.columns);
+        }
+        free(next.history);
+        boxrig_history_cache_destroy(next.history_cache);
+        return status;
+    }
+    for (size_t i = 0; i < screen->history_capacity; i++)
+        destroy_history_line(screen, NULL, &screen->history[i], screen->columns);
+    free(screen->history);
+    boxrig_history_cache_destroy(screen->history_cache);
+    screen->history = next.history;
+    screen->history_start = 0;
+    screen->history_cache = next.history_cache;
+    screen->history_mode = mode;
+    boxrig_history_refresh_view(screen);
+    return BOXRIG_STATUS_OK;
 }
 
 boxrig_status boxrig_screen_set_scrollback_capacity(
@@ -574,12 +691,13 @@ boxrig_status boxrig_screen_set_scrollback_capacity(
                       screen->history_capacity;
 
         replacement[index] = screen->history[slot];
-        screen->history[slot].cell_storage = NULL;
+        screen->history[slot].storage.raw = NULL;
+        screen->history[slot].encoded = false;
         screen->history[slot].soft_wrapped = false;
     }
     for (index = 0; index < screen->history_capacity; index++) {
-        destroy_cells(screen->owner,
-            screen->history[index].cell_storage,
+        destroy_history_line(screen, screen->owner,
+            &screen->history[index],
             screen->columns);
     }
     free(screen->history);
@@ -604,6 +722,8 @@ boxrig_status boxrig_screen_set_scrollback_capacity(
         screen->viewport_offset = retained_count;
         screen->viewport_anchor_column = 0;
     }
+    boxrig_history_advance_head(screen, discarded_count);
+    boxrig_history_refresh_view(screen);
     if (viewport_changed && !screen->alternate_active) {
         boxrig_screen_mark_all(screen);
     }
@@ -646,10 +766,7 @@ const boxrig_cell *boxrig_screen_view_cell(
     }
     combined_row = screen->history_count + row - screen->viewport_offset;
     if (combined_row < screen->history_count) {
-        size_t slot = (screen->history_start + combined_row) %
-                      screen->history_capacity;
-
-        return &screen->history[slot].cell_storage[column];
+        return &boxrig_history_read(screen, combined_row)[column];
     }
     return &screen->primary.row_cells[
         combined_row - screen->history_count][column];
@@ -789,11 +906,9 @@ static boxrig_status copy_buffer_for_resize(
 }
 
 typedef struct boxrig_reflow_row {
-    boxrig_cell *cell_storage;
+    boxrig_history_line line;
     /* Only this contiguous prefix may be destroyed after a failed copy. */
     size_t initialized_columns;
-    bool soft_wrapped;
-    boxrig_text_fragment_metadata text;
 } boxrig_reflow_row;
 
 typedef struct boxrig_reflow_rows {
@@ -801,6 +916,7 @@ typedef struct boxrig_reflow_rows {
     size_t count;
     size_t capacity;
     size_t columns;
+    size_t keep_raw_rows;
     boxrig_cell_style blank_style;
 } boxrig_reflow_rows;
 
@@ -809,7 +925,7 @@ static void destroy_reflow_rows(boxrig_reflow_rows *reflow)
     size_t row;
 
     for (row = 0; row < reflow->count; row++) {
-        destroy_cells(NULL, reflow->rows[row].cell_storage,
+        destroy_history_line(NULL, NULL, &reflow->rows[row].line,
             reflow->rows[row].initialized_columns);
     }
     free(reflow->rows);
@@ -831,7 +947,7 @@ static void finish_reflow_row(boxrig_reflow_rows *reflow)
 
     while (row->initialized_columns < reflow->columns) {
         initialize_reflow_blank(
-            &row->cell_storage[row->initialized_columns],
+            &row->line.storage.raw[row->initialized_columns],
             reflow->blank_style);
         row->initialized_columns++;
     }
@@ -844,6 +960,9 @@ static boxrig_status append_reflow_row(boxrig_reflow_rows *reflow)
 
     if (reflow->count != 0) {
         finish_reflow_row(reflow);
+        if (reflow->keep_raw_rows && reflow->count >= reflow->keep_raw_rows)
+            pack_owned_row(&reflow->rows[reflow->count - reflow->keep_raw_rows].line,
+                reflow->columns);
     }
 
     if (reflow->count == reflow->capacity) {
@@ -869,13 +988,8 @@ static boxrig_status append_reflow_row(boxrig_reflow_rows *reflow)
     if (cell_storage == NULL) {
         return BOXRIG_STATUS_OUT_OF_MEMORY;
     }
-    reflow->rows[reflow->count].cell_storage = cell_storage;
+    reflow->rows[reflow->count].line = (boxrig_history_line){ .storage.raw = cell_storage };
     reflow->rows[reflow->count].initialized_columns = 0;
-    reflow->rows[reflow->count].soft_wrapped = false;
-    memset(
-        &reflow->rows[reflow->count].text,
-        0,
-        sizeof(reflow->rows[reflow->count].text));
     reflow->count++;
     return BOXRIG_STATUS_OK;
 }
@@ -886,10 +1000,7 @@ static const boxrig_cell *source_primary_cell(
     size_t column)
 {
     if (physical_row < screen->history_count) {
-        size_t slot = (screen->history_start + physical_row) %
-                      screen->history_capacity;
-
-        return &screen->history[slot].cell_storage[column];
+        return &boxrig_history_read(screen, physical_row)[column];
     }
     return &screen->primary.row_cells[
         physical_row - screen->history_count][column];
@@ -1030,7 +1141,7 @@ static boxrig_status copy_cell_to_reflow(
         width = 1;
     }
     if (*destination_column + width > reflow->columns) {
-        reflow->rows[reflow->count - 1].soft_wrapped = true;
+        reflow->rows[reflow->count - 1].line.soft_wrapped = true;
         status = append_reflow_row(reflow);
         if (status != BOXRIG_STATUS_OK) {
             return status;
@@ -1039,16 +1150,16 @@ static boxrig_status copy_cell_to_reflow(
     }
     row = &reflow->rows[reflow->count - 1];
     status = clone_cell_into_uninitialized(
-        &row->cell_storage[*destination_column],
+        &row->line.storage.raw[*destination_column],
         source);
     if (status != BOXRIG_STATUS_OK) {
         return status;
     }
-    row->cell_storage[*destination_column].column_width = (uint8_t)width;
-    row->cell_storage[*destination_column].continuation = false;
+    row->line.storage.raw[*destination_column].column_width = (uint8_t)width;
+    row->line.storage.raw[*destination_column].continuation = false;
     row->initialized_columns++;
     for (continuation = 1; continuation < width; continuation++) {
-        boxrig_cell *cell = &row->cell_storage[
+        boxrig_cell *cell = &row->line.storage.raw[
             *destination_column + continuation];
 
         initialize_reflow_blank(cell, source->style);
@@ -1066,6 +1177,7 @@ static boxrig_status copy_cell_to_reflow(
 static boxrig_status build_reflowed_primary(
     const boxrig_screen *source,
     size_t columns,
+    size_t visible_rows,
     boxrig_reflow_rows *reflow,
     boxrig_cell_position cursors[2],
     bool cursor_pending_wrap[2],
@@ -1092,6 +1204,7 @@ static boxrig_status build_reflowed_primary(
 
     memset(reflow, 0, sizeof(*reflow));
     reflow->columns = columns;
+    reflow->keep_raw_rows = source->history_cache != NULL ? visible_rows : 0;
     /* Resize padding is not terminal output. In particular, an active
      * alternate screen must not paint its rendition into primary history;
      * styled padding would become visible blank rows on the next reflow. */
@@ -1155,6 +1268,13 @@ static boxrig_status build_reflowed_primary(
 
             if (cell->continuation) {
                 continue;
+            }
+            /* A font resolver may read another history row and reuse the
+             * scratch cells. Its UTF-8 storage stays borrowed until mutation. */
+            boxrig_cell measured_cell;
+            if (source->remeasure_widths) {
+                measured_cell = *cell;
+                cell = &measured_cell;
             }
             size_t width;
             status = copy_cell_to_reflow(
@@ -1233,7 +1353,7 @@ static boxrig_status build_reflowed_primary(
             }
 
             while (reflow->count - logical_start < required_rows) {
-                reflow->rows[reflow->count - 1].soft_wrapped = true;
+                reflow->rows[reflow->count - 1].line.soft_wrapped = true;
                 status = append_reflow_row(reflow);
                 if (status != BOXRIG_STATUS_OK) {
                     destroy_reflow_rows(reflow);
@@ -1243,14 +1363,14 @@ static boxrig_status build_reflowed_primary(
             for (destination_row = logical_start;
                  destination_row < reflow->count;
                  destination_row++) {
-                reflow->rows[destination_row].text =
+                reflow->rows[destination_row].line.text =
                     *source_primary_text_fragment(
                         source,
                         source_logical_start);
-                reflow->rows[destination_row].text.logical_column_offset =
+                reflow->rows[destination_row].line.text.logical_column_offset =
                     (destination_row - logical_start) * columns;
                 /* Reflow can move a wide grapheme past a padding column. */
-                reflow->rows[destination_row].text.needs_sync = true;
+                reflow->rows[destination_row].line.text.needs_sync = true;
             }
             for (line_marker_index = line_marker_start;
                  line_marker_index < marker_index;
@@ -1272,7 +1392,7 @@ static boxrig_status build_reflowed_primary(
                     cursor_pending_wrap[cursor_index] = pending;
                 }
             }
-            reflow->rows[reflow->count - 1].soft_wrapped = false;
+            reflow->rows[reflow->count - 1].line.soft_wrapped = false;
             logical_line++;
             logical_offset = 0;
             mapped_cursor_offsets[0] = mapped_cursor_offsets[1] = SIZE_MAX;
@@ -1324,12 +1444,9 @@ static void transfer_reflowed_primary(
     for (row = 0; row < history_count; row++) {
         size_t source_row = history_source_start + row;
 
-        destination->history[row].cell_storage =
-            reflow->rows[source_row].cell_storage;
-        destination->history[row].soft_wrapped =
-            reflow->rows[source_row].soft_wrapped;
-        destination->history[row].text = reflow->rows[source_row].text;
-        reflow->rows[source_row].cell_storage = NULL;
+        destination->history[row] = reflow->rows[source_row].line;
+        reflow->rows[source_row].line.storage.raw = NULL;
+        reflow->rows[source_row].line.encoded = false;
     }
     destination->history_count = history_count;
     for (row = 0;
@@ -1340,12 +1457,12 @@ static void transfer_reflowed_primary(
         for (column = 0; column < destination->columns; column++) {
             move_cell(destination->owner,
                 &destination->primary.row_cells[row][column],
-                &reflow->rows[source_row].cell_storage[column]);
+                &reflow->rows[source_row].line.storage.raw[column]);
         }
         destination->primary.line_soft_wrapped[row] =
-            reflow->rows[source_row].soft_wrapped;
+            reflow->rows[source_row].line.soft_wrapped;
         destination->primary.text_fragments[row] =
-            reflow->rows[source_row].text;
+            reflow->rows[source_row].line.text;
     }
     /* A source row moved by reflow may leave its copied identity on an empty
      * destination row. Keep identities of untouched trailing source rows. */
@@ -1452,7 +1569,7 @@ static boxrig_status reuse_history_prefix_for_resize(
     for (size_t index = prefix_markers; index < marker_count; index++) {
         markers[index].source_row -= prefix;
     }
-    status = build_reflowed_primary(&tail_source, destination->columns,
+    status = build_reflowed_primary(&tail_source, destination->columns, destination->rows,
         &tail_reflow, cursors, cursor_pending_wrap,
         prefix_markers == marker_count ? NULL : markers + prefix_markers,
         marker_count - prefix_markers);
@@ -1461,6 +1578,13 @@ static boxrig_status reuse_history_prefix_for_resize(
     }
     if (status != BOXRIG_STATUS_OK) {
         return status;
+    }
+    if (source->history_cache && tail_reflow.count < destination->rows) {
+        /* The prefix can now intersect the writable grid. Reflow those cells
+         * with owned strings before committing any transfer. */
+        destroy_reflow_rows(&tail_reflow);
+        *used_out = false;
+        return BOXRIG_STATUS_OK;
     }
     if (prefix > SIZE_MAX - tail_reflow.count ||
         prefix + tail_reflow.count > SIZE_MAX / sizeof(*combined.rows)) {
@@ -1477,10 +1601,8 @@ static boxrig_status reuse_history_prefix_for_resize(
     }
     for (size_t row = 0; row < prefix; row++) {
         size_t slot = (source->history_start + row) % source->history_capacity;
-        combined.rows[row].cell_storage = source->history[slot].cell_storage;
+        combined.rows[row].line = source->history[slot];
         combined.rows[row].initialized_columns = destination->columns;
-        combined.rows[row].soft_wrapped = source->history[slot].soft_wrapped;
-        combined.rows[row].text = source->history[slot].text;
     }
     memcpy(combined.rows + prefix, tail_reflow.rows,
         tail_reflow.count * sizeof(*combined.rows));
@@ -1504,7 +1626,8 @@ static boxrig_status reuse_history_prefix_for_resize(
      * cells only now, so an earlier failure leaves the source intact. */
     for (size_t row = 0; row < prefix; row++) {
         size_t slot = (source->history_start + row) % source->history_capacity;
-        source->history[slot].cell_storage = NULL;
+        source->history[slot].storage.raw = NULL;
+        source->history[slot].encoded = false;
     }
     transfer_reflowed_primary(destination, &combined, cursors,
         cursor_pending_wrap, source_count - source->history_count);
@@ -1552,6 +1675,7 @@ static boxrig_status reflow_primary_for_resize(
     status = build_reflowed_primary(
         source,
         destination->columns,
+        destination->rows,
         &reflow,
         cursors,
         cursor_pending_wrap,
@@ -1600,17 +1724,19 @@ static boxrig_status remeasure_alternate(boxrig_screen *destination,
     alternate_source.history = NULL;
     alternate_source.history_count = alternate_source.history_capacity = 0;
     alternate_source.history_start = 0;
+    alternate_source.history_cache = NULL;
     boxrig_reflow_rows reflow;
     boxrig_cell_position cursors[2];
     bool pending[2];
     boxrig_status status = build_reflowed_primary(&alternate_source,
-        destination->columns, &reflow, cursors, pending, NULL, 0);
+        destination->columns, destination->rows, &reflow, cursors, pending, NULL, 0);
     if (status != BOXRIG_STATUS_OK) return status;
     boxrig_screen alternate_destination = *destination;
     alternate_destination.primary = destination->alternate;
     alternate_destination.history = NULL;
     alternate_destination.history_count = alternate_destination.history_capacity = 0;
     alternate_destination.history_start = 0;
+    alternate_destination.history_cache = NULL;
     copy_buffer_state_for_resize(&alternate_destination.primary, &source->alternate,
         source->rows, source->columns, destination->rows, destination->columns);
     transfer_reflowed_primary(&alternate_destination, &reflow, cursors, pending,
@@ -1672,6 +1798,14 @@ boxrig_status boxrig_screen_resize_with_markers(
         screen->cursor_column_mode);
     if (status != BOXRIG_STATUS_OK) {
         return status;
+    }
+    if (screen->history_cache) {
+        replacement.history_mode = screen->history_mode;
+        replacement.history_cache = boxrig_history_cache_create(rows, columns, screen->history_mode);
+        if (replacement.history_cache == NULL) {
+            boxrig_screen_destroy(&replacement);
+            return BOXRIG_STATUS_OUT_OF_MEMORY;
+        }
     }
     replacement.text_epoch = screen->text_epoch;
     replacement.font_width_resolver = screen->font_width_resolver;
@@ -1794,17 +1928,17 @@ void boxrig_screen_apply_viewport_reflow_marker(
     size_t offset;
 
     if (marker->destination_row >= 0) {
-        screen->viewport_offset = 0;
+        boxrig_screen_change_history_view(screen, 0);
         screen->viewport_anchor_column = 0;
         return;
     }
     offset = (size_t)(-(marker->destination_row + 1)) + 1;
     if (offset > screen->history_count) {
-        screen->viewport_offset = screen->history_count;
+        boxrig_screen_change_history_view(screen, screen->history_count);
         screen->viewport_anchor_column = 0;
         return;
     }
-    screen->viewport_offset = offset;
+    boxrig_screen_change_history_view(screen, offset);
     screen->viewport_anchor_column = marker->destination_column;
 }
 
@@ -1886,10 +2020,9 @@ static void clear_history(boxrig_screen *screen)
     size_t index;
 
     for (index = 0; index < screen->history_capacity; index++) {
-        destroy_cells(screen->owner,
-            screen->history[index].cell_storage,
+        destroy_history_line(screen, screen->owner,
+            &screen->history[index],
             screen->columns);
-        screen->history[index].cell_storage = NULL;
         screen->history[index].soft_wrapped = false;
         memset(
             &screen->history[index].text,
@@ -1901,6 +2034,7 @@ static void clear_history(boxrig_screen *screen)
     screen->text_history_sync_start = 0;
     screen->viewport_offset = 0;
     screen->viewport_anchor_column = 0;
+    boxrig_history_refresh_view(screen);
     if (screen->rows != 0) {
         screen->primary.text_fragments[0].needs_sync = true;
     }
@@ -2169,8 +2303,8 @@ static void push_history_row(boxrig_screen *screen, size_t row)
         }
         discarded = true;
     }
-    destroy_cells(screen->owner, screen->history[slot].cell_storage, screen->columns);
-    screen->history[slot].cell_storage = history_cells;
+    destroy_history_line(screen, screen->owner, &screen->history[slot], screen->columns);
+    screen->history[slot].storage.raw = history_cells;
     screen->history[slot].soft_wrapped =
         screen->primary.line_soft_wrapped[row];
     screen->history[slot].text = screen->primary.text_fragments[row];
@@ -2180,6 +2314,12 @@ static void push_history_row(boxrig_screen *screen, size_t row)
     if (screen->viewport_offset != 0 &&
         screen->viewport_offset < screen->history_count) {
         screen->viewport_offset++;
+    }
+    if (screen->history_cache) {
+        if (discarded) boxrig_history_advance_head(screen, 1);
+        if (!visible_history(screen, screen->history_count - 1))
+            pack_owned_row(&screen->history[slot], screen->columns);
+        boxrig_history_refresh_view(screen);
     }
 }
 
@@ -3896,6 +4036,7 @@ static void switch_screen_buffer(boxrig_screen *screen, bool alternate)
     screen->alternate_active = alternate;
     screen->active = alternate ? &screen->alternate : &screen->primary;
     if (changed) {
+        boxrig_screen_change_history_view(screen, screen->viewport_offset);
         screen->active_buffer_revision++;
         if (screen->active_buffer_revision == 0) {
             screen->active_buffer_revision = 1;
