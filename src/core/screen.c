@@ -383,11 +383,27 @@ void boxrig_screen_change_history_view(boxrig_screen *screen, size_t offset)
     if (screen->history_cache == NULL) return;
     for (size_t i = 0; i < old && i < screen->rows; i++) {
         size_t logical = screen->history_count - old + i;
-        if (!visible_history(screen, logical))
-            pack_owned_row(&screen->history[(screen->history_start + logical) %
-                screen->history_capacity], screen->columns);
+        if (!visible_history(screen, logical) &&
+            !screen->history[(screen->history_start + logical) % screen->history_capacity].encoded) {
+            screen->history_pack_pending = true;
+            break;
+        }
     }
     boxrig_history_refresh_view(screen);
+}
+
+/* A row can already be visible when compression is enabled. Move its first
+ * allocation to the next input mutation so navigation always uses reserved memory. */
+void boxrig_screen_pack_pending_history(boxrig_screen *screen)
+{
+    if (!screen->history_pack_pending) return;
+    screen->history_pack_pending = false;
+    for (size_t i = 0; i < screen->history_count; i++) {
+        if (!visible_history(screen, i))
+            pack_owned_row(&screen->history[(screen->history_start + i) % screen->history_capacity],
+                screen->columns);
+    }
+    (void)boxrig_history_seal(screen, 0, screen->history_count);
 }
 
 static void mark_interval(
@@ -584,7 +600,8 @@ void boxrig_screen_destroy(boxrig_screen *screen)
 boxrig_status boxrig_screen_set_history_compression(
     boxrig_screen *screen, boxrig_scrollback_compression mode)
 {
-    if (mode != BOXRIG_SCROLLBACK_COMPRESSION_NONE && mode != BOXRIG_SCROLLBACK_COMPRESSION_PACKED)
+    if (mode != BOXRIG_SCROLLBACK_COMPRESSION_NONE && mode != BOXRIG_SCROLLBACK_COMPRESSION_PACKED &&
+        mode != BOXRIG_SCROLLBACK_COMPRESSION_DEFLATE_LEVEL_1)
         return BOXRIG_STATUS_INVALID_ARGUMENT;
     if (mode == screen->history_mode) return BOXRIG_STATUS_OK;
     boxrig_screen next = *screen;
@@ -618,6 +635,8 @@ boxrig_status boxrig_screen_set_history_compression(
         for (size_t col = 0; col < screen->columns && status == BOXRIG_STATUS_OK; col++)
             status = clone_cell_into_uninitialized(&line->storage.raw[col], &source[col]);
     }
+    if (status == BOXRIG_STATUS_OK)
+        status = boxrig_history_seal(&next, 0, next.history_count);
     if (status != BOXRIG_STATUS_OK) {
         if (next.history != NULL) {
             for (size_t i = 0; i < next.history_count; i++)
@@ -635,6 +654,7 @@ boxrig_status boxrig_screen_set_history_compression(
     screen->history_start = 0;
     screen->history_cache = next.history_cache;
     screen->history_mode = mode;
+    screen->history_pack_pending = false;
     boxrig_history_refresh_view(screen);
     return BOXRIG_STATUS_OK;
 }
@@ -723,6 +743,7 @@ boxrig_status boxrig_screen_set_scrollback_capacity(
         screen->viewport_anchor_column = 0;
     }
     boxrig_history_advance_head(screen, discarded_count);
+    if (discarded_count) boxrig_history_forget_reads(screen->history_cache);
     boxrig_history_refresh_view(screen);
     if (viewport_changed && !screen->alternate_active) {
         boxrig_screen_mark_all(screen);
@@ -1897,6 +1918,7 @@ boxrig_status boxrig_screen_resize_with_markers(
         screen->test_text_snapshot_allocation_countdown;
     replacement.owner = owner;
     replacement.graphics_sink = graphics_sink;
+    (void)boxrig_history_seal(&replacement, 0, replacement.history_count);
     boxrig_screen_text_sync(&replacement);
     boxrig_screen_destroy(screen);
     *screen = replacement;
@@ -2031,9 +2053,11 @@ static void clear_history(boxrig_screen *screen)
     }
     screen->history_start = 0;
     screen->history_count = 0;
+    screen->history_pack_pending = false;
     screen->text_history_sync_start = 0;
     screen->viewport_offset = 0;
     screen->viewport_anchor_column = 0;
+    boxrig_history_forget_reads(screen->history_cache);
     boxrig_history_refresh_view(screen);
     if (screen->rows != 0) {
         screen->primary.text_fragments[0].needs_sync = true;
@@ -2319,6 +2343,7 @@ static void push_history_row(boxrig_screen *screen, size_t row)
         if (discarded) boxrig_history_advance_head(screen, 1);
         if (!visible_history(screen, screen->history_count - 1))
             pack_owned_row(&screen->history[slot], screen->columns);
+        boxrig_history_finish_slot(screen, slot);
         boxrig_history_refresh_view(screen);
     }
 }

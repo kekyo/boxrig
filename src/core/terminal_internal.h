@@ -93,7 +93,8 @@ typedef struct boxrig_history_line {
 
 typedef enum boxrig_scrollback_compression {
     BOXRIG_SCROLLBACK_COMPRESSION_NONE = 0,
-    BOXRIG_SCROLLBACK_COMPRESSION_PACKED
+    BOXRIG_SCROLLBACK_COMPRESSION_PACKED,
+    BOXRIG_SCROLLBACK_COMPRESSION_DEFLATE_LEVEL_1
 } boxrig_scrollback_compression;
 
 typedef struct boxrig_saved_cursor {
@@ -266,6 +267,7 @@ typedef struct boxrig_screen {
     boxrig_history_line *history;
     boxrig_history_cache *history_cache;
     boxrig_scrollback_compression history_mode;
+    bool history_pack_pending;
     size_t history_capacity;
     size_t history_start;
     size_t history_count;
@@ -391,6 +393,7 @@ boxrig_status boxrig_screen_set_history_compression(
 boxrig_history_cache *boxrig_history_cache_create(size_t rows, size_t columns,
     boxrig_scrollback_compression mode);
 void boxrig_history_cache_destroy(boxrig_history_cache *cache);
+void boxrig_history_forget_reads(boxrig_history_cache *cache);
 void boxrig_history_block_release(boxrig_history_block *block);
 boxrig_status boxrig_history_pack_row(boxrig_history_line *line,
     const boxrig_cell *source, size_t columns);
@@ -399,7 +402,11 @@ const boxrig_cell *boxrig_history_decode(boxrig_history_cache *cache,
     const boxrig_history_line *line);
 void boxrig_history_refresh_view(boxrig_screen *screen);
 void boxrig_screen_change_history_view(boxrig_screen *screen, size_t offset);
+void boxrig_screen_pack_pending_history(boxrig_screen *screen);
 void boxrig_history_advance_head(boxrig_screen *screen, size_t discarded);
+boxrig_status boxrig_history_seal(boxrig_screen *screen, size_t first, size_t count);
+void boxrig_history_seal_tail(boxrig_screen *screen);
+void boxrig_history_finish_slot(boxrig_screen *screen, size_t slot);
 void boxrig_screen_text_initialize(boxrig_screen *screen);
 void boxrig_screen_text_reset_fragment(
     boxrig_screen *screen,

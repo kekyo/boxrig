@@ -9,12 +9,33 @@
 #include <malloc.h>
 #include <stdio.h>
 #include <string.h>
+#include <zlib.h>
 
 void *__real_malloc(size_t size);
 void *__real_calloc(size_t count, size_t size);
 void *__real_realloc(void *ptr, size_t size);
 void __real_free(void *ptr);
 static size_t allocated, calls, fail_after;
+static size_t inflations;
+static bool fail_deflate;
+
+int __real_compress2(Bytef *dest, uLongf *length, const Bytef *source, uLong size, int level);
+int __wrap_compress2(Bytef *dest, uLongf *length, const Bytef *source, uLong size, int level)
+{
+    assert(level == Z_BEST_SPEED);
+    if (fail_deflate) {
+        fail_deflate = false;
+        return Z_MEM_ERROR;
+    }
+    return __real_compress2(dest, length, source, size, level);
+}
+
+int __real_inflate(z_streamp stream, int flush);
+int __wrap_inflate(z_streamp stream, int flush)
+{
+    inflations++;
+    return __real_inflate(stream, flush);
+}
 
 static bool fail(void)
 {
@@ -75,6 +96,7 @@ static size_t retained(boxrig_scrollback_compression mode)
     }
     size_t bytes = allocated - empty;
     size_t start_calls = calls;
+    size_t scans = inflations;
     boxrig_cell_view first, emoji, other;
     assert(boxrig_terminal_get_text_fragment_cell(term, BOXRIG_TEXT_SCREEN_PRIMARY, 0, 0, &first) == BOXRIG_STATUS_OK);
     assert(boxrig_terminal_get_text_fragment_cell(term, BOXRIG_TEXT_SCREEN_PRIMARY, 0, 12, &emoji) == BOXRIG_STATUS_OK);
@@ -83,10 +105,14 @@ static size_t retained(boxrig_scrollback_compression mode)
     }
     assert(first.text_length == 1 && *first.text == 'l');
     assert(emoji.text_length == strlen("👩‍💻") && memcmp(emoji.text, "👩‍💻", emoji.text_length) == 0);
+    if (mode == BOXRIG_SCROLLBACK_COMPRESSION_DEFLATE_LEVEL_1)
+        assert(inflations > scans && inflations - scans < 32);
     assert(boxrig_terminal_set_viewport_offset(term, 255) == BOXRIG_STATUS_OK);
+    scans = inflations;
     assert(boxrig_terminal_get_cell(term, 0, 8, &other) == BOXRIG_STATUS_OK);
     assert(other.column_width == 2 && other.foreground.index == 1 && memcmp(other.text, "日", 3) == 0);
     assert(calls == start_calls);
+    assert(inflations == scans);
     assert(boxrig_terminal_resize(term, 4, 80) == BOXRIG_STATUS_OK);
     assert(boxrig_terminal_resize(term, 4, 30) == BOXRIG_STATUS_OK);
     assert(boxrig_terminal_get_cell(term, 0, 0, &other) == BOXRIG_STATUS_OK && *other.text == 'l');
@@ -175,12 +201,77 @@ static void test_reflow_and_eviction(boxrig_scrollback_compression mode)
     assert(!allocated);
 }
 
+static size_t after_clear(size_t capacity)
+{
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    config.rows = 2;
+    config.scrollback_capacity = capacity;
+    boxrig_terminal *term;
+    assert(boxrig_terminal_create(&config, &term) == BOXRIG_STATUS_OK);
+    assert(boxrig_screen_set_history_compression(&term->screen,
+        BOXRIG_SCROLLBACK_COMPRESSION_DEFLATE_LEVEL_1) == BOXRIG_STATUS_OK);
+    for (size_t i = 0; i < 70; i++) feed(term, "log 日本👩‍💻\r\n");
+    if (capacity) {
+        boxrig_cell_view cell;
+        assert(boxrig_terminal_get_text_fragment_cell(term, BOXRIG_TEXT_SCREEN_PRIMARY, 1, 4, &cell) == BOXRIG_STATUS_OK);
+        assert(boxrig_terminal_set_viewport_offset(term, 31) == BOXRIG_STATUS_OK);
+        assert(boxrig_terminal_set_scrollback_capacity(term, 0) == BOXRIG_STATUS_OK);
+    }
+    size_t bytes = allocated;
+    boxrig_terminal_destroy(term);
+    return bytes;
+}
+
+static void test_navigation_after_enabling(void)
+{
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    config.rows = 3;
+    config.scrollback_capacity = 40;
+    boxrig_terminal *term;
+    assert(boxrig_terminal_create(&config, &term) == BOXRIG_STATUS_OK);
+    for (size_t i = 0; i < 50; i++) feed(term, "first 日本\r\n");
+    assert(boxrig_terminal_set_viewport_offset(term, 35) == BOXRIG_STATUS_OK);
+    assert(boxrig_screen_set_history_compression(&term->screen,
+        BOXRIG_SCROLLBACK_COMPRESSION_DEFLATE_LEVEL_1) == BOXRIG_STATUS_OK);
+    size_t before_scroll = calls;
+    assert(boxrig_terminal_set_viewport_offset(term, 1) == BOXRIG_STATUS_OK);
+    assert(calls == before_scroll);
+    feed(term, "another row\r\n");
+    boxrig_terminal_destroy(term);
+}
+
+static void test_output_allocation_failure(void)
+{
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    config.rows = 2;
+    config.scrollback_capacity = 64;
+    boxrig_terminal *term;
+    assert(boxrig_terminal_create(&config, &term) == BOXRIG_STATUS_OK);
+    assert(boxrig_screen_set_history_compression(&term->screen,
+        BOXRIG_SCROLLBACK_COMPRESSION_DEFLATE_LEVEL_1) == BOXRIG_STATUS_OK);
+    fail_deflate = true;
+    for (size_t row = 0; row < 65; row++) feed(term, "α\r\n");
+    assert(!fail_deflate && boxrig_terminal_scrollback_rows(term) == 64);
+    for (size_t row = 0; row < 64; row++) {
+        boxrig_cell_view cell;
+        assert(boxrig_terminal_get_text_fragment_cell(term, BOXRIG_TEXT_SCREEN_PRIMARY,
+            row, 0, &cell) == BOXRIG_STATUS_OK);
+        assert(cell.text_length == 2 && !memcmp(cell.text, "α", 2));
+    }
+    boxrig_terminal_destroy(term);
+}
+
 int main(void)
 {
+    test_navigation_after_enabling();
+    test_output_allocation_failure();
     size_t plain = retained(BOXRIG_SCROLLBACK_COMPRESSION_NONE);
     size_t packed = retained(BOXRIG_SCROLLBACK_COMPRESSION_PACKED);
     fprintf(stderr, "retained bytes: none=%zu packed=%zu\n", plain, packed);
     assert(packed < plain);
     test_reflow_and_eviction(BOXRIG_SCROLLBACK_COMPRESSION_PACKED);
+    assert(retained(BOXRIG_SCROLLBACK_COMPRESSION_DEFLATE_LEVEL_1) < plain);
+    test_reflow_and_eviction(BOXRIG_SCROLLBACK_COMPRESSION_DEFLATE_LEVEL_1);
+    assert(after_clear(0) == after_clear(64));
     return 0;
 }

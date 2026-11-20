@@ -1175,7 +1175,7 @@ test-scrollback-compression: $(BUILD_DIR)/tests/test_scrollback_compression
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
 
 $(BUILD_DIR)/tests/test_scrollback_compression: tests/test_scrollback_compression.c $(CORE_HEADERS) $(LIBRARY) | $(BUILD_DIR)/tests
-	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(LIBRARY) $(SANITIZERS) -Wl,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=free -o $@
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(LIBRARY) $(SANITIZERS) -Wl,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=free,--wrap=inflate,--wrap=compress2 -o $@
 
 .PHONY: test-cell-text-storage
 test: test-cell-text-storage

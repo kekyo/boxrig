@@ -457,6 +457,7 @@ boxrig_status boxrig_terminal_feed(
         bytes,
         length,
         consumed_out);
+    boxrig_screen_pack_pending_history(&terminal->screen);
     boxrig_kitty_graphics_refresh_placeholders(terminal);
     boxrig_screen_text_sync(&terminal->screen);
     return status;
@@ -1847,6 +1848,8 @@ boxrig_status boxrig_terminal_finish_input(boxrig_terminal *terminal)
 {
     if (terminal == NULL) return BOXRIG_STATUS_INVALID_ARGUMENT;
     boxrig_status status = boxrig_parser_finish(&terminal->parser);
+    boxrig_screen_pack_pending_history(&terminal->screen);
+    boxrig_history_seal_tail(&terminal->screen);
     boxrig_kitty_graphics_refresh_placeholders(terminal);
     boxrig_screen_text_sync(&terminal->screen);
     return status;

@@ -54,6 +54,7 @@ int main(int argc, char **argv)
     boxrig_scrollback_compression mode;
     if (strcmp(argv[1], "none") == 0) mode = BOXRIG_SCROLLBACK_COMPRESSION_NONE;
     else if (strcmp(argv[1], "packed") == 0) mode = BOXRIG_SCROLLBACK_COMPRESSION_PACKED;
+    else if (strcmp(argv[1], "deflate") == 0) mode = BOXRIG_SCROLLBACK_COMPRESSION_DEFLATE_LEVEL_1;
     else return 2;
     boxrig_terminal_config config = boxrig_terminal_config_default();
     boxrig_terminal *terminal = NULL;
