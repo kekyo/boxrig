@@ -1,6 +1,6 @@
 # plan30 端末の文字配置の既定値とセル領域の余白
 
-2026年11月23日作成。実装は未着手です。調査の基準は、同日にリモートと照合したboxrigの`origin/develop`（`0fb7d5f`）です。利用側はelder-termsの`254bddc8`を参照しました。[boxrigの基準コミット](https://github.com/kekyo/boxrig/commit/0fb7d5fcccd7490b390e55e2c6ac1a604683c1d4)・[elder-termsの端末生成処理](https://github.com/kekyo/elder-terms/blob/254bddc8816b38f2e74a8baa22c971492053fcf1/elder-terms-terminal/src/terminal-runtime.cpp#L1233-L1261)
+2026年11月23日作成。調査の基準は、同日にリモートと照合したboxrigの`origin/develop`（`0fb7d5f`）です。利用側はelder-termsの`254bddc8`を参照しました。[boxrigの基準コミット](https://github.com/kekyo/boxrig/commit/0fb7d5fcccd7490b390e55e2c6ac1a604683c1d4)・[elder-termsの端末生成処理](https://github.com/kekyo/elder-terms/blob/254bddc8816b38f2e74a8baa22c971492053fcf1/elder-terms-terminal/src/terminal-runtime.cpp#L1233-L1261)
 
 画面の行と桁を指定して文字を配置する端末アプリ（TUI）向けに、文字の並び順と絵文字の幅の既定値を合わせます。もう一つの変更はセル領域の配置です。アプリから四辺の余白を指定し、ウインドウの高さをセルで割った端数を上か下に置けるようにします。設定画面とズーム時のウインドウ操作は、elder-termsの`docs/ja/plans/plan29-terminal-layout-and-file-drops.md`で扱います。
 
@@ -41,3 +41,16 @@ GTK3のドライバーから四辺共通のパディングを指定できるよ�
 ## 完了とelder-termsへの引き渡し
 
 各段階では失敗する動作試験（RED）を確認し、変更後にその試験が通ること（GREEN）を確かめてコミットします。公開APIと利用者向けの説明に記載するのは、既定値、単位、セルの原点、余白の扱いです。最終段階で`make test`による全体試験を実行し、各段階の完了条件と照合します。elder-termsのplan29には、検証したコミット、使用する公開API、設定を省略したときの結果を引き渡します。
+
+## 実装と検証の記録
+
+調査時点の `origin/develop`（`0fb7d5f`）から実装しました。elder-termsに渡すコミットは`e186a60`です。
+
+| 段階 | 変更と検証 |
+| --- | --- |
+| 30.1 | 文字方向を省略した場合の既定値を`LOGICAL`に統一しました。ヘブライ文字を含む行で、描画、クリック、選択コピー、ブロックカーソルが同じセルを指すことを確認しました。 |
+| 30.2 | VS16の既定値を`PRESERVE`に変更しました。絵文字幅を明示した場合は2列に広がり、幅を保つ場合は元の列数になることを端末と入力メソッドの試験で確認しました。 |
+| 30.3 | 共通ビューとGTK3に四辺のパディングを追加しました。GTK3はDIPを受け取り、公開レイアウト結果はセル領域の原点を返します。余白から始めた操作は端末のマウス報告から除きます。 |
+| 30.4 | 上寄せ・下寄せを切り替えても行数と桁数を保ちます。CairoとOpenGLで先頭セルの画素、端数の位置、再描画とクリックを照合しました。 |
+
+GTK3のサンプルは`BOXRIG_GRID_PADDING=4`と`BOXRIG_GRID_ALIGNMENT=bottom`で試せます。GTK3の共有SDKから配置APIを呼び出せることも確認しました。
