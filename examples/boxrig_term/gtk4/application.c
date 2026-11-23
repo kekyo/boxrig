@@ -483,7 +483,9 @@ static void activate_application(
         "map",
         G_CALLBACK(widget_mapped),
         application);
-    if (boxrig_gtk4_terminal_widget_set_text_direction(application->widget,
+    if (boxrig_ui_view_set_grid_alignment(boxrig_gtk4_terminal_widget_view(application->widget),
+            application->config->grid_alignment) != BOXRIG_UI_OK ||
+        boxrig_gtk4_terminal_widget_set_text_direction(application->widget,
             BOXRIG_TEXT_DIRECTION_LOGICAL) != BOXRIG_UI_OK ||
         boxrig_gtk4_terminal_widget_set_window_state(
             application->widget,

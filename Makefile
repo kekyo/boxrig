@@ -6455,3 +6455,13 @@ $(BUILD_DIR)/tests/test_pangocairo_paint_updates: tests/pangocairo/test_paint_up
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) -Isrc $(POSIX_CPPFLAGS) $(PANGO_CAIRO_CPPFLAGS) \
 		$(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< src/pangocairo/renderer.c \
 		$(PANGO_CANDIDATE_OBJECT) $(UI_LIBRARY) $(LIBRARY) $(PANGO_CAIRO_LIBS) $(SANITIZERS) -o $@
+
+.PHONY: test-sample-grid-alignment
+test: test-sample-grid-alignment
+test-sample-grid-alignment: $(EXAMPLE_BINARY) $(GTK4_EXAMPLE_BINARY) $(WAYLAND_EXAMPLE_BINARY)
+	$(XVFB_RUN) -a node tests/run_sample_grid_alignment.mjs x11 $(EXAMPLE_BINARY) x11
+	$(XVFB_RUN) -a node tests/run_sample_grid_alignment.mjs x11 $(EXAMPLE_BINARY) opengl
+	$(XVFB_RUN) -a node tests/run_sample_grid_alignment.mjs gtk4 $(GTK4_EXAMPLE_BINARY) cairo
+	$(XVFB_RUN) -a node tests/run_sample_grid_alignment.mjs gtk4 $(GTK4_EXAMPLE_BINARY) opengl
+	$(XVFB_RUN) -a node tests/run_sample_grid_alignment.mjs wayland $(WAYLAND_EXAMPLE_BINARY) wayland
+	$(XVFB_RUN) -a node tests/run_sample_grid_alignment.mjs wayland $(WAYLAND_EXAMPLE_BINARY) opengl

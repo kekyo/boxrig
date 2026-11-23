@@ -1617,6 +1617,8 @@ static int create_terminal_component(
         }
     }
     return status == BOXRIG_UI_OK &&
+                   boxrig_ui_view_set_grid_alignment(boxrig_wayland_terminal_component_view(application->component),
+                       config->grid_alignment) == BOXRIG_UI_OK &&
                    boxrig_wayland_terminal_component_set_text_direction(
                        application->component, BOXRIG_TEXT_DIRECTION_LOGICAL) == BOXRIG_UI_OK &&
                    (boxrig_term_color_demo_initialize(
