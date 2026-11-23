@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import {spawn, spawnSync} from 'node:child_process';
 import {once} from 'node:events';
-import {existsSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync} from 'node:fs';
+import {appendFileSync, existsSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
@@ -18,7 +18,9 @@ if (frontend === '--pty') {
         renameSync(binary + '.tmp', binary);
     };
     process.stdout.on('resize', paint);
-    process.stdin.resume();
+    process.stdin.setRawMode(true);
+    process.stdin.on('data', bytes => appendFileSync(binary + '.input', bytes));
+    process.stdout.write('\x1b[?1000h\x1b[?1006h\x1b[?1016h');
     paint();
 } else {
     const width = 653, height = 419;
@@ -80,7 +82,7 @@ if (frontend === '--pty') {
                     if (!existsSync(mark)) return;
                     const {rows} = JSON.parse(readFileSync(mark, 'utf8'));
                     const frame = spawnSync('ffmpeg', ['-v','error','-f','x11grab','-framerate','60',
-                        '-window_id',window,'-video_size',width+'x'+height,'-i',env.DISPLAY,
+                        '-draw_mouse','0','-window_id',window,'-video_size',width+'x'+height,'-i',env.DISPLAY,
                         '-frames:v','1','-threads','1','-pix_fmt','rgb24','-f','rawvideo','pipe:1'],
                         {env, maxBuffer: width * height * 4});
                     assert.equal(frame.status, 0, frame.stderr.toString());
@@ -104,6 +106,18 @@ if (frontend === '--pty') {
                     assert.equal(hints.status, 0);
                     assert.doesNotMatch(hints.stdout, /resize increment: (?!1 by 1\b)/,
                         'window manager must be able to assign the whole tile');
+                }
+                if (alignment === 'bottom') {
+                    const pointer = spawnSync('xdotool', ['windowfocus','--sync',window,
+                        'mousemove','--window',window,'100','2','click','1',
+                        'mousemove','--window',window,'100',String(spare+2),'click','1','key','q'], {env});
+                    assert.equal(pointer.status, 0);
+                    const input = await until('PTY did not receive the key following both clicks', () => {
+                        const received = existsSync(mark+'.input') && readFileSync(mark+'.input','utf8');
+                        return received && received.includes('q') && received;
+                    });
+                    assert.equal(input, '\x1b[<0;101;3M\x1b[<0;101;3mq',
+                        frontend+' '+renderer+' pixel tracking at the first cell and in the margin');
                 }
                 console.log('PASS', frontend, renderer, alignment, bands);
             } finally { await stop(app); }

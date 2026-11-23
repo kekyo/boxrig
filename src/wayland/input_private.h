@@ -43,6 +43,7 @@ typedef struct boxrig_wayland_input_item {
     bool route_resolved;
     bool application_route;
     bool scrollbar_hit;
+    int64_t scrollbar_y; /* Buffer coordinate, including the grid margin. */
     uint64_t pointer_generation;
     boxrig_ui_hit_test_result mouse_hit;
     union {

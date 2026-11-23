@@ -1228,6 +1228,11 @@ static bool queue_pointer_event(
     item.scrollbar_hit = width != 0 && item.value.mouse.x >= left &&
         item.value.mouse.x < component->buffer_width && item.value.mouse.y >= 0 &&
         item.value.mouse.y < component->buffer_height;
+    item.scrollbar_y = item.value.mouse.y;
+    boxrig_ui_layout_result layout = {0};
+    (void)boxrig_ui_view_get_layout(component->view, &layout);
+    item.value.mouse.x -= layout.origin_x / BOXRIG_UI_FIXED_ONE;
+    item.value.mouse.y -= layout.origin_y / BOXRIG_UI_FIXED_ONE;
     item.pointer_generation = seat->pointer_generation;
     return boxrig_wayland_input_enqueue(seat->pointer_component, &item);
 }
@@ -1809,6 +1814,10 @@ bool boxrig_wayland_input_cursor_geometry(boxrig_wayland_terminal_component *com
             physical_width = metrics.cell_width;
             physical_height = metrics.cell_height;
         }
+        boxrig_ui_layout_result layout = {0};
+        (void)boxrig_ui_view_get_layout(component->view, &layout);
+        physical_x += layout.origin_x / BOXRIG_UI_FIXED_ONE;
+        physical_y += layout.origin_y / BOXRIG_UI_FIXED_ONE;
         logical_x = physical_x * 120 / component->scale_numerator;
         logical_y = physical_y * 120 / component->scale_numerator;
         logical_width =
@@ -3186,7 +3195,7 @@ static boxrig_ui_status process_scrollbar_item(
     size_t position = model.position;
     unsigned int width = component->scrollbar_visibility.state.reserved_width;
     if (event->action == BOXRIG_MOUSE_MOTION && seat->scrollbar_dragging) {
-        int64_t requested = event->y - seat->scrollbar_drag_anchor;
+        int64_t requested = item->scrollbar_y - seat->scrollbar_drag_anchor;
         position = boxrig_scrollbar_position_from_thumb(&model, component->buffer_height,
             width, requested < 0 ? 0 : (size_t)requested);
     } else if (event->action == BOXRIG_MOUSE_PRESS) {
@@ -3194,11 +3203,11 @@ static boxrig_ui_status process_scrollbar_item(
         if (event->button == BOXRIG_MOUSE_BUTTON_LEFT && model.enabled) {
             boxrig_scrollbar_thumb thumb;
             boxrig_scrollbar_calculate_thumb(&model, component->buffer_height, width, &thumb);
-            if ((size_t)event->y >= thumb.start && (size_t)event->y < thumb.start + thumb.length) {
+            if ((size_t)item->scrollbar_y >= thumb.start && (size_t)item->scrollbar_y < thumb.start + thumb.length) {
                 seat->scrollbar_dragging = true;
-                seat->scrollbar_drag_anchor = event->y - (int64_t)thumb.start;
+                seat->scrollbar_drag_anchor = item->scrollbar_y - (int64_t)thumb.start;
             } else {
-                action = (size_t)event->y < thumb.start ? BOXRIG_SCROLLBAR_PAGE_UP : BOXRIG_SCROLLBAR_PAGE_DOWN;
+                action = (size_t)item->scrollbar_y < thumb.start ? BOXRIG_SCROLLBAR_PAGE_UP : BOXRIG_SCROLLBAR_PAGE_DOWN;
             }
         } else if (event->button == BOXRIG_MOUSE_BUTTON_WHEEL_UP) action = BOXRIG_SCROLLBAR_LINE_UP;
         else if (event->button == BOXRIG_MOUSE_BUTTON_WHEEL_DOWN) action = BOXRIG_SCROLLBAR_LINE_DOWN;
@@ -3243,7 +3252,7 @@ static boxrig_ui_status process_mouse_item(
                 route = observed;
             }
         }
-        if (captured) {
+        if (captured || (!item->mouse_hit.inside_grid && item->value.mouse.action != BOXRIG_MOUSE_RELEASE)) {
             route = BOXRIG_INPUT_MOUSE_ROUTE_APPLICATION;
         }
         item->application_route =
