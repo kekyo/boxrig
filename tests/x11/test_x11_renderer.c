@@ -1189,6 +1189,19 @@ static bool render_composition_overlay(Display *display)
               composition) == 0);
     CHECK(boxrig_composition_get_view(composition, &view) ==
           BOXRIG_COMPOSITION_OK);
+    CHECK(view.direction == BOXRIG_TEXT_DIRECTION_LTR);
+    CHECK(boxrig_composition_get_cluster(composition, 0, &first_cluster) ==
+          BOXRIG_COMPOSITION_OK);
+    CHECK(boxrig_composition_get_cluster(composition, 1, &second_cluster) ==
+          BOXRIG_COMPOSITION_OK);
+    CHECK(first_cluster.column < second_cluster.column);
+
+    CHECK(boxrig_x11_renderer_set_direction_policy(renderer,
+              BOXRIG_TEXT_DIRECTION_AUTO) == 0);
+    CHECK(boxrig_x11_renderer_draw_composition(
+              renderer, terminal, composition) == 0);
+    CHECK(boxrig_composition_get_view(composition, &view) ==
+          BOXRIG_COMPOSITION_OK);
     CHECK(view.direction == BOXRIG_TEXT_DIRECTION_RTL);
     CHECK(boxrig_composition_get_cluster(composition, 0, &first_cluster) ==
           BOXRIG_COMPOSITION_OK);
@@ -1700,6 +1713,8 @@ static bool render_shared_model_views_independently(Display *display)
     CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
     CHECK(boxrig_ui_view_create(model, &view_config, &first) == BOXRIG_UI_OK);
     CHECK(boxrig_ui_view_create(model, &view_config, &second) == BOXRIG_UI_OK);
+    CHECK(boxrig_x11_renderer_set_direction_policy(renderer,
+              BOXRIG_TEXT_DIRECTION_AUTO) == 0);
     CHECK(boxrig_ui_view_acquire_layout_authority(first) == BOXRIG_UI_OK);
     CHECK(boxrig_ui_view_commit_cell_metrics(first, &metrics) == BOXRIG_UI_OK);
     memset(&input, 0, sizeof(input));
@@ -1842,6 +1857,8 @@ static bool render_multilingual_layout(Display *display)
           BOXRIG_STATUS_OK);
     CHECK(before.text_length <= sizeof(before_text));
     memcpy(before_text, before.text, before.text_length);
+    CHECK(boxrig_x11_renderer_set_direction_policy(renderer,
+              BOXRIG_TEXT_DIRECTION_AUTO) == 0);
     CHECK(boxrig_x11_renderer_layout_line(
               renderer,
               terminal,
