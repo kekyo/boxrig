@@ -463,6 +463,20 @@ static bool allocation_observation_never_requests_native_size(void)
           BOXRIG_UI_OK);
     CHECK(rows == 25 && columns == 82);
 
+    /* The old allocation is still on screen while a smaller font requests a new one. */
+    CHECK(boxrig_ui_view_set_grid_alignment(view, BOXRIG_UI_GRID_BOTTOM) == BOXRIG_UI_OK);
+    memset(&change, 0, sizeof(change));
+    change.kind = BOXRIG_UI_LAYOUT_CHANGE_FONT_METRICS;
+    change.cell_width = pixels(8);
+    change.cell_height = pixels(10);
+    change.cell_metrics_revision = 3;
+    CHECK(boxrig_ui_view_apply_layout_change(view, &change, &result) == BOXRIG_UI_OK);
+    CHECK(result.rows == 25 && result.columns == 82 && result.origin_y == 0);
+    CHECK(take_content_size_action(view, &command));
+    CHECK(boxrig_ui_view_complete_size_command(view, command.revision, BOXRIG_UI_SIZE_CONSTRAINED,
+              pixels(660), pixels(257), &applied, &result) == BOXRIG_UI_OK);
+    CHECK(applied && result.constrained && result.origin_y == pixels(7));
+
     boxrig_ui_view_destroy(view);
     boxrig_ui_model_destroy(model);
     boxrig_terminal_destroy(terminal);

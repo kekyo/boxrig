@@ -919,7 +919,9 @@ static bool set_layout_result(
     boxrig_ui_fixed bottom = allocation_height - grid_height;
     view->layout_result.excess_right = right > view->grid_padding ? right - view->grid_padding : 0;
     view->layout_result.excess_bottom = bottom > view->grid_padding ? bottom - view->grid_padding : 0;
-    if (view->grid_alignment == BOXRIG_UI_GRID_BOTTOM && bottom > 2 * view->grid_padding) {
+    /* During a host size request the previous allocation may still be visible.
+     * Move only the space left by the actual constrained layout above the grid. */
+    if (constrained && view->grid_alignment == BOXRIG_UI_GRID_BOTTOM && bottom > 2 * view->grid_padding) {
         view->layout_result.origin_y = bottom - view->grid_padding;
         view->layout_result.excess_bottom = view->grid_padding;
     }
