@@ -1256,6 +1256,7 @@ static bool test_pointer_router_retains_fractional_hit(void)
               &widget_config,
               &widget) == BOXRIG_UI_OK);
     g_object_ref_sink(widget);
+    CHECK(boxrig_gtk3_terminal_widget_set_grid_padding(widget, 4) == BOXRIG_UI_OK);
     window = GTK_WINDOW(gtk_window_new(GTK_WINDOW_TOPLEVEL));
     CHECK(window != NULL);
     g_object_ref_sink(window);
@@ -1274,12 +1275,13 @@ static bool test_pointer_router_retains_fractional_hit(void)
               &metrics) == BOXRIG_FONT_CATALOG_OK);
     scale = (unsigned int)gtk_widget_get_scale_factor(GTK_WIDGET(widget));
     CHECK(scale != 0);
-    native_x = ((double)metrics.cell_width + 0.25) / (double)scale;
-    native_y = 0.25 / (double)scale;
+    CHECK(layout.origin_x == 4 * scale * BOXRIG_UI_FIXED_ONE && layout.origin_y == layout.origin_x);
+    native_x = 4 + ((double)metrics.cell_width + 0.25) / (double)scale;
+    native_y = 4 + 0.25 / (double)scale;
     CHECK(boxrig_gtk3_terminal_widget_hit_test(
               widget,
-              (boxrig_ui_fixed)metrics.cell_width * BOXRIG_UI_FIXED_ONE + 16,
-              16,
+              layout.origin_x + (boxrig_ui_fixed)metrics.cell_width * BOXRIG_UI_FIXED_ONE + 16,
+              layout.origin_y + 16,
               &expected_hit) == BOXRIG_UI_OK);
     CHECK(boxrig_gtk3_terminal_widget_set_mouse_router(
               widget,
@@ -1317,8 +1319,8 @@ static bool test_pointer_router_retains_fractional_hit(void)
     CHECK(observer.events[0].x == (int64_t)metrics.cell_width &&
           observer.events[0].y == 0);
     CHECK(observer.hits[0].x ==
-          (boxrig_ui_fixed)metrics.cell_width * BOXRIG_UI_FIXED_ONE + 16);
-    CHECK(observer.hits[0].y == 16);
+          layout.origin_x + (boxrig_ui_fixed)metrics.cell_width * BOXRIG_UI_FIXED_ONE + 16);
+    CHECK(observer.hits[0].y == layout.origin_y + 16);
     CHECK(observer.hits[0].logical_column == expected_hit.logical_column);
     CHECK(observer.hits[0].layout_generation ==
           expected_hit.layout_generation);
@@ -1328,8 +1330,8 @@ static bool test_pointer_router_retains_fractional_hit(void)
 
     /* Fractions outside the top-left edge must not round into the grid. */
     observer.count = 0;
-    event.x = -0.001 / scale;
-    event.y = -0.5 / scale;
+    event.x = 4 - 0.001 / scale;
+    event.y = 4 - 0.5 / scale;
     event.state = 0;
     event.type = GDK_BUTTON_PRESS;
     g_signal_emit_by_name(widget, "button-press-event", &event, &handled);
@@ -1338,13 +1340,19 @@ static bool test_pointer_router_retains_fractional_hit(void)
     CHECK(boxrig_gtk3_terminal_widget_frame(widget, &frame_result) == BOXRIG_UI_OK);
     CHECK(observer.count == 2);
     CHECK(observer.events[0].x == -1 && observer.events[0].y == -1);
-    CHECK(!observer.hits[0].inside_grid && observer.hits[0].x < 0);
+    CHECK(!observer.hits[0].inside_grid && observer.hits[0].x < layout.origin_x);
 
     CHECK(boxrig_gtk3_terminal_widget_set_mouse_router(widget, NULL, NULL) ==
           BOXRIG_UI_OK);
     {
         const char mode[] = "\033[?1000;1016h";
         CHECK(feed_bytes(terminal, (const uint8_t *)mode, sizeof(mode) - 1));
+        event.type = GDK_BUTTON_PRESS;
+        g_signal_emit_by_name(widget, "button-press-event", &event, &handled);
+        event.type = GDK_BUTTON_RELEASE;
+        g_signal_emit_by_name(widget, "button-release-event", &event, &handled);
+        CHECK(boxrig_gtk3_terminal_widget_frame(widget, &frame_result) == BOXRIG_UI_OK);
+        CHECK(boxrig_terminal_output_peek(terminal, &output) == 0);
         event.x = native_x;
         event.y = native_y;
         event.type = GDK_BUTTON_PRESS;

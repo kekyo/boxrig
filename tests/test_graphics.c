@@ -3297,7 +3297,7 @@ static bool test_frame_delete_renumbers_and_reclaims_storage(void)
         const uint8_t *output = NULL;
         CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)steps[index].command,
                   strlen(steps[index].command), &consumed) == BOXRIG_STATUS_OK);
-        if (strstr(steps[index].command, "a=d") != NULL) {
+        if (memcmp(steps[index].command, "\x1b_Ga=d,", sizeof("\x1b_Ga=d,") - 1) == 0) {
             CHECK(boxrig_terminal_output_peek(terminal, &output) == 0);
         } else {
             CHECK(boxrig_terminal_output_peek(terminal, &output) == sizeof(ok) - 1);

@@ -201,6 +201,8 @@ struct boxrig_ui_view {
     bool visible;
     bool layout_configured;
     boxrig_ui_allocation_input allocation_input;
+    boxrig_ui_grid_alignment grid_alignment;
+    boxrig_ui_fixed grid_padding;
     boxrig_ui_layout_result layout_result;
     size_t normal_rows;
     size_t normal_columns;
@@ -825,7 +827,17 @@ static bool multiply_fixed(
     return true;
 }
 
+static bool padded_extent(size_t cells, boxrig_ui_fixed cell, boxrig_ui_fixed padding,
+    boxrig_ui_fixed *out)
+{
+    if (!multiply_fixed(cells, cell, out) || *out > INT64_MAX - 2 * padding)
+        return false;
+    *out += 2 * padding;
+    return true;
+}
+
 static bool fit_grid(
+    boxrig_ui_fixed padding,
     boxrig_ui_fixed allocation_width,
     boxrig_ui_fixed allocation_height,
     boxrig_ui_fixed cell_width,
@@ -840,6 +852,8 @@ static bool fit_grid(
         cell_width <= 0 || cell_height <= 0) {
         return false;
     }
+    allocation_width = allocation_width > 2 * padding ? allocation_width - 2 * padding : 0;
+    allocation_height = allocation_height > 2 * padding ? allocation_height - 2 * padding : 0;
     columns = (uint64_t)(allocation_width / cell_width);
     rows = (uint64_t)(allocation_height / cell_height);
     if (columns == 0) {
@@ -899,10 +913,18 @@ static bool set_layout_result(
     view->layout_result.columns = columns;
     view->layout_result.grid_width = grid_width;
     view->layout_result.grid_height = grid_height;
-    view->layout_result.excess_right =
-        allocation_width > grid_width ? allocation_width - grid_width : 0;
-    view->layout_result.excess_bottom =
-        allocation_height > grid_height ? allocation_height - grid_height : 0;
+    view->layout_result.origin_x = view->grid_padding;
+    view->layout_result.origin_y = view->grid_padding;
+    boxrig_ui_fixed right = allocation_width - grid_width;
+    boxrig_ui_fixed bottom = allocation_height - grid_height;
+    view->layout_result.excess_right = right > view->grid_padding ? right - view->grid_padding : 0;
+    view->layout_result.excess_bottom = bottom > view->grid_padding ? bottom - view->grid_padding : 0;
+    /* During a host size request the previous allocation may still be visible.
+     * Move only the space left by the actual constrained layout above the grid. */
+    if (constrained && view->grid_alignment == BOXRIG_UI_GRID_BOTTOM && bottom > 2 * view->grid_padding) {
+        view->layout_result.origin_y = bottom - view->grid_padding;
+        view->layout_result.excess_bottom = view->grid_padding;
+    }
     view->layout_result.constrained = constrained;
     return true;
 }
@@ -3360,6 +3382,7 @@ boxrig_ui_status boxrig_ui_view_accept_allocation(
         input->cell_metrics_revision == 0 ||
         !valid_window_state(input->window_state) ||
         !fit_grid(
+            view->grid_padding,
             input->allocation_width,
             input->allocation_height,
             input->cell_width,
@@ -3452,13 +3475,15 @@ boxrig_ui_status boxrig_ui_view_accept_allocation(
             view->normal_rows = fitted_rows;
             view->normal_columns = fitted_columns;
         }
-        if (!multiply_fixed(
+        if (!padded_extent(
                 view->normal_columns,
                 input->cell_width,
+                view->grid_padding,
                 &requested_width) ||
-            !multiply_fixed(
+            !padded_extent(
                 view->normal_rows,
                 input->cell_height,
+                view->grid_padding,
                 &requested_height)) {
             return BOXRIG_UI_LIMIT_EXCEEDED;
         }
@@ -3546,6 +3571,7 @@ boxrig_ui_status boxrig_ui_view_apply_layout_change(
         return BOXRIG_UI_UNAVAILABLE;
     }
     if (!fit_grid(
+            view->grid_padding,
             view->allocation_input.allocation_width,
             view->allocation_input.allocation_height,
             input->cell_width,
@@ -3578,13 +3604,15 @@ boxrig_ui_status boxrig_ui_view_apply_layout_change(
         mark_full_dirty(view, BOXRIG_UI_DIRTY_IMAGE);
         mark_full_dirty(view, BOXRIG_UI_DIRTY_PRESENT);
     }
-    if (!multiply_fixed(
+    if (!padded_extent(
             view->normal_columns,
             input->cell_width,
+            view->grid_padding,
             &requested_width) ||
-        !multiply_fixed(
+        !padded_extent(
             view->normal_rows,
             input->cell_height,
+            view->grid_padding,
             &requested_height)) {
         return BOXRIG_UI_LIMIT_EXCEEDED;
     }
@@ -3692,6 +3720,7 @@ boxrig_ui_status boxrig_ui_view_complete_size_command(
     }
     if (allocation_width <= 0 || allocation_height <= 0 ||
         !fit_grid(
+            view->grid_padding,
             allocation_width,
             allocation_height,
             view->allocation_input.cell_width,
@@ -3752,6 +3781,35 @@ boxrig_ui_status boxrig_ui_view_complete_size_command(
     *applied_out = true;
     *result_out = view->layout_result;
     return BOXRIG_UI_OK;
+}
+
+boxrig_ui_status boxrig_ui_view_set_grid_alignment(boxrig_ui_view *view, boxrig_ui_grid_alignment alignment)
+{
+    if (view == NULL || (alignment != BOXRIG_UI_GRID_TOP && alignment != BOXRIG_UI_GRID_BOTTOM))
+        return BOXRIG_UI_INVALID_ARGUMENT;
+    if (view->grid_alignment == alignment) return BOXRIG_UI_OK;
+    view->grid_alignment = alignment;
+    if (view->layout_configured) {
+        set_layout_result(view, view->layout_result.rows, view->layout_result.columns,
+            view->allocation_input.allocation_width, view->allocation_input.allocation_height,
+            view->layout_result.constrained);
+        advance_layout_generation(view);
+        mark_full_dirty(view, BOXRIG_UI_DIRTY_PRESENT);
+    }
+    return BOXRIG_UI_OK;
+}
+
+boxrig_ui_status boxrig_ui_view_set_grid_padding(boxrig_ui_view *view, boxrig_ui_fixed padding)
+{
+    if (view == NULL || padding < 0 || padding % BOXRIG_UI_FIXED_ONE != 0 || padding > (boxrig_ui_fixed)INT_MAX * BOXRIG_UI_FIXED_ONE)
+        return BOXRIG_UI_INVALID_ARGUMENT;
+    if (view->grid_padding == padding) return BOXRIG_UI_OK;
+    view->grid_padding = padding;
+    if (!view->layout_configured) return BOXRIG_UI_OK;
+    boxrig_ui_allocation_input input = view->allocation_input;
+    boxrig_ui_layout_result result;
+    mark_full_dirty(view, BOXRIG_UI_DIRTY_PRESENT);
+    return boxrig_ui_view_accept_allocation(view, &input, &result);
 }
 
 boxrig_ui_status boxrig_ui_view_get_layout(
@@ -3948,6 +4006,11 @@ boxrig_ui_status boxrig_ui_view_hit_test(
     result_out->y = y;
     result_out->layout_generation = view->layout_generation;
     result_out->annotation_generation = view->annotation_generation;
+    if (x < view->layout_result.origin_x || y < view->layout_result.origin_y ||
+        x >= view->allocation_input.allocation_width || y >= view->allocation_input.allocation_height)
+        return BOXRIG_UI_OK;
+    x -= view->layout_result.origin_x;
+    y -= view->layout_result.origin_y;
     const boxrig_ui_candidate_rectangle *panel = &view->candidates.value.layout.bounds;
     if (panel->width > 0 && panel->height > 0 &&
         x >= panel->x * BOXRIG_UI_FIXED_ONE && y >= panel->y * BOXRIG_UI_FIXED_ONE &&
@@ -4719,7 +4782,7 @@ static bool rectangular_hit_boundary(
     }
     cell_start = (boxrig_ui_fixed)hit->visual_column *
                  view->allocation_input.cell_width;
-    offset = hit->x - cell_start;
+    offset = hit->x - view->layout_result.origin_x - cell_start;
     if (offset < 0 || offset >= view->allocation_input.cell_width) {
         return false;
     }
@@ -5972,6 +6035,8 @@ void boxrig_ui_view_accessible_row(const boxrig_ui_view *view, size_t row,
     if (view == NULL || row >= view->row_count) return;
     state->layout = view->row_layouts[row].layout;
     if (view->layout_configured) {
+        state->origin_x = view->layout_result.origin_x;
+        state->origin_y = view->layout_result.origin_y;
         state->cell_width = view->allocation_input.cell_width;
         state->cell_height = view->allocation_input.cell_height;
     }

@@ -102,6 +102,7 @@ bool boxrig_ui_view_row_has_text_blink(const boxrig_ui_view *view, size_t row);
 typedef struct boxrig_ui_accessible_row_state {
     const boxrig_text_layout *layout;
     boxrig_ui_fixed cell_width, cell_height;
+    boxrig_ui_fixed origin_x, origin_y;
     boxrig_ui_fixed newline_marker_x, newline_marker_width;
     size_t selection_start, selection_count;
     bool newline_selected;

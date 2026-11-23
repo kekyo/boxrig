@@ -568,7 +568,7 @@ boxrig_status boxrig_screen_initialize(
         columns,
         0,
         BOXRIG_AMBIGUOUS_WIDTH_NARROW,
-        BOXRIG_EMOJI_VARIATION_WIDTH_WIDE,
+        BOXRIG_EMOJI_VARIATION_WIDTH_PRESERVE,
         BOXRIG_CURSOR_COLUMN_MODE_TERMINAL);
 }
 

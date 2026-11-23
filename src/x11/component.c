@@ -1195,7 +1195,7 @@ static boxrig_ui_status initialize_component_resources(
         return BOXRIG_UI_OUT_OF_MEMORY;
     }
     component->rendering_policy = boxrig_font_rendering_policy_default();
-    component->direction_policy = BOXRIG_TEXT_DIRECTION_AUTO;
+    component->direction_policy = BOXRIG_TEXT_DIRECTION_LOGICAL;
     if (component_renderer_prepare_font(
             component,
             &component->font.specification,

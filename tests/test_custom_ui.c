@@ -56,6 +56,7 @@ int main(void)
     config.rows = 2;
     config.columns = 8;
     config.ambiguous_width = BOXRIG_AMBIGUOUS_WIDTH_WIDE;
+    config.emoji_variation_width = BOXRIG_EMOJI_VARIATION_WIDTH_WIDE;
     CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
     for (index = 0;
          index < sizeof(expected_lengths) / sizeof(expected_lengths[0]);

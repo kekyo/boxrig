@@ -608,7 +608,7 @@ typedef struct boxrig_terminal_config {
     size_t graphics_frame_capacity;
     /** Width policy for East Asian Width class Ambiguous characters. Defaults to NARROW. */
     boxrig_ambiguous_width ambiguous_width;
-    /** VS16 width policy. Defaults to WIDE; PRESERVE matches scalar-width TUIs. */
+    /** VS16 width policy. Defaults to PRESERVE for scalar-width TUIs. */
     boxrig_emoji_variation_width emoji_variation_width;
     /** Unit used by horizontal cursor positions received from the client. */
     boxrig_cursor_column_mode cursor_column_mode;
@@ -1431,7 +1431,7 @@ boxrig_ambiguous_width boxrig_terminal_ambiguous_width(const boxrig_terminal *te
 
 /**
  * Returns the immutable VS16 width policy.
- * @param terminal Terminal to inspect, or NULL for the WIDE default.
+ * @param terminal Terminal to inspect, or NULL for the PRESERVE default.
  * @return The configured emoji variation width policy.
  * @remarks PRESERVE affects VS16 only. Intrinsically wide characters, regional
  * indicators and keycap sequences retain their usual widths.

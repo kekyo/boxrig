@@ -63,13 +63,13 @@ Redistribution of a font also follows that font's license.
 
 ## Match TUI widths and cell order
 
-A TUI positions text and borders at terminal rows and columns. Its width and ordering assumptions must match the terminal. `boxrig_term` uses the following two settings by default.
+A TUI positions text and borders at terminal rows and columns. Its width and ordering assumptions must match the terminal. The library and `boxrig_term` use the following defaults.
 
-Receiving the emoji presentation selector VS16 (U+FE0F) preserves the base character's width. Select `BOXRIG_EMOJI_VARIATION_WIDTH_PRESERVE` in `boxrig_terminal_config.emoji_variation_width` when creating the terminal. For example, a heart followed by VS16 stays one column wide, preventing writes beyond the application's allocated area. Intrinsically wide emoji, flags, and keycaps retain their widths. Measurement, fragmented input, wrapping, and resizing use the same policy.
+Receiving the emoji presentation selector VS16 (U+FE0F) preserves the base character's width. The default for `boxrig_terminal_config.emoji_variation_width` is `BOXRIG_EMOJI_VARIATION_WIDTH_PRESERVE`. For example, a heart followed by VS16 stays one column wide, preventing writes beyond the application's allocated area. Intrinsically wide emoji, flags, and keycaps retain their widths. Measurement, fragmented input, wrapping, and resizing use the same policy.
 
-Text is displayed in the terminal's stored cell order. Pass `BOXRIG_TEXT_DIRECTION_LOGICAL` to the component or GTK widget's `set_text_direction()` API. Contextual font shaping, including Arabic forms, remains active. Hit testing and selection follow the same cell order.
+Text is displayed in the terminal's stored cell order. Components and GTK widgets default to `BOXRIG_TEXT_DIRECTION_LOGICAL`. Contextual font shaping, including Arabic forms, remains active. Hit testing and selection follow the same cell order.
 
-The original behavior remains selectable through the API. Use `BOXRIG_EMOJI_VARIATION_WIDTH_WIDE` to promote VS16 clusters to two columns, and `BOXRIG_TEXT_DIRECTION_AUTO` to reorder bidirectional text. `FORCE_LTR` and `FORCE_RTL` select the paragraph base direction while still reordering runs within it. Standalone library defaults remain `WIDE` and `AUTO`, respectively.
+The original behavior remains selectable through the API. Use `BOXRIG_EMOJI_VARIATION_WIDTH_WIDE` to promote VS16 clusters to two columns, and `BOXRIG_TEXT_DIRECTION_AUTO` to reorder bidirectional text. `FORCE_LTR` and `FORCE_RTL` select the paragraph base direction while still reordering runs within it.
 
 ## Complex text and color fonts
 
@@ -114,3 +114,7 @@ If settings conflict, inspect results such as `UNAVAILABLE` and either use separ
 See [Basic concepts](./architecture.md) and the [platform guides](./index.md#integrating-into-an-application) for parent, model, and view responsibilities.
 
 [Font and text layout API](../../include/boxrig/ui/text_layout.h), [Documentation index](./index.md)
+
+Use `boxrig_gtk3_terminal_widget_set_grid_padding` to set uniform padding in GTK logical pixels. The default is zero. The GTK3 sample accepts the same value in `BOXRIG_GRID_PADDING`. The padding displays the terminal background. Terminal mouse reports use coordinates relative to the first cell.
+
+Use `boxrig_gtk3_terminal_widget_set_grid_alignment` with `BOXRIG_UI_GRID_BOTTOM` to leave the height remaining after fitting whole rows above the grid. The default, `BOXRIG_UI_GRID_TOP`, leaves it below. Unused width stays on the right. The GTK3 sample accepts `BOXRIG_GRID_ALIGNMENT=bottom`.

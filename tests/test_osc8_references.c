@@ -320,6 +320,8 @@ static bool test_ascii_and_cluster_width_change(void)
     config.rows = 1u;
     config.columns = 6u;
     config.hyperlink_capacity = 4u;
+    /* Exercise the hyperlink references added when VS16 expands an occupied cell. */
+    config.emoji_variation_width = BOXRIG_EMOJI_VARIATION_WIDTH_WIDE;
     REQUIRE(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
     REQUIRE(feed_link(terminal, "asci", "ABCD"));
     for (size_t column = 0u; column < 4u; column++) {

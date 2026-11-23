@@ -984,7 +984,7 @@ boxrig_ui_status boxrig_wayland_terminal_component_create(
         goto failure;
     }
     component->rendering_policy = boxrig_font_rendering_policy_default();
-    component->direction_policy = BOXRIG_TEXT_DIRECTION_AUTO;
+    component->direction_policy = BOXRIG_TEXT_DIRECTION_LOGICAL;
     if (component->terminal == NULL) {
         status = BOXRIG_UI_UNAVAILABLE;
         goto failure;

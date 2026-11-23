@@ -1124,7 +1124,7 @@ static int create_renderer(
     renderer->system = *system;
     renderer->apply_raster_scale = reference_context != NULL ? apply_bitmap_scale : NULL;
     renderer->font_size = 12.0f;
-    renderer->direction_policy = BOXRIG_TEXT_DIRECTION_AUTO;
+    renderer->direction_policy = BOXRIG_TEXT_DIRECTION_LOGICAL;
     renderer->background_opacity = 255;
     if (FAILED(initialize_directwrite_stack(renderer, reference_context))) {
         boxrig_win32_renderer_destroy(renderer);

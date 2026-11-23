@@ -2229,7 +2229,7 @@ int boxrig_x11_renderer_create(
     }
     renderer->display = display;
     renderer->window = window;
-    renderer->direction_policy = BOXRIG_TEXT_DIRECTION_AUTO;
+    renderer->direction_policy = BOXRIG_TEXT_DIRECTION_LOGICAL;
     if (XGetWindowAttributes(display, window, &attributes) == 0) {
         boxrig_x11_renderer_destroy(renderer);
         return -1;

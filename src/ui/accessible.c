@@ -58,8 +58,8 @@ static void cell_geometry(const boxrig_ui_accessible_row_state *state,
     if (state->cell_width <= 0 || state->cell_height <= 0 ||
         last > (size_t)(INT64_MAX / state->cell_width) ||
         row >= (size_t)(INT64_MAX / state->cell_height)) return;
-    character->x = (boxrig_ui_fixed)first * state->cell_width;
-    character->y = (boxrig_ui_fixed)row * state->cell_height;
+    character->x = state->origin_x + (boxrig_ui_fixed)first * state->cell_width;
+    character->y = state->origin_y + (boxrig_ui_fixed)row * state->cell_height;
     character->width = (boxrig_ui_fixed)(last - first) * state->cell_width;
     character->height = state->cell_height;
 }
@@ -139,7 +139,7 @@ static boxrig_ui_status project(boxrig_ui_view *view, snapshot_builder *builder,
             };
             if (builder->snapshot != NULL) cell_geometry(&state, row, end_column, 1, &newline);
             if (state.newline_marker_width > 0) {
-                newline.x = state.newline_marker_x;
+                newline.x = state.origin_x + state.newline_marker_x;
                 newline.width = state.newline_marker_width;
             }
             if (!append_scalar(builder, "\n", 1, &newline)) return BOXRIG_UI_LIMIT_EXCEEDED;
