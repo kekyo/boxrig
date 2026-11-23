@@ -63,13 +63,13 @@ Redistribution of a font also follows that font's license.
 
 ## Match TUI widths and cell order
 
-A TUI positions text and borders at terminal rows and columns. Its width and ordering assumptions must match the terminal. `boxrig_term` uses the following two settings by default.
+A TUI positions text and borders at terminal rows and columns. Its width and ordering assumptions must match the terminal. The library and `boxrig_term` use the following defaults.
 
-Receiving the emoji presentation selector VS16 (U+FE0F) preserves the base character's width. Select `BOXRIG_EMOJI_VARIATION_WIDTH_PRESERVE` in `boxrig_terminal_config.emoji_variation_width` when creating the terminal. For example, a heart followed by VS16 stays one column wide, preventing writes beyond the application's allocated area. Intrinsically wide emoji, flags, and keycaps retain their widths. Measurement, fragmented input, wrapping, and resizing use the same policy.
+Receiving the emoji presentation selector VS16 (U+FE0F) preserves the base character's width. The default for `boxrig_terminal_config.emoji_variation_width` is `BOXRIG_EMOJI_VARIATION_WIDTH_PRESERVE`. For example, a heart followed by VS16 stays one column wide, preventing writes beyond the application's allocated area. Intrinsically wide emoji, flags, and keycaps retain their widths. Measurement, fragmented input, wrapping, and resizing use the same policy.
 
 Text is displayed in the terminal's stored cell order. Components and GTK widgets default to `BOXRIG_TEXT_DIRECTION_LOGICAL`. Contextual font shaping, including Arabic forms, remains active. Hit testing and selection follow the same cell order.
 
-The original behavior remains selectable through the API. Use `BOXRIG_EMOJI_VARIATION_WIDTH_WIDE` to promote VS16 clusters to two columns, and `BOXRIG_TEXT_DIRECTION_AUTO` to reorder bidirectional text. `FORCE_LTR` and `FORCE_RTL` select the paragraph base direction while still reordering runs within it. The standalone terminal defaults to `WIDE` for VS16.
+The original behavior remains selectable through the API. Use `BOXRIG_EMOJI_VARIATION_WIDTH_WIDE` to promote VS16 clusters to two columns, and `BOXRIG_TEXT_DIRECTION_AUTO` to reorder bidirectional text. `FORCE_LTR` and `FORCE_RTL` select the paragraph base direction while still reordering runs within it.
 
 ## Complex text and color fonts
 

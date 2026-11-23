@@ -173,7 +173,7 @@ boxrig_terminal_config boxrig_terminal_config_default(void)
     config.graphics_animation_storage_capacity = 640u * 1024u * 1024u;
     config.graphics_frame_capacity = 16384;
     config.ambiguous_width = BOXRIG_AMBIGUOUS_WIDTH_NARROW;
-    config.emoji_variation_width = BOXRIG_EMOJI_VARIATION_WIDTH_WIDE;
+    config.emoji_variation_width = BOXRIG_EMOJI_VARIATION_WIDTH_PRESERVE;
     config.cursor_column_mode = BOXRIG_CURSOR_COLUMN_MODE_TERMINAL;
     config.input = boxrig_input_config_default();
     config.paste_newline = BOXRIG_NEWLINE_LF;
@@ -361,7 +361,7 @@ boxrig_ambiguous_width boxrig_terminal_ambiguous_width(const boxrig_terminal *te
 boxrig_emoji_variation_width boxrig_terminal_emoji_variation_width(
     const boxrig_terminal *terminal)
 {
-    return terminal == NULL ? BOXRIG_EMOJI_VARIATION_WIDTH_WIDE :
+    return terminal == NULL ? BOXRIG_EMOJI_VARIATION_WIDTH_PRESERVE :
         terminal->screen.emoji_variation_width;
 }
 

@@ -51,8 +51,8 @@ static bool test_defaults_and_initial_screen(void)
     CHECK(config.text_recognizer_pattern_capacity == 256 * 1024);
     CHECK(config.text_recognizer_event_capacity == 4096);
     CHECK(config.ambiguous_width == BOXRIG_AMBIGUOUS_WIDTH_NARROW);
-    CHECK(config.emoji_variation_width == BOXRIG_EMOJI_VARIATION_WIDTH_WIDE);
-    CHECK(boxrig_terminal_emoji_variation_width(NULL) == BOXRIG_EMOJI_VARIATION_WIDTH_WIDE);
+    CHECK(config.emoji_variation_width == BOXRIG_EMOJI_VARIATION_WIDTH_PRESERVE);
+    CHECK(boxrig_terminal_emoji_variation_width(NULL) == BOXRIG_EMOJI_VARIATION_WIDTH_PRESERVE);
     CHECK(boxrig_terminal_ambiguous_width(NULL) == BOXRIG_AMBIGUOUS_WIDTH_NARROW);
     CHECK(config.cursor_column_mode == BOXRIG_CURSOR_COLUMN_MODE_TERMINAL);
     config.rows = 3;
@@ -5198,6 +5198,7 @@ static bool test_unicode_graphemes_width_and_invalid_input(void)
     size_t index;
     size_t consumed;
 
+    config.emoji_variation_width = BOXRIG_EMOJI_VARIATION_WIDTH_WIDE;
     config.rows = 2;
     config.columns = 12;
     CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
@@ -5410,7 +5411,6 @@ static bool test_emoji_variation_preserves_wrap_and_reflow(void)
     boxrig_terminal_config config = boxrig_terminal_config_default();
     config.rows = 3;
     config.columns = 4;
-    config.emoji_variation_width = BOXRIG_EMOJI_VARIATION_WIDTH_PRESERVE;
     boxrig_terminal *terminal = NULL;
     CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
     static const uint8_t text[] = "abc❤️Z";
@@ -5471,6 +5471,7 @@ static bool test_emoji_promotion_wraps_complete_cluster(void)
                 size_t offset;
                 size_t chunk = fragmented ? 1 : cases[index].length;
 
+                config.emoji_variation_width = BOXRIG_EMOJI_VARIATION_WIDTH_WIDE;
                 config.rows = 2;
                 config.columns = 4;
                 CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
@@ -5521,6 +5522,7 @@ static bool test_emoji_promotion_preserves_clipping(void)
         size_t consumed = 0;
         size_t offset;
 
+        config.emoji_variation_width = BOXRIG_EMOJI_VARIATION_WIDTH_WIDE;
         config.rows = 2;
         config.columns = narrow ? 1 : 4;
         CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
@@ -5593,6 +5595,7 @@ static bool test_public_text_cluster_measurement(void)
     boxrig_terminal *terminal = NULL;
     size_t index;
 
+    config.emoji_variation_width = BOXRIG_EMOJI_VARIATION_WIDTH_WIDE;
     config.rows = 1;
     config.columns = 4;
     for (index = 0; index < sizeof(cases) / sizeof(cases[0]); index++) {
