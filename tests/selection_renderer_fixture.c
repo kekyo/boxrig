@@ -579,7 +579,7 @@ static bool selection_unvisited_unicode(
     CHECK(boxrig_ui_view_acquire_layout_authority(view) == BOXRIG_UI_OK);
     CHECK(boxrig_ui_view_accept_allocation(view, &allocation, &layout) == BOXRIG_UI_OK);
     const struct { unsigned first, last; const char *text; } cases[] = {
-        {1, 2, "ב"}, {3, 4, "界"}, {5, 6, "e\xcc\x81"},
+        {1, 2, "א"}, {3, 4, "界"}, {5, 6, "e\xcc\x81"},
         {6, 7, "😀"}, {1, 8, "אב界e\xcc\x81😀"}, {9, 12, "   "}
     };
     boxrig_ui_selection_options options = {BOXRIG_UI_SELECTION_RECTANGULAR,
