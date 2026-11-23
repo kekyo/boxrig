@@ -1517,6 +1517,22 @@ boxrig_ui_status boxrig_ui_view_complete_size_command(
     bool *applied_out,
     boxrig_ui_layout_result *result_out);
 
+/** Vertical placement of whole terminal rows within the available surface. */
+typedef enum boxrig_ui_grid_alignment {
+    /** Leave unused height below the grid (default). */
+    BOXRIG_UI_GRID_TOP,
+    /** Leave unused height above the grid. */
+    BOXRIG_UI_GRID_BOTTOM
+} boxrig_ui_grid_alignment;
+
+/**
+ * Selects the side on which unused height remains after fitting the cells.
+ * @param view View to update.
+ * @param alignment Vertical alignment of the terminal grid.
+ * @return A portable UI status.
+ */
+boxrig_ui_status boxrig_ui_view_set_grid_alignment(boxrig_ui_view *view, boxrig_ui_grid_alignment alignment);
+
 /**
  * Sets the space between each edge of the surface and the grid.
  * @param view View whose allocation should be refitted.

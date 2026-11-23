@@ -3135,6 +3135,25 @@ static bool common_logical_cell_order_fixture(void)
     const uint8_t *copied = boxrig_text_snapshot_data(snapshot, &length);
     CHECK(length == sizeof("אבג") - 1 && memcmp(copied, "אבג", length) == 0);
     boxrig_text_snapshot_destroy(snapshot);
+#if defined(BOXRIG_TEST_FRONTEND_PANGO_CAIRO) || defined(BOXRIG_TEST_FRONTEND_OPENGL)
+    CHECK(boxrig_ui_view_clear_selection(view) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_set_grid_padding(view, pixels(2)) == BOXRIG_UI_OK);
+    const char mark[] = "\033[H\033[48;2;211;41;37m ";
+    CHECK(feed_bytes(terminal, mark, sizeof(mark) - 1));
+    CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+    for (unsigned int bottom = 0; bottom <= 1; bottom++) {
+        CHECK(boxrig_ui_view_set_grid_alignment(view, bottom ? BOXRIG_UI_GRID_BOTTOM : BOXRIG_UI_GRID_TOP) == BOXRIG_UI_OK);
+        CHECK(draw_platform_view(&renderer, view, NULL));
+        CHECK(boxrig_ui_view_get_layout(view, &result) == BOXRIG_UI_OK);
+        int y = (int)(result.origin_y / BOXRIG_UI_FIXED_ONE);
+        CHECK(y == (bottom ? (int)renderer.cell_height - 2 : 2));
+        platform_rgb cell, margin;
+        CHECK(get_platform_pixel(&renderer, 2, y, &cell));
+        CHECK(get_platform_pixel(&renderer, 2, y - 1, &margin));
+        CHECK(cell.red == 211 && cell.green == 41 && cell.blue == 37);
+        CHECK(margin.red != 211);
+    }
+#endif
     boxrig_ui_view_destroy(view);
     boxrig_ui_model_destroy(model);
     boxrig_terminal_destroy(terminal);

@@ -671,6 +671,14 @@ static void activate_application(
         return;
     }
     g_object_ref_sink(application->widget);
+    const char *alignment = g_getenv("BOXRIG_GRID_ALIGNMENT");
+    if (alignment && (strcmp(alignment, "bottom") == 0
+            ? boxrig_gtk3_terminal_widget_set_grid_alignment(application->widget, BOXRIG_UI_GRID_BOTTOM) != BOXRIG_UI_OK
+            : strcmp(alignment, "top") != 0)) {
+        fprintf(stderr, "boxrig_term: invalid BOXRIG_GRID_ALIGNMENT\n");
+        boxrig_term_gtk3_fail(application);
+        return;
+    }
     const char *padding = g_getenv("BOXRIG_GRID_PADDING");
     if (padding != NULL) {
         guint64 value;

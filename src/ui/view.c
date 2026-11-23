@@ -201,6 +201,7 @@ struct boxrig_ui_view {
     bool visible;
     bool layout_configured;
     boxrig_ui_allocation_input allocation_input;
+    boxrig_ui_grid_alignment grid_alignment;
     boxrig_ui_fixed grid_padding;
     boxrig_ui_layout_result layout_result;
     size_t normal_rows;
@@ -918,6 +919,10 @@ static bool set_layout_result(
     boxrig_ui_fixed bottom = allocation_height - grid_height;
     view->layout_result.excess_right = right > view->grid_padding ? right - view->grid_padding : 0;
     view->layout_result.excess_bottom = bottom > view->grid_padding ? bottom - view->grid_padding : 0;
+    if (view->grid_alignment == BOXRIG_UI_GRID_BOTTOM && bottom > 2 * view->grid_padding) {
+        view->layout_result.origin_y = bottom - view->grid_padding;
+        view->layout_result.excess_bottom = view->grid_padding;
+    }
     view->layout_result.constrained = constrained;
     return true;
 }
@@ -3773,6 +3778,22 @@ boxrig_ui_status boxrig_ui_view_complete_size_command(
     advance_layout_generation(view);
     *applied_out = true;
     *result_out = view->layout_result;
+    return BOXRIG_UI_OK;
+}
+
+boxrig_ui_status boxrig_ui_view_set_grid_alignment(boxrig_ui_view *view, boxrig_ui_grid_alignment alignment)
+{
+    if (view == NULL || (alignment != BOXRIG_UI_GRID_TOP && alignment != BOXRIG_UI_GRID_BOTTOM))
+        return BOXRIG_UI_INVALID_ARGUMENT;
+    if (view->grid_alignment == alignment) return BOXRIG_UI_OK;
+    view->grid_alignment = alignment;
+    if (view->layout_configured) {
+        set_layout_result(view, view->layout_result.rows, view->layout_result.columns,
+            view->allocation_input.allocation_width, view->allocation_input.allocation_height,
+            view->layout_result.constrained);
+        advance_layout_generation(view);
+        mark_full_dirty(view, BOXRIG_UI_DIRTY_PRESENT);
+    }
     return BOXRIG_UI_OK;
 }
 

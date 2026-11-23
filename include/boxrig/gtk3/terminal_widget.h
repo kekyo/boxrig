@@ -233,6 +233,15 @@ boxrig_ui_status boxrig_gtk3_terminal_widget_set_window_state(
     boxrig_ui_window_state window_state);
 
 /**
+ * Sets the vertical placement of the terminal grid without resizing the host.
+ * @param widget Terminal widget to configure.
+ * @param alignment Vertical grid alignment. Initially BOXRIG_UI_GRID_TOP.
+ * @return A portable UI status.
+ */
+boxrig_ui_status boxrig_gtk3_terminal_widget_set_grid_alignment(BoxrigGtk3TerminalWidget *widget,
+    boxrig_ui_grid_alignment alignment);
+
+/**
  * Sets the space between the widget edges and the terminal cells.
  * @param widget Terminal widget to configure.
  * @param padding Uniform nonnegative padding in GTK logical pixels. Initially zero.

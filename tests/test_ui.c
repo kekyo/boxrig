@@ -313,6 +313,13 @@ static bool fixed_grid_layout_hit_test_and_retained_mapping(void)
     CHECK(result.rows == 2 && result.columns == 4);
     CHECK(result.origin_x == pixels(4) && result.origin_y == pixels(4));
     CHECK(result.excess_right == pixels(7) && result.excess_bottom == pixels(11));
+    CHECK(boxrig_ui_view_set_grid_alignment(view, BOXRIG_UI_GRID_BOTTOM) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_get_layout(view, &result) == BOXRIG_UI_OK);
+    CHECK(result.rows == 2 && result.columns == 4 && result.origin_x == pixels(4));
+    CHECK(result.origin_y == pixels(11) && result.excess_bottom == pixels(4));
+    CHECK(boxrig_ui_view_hit_test(view, pixels(4), pixels(10), &hit) == BOXRIG_UI_OK && !hit.inside_grid);
+    CHECK(boxrig_ui_view_hit_test(view, pixels(4), pixels(11), &hit) == BOXRIG_UI_OK && hit.row == 0 && hit.inside_grid);
+    CHECK(boxrig_ui_view_set_grid_alignment(view, BOXRIG_UI_GRID_TOP) == BOXRIG_UI_OK);
     CHECK(boxrig_ui_view_hit_test(view, pixels(3), pixels(4), &hit) == BOXRIG_UI_OK && !hit.inside_grid);
     CHECK(boxrig_ui_view_hit_test(view, pixels(4), pixels(4), &hit) == BOXRIG_UI_OK);
     CHECK(hit.inside_grid && hit.row == 0 && hit.logical_column == 0);

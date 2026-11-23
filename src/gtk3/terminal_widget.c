@@ -2620,6 +2620,18 @@ boxrig_ui_status boxrig_gtk3_terminal_widget_set_window_state(
     return BOXRIG_UI_OK;
 }
 
+boxrig_ui_status boxrig_gtk3_terminal_widget_set_grid_alignment(BoxrigGtk3TerminalWidget *widget,
+    boxrig_ui_grid_alignment alignment)
+{
+    if (!accepts_calls(widget)) return BOXRIG_UI_INVALID_ARGUMENT;
+    boxrig_ui_status status = boxrig_ui_view_set_grid_alignment(widget->view, alignment);
+    if (status == BOXRIG_UI_OK) {
+        gtk_widget_queue_draw(GTK_WIDGET(widget));
+        request_application_frame(widget);
+    }
+    return status;
+}
+
 boxrig_ui_status boxrig_gtk3_terminal_widget_set_grid_padding(BoxrigGtk3TerminalWidget *widget,
     unsigned int padding)
 {
