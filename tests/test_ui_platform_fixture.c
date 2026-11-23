@@ -136,8 +136,8 @@ static bool feed_bytes(
     return true;
 }
 
-static bool create_platform_renderer_with_direction(platform_renderer_fixture *fixture,
-    boxrig_text_direction_policy direction)
+static bool initialize_platform_renderer(platform_renderer_fixture *fixture,
+    bool use_default_direction)
 {
     memset(fixture, 0, sizeof(*fixture));
 #if defined(BOXRIG_TEST_FRONTEND_X11)
@@ -183,7 +183,7 @@ static bool create_platform_renderer_with_direction(platform_renderer_fixture *f
         CHECK(SUCCEEDED(ID3D11Device_CreateTexture2D(fixture->device, &desc,
             NULL, &fixture->texture)));
         config.device = fixture->device;
-        config.direction_policy = direction;
+        if (!use_default_direction) config.direction_policy = BOXRIG_TEXT_DIRECTION_AUTO;
         config.target.texture = fixture->texture;
         config.target.width = 1; config.target.height = 1;
         fixture->target = config.target;
@@ -261,21 +261,22 @@ static bool create_platform_renderer_with_direction(platform_renderer_fixture *f
         boxrig_pango_cairo_renderer_cell_height(fixture->renderer);
 #endif
     CHECK(fixture->cell_width != 0 && fixture->cell_height != 0);
+    if (use_default_direction) return true;
 #if defined(BOXRIG_TEST_FRONTEND_X11)
-    CHECK(boxrig_x11_renderer_set_direction_policy(fixture->renderer, direction) == 0);
+    CHECK(boxrig_x11_renderer_set_direction_policy(fixture->renderer, BOXRIG_TEXT_DIRECTION_AUTO) == 0);
 #elif defined(BOXRIG_TEST_FRONTEND_WIN32)
-    CHECK(boxrig_win32_renderer_set_direction_policy(fixture->renderer, direction) == 0);
+    CHECK(boxrig_win32_renderer_set_direction_policy(fixture->renderer, BOXRIG_TEXT_DIRECTION_AUTO) == 0);
 #elif defined(BOXRIG_TEST_FRONTEND_OPENGL)
-    CHECK(boxrig_ogl_renderer_set_direction_policy(fixture->renderer, direction) == 0);
+    CHECK(boxrig_ogl_renderer_set_direction_policy(fixture->renderer, BOXRIG_TEXT_DIRECTION_AUTO) == 0);
 #elif defined(BOXRIG_TEST_FRONTEND_PANGO_CAIRO)
-    CHECK(boxrig_pango_cairo_renderer_set_direction_policy(fixture->renderer, direction) == 0);
+    CHECK(boxrig_pango_cairo_renderer_set_direction_policy(fixture->renderer, BOXRIG_TEXT_DIRECTION_AUTO) == 0);
 #endif
     return true;
 }
 
 static bool create_platform_renderer(platform_renderer_fixture *fixture)
 {
-    return create_platform_renderer_with_direction(fixture, BOXRIG_TEXT_DIRECTION_AUTO);
+    return initialize_platform_renderer(fixture, false);
 }
 
 static bool size_platform_renderer(
@@ -3058,7 +3059,7 @@ static bool common_logical_cell_order_fixture(void)
     boxrig_ui_view *view = NULL;
     config.rows = 2;
     config.columns = 16;
-    CHECK(create_platform_renderer_with_direction(&renderer, BOXRIG_TEXT_DIRECTION_LOGICAL));
+    CHECK(initialize_platform_renderer(&renderer, true));
 #if defined(BOXRIG_TEST_FRONTEND_OPENGL)
     CHECK(boxrig_ogl_renderer_set_composited_scrollbar(renderer.renderer, false, 0) == 0);
 #endif

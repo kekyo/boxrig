@@ -67,9 +67,9 @@ TUIは、端末の行と列を指定して枠や文字を配置するアプリ�
 
 絵文字表示を指定するVS16（U+FE0F）を受信しても、元の文字幅を増やしません。端末生成時に`boxrig_terminal_config.emoji_variation_width`へ`BOXRIG_EMOJI_VARIATION_WIDTH_PRESERVE`を指定する設定です。例えばハートとVS16の組は1列のままで、表示用に割り当てた領域の右側を上書きすることを防ぎます。元から幅の広い絵文字、国旗、キーキャップの列幅は変わりません。幅の計測、分割受信、折り返し、リサイズにも同じ方針を使います。
 
-画面上の文字は、端末が保持するセルの並び順で表示します。コンポーネントやGTKウィジェットの`set_text_direction()`へ`BOXRIG_TEXT_DIRECTION_LOGICAL`を渡してください。アラビア文字などの字形を整える処理は引き続き使い、クリック位置や選択範囲もセル順に対応します。
+画面上の文字は、端末が保持するセルの並び順で表示します。コンポーネントやGTKウィジェットの既定値は`BOXRIG_TEXT_DIRECTION_LOGICAL`です。アラビア文字などの字形を整える処理は引き続き使い、クリック位置や選択範囲もセル順に対応します。
 
-従来の動作もAPIで選べます。VS16で2列へ拡張する設定は`BOXRIG_EMOJI_VARIATION_WIDTH_WIDE`、双方向文字の並べ替えを行う設定は`BOXRIG_TEXT_DIRECTION_AUTO`です。`FORCE_LTR`と`FORCE_RTL`は段落の基準方向を指定し、段落内の並べ替えは行います。ライブラリ単体の既定値は、それぞれ`WIDE`と`AUTO`です。
+従来の動作もAPIで選べます。VS16で2列へ拡張する設定は`BOXRIG_EMOJI_VARIATION_WIDTH_WIDE`、双方向文字の並べ替えを行う設定は`BOXRIG_TEXT_DIRECTION_AUTO`です。`FORCE_LTR`と`FORCE_RTL`は段落の基準方向を指定し、段落内の並べ替えは行います。ライブラリ単体でのVS16の既定値は`WIDE`です。
 
 ## 複雑な文字とカラーフォント
 

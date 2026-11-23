@@ -425,7 +425,7 @@ boxrig_ogl_renderer_config boxrig_ogl_renderer_config_default(void)
     config.rendering_policy = boxrig_font_rendering_policy_default();
     config.rendering_policy.antialias = BOXRIG_FONT_ANTIALIAS_GRAYSCALE;
     config.rendering_policy.subpixel_order = BOXRIG_FONT_SUBPIXEL_UNKNOWN;
-    config.direction_policy = BOXRIG_TEXT_DIRECTION_AUTO;
+    config.direction_policy = BOXRIG_TEXT_DIRECTION_LOGICAL;
     return config;
 }
 

@@ -29,7 +29,7 @@ typedef enum boxrig_text_direction_policy {
     BOXRIG_TEXT_DIRECTION_FORCE_LTR,
     /** Use a right-to-left paragraph base while reordering bidirectional runs. */
     BOXRIG_TEXT_DIRECTION_FORCE_RTL,
-    /** Preserve terminal cell order, retaining contextual font shaping. */
+    /** Default for new renderers and components: preserve cell order and contextual font shaping. */
     BOXRIG_TEXT_DIRECTION_LOGICAL
 } boxrig_text_direction_policy;
 

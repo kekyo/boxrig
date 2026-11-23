@@ -619,6 +619,7 @@ bool boxrig_test_run_frontend_component_fixture(
     CHECK(line_height_metrics.glyph_height == resource_metrics.glyph_height);
     CHECK(line_height_metrics.cell_height > resource_metrics.cell_height);
     CHECK(operations->font.set_line_height(component, 0.0f) == BOXRIG_UI_OK);
+    CHECK(operations->font.text_direction(component) == BOXRIG_TEXT_DIRECTION_LOGICAL);
     CHECK(operations->font.set_text_direction(
               component,
               BOXRIG_TEXT_DIRECTION_FORCE_RTL) == BOXRIG_UI_OK);

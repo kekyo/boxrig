@@ -1025,7 +1025,7 @@ boxrig_ui_status boxrig_win32_terminal_component_create_child_with_renderer(
     boxrig_ui_scrollbar_visibility_initialize(&component->scrollbar_visibility,
         config->scrollbar_presentation != BOXRIG_UI_COMPONENT_SCROLLBAR_NONE, platform_scrollbar_pixel_width());
     component->native_operations = &owned_child_native_operations;
-    component->direction_policy = BOXRIG_TEXT_DIRECTION_AUTO;
+    component->direction_policy = BOXRIG_TEXT_DIRECTION_LOGICAL;
     component->ime_placement = BOXRIG_WIN32_IME_PLACEMENT_OK;
     boxrig_ui_lifecycle_initialize(&component->lifecycle);
     if (!register_component_class(instance)) {
@@ -1124,7 +1124,7 @@ boxrig_ui_status boxrig_win32_terminal_component_create_on_target_with_renderer(
         (unsigned int)(presentation_client.right - presentation_client.left);
     component->target_height =
         (unsigned int)(presentation_client.bottom - presentation_client.top);
-    component->direction_policy = BOXRIG_TEXT_DIRECTION_AUTO;
+    component->direction_policy = BOXRIG_TEXT_DIRECTION_LOGICAL;
     component->ime_placement = BOXRIG_WIN32_IME_PLACEMENT_OK;
     boxrig_ui_lifecycle_initialize(&component->lifecycle);
     status = initialize_component_resources(component, config);

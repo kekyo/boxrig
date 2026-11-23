@@ -645,7 +645,7 @@ boxrig_d3d11_renderer_config boxrig_d3d11_renderer_config_default(void)
     config.target.dpi_x = 96; config.target.dpi_y = 96;
     config.font = boxrig_font_specification_default();
     config.rendering_policy = boxrig_font_rendering_policy_default();
-    config.direction_policy = BOXRIG_TEXT_DIRECTION_AUTO;
+    config.direction_policy = BOXRIG_TEXT_DIRECTION_LOGICAL;
     config.background_opacity = 255;
     config.maximum_image_entries = 64;
     config.maximum_image_bytes = 64u * 1024u * 1024u;

@@ -2021,7 +2021,7 @@ int boxrig_pango_cairo_renderer_create(
     if (renderer == NULL) {
         return -1;
     }
-    renderer->direction_policy = BOXRIG_TEXT_DIRECTION_AUTO;
+    renderer->direction_policy = BOXRIG_TEXT_DIRECTION_LOGICAL;
     renderer->background_opacity = 255;
     renderer->surface_width = (int)width;
     renderer->surface_height = (int)height;

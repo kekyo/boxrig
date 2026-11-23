@@ -2261,7 +2261,7 @@ static boxrig_ui_status initialize_widget_resources(
         return BOXRIG_UI_UNAVAILABLE;
     }
     widget->rendering_policy.output_scale = (float)scale;
-    widget->direction_policy = BOXRIG_TEXT_DIRECTION_AUTO;
+    widget->direction_policy = BOXRIG_TEXT_DIRECTION_LOGICAL;
     if (!font_specification_storage_copy(
             &default_specification,
             &widget->font)) {
