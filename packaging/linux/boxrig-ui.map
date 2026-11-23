@@ -232,6 +232,8 @@ BOXRIG_0 {
         boxrig_ui_view_set_fragment_layout_provider;
         boxrig_ui_view_set_frame_request_callback;
         boxrig_ui_view_set_geometry_capabilities;
+        boxrig_ui_view_set_grid_alignment;
+        boxrig_ui_view_set_grid_padding;
         boxrig_ui_view_set_preferred_grid;
         boxrig_ui_view_set_rectangular_copy_policy;
         boxrig_ui_view_set_selection_style;
