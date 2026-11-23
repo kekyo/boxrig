@@ -187,41 +187,43 @@ if (frontend === "--pty") {
           assert.equal(frame.status, 0, frame.stderr.toString());
           return frame.stdout;
         };
+        const readBands = () => {
+          assert.equal(app.exitCode, null);
+          if (!existsSync(mark)) return;
+          const { columns, rows } = JSON.parse(readFileSync(mark, "utf8"));
+          const pixels = capture();
+          const red = [],
+            green = [];
+          for (let y = 0; y < height; y++) {
+            // The nested compositor may paint its pointer at the test click (x = 100).
+            const pixel = pixelAt(pixels, 200, y);
+            if (pixel.equals(firstRowColor)) red.push(y);
+            if (pixel.equals(lastRowColor)) green.push(y);
+          }
+          if (
+            red.length &&
+            red.length === green.length &&
+            rows === Math.floor(height / red.length) &&
+            green.at(-1) - red[0] + 1 === rows * red.length
+          ) {
+            const gridWidth = columns * Math.floor(width / columns);
+            assert(
+              gridWidth > 0 && gridWidth < width,
+              "fixture must leave a partial column",
+            );
+            for (const x of [0, gridWidth - 1, gridWidth, width - 1]) {
+              assert.equal(
+                pixelAt(pixels, x, red[0]).equals(firstRowColor),
+                x < gridWidth,
+                "the complete columns start at the left edge and the remaining pixels stay on the right",
+              );
+            }
+            return { first: red[0], last: green.at(-1), cell: red.length };
+          }
+        };
         const bands = await until(
           "terminal did not paint the resized PTY",
-          () => {
-            assert.equal(app.exitCode, null);
-            if (!existsSync(mark)) return;
-            const { columns, rows } = JSON.parse(readFileSync(mark, "utf8"));
-            const pixels = capture();
-            const red = [],
-              green = [];
-            for (let y = 0; y < height; y++) {
-              const pixel = pixelAt(pixels, 100, y);
-              if (pixel.equals(firstRowColor)) red.push(y);
-              if (pixel.equals(lastRowColor)) green.push(y);
-            }
-            if (
-              red.length &&
-              red.length === green.length &&
-              rows === Math.floor(height / red.length) &&
-              green.at(-1) - red[0] + 1 === rows * red.length
-            ) {
-              const gridWidth = columns * Math.floor(width / columns);
-              assert(
-                gridWidth > 0 && gridWidth < width,
-                "fixture must leave a partial column",
-              );
-              for (const x of [0, gridWidth - 1, gridWidth, width - 1]) {
-                assert.equal(
-                  pixelAt(pixels, x, red[0]).equals(firstRowColor),
-                  x < gridWidth,
-                  "the complete columns start at the left edge and the remaining pixels stay on the right",
-                );
-              }
-              return { first: red[0], last: green.at(-1), cell: red.length };
-            }
-          },
+          readBands,
         );
         const spare = height % bands.cell;
         assert(spare > 0);
@@ -308,6 +310,29 @@ if (frontend === "--pty") {
               color,
               "bottom pixel of the changed row",
             );
+          }
+          if (onWayland) {
+            // The kiosk keeps its size while the shortcut changes the cell dimensions.
+            for (const key of ["ctrl+plus", "ctrl+0"]) {
+              assert.equal(
+                spawnSync("xdotool", ["key", key], { env }).status,
+                0,
+              );
+              const zoomed = await until(
+                "terminal did not repaint after " + key,
+                () => {
+                  const measured = readBands();
+                  if (!measured) return;
+                  const ready =
+                    key === "ctrl+0"
+                      ? measured.cell === bands.cell
+                      : measured.cell > bands.cell;
+                  if (ready) return measured;
+                },
+              );
+              assert.equal(zoomed.first, height % zoomed.cell);
+              assert.equal(zoomed.last, height - 1);
+            }
           }
         }
         console.log("PASS", frontend, renderer, alignment, bands);
