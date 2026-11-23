@@ -19,7 +19,14 @@ if (frontend === '--pty') {
     };
     process.stdout.on('resize', paint);
     process.stdin.setRawMode(true);
-    process.stdin.on('data', bytes => appendFileSync(binary + '.input', bytes));
+    let blue = false;
+    process.stdin.on('data', bytes => {
+        appendFileSync(binary + '.input', bytes);
+        if (!bytes.includes('u')) return;
+        blue = !blue;
+        const color = blue ? '48;101;221' : '22;206;101';
+        process.stdout.write('\x1b['+process.stdout.rows+';1H\x1b[48;2;'+color+'m\x1b[2K\x1b[0m');
+    });
     process.stdout.write('\x1b[?1000h\x1b[?1006h\x1b[?1016h');
     paint();
 } else {
@@ -77,19 +84,23 @@ if (frontend === '--pty') {
                     });
                     assert.equal(spawnSync('xdotool', ['windowsize', window, String(width), String(height)], {env}).status, 0);
                 }
-                const bands = await until('terminal did not paint the resized PTY', () => {
-                    assert.equal(app.exitCode, null);
-                    if (!existsSync(mark)) return;
-                    const {rows} = JSON.parse(readFileSync(mark, 'utf8'));
+                const capture = () => {
                     const frame = spawnSync('ffmpeg', ['-v','error','-f','x11grab','-framerate','60',
                         '-draw_mouse','0','-window_id',window,'-video_size',width+'x'+height,'-i',env.DISPLAY,
                         '-frames:v','1','-threads','1','-pix_fmt','rgb24','-f','rawvideo','pipe:1'],
                         {env, maxBuffer: width * height * 4});
                     assert.equal(frame.status, 0, frame.stderr.toString());
+                    return frame.stdout;
+                };
+                const bands = await until('terminal did not paint the resized PTY', () => {
+                    assert.equal(app.exitCode, null);
+                    if (!existsSync(mark)) return;
+                    const {rows} = JSON.parse(readFileSync(mark, 'utf8'));
+                    const pixels = capture();
                     const red = [], green = [];
                     for (let y = 0; y < height; y++) {
                         const i = 3 * (width * y + 100);
-                        const [r,g,b] = frame.stdout.subarray(i,i+3);
+                        const [r,g,b] = pixels.subarray(i,i+3);
                         if (r === 226 && g === 34 && b === 83) red.push(y);
                         if (r === 22 && g === 206 && b === 101) green.push(y);
                     }
@@ -118,6 +129,17 @@ if (frontend === '--pty') {
                     });
                     assert.equal(input, '\x1b[<0;101;3M\x1b[<0;101;3mq',
                         frontend+' '+renderer+' pixel tracking at the first cell and in the margin');
+                    // Exercise partial damage after each of the reusable frame buffers has been presented.
+                    for (let update = 0; update < 4; update++) {
+                        const color = update % 2 === 0 ? [48,101,221] : [22,206,101];
+                        assert.equal(spawnSync('xdotool', ['key','u'], {env}).status, 0);
+                        const pixel = (frame, row) => frame.subarray(3*(row*width+100), 3*(row*width+100)+3);
+                        const painted = await until('last row was not repainted', () => {
+                            const frame = capture();
+                            return pixel(frame, height-bands.cell).equals(Buffer.from(color)) && frame;
+                        });
+                        assert.deepEqual([...pixel(painted, height-1)], color, 'bottom pixel of the changed row');
+                    }
                 }
                 console.log('PASS', frontend, renderer, alignment, bands);
             } finally { await stop(app); }
