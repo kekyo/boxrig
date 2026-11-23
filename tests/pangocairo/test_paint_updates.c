@@ -119,6 +119,8 @@ static bool paint_updates(const char *prefix)
     CHECK(boxrig_ui_view_create(model, &view_config, &view) == BOXRIG_UI_OK);
     CHECK(boxrig_pango_cairo_renderer_create(560, 336, &renderer) == 0);
     CHECK(boxrig_pango_cairo_renderer_set_font(renderer, &font, &policy) == BOXRIG_FONT_CATALOG_OK);
+    /* Exercise visual BiDi ordering while repainting mixed-script rows. */
+    CHECK(boxrig_pango_cairo_renderer_set_direction_policy(renderer, BOXRIG_TEXT_DIRECTION_AUTO) == 0);
     CHECK(boxrig_pango_cairo_renderer_bind_view(renderer, view) == BOXRIG_UI_OK);
     unsigned int cw = boxrig_pango_cairo_renderer_cell_width(renderer);
     unsigned int ch = boxrig_pango_cairo_renderer_cell_height(renderer);
@@ -304,12 +306,12 @@ static bool partial_paint_updates(bool repeated)
         CHECK(boxrig_pango_cairo_renderer_get_render_statistics(renderer, &statistics) == 0);
         CHECK(statistics.row_shape_count == 0);
         CHECK(matches_fresh(terminal, renderer, &font, &policy, &transparency,
-            BOXRIG_TEXT_DIRECTION_AUTO, 24 * cw, ch));
+            BOXRIG_TEXT_DIRECTION_LOGICAL, 24 * cw, ch));
         if (repeated) {
             CHECK(boxrig_pango_cairo_renderer_expose(renderer, 5 * cw + 1, 1, 12 * cw - 2, ch - 2) == 0);
             CHECK(boxrig_pango_cairo_renderer_draw_view(renderer, view) == 0);
             CHECK(matches_fresh(terminal, renderer, &font, &policy, &transparency,
-                BOXRIG_TEXT_DIRECTION_AUTO, 24 * cw, ch));
+                BOXRIG_TEXT_DIRECTION_LOGICAL, 24 * cw, ch));
         }
     }
     boxrig_pango_cairo_renderer_destroy(renderer);
@@ -456,7 +458,7 @@ static bool outline_updates(const char *prefix, boxrig_box_drawing_mode mode,
             }
             boxrig_pango_cairo_renderer_reset_render_statistics(renderer);
             CHECK(boxrig_pango_cairo_renderer_draw(renderer, terminal) == 0);
-            CHECK(matches_fresh(terminal, renderer, &font, &reference, &alpha, BOXRIG_TEXT_DIRECTION_AUTO, 24 * cw, 2 * ch));
+            CHECK(matches_fresh(terminal, renderer, &font, &reference, &alpha, BOXRIG_TEXT_DIRECTION_LOGICAL, 24 * cw, 2 * ch));
             boxrig_pango_cairo_render_statistics work;
             CHECK(boxrig_pango_cairo_renderer_get_render_statistics(renderer, &work) == 0);
             if (phase == 1) recolor_draws += work.glyph_draw_count;
@@ -508,12 +510,12 @@ static bool box_drawing_modes(void)
         if (modes[i] == BOXRIG_BOX_DRAWING_BULK) CHECK(stats.box_bulk_cells > stats.box_bulk_runs);
         CHECK(matches_fresh(terminal, renderer, &font,
             modes[i] == BOXRIG_BOX_DRAWING_BULK ? &policy : &legacy, NULL,
-            BOXRIG_TEXT_DIRECTION_AUTO, width, height));
+            BOXRIG_TEXT_DIRECTION_LOGICAL, width, height));
         CHECK(feed(terminal, i % 2 ? "\033[1;4H\033[32m┼" : "\033[1;4H\033[35m─"));
         CHECK(boxrig_pango_cairo_renderer_draw(renderer, terminal) == 0);
         CHECK(matches_fresh(terminal, renderer, &font,
             modes[i] == BOXRIG_BOX_DRAWING_BULK ? &policy : &legacy, NULL,
-            BOXRIG_TEXT_DIRECTION_AUTO, width, height));
+            BOXRIG_TEXT_DIRECTION_LOGICAL, width, height));
     }
     policy.box_drawing = (boxrig_box_drawing_mode)99;
     CHECK(boxrig_font_rendering_policy_validate(&policy) == BOXRIG_FONT_CATALOG_INVALID_ARGUMENT);
