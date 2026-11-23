@@ -62,6 +62,7 @@ typedef struct focus_item {
 } focus_item;
 
 typedef struct mouse_item {
+    bool grid_margin;
     boxrig_mouse_event event;
     boxrig_ui_hit_test_result hit;
     uint32_t changed_button;
@@ -1074,6 +1075,7 @@ static bool enqueue_mouse(
     }
     boxrig_ui_layout_result layout = {0};
     (void)boxrig_ui_view_get_layout(input->view, &layout);
+    item->value.mouse.grid_margin = boxrig_ui_input_hits_margin(&layout, &item->value.mouse.hit);
     item->value.mouse.event.x -= layout.origin_x / BOXRIG_UI_FIXED_ONE;
     item->value.mouse.event.y -= layout.origin_y / BOXRIG_UI_FIXED_ONE;
     if (item->value.mouse.hit.inside_grid) {
@@ -2155,7 +2157,7 @@ static boxrig_ui_status process_mouse_item(
                 input->application_buttons &= ~item->changed_button;
             item->send_to_terminal = false;
         } else if (route == BOXRIG_INPUT_MOUSE_ROUTE_APPLICATION ||
-                   (!item->hit.inside_grid && item->event.action != BOXRIG_MOUSE_RELEASE)) {
+                   (item->grid_margin && item->event.action != BOXRIG_MOUSE_RELEASE)) {
             if (item->event.action == BOXRIG_MOUSE_PRESS)
                 input->application_buttons |= item->changed_button;
             item->send_to_terminal = false;

@@ -1999,8 +1999,10 @@ static int route_mouse_transition(
     if (captured) {
         return 1;
     }
-    if (route == BOXRIG_INPUT_MOUSE_ROUTE_APPLICATION ||
-        (!hit->inside_grid && event->action != BOXRIG_MOUSE_RELEASE)) {
+    boxrig_ui_layout_result layout;
+    bool margin = !hit->inside_grid && boxrig_ui_view_get_layout(adapter->mouse_view, &layout) == BOXRIG_UI_OK &&
+        boxrig_ui_input_hits_margin(&layout, hit);
+    if (route == BOXRIG_INPUT_MOUSE_ROUTE_APPLICATION || (margin && event->action != BOXRIG_MOUSE_RELEASE)) {
         if (event->action == BOXRIG_MOUSE_PRESS) {
             adapter->application_buttons |= button;
         }

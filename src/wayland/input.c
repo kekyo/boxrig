@@ -1231,6 +1231,7 @@ static bool queue_pointer_event(
     item.scrollbar_y = item.value.mouse.y;
     boxrig_ui_layout_result layout = {0};
     (void)boxrig_ui_view_get_layout(component->view, &layout);
+    item.grid_margin = boxrig_ui_input_hits_margin(&layout, &item.mouse_hit);
     item.value.mouse.x -= layout.origin_x / BOXRIG_UI_FIXED_ONE;
     item.value.mouse.y -= layout.origin_y / BOXRIG_UI_FIXED_ONE;
     item.pointer_generation = seat->pointer_generation;
@@ -3252,7 +3253,7 @@ static boxrig_ui_status process_mouse_item(
                 route = observed;
             }
         }
-        if (captured || (!item->mouse_hit.inside_grid && item->value.mouse.action != BOXRIG_MOUSE_RELEASE)) {
+        if (captured || (item->grid_margin && item->value.mouse.action != BOXRIG_MOUSE_RELEASE)) {
             route = BOXRIG_INPUT_MOUSE_ROUTE_APPLICATION;
         }
         item->application_route =
