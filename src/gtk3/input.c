@@ -2083,17 +2083,18 @@ static boxrig_ui_status process_mouse_item(
                     return BOXRIG_UI_UNAVAILABLE;
                 }
             }
-            if (item->event.action == BOXRIG_MOUSE_RELEASE && captured) {
+        }
+        // A press in a margin belongs to the host for the entire gesture.
+        // Keep routing motion to the host for selections extending past an edge.
+        if (captured) {
+            if (item->event.action == BOXRIG_MOUSE_RELEASE)
                 input->application_buttons &= ~item->changed_button;
-                item->send_to_terminal = false;
-            } else if (captured) {
-                item->send_to_terminal = false;
-            } else if (route == BOXRIG_INPUT_MOUSE_ROUTE_APPLICATION) {
-                if (item->event.action == BOXRIG_MOUSE_PRESS) {
-                    input->application_buttons |= item->changed_button;
-                }
-                item->send_to_terminal = false;
-            }
+            item->send_to_terminal = false;
+        } else if (route == BOXRIG_INPUT_MOUSE_ROUTE_APPLICATION ||
+                   (!item->hit.inside_grid && item->event.action != BOXRIG_MOUSE_RELEASE)) {
+            if (item->event.action == BOXRIG_MOUSE_PRESS)
+                input->application_buttons |= item->changed_button;
+            item->send_to_terminal = false;
         }
         item->routed = true;
     }

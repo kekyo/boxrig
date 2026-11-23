@@ -1347,6 +1347,12 @@ static bool test_pointer_router_retains_fractional_hit(void)
     {
         const char mode[] = "\033[?1000;1016h";
         CHECK(feed_bytes(terminal, (const uint8_t *)mode, sizeof(mode) - 1));
+        event.type = GDK_BUTTON_PRESS;
+        g_signal_emit_by_name(widget, "button-press-event", &event, &handled);
+        event.type = GDK_BUTTON_RELEASE;
+        g_signal_emit_by_name(widget, "button-release-event", &event, &handled);
+        CHECK(boxrig_gtk3_terminal_widget_frame(widget, &frame_result) == BOXRIG_UI_OK);
+        CHECK(boxrig_terminal_output_peek(terminal, &output) == 0);
         event.x = native_x;
         event.y = native_y;
         event.type = GDK_BUTTON_PRESS;
