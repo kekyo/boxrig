@@ -233,6 +233,15 @@ boxrig_ui_status boxrig_gtk3_terminal_widget_set_window_state(
     boxrig_ui_window_state window_state);
 
 /**
+ * Sets the space between the widget edges and the terminal cells.
+ * @param widget Terminal widget to configure.
+ * @param padding Uniform nonnegative padding in GTK logical pixels. Initially zero.
+ * @return A portable UI status.
+ */
+boxrig_ui_status boxrig_gtk3_terminal_widget_set_grid_padding(BoxrigGtk3TerminalWidget *widget,
+    unsigned int padding);
+
+/**
  * Applies or clears optional cell-grid geometry hints on an explicit host.
  *
  * @param widget Widget providing the current effective cell metrics.

@@ -57,6 +57,7 @@ typedef struct boxrig_gtk3_font_specification_storage {
 
 struct _BoxrigGtk3TerminalWidget {
     GtkContainer parent_instance;
+    unsigned int grid_padding;
     boxrig_ui_model *model;
     bool accessibility_enabled;
     boxrig_ui_view *view;
@@ -1471,9 +1472,11 @@ static bool grid_resize_ready(const BoxrigGtk3TerminalWidget *widget)
         metrics.cell_width == 0 || metrics.cell_height == 0) {
         return false;
     }
-    rows = widget->output_height / metrics.cell_height;
-    columns = (widget->scrollbar_visibility.state.pending && !widget->scrollbar_native_pending
-        ? widget->scrollbar_target_output_width : widget->output_width) / metrics.cell_width;
+    uint64_t padding = (uint64_t)widget->grid_padding * 2 * widget->output_scale;
+    unsigned int width = widget->scrollbar_visibility.state.pending && !widget->scrollbar_native_pending
+        ? widget->scrollbar_target_output_width : widget->output_width;
+    rows = widget->output_height > padding ? (widget->output_height - padding) / metrics.cell_height : 0;
+    columns = width > padding ? (width - padding) / metrics.cell_width : 0;
     /* A host size-command completion can precede the widget's allocation.
      * Only the grid fitted to the actual native extent may use its draw. */
     return widget->pending_grid_resize.rows == (rows == 0 ? 1 : rows) &&
@@ -1523,13 +1526,13 @@ static boxrig_ui_status prepare_zoom_presentation_candidate(
         return BOXRIG_UI_UNAVAILABLE;
     }
     if (widget->surface_candidate_ready) {
-        return widget->surface_candidate_width == layout.grid_width &&
-                       widget->surface_candidate_height == layout.grid_height
+        return widget->surface_candidate_width == action.value.content_size.width &&
+                       widget->surface_candidate_height == action.value.content_size.height
                    ? BOXRIG_UI_OK
                    : BOXRIG_UI_UNAVAILABLE;
     }
-    if (!request_pixel_size(layout.grid_width, &width) ||
-        !request_pixel_size(layout.grid_height, &height) ||
+    if (!request_pixel_size(action.value.content_size.width, &width) ||
+        !request_pixel_size(action.value.content_size.height, &height) ||
         widget->output_scale == 0 ||
         width > UINT_MAX - (widget->output_scale - 1) ||
         height > UINT_MAX - (widget->output_scale - 1)) {
@@ -1568,8 +1571,8 @@ static boxrig_ui_status prepare_zoom_presentation_candidate(
     }
     widget->presentation_candidate = candidate;
     widget->surface_candidate_composition_revision = current_composition_revision(widget);
-    widget->surface_candidate_width = layout.grid_width;
-    widget->surface_candidate_height = layout.grid_height;
+    widget->surface_candidate_width = action.value.content_size.width;
+    widget->surface_candidate_height = action.value.content_size.height;
     widget->surface_candidate_output_width = width;
     widget->surface_candidate_output_height = height;
     widget->surface_candidate_revision = 0;
@@ -1683,6 +1686,8 @@ static void boxrig_gtk3_terminal_widget_preferred_size(
     if (natural_value < minimum_value) {
         natural_value = minimum_value;
     }
+    minimum_value += 2ULL * widget->grid_padding;
+    natural_value += 2ULL * widget->grid_padding;
     if (minimum != NULL) {
         *minimum = minimum_value > INT_MAX ? INT_MAX : (int)minimum_value;
     }
@@ -1805,10 +1810,9 @@ static bool prepare_widget_allocation(
         (boxrig_ui_fixed)metrics.cell_height * BOXRIG_UI_FIXED_ONE;
     input.cell_metrics_revision = metrics.layout_revision;
     input.window_state = widget->window_state;
-    if (boxrig_ui_view_accept_allocation(
-            widget->view,
-            &input,
-            &layout) != BOXRIG_UI_OK) {
+    if (boxrig_ui_view_set_grid_padding(widget->view,
+            (boxrig_ui_fixed)widget->grid_padding * scale * BOXRIG_UI_FIXED_ONE) != BOXRIG_UI_OK ||
+        boxrig_ui_view_accept_allocation(widget->view, &input, &layout) != BOXRIG_UI_OK) {
         return false;
     }
     presentation_covers_previous_allocation =
@@ -2616,6 +2620,23 @@ boxrig_ui_status boxrig_gtk3_terminal_widget_set_window_state(
     return BOXRIG_UI_OK;
 }
 
+boxrig_ui_status boxrig_gtk3_terminal_widget_set_grid_padding(BoxrigGtk3TerminalWidget *widget,
+    unsigned int padding)
+{
+    if (!accepts_calls(widget) || padding > INT_MAX / 2) return BOXRIG_UI_INVALID_ARGUMENT;
+    if (padding == widget->grid_padding) return BOXRIG_UI_OK;
+    unsigned int scale = (unsigned int)gtk_widget_get_scale_factor(GTK_WIDGET(widget));
+    if (scale == 0 || padding > INT_MAX / scale) return BOXRIG_UI_LIMIT_EXCEEDED;
+    boxrig_ui_status status = boxrig_ui_view_set_grid_padding(widget->view,
+        (boxrig_ui_fixed)padding * scale * BOXRIG_UI_FIXED_ONE);
+    if (status != BOXRIG_UI_OK) return status;
+    widget->grid_padding = padding;
+    widget->allocation_pending = true;
+    gtk_widget_queue_resize(GTK_WIDGET(widget));
+    request_application_frame(widget);
+    return BOXRIG_UI_OK;
+}
+
 boxrig_ui_status boxrig_gtk3_terminal_widget_set_geometry_hints(
     BoxrigGtk3TerminalWidget *widget,
     GtkWindow *window,
@@ -2652,10 +2673,11 @@ boxrig_ui_status boxrig_gtk3_terminal_widget_set_geometry_hints(
         cell_height > INT_MAX) {
         return BOXRIG_UI_LIMIT_EXCEEDED;
     }
-    geometry.min_width = (int)cell_width;
-    geometry.min_height = (int)cell_height;
-    geometry.base_width = (int)cell_width;
-    geometry.base_height = (int)cell_height;
+    unsigned int padding = 2 * widget->grid_padding;
+    if (cell_width > INT_MAX - padding || cell_height > INT_MAX - padding)
+        return BOXRIG_UI_LIMIT_EXCEEDED;
+    geometry.min_width = geometry.base_width = (int)(cell_width + padding);
+    geometry.min_height = geometry.base_height = (int)(cell_height + padding);
     geometry.width_inc = (int)cell_width;
     geometry.height_inc = (int)cell_height;
     gtk_window_set_geometry_hints(
@@ -2745,8 +2767,8 @@ bool boxrig_gtk3_terminal_widget_take_layout_action(
              (!widget->surface_candidate_ready ||
               boxrig_ui_view_get_layout(widget->view, &layout) !=
                   BOXRIG_UI_OK ||
-              widget->surface_candidate_width != layout.grid_width ||
-              widget->surface_candidate_height != layout.grid_height)) ||
+              widget->surface_candidate_width != action.value.content_size.width ||
+              widget->surface_candidate_height != action.value.content_size.height)) ||
             !boxrig_ui_view_take_layout_action(widget->view, &action) ||
             action.kind != BOXRIG_UI_LAYOUT_ACTION_CONTENT_SIZE) {
             return false;

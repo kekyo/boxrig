@@ -114,3 +114,5 @@ Waylandでは配置がsurfaceの論理座標、描画先が物理ピクセルと
 親、モデル、表示先の責任は[基本概念](./architecture.md)と[環境別ガイド](./index.md#アプリケーションに組み込む)を参照してください。
 
 [フォントと文字配置のAPI](../../include/boxrig/ui/text_layout.h)、[文書目次](./index.md)
+
+GTK3では、四辺のパディングを `boxrig_gtk3_terminal_widget_set_grid_padding` で指定できます。単位は論理ピクセルで、既定値は0です。付属のGTK3端末では環境変数 `BOXRIG_GRID_PADDING` で指定できます。余白には端末の背景が表示されます。セルのクリック位置は余白を除いた先頭セルを基準にします。

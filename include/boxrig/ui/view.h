@@ -264,6 +264,10 @@ typedef struct boxrig_ui_layout_result {
     boxrig_ui_fixed excess_bottom;
     /** Whether native or embedding constraints determined the grid. */
     bool constrained;
+    /** Horizontal offset of the first cell in output-pixel fixed units. */
+    boxrig_ui_fixed origin_x;
+    /** Vertical offset of the first cell in output-pixel fixed units. */
+    boxrig_ui_fixed origin_y;
 } boxrig_ui_layout_result;
 
 /** Host resolution of one application size command. */
@@ -1512,6 +1516,14 @@ boxrig_ui_status boxrig_ui_view_complete_size_command(
     boxrig_ui_fixed allocation_height,
     bool *applied_out,
     boxrig_ui_layout_result *result_out);
+
+/**
+ * Sets the space between each edge of the surface and the grid.
+ * @param view View whose allocation should be refitted.
+ * @param padding Whole nonnegative output pixels per edge, expressed in fixed units. Initially zero.
+ * @return A portable UI status.
+ */
+boxrig_ui_status boxrig_ui_view_set_grid_padding(boxrig_ui_view *view, boxrig_ui_fixed padding);
 
 /**
  * Reads the last effective allocation and grid result.

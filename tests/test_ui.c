@@ -305,6 +305,20 @@ static bool fixed_grid_layout_hit_test_and_retained_mapping(void)
               &hit) == BOXRIG_UI_OK);
     CHECK(!hit.inside_grid);
 
+    /* A uniform border belongs to the surface, outside the first and last cells. */
+    CHECK(boxrig_ui_view_set_grid_padding(view, pixels(4)) == BOXRIG_UI_OK);
+    input.allocation_width = pixels(45);
+    input.allocation_height = pixels(35);
+    CHECK(boxrig_ui_view_accept_allocation(view, &input, &result) == BOXRIG_UI_OK);
+    CHECK(result.rows == 2 && result.columns == 4);
+    CHECK(result.origin_x == pixels(4) && result.origin_y == pixels(4));
+    CHECK(result.excess_right == pixels(7) && result.excess_bottom == pixels(11));
+    CHECK(boxrig_ui_view_hit_test(view, pixels(3), pixels(4), &hit) == BOXRIG_UI_OK && !hit.inside_grid);
+    CHECK(boxrig_ui_view_hit_test(view, pixels(4), pixels(4), &hit) == BOXRIG_UI_OK);
+    CHECK(hit.inside_grid && hit.row == 0 && hit.logical_column == 0);
+    CHECK(boxrig_ui_view_hit_test(view, pixels(37), pixels(23), &hit) == BOXRIG_UI_OK && hit.inside_grid);
+    CHECK(boxrig_ui_view_hit_test(view, pixels(38), pixels(24), &hit) == BOXRIG_UI_OK && !hit.inside_grid);
+
     boxrig_text_layout_destroy(layout);
     boxrig_ui_view_destroy(view);
     boxrig_ui_model_destroy(model);

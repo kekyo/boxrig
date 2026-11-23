@@ -176,6 +176,8 @@ struct boxrig_ogl_renderer {
     bool scrollbar_enabled;
     bool scrollbar_hovered;
     bool scrollbar_dragging;
+    uint32_t origin_x, origin_y;
+    bool drawing_grid;
     bool full_redraw;
     bool composition_state_valid;
     bool frame_active;
@@ -985,6 +987,10 @@ static int emit_quad(
     renderer->batch.blend = blend;
     instance = &renderer->batch.instances[renderer->batch.count++];
     memset(instance, 0, sizeof(*instance));
+    if (renderer->drawing_grid) {
+        x += renderer->origin_x;
+        y += renderer->origin_y;
+    }
     instance->destination[0] = -1.0f + 2.0f * x / target_width;
     instance->destination[1] = 1.0f - 2.0f * y / target_height;
     instance->destination[2] = -1.0f + 2.0f * (x + width) / target_width;
@@ -3020,6 +3026,7 @@ static int draw_row(
     boxrig_ogl_row_shape *shape = &renderer->rows[row].shape;
     const dirty_interval *dirty = &renderer->dirty[row];
 
+    renderer->drawing_grid = true;
     if (collect_annotation_styles(renderer, view, row) == -1 ||
         prepare_row_colors(renderer, terminal, view, row, composition_view->visible) == -1 ||
         draw_row_background(renderer, terminal, row, shape, dirty) == -1 ||
@@ -3074,6 +3081,7 @@ static int draw_row(
     renderer->statistics.row_raster_count = saturated_add(
         renderer->statistics.row_raster_count,
         1);
+    renderer->drawing_grid = false;
     return 0;
 }
 
@@ -3222,8 +3230,8 @@ static int draw_incremental_frame(
     }
     for (row = 0; row < renderer->cached_rows; row++) {
         dirty_interval *dirty = &renderer->dirty[row];
-        uint64_t x = (uint64_t)dirty->column * renderer->cell_width;
-        uint64_t y = (uint64_t)row * renderer->cell_height;
+        uint64_t x = renderer->origin_x + (uint64_t)dirty->column * renderer->cell_width;
+        uint64_t y = renderer->origin_y + (uint64_t)row * renderer->cell_height;
         uint64_t width =
             (uint64_t)dirty->column_count * renderer->cell_width;
         boxrig_gl_clip clip;
@@ -3342,6 +3350,8 @@ static int draw_candidates(boxrig_ogl_renderer *renderer, const boxrig_ogl_candi
     uint64_t hash = hash_u64(UINT64_C(1469598103934665603), (uint64_t)bounds.width);
     hash = hash_u64(hash, (uint64_t)bounds.height);
     hash = hash_append(hash, image->rgba, image->stride * (size_t)bounds.height);
+    bounds.x += (int32_t)renderer->origin_x;
+    bounds.y += (int32_t)renderer->origin_y;
     boxrig_gl_clip clip = {(uint32_t)bounds.x, (uint32_t)bounds.y,
         (uint32_t)bounds.width, (uint32_t)bounds.height};
     if (begin_clip(renderer, &clip) == -1) return -1;
@@ -3393,6 +3403,16 @@ static int render_frame(
         boxrig_ui_view_terminal(view) == NULL ||
         poll_fences(renderer) == -1) {
         return -1;
+    }
+    boxrig_ui_layout_result layout = {0};
+    (void)boxrig_ui_view_get_layout(view, &layout);
+    uint32_t origin_x = (uint32_t)(layout.origin_x / BOXRIG_UI_FIXED_ONE);
+    uint32_t origin_y = (uint32_t)(layout.origin_y / BOXRIG_UI_FIXED_ONE);
+    renderer->drawing_grid = false;
+    if (origin_x != renderer->origin_x || origin_y != renderer->origin_y) {
+        renderer->origin_x = origin_x;
+        renderer->origin_y = origin_y;
+        renderer->full_redraw = true;
     }
     boxrig_ui_rgba background = boxrig_ui_view_get_background_color(view);
     boxrig_ui_background_image_view image_background = boxrig_ui_view_get_background_image(view);

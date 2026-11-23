@@ -1009,8 +1009,10 @@ static bool hits_candidates(boxrig_gtk3_input *input, double x, double y)
     if (boxrig_ui_view_get_candidates(input->view, &candidates) != BOXRIG_UI_OK) return false;
     boxrig_ui_candidate_rectangle panel = candidates.layout.bounds;
     int scale = gtk_widget_get_scale_factor(input->widget);
-    x *= scale;
-    y *= scale;
+    boxrig_ui_layout_result layout = {0};
+    (void)boxrig_ui_view_get_layout(input->view, &layout);
+    x = x * scale - (double)layout.origin_x / BOXRIG_UI_FIXED_ONE;
+    y = y * scale - (double)layout.origin_y / BOXRIG_UI_FIXED_ONE;
     return panel.width > 0 && panel.height > 0 && x >= panel.x && y >= panel.y &&
         x < (double)panel.x + panel.width && y < (double)panel.y + panel.height;
 }
@@ -1075,6 +1077,10 @@ static bool enqueue_mouse(
         fail_input(input, BOXRIG_UI_COMPONENT_FAILURE_INPUT);
         return false;
     }
+    boxrig_ui_layout_result layout = {0};
+    (void)boxrig_ui_view_get_layout(input->view, &layout);
+    item->value.mouse.event.x -= layout.origin_x / BOXRIG_UI_FIXED_ONE;
+    item->value.mouse.event.y -= layout.origin_y / BOXRIG_UI_FIXED_ONE;
     if (item->value.mouse.hit.inside_grid) {
         item->value.mouse.event.row = item->value.mouse.hit.row;
         item->value.mouse.event.column =

@@ -114,3 +114,5 @@ If settings conflict, inspect results such as `UNAVAILABLE` and either use separ
 See [Basic concepts](./architecture.md) and the [platform guides](./index.md#integrating-into-an-application) for parent, model, and view responsibilities.
 
 [Font and text layout API](../../include/boxrig/ui/text_layout.h), [Documentation index](./index.md)
+
+Use `boxrig_gtk3_terminal_widget_set_grid_padding` to set uniform padding in GTK logical pixels. The default is zero. The GTK3 sample accepts the same value in `BOXRIG_GRID_PADDING`. The padding displays the terminal background. Terminal mouse reports use coordinates relative to the first cell.

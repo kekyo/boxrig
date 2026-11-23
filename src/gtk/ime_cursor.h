@@ -40,6 +40,10 @@ static bool boxrig_gtk_ime_cursor_rectangle(boxrig_ui_view *view,
         width = metrics.cell_width;
         height = metrics.cell_height;
     }
+    boxrig_ui_layout_result layout = {0};
+    (void)boxrig_ui_view_get_layout(view, &layout);
+    x += (uint64_t)(layout.origin_x / BOXRIG_UI_FIXED_ONE);
+    y += (uint64_t)(layout.origin_y / BOXRIG_UI_FIXED_ONE);
     x /= scale;
     y /= scale;
     width = width / scale + (width % scale != 0);

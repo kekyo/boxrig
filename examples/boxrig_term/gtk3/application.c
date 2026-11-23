@@ -671,6 +671,16 @@ static void activate_application(
         return;
     }
     g_object_ref_sink(application->widget);
+    const char *padding = g_getenv("BOXRIG_GRID_PADDING");
+    if (padding != NULL) {
+        guint64 value;
+        if (!g_ascii_string_to_unsigned(padding, 10, 0, G_MAXINT / 2, &value, NULL) ||
+            boxrig_gtk3_terminal_widget_set_grid_padding(application->widget, (unsigned int)value) != BOXRIG_UI_OK) {
+            fprintf(stderr, "boxrig_term: invalid BOXRIG_GRID_PADDING\n");
+            boxrig_term_gtk3_fail(application);
+            return;
+        }
+    }
     configure_widget_accessibility(GTK_WIDGET(application->widget));
     gtk_widget_set_hexpand(GTK_WIDGET(application->widget), true);
     gtk_widget_set_vexpand(GTK_WIDGET(application->widget), true);
