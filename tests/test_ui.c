@@ -305,6 +305,27 @@ static bool fixed_grid_layout_hit_test_and_retained_mapping(void)
               &hit) == BOXRIG_UI_OK);
     CHECK(!hit.inside_grid);
 
+    /* A uniform border belongs to the surface, outside the first and last cells. */
+    CHECK(boxrig_ui_view_set_grid_padding(view, pixels(4)) == BOXRIG_UI_OK);
+    input.allocation_width = pixels(45);
+    input.allocation_height = pixels(35);
+    CHECK(boxrig_ui_view_accept_allocation(view, &input, &result) == BOXRIG_UI_OK);
+    CHECK(result.rows == 2 && result.columns == 4);
+    CHECK(result.origin_x == pixels(4) && result.origin_y == pixels(4));
+    CHECK(result.excess_right == pixels(7) && result.excess_bottom == pixels(11));
+    CHECK(boxrig_ui_view_set_grid_alignment(view, BOXRIG_UI_GRID_BOTTOM) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_get_layout(view, &result) == BOXRIG_UI_OK);
+    CHECK(result.rows == 2 && result.columns == 4 && result.origin_x == pixels(4));
+    CHECK(result.origin_y == pixels(11) && result.excess_bottom == pixels(4));
+    CHECK(boxrig_ui_view_hit_test(view, pixels(4), pixels(10), &hit) == BOXRIG_UI_OK && !hit.inside_grid);
+    CHECK(boxrig_ui_view_hit_test(view, pixels(4), pixels(11), &hit) == BOXRIG_UI_OK && hit.row == 0 && hit.inside_grid);
+    CHECK(boxrig_ui_view_set_grid_alignment(view, BOXRIG_UI_GRID_TOP) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_hit_test(view, pixels(3), pixels(4), &hit) == BOXRIG_UI_OK && !hit.inside_grid);
+    CHECK(boxrig_ui_view_hit_test(view, pixels(4), pixels(4), &hit) == BOXRIG_UI_OK);
+    CHECK(hit.inside_grid && hit.row == 0 && hit.logical_column == 0);
+    CHECK(boxrig_ui_view_hit_test(view, pixels(37), pixels(23), &hit) == BOXRIG_UI_OK && hit.inside_grid);
+    CHECK(boxrig_ui_view_hit_test(view, pixels(38), pixels(24), &hit) == BOXRIG_UI_OK && !hit.inside_grid);
+
     boxrig_text_layout_destroy(layout);
     boxrig_ui_view_destroy(view);
     boxrig_ui_model_destroy(model);
@@ -441,6 +462,20 @@ static bool allocation_observation_never_requests_native_size(void)
     CHECK(boxrig_ui_view_get_preferred_grid(view, &rows, &columns) ==
           BOXRIG_UI_OK);
     CHECK(rows == 25 && columns == 82);
+
+    /* The old allocation is still on screen while a smaller font requests a new one. */
+    CHECK(boxrig_ui_view_set_grid_alignment(view, BOXRIG_UI_GRID_BOTTOM) == BOXRIG_UI_OK);
+    memset(&change, 0, sizeof(change));
+    change.kind = BOXRIG_UI_LAYOUT_CHANGE_FONT_METRICS;
+    change.cell_width = pixels(8);
+    change.cell_height = pixels(10);
+    change.cell_metrics_revision = 3;
+    CHECK(boxrig_ui_view_apply_layout_change(view, &change, &result) == BOXRIG_UI_OK);
+    CHECK(result.rows == 25 && result.columns == 82 && result.origin_y == 0);
+    CHECK(take_content_size_action(view, &command));
+    CHECK(boxrig_ui_view_complete_size_command(view, command.revision, BOXRIG_UI_SIZE_CONSTRAINED,
+              pixels(660), pixels(257), &applied, &result) == BOXRIG_UI_OK);
+    CHECK(applied && result.constrained && result.origin_y == pixels(7));
 
     boxrig_ui_view_destroy(view);
     boxrig_ui_model_destroy(model);
@@ -2127,6 +2162,7 @@ static bool block_glyph_mode_is_view_local(void)
     CHECK(boxrig_ui_view_set_block_glyph_mode(first, BOXRIG_UI_BLOCK_GLYPH_FONT) == BOXRIG_UI_OK);
     CHECK(frames.count == 1 && boxrig_ui_view_frame_requested(first));
     CHECK(take_expected_dirty(first, BOXRIG_UI_DIRTY_MODEL, 0, 2, 0, 4));
+    CHECK(take_expected_dirty(first, BOXRIG_UI_DIRTY_PRESENT, 0, 2, 0, 4));
     CHECK(boxrig_ui_view_set_block_glyph_mode(first, BOXRIG_UI_BLOCK_GLYPH_RECTANGLES) == BOXRIG_UI_OK);
     CHECK(boxrig_ui_view_get_block_glyph_mode(second) == BOXRIG_UI_BLOCK_GLYPH_FONT);
     CHECK(!boxrig_ui_view_frame_requested(second));

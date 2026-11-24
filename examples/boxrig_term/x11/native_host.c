@@ -25,12 +25,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-static boxrig_ui_status set_color_glyphs(void *context, bool enabled)
+static boxrig_ui_status set_demo_font_policy(void *context, const boxrig_term_font_demo *demo)
 {
     boxrig_font_rendering_policy policy;
     boxrig_ui_status status = boxrig_x11_terminal_component_get_font_rendering_policy(context, &policy);
     if (status != BOXRIG_UI_OK) return status;
-    policy.color_glyphs = enabled;
+    boxrig_term_font_demo_update_policy(demo, &policy);
     return boxrig_x11_terminal_component_set_font_rendering_policy(context, &policy);
 }
 
@@ -142,6 +142,7 @@ static bool fixed_to_unsigned(
 }
 
 static bool build_cell_resize_hints(
+    boxrig_ui_grid_alignment alignment,
     const boxrig_font_effective_metrics *metrics,
     unsigned int scrollbar_width,
     XSizeHints *hints_out)
@@ -156,7 +157,10 @@ static bool build_cell_resize_hints(
         return false;
     }
     memset(&hints, 0, sizeof(hints));
-    hints.flags = PBaseSize | PResizeInc | PMinSize;
+    hints.flags = PBaseSize | PMinSize;
+    /* A tiling WM may apply resize increments before notifying the client.
+     * Bottom alignment keeps pixel-sized tiles and fits whole cells inside. */
+    if (alignment == BOXRIG_UI_GRID_TOP) hints.flags |= PResizeInc;
     hints.base_width = (int)scrollbar_width;
     hints.base_height = 0;
     hints.width_inc = (int)metrics->cell_width;
@@ -374,7 +378,7 @@ int boxrig_term_x11_native_host_process_layout_action(
             application->resize_hints_scrollbar_width != scrollbar_width) {
             if (boxrig_x11_terminal_component_get_effective_metrics(
                     application->component, &metrics) != BOXRIG_FONT_CATALOG_OK ||
-                !build_cell_resize_hints(&metrics, scrollbar_width, &hints)) return -1;
+                !build_cell_resize_hints(application->grid_alignment, &metrics, scrollbar_width, &hints)) return -1;
             XSetWMNormalHints(application->display, application->window, &hints);
             application->resize_hints_scrollbar_width = scrollbar_width;
         }
@@ -403,7 +407,7 @@ int boxrig_term_x11_native_host_process_layout_action(
                 application->component, &scrollbar) != BOXRIG_UI_OK ||
             boxrig_x11_terminal_component_get_effective_metrics(
                 application->component, &metrics) != BOXRIG_FONT_CATALOG_OK ||
-            !build_cell_resize_hints(&metrics, scrollbar.reserved_width, &hints)) return -1;
+            !build_cell_resize_hints(application->grid_alignment, &metrics, scrollbar.reserved_width, &hints)) return -1;
         XSetWMNormalHints(application->display, application->window, &hints);
         application->resize_hints_scrollbar_width = scrollbar.reserved_width;
         if (application->pending_allocation)
@@ -423,7 +427,7 @@ int boxrig_term_x11_native_host_process_layout_action(
             application->component,
             &metrics) != BOXRIG_FONT_CATALOG_OK ||
         !build_cell_resize_hints(
-            &metrics,
+            application->grid_alignment, &metrics,
             scrollbar_width,
             &hints)) {
         return -1;
@@ -768,6 +772,7 @@ int boxrig_term_x11_native_host_create(
     unsigned int height;
     bool transparency_changed = false;
 
+    application->grid_alignment = config->grid_alignment;
     application->display = XOpenDisplay(NULL);
     if (application->display == NULL) {
         return -1;
@@ -893,9 +898,11 @@ int boxrig_term_x11_native_host_create(
             config,
             &borrowed_target,
             &component_config) != BOXRIG_UI_OK ||
+        boxrig_ui_view_set_grid_alignment(boxrig_x11_terminal_component_view(application->component),
+            config->grid_alignment) != BOXRIG_UI_OK ||
         boxrig_term_font_demo_initialize(&application->font_demo,
             boxrig_x11_terminal_component_view(application->component),
-            set_color_glyphs, application->component) == -1 ||
+            set_demo_font_policy, application->component) == -1 ||
         boxrig_term_scrollbar_demo_initialize(&application->scrollbar_demo,
             boxrig_x11_terminal_component_view(application->component),
             set_scrollbar_policy, application->component) == -1 ||
@@ -914,7 +921,7 @@ int boxrig_term_x11_native_host_create(
         boxrig_x11_terminal_component_get_scrollbar_visibility(
             application->component, &scrollbar) != BOXRIG_UI_OK ||
         !build_cell_resize_hints(
-            &metrics,
+            application->grid_alignment, &metrics,
             scrollbar.reserved_width,
             &hints) ||
         !cell_client_extent(

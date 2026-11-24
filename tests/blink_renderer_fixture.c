@@ -546,7 +546,8 @@ bool boxrig_test_renderer_filled_cursor(
     const char *texts[] = {"L R", "LMR", "L\347\225\214R", "Le\314\201R",
         "L\327\220\327\221R", "L\033[8mM\033[28mR", "L\347\225\214R",
         "L👩‍💻R", "          界"};
-    const unsigned columns[] = {1, 1, 1, 1, 2, 1, 1, 1, 10};
+    // The Hebrew pair keeps its input order with the default logical presentation.
+    const unsigned columns[] = {1, 1, 1, 1, 1, 1, 1, 1, 10};
     const unsigned spans[] = {1, 1, 2, 1, 1, 1, 2, 2, 2};
     const unsigned positions[] = {2, 2, 2, 2, 2, 2, 3, 2, 12};
     style.shape = BOXRIG_UI_CURSOR_SHAPE_BLOCK;

@@ -107,9 +107,12 @@ The space immediately before `q` is required.
 | Environment variable | Feature to try | Toggle when enabled |
 | --- | --- | --- |
 | `BOXRIG_SCROLLBAR=always/auto/never` | Always show / show with history / hide the bar | Ctrl+Shift+F9 |
+| `BOXRIG_GRID_ALIGNMENT=top/bottom` | Align terminal rows to the top or bottom on Linux (default `top`) | Set at startup |
 | `BOXRIG_SELECTION_STYLE_DEMO=1` | Selection decorations | Ctrl+Shift+F10 |
 | `BOXRIG_CURSOR_STYLE_DEMO=1` | Cursor decorations | Ctrl+Shift+F11 |
 | `BOXRIG_CURSOR_STYLE_DEMO=2` | Three focus-sensitive cursor boxes | Ctrl+Shift+F11 |
+| `BOXRIG_FONT_ANTIALIAS=system/grayscale` | System or grayscale text antialiasing (default `system`) | — |
+| `BOXRIG_BOX_DRAWING=legacy/conservative/bulk` | Cairo box-drawing method (default `conservative`) | — |
 | `BOXRIG_COLOR_GLYPHS=0/1` | Monochrome/color glyphs such as emoji on Linux | Ctrl+Shift+F11 |
 | `BOXRIG_COLOR_FILTER_DEMO=1` | Display color filters | Ctrl+Shift+F12 |
 | `BOXRIG_AMBIGUOUS_WIDTH=narrow/wide/font` | One, two, or font-dependent columns for ambiguous characters | Set at startup |
@@ -118,6 +121,15 @@ When unset, the scrollbar is always shown and color fonts are enabled.
 Ambiguous characters default to `narrow`, one column. Set `wide` for a fixed two-column width or `font` for font-dependent columns. In font-dependent mode, advances round up to whole columns and glyphs retain their natural width at the center. For example, a 2.1-cell advance occupies three columns.
 Demo toggle keys are active only when their corresponding environment variables are set.
 Try the two F11 demos separately.
+
+Set `bottom` to align the last row with the bottom of the terminal area when tiling the window on the right half of the screen.
+Any space smaller than a row stays above the grid. Space smaller than a column stays on the right.
+With `bottom`, the X11 window manager can assign the exact width and height of the tile in pixels.
+The GTK3, GTK4 and native Wayland samples accept the same setting. In the GTK3 sample, the terminal area sits inside the window's resize border.
+
+```sh
+BOXRIG_GRID_ALIGNMENT=bottom ./build/boxrig_term/wayland/boxrig_term
+```
 
 <a id="表示色の補正を試す"></a>
 

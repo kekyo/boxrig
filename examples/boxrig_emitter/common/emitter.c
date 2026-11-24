@@ -400,8 +400,8 @@ static const emitter_case cases[] = {
             "text-bidi",
             "Text",
             "Emits mixed left-to-right and right-to-left logical lines.",
-            "the Hebrew and Arabic runs reorder visually while surrounding "
-            "Latin markers remain intact",
+            "the default logical order preserves the input sequence. With "
+            "automatic direction, Hebrew and Arabic runs reorder between the Latin markers",
             "unicode-rendering",
             "UTF-8/bidirectional text",
             BOXRIG_EMITTER_CASE_OUTPUT,
@@ -417,8 +417,8 @@ static const emitter_case cases[] = {
             "Text",
             "Emits emoji presentation, skin tone, flag, keycap, profession, "
             "and family clusters.",
-            "each labeled emoji sequence stays in one two-column logical "
-            "cluster",
+            "each sequence occupies one cluster. With default widths the heart "
+            "uses one column and the other examples use two",
             "character-and-c0",
             "UTF-8/emoji grapheme",
             BOXRIG_EMITTER_CASE_OUTPUT,

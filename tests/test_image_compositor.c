@@ -11,6 +11,17 @@
 #include <stdio.h>
 #include <string.h>
 
+static size_t blend_calls;
+
+uint32_t __real_boxrig_ui_argb32_source_over(uint32_t source, uint32_t target);
+
+/* Count general alpha blends independently of the machine's clock. */
+uint32_t __wrap_boxrig_ui_argb32_source_over(uint32_t source, uint32_t target)
+{
+    blend_calls++;
+    return __real_boxrig_ui_argb32_source_over(source, target);
+}
+
 #define CHECK(condition)                                                        \
     do {                                                                        \
         if (!(condition)) {                                                      \
@@ -146,10 +157,50 @@ static bool bilinear_scale_and_dirty_clip_are_exact(void)
     return true;
 }
 
+static bool unscaled_crop_blends_only_visible_translucent_pixels(void)
+{
+    enum { source_stride = 8, target_stride = 7 };
+    uint32_t source[6 * source_stride] = {0};
+    boxrig_premultiplied_image image = {7, 6, source_stride, source};
+    boxrig_image_composite_operation operation = {
+        .source_x = 1, .source_y = 1, .source_width = 5, .source_height = 4,
+        .destination_width = 5, .destination_height = 4,
+        .destination_clip_x = 1, .destination_clip_y = 1,
+        .destination_clip_width = 4, .destination_clip_height = 3,
+        .target_x = -1, .target_y = -1, .dirty = {1, 0, 2, 2}
+    };
+    source[3 * source_stride + 5] = UINT32_C(0xff123456);
+    source[4 * source_stride + 4] = UINT32_C(0x80402010);
+    source[4 * source_stride + 5] = UINT32_C(0xff102030);
+    blend_calls = 0;
+    for (unsigned int behind = 0; behind <= 1; behind++) {
+        uint32_t target[3 * target_stride], expected[3 * target_stride];
+        for (size_t i = 0; i < 3 * target_stride; i++) target[i] = UINT32_C(0xff765432);
+        target[2] = UINT32_C(0x80402010);
+        target[target_stride + 1] = UINT32_C(0x60402008);
+        target[target_stride + 2] = 0;
+        memcpy(expected, target, sizeof(expected));
+        expected[2] = behind ? UINT32_C(0xff493a3b) : UINT32_C(0xff123456);
+        expected[target_stride + 1] = behind ? UINT32_C(0xb0683412) : UINT32_C(0xb0603014);
+        expected[target_stride + 2] = UINT32_C(0xff102030);
+
+        size_t count;
+        bool ok = behind
+            ? boxrig_composite_premultiplied_image_behind(target, 5, 3, target_stride, &image, &operation, &count)
+            : boxrig_composite_premultiplied_image(target, 5, 3, target_stride, &image, &operation, &count);
+        CHECK(ok && count == 4);
+        CHECK(memcmp(target, expected, sizeof(target)) == 0);
+    }
+    printf("General alpha blends for two unscaled crops: %zu\n", blend_calls);
+    CHECK(blend_calls <= 3);
+    return true;
+}
+
 int main(void)
 {
-    CHECK(premultiply_and_source_over_are_exact());
-    CHECK(bilinear_scale_and_dirty_clip_are_exact());
+    if (!premultiply_and_source_over_are_exact() ||
+        !bilinear_scale_and_dirty_clip_are_exact() ||
+        !unscaled_crop_blends_only_visible_translucent_pixels()) return 1;
     printf("PASS portable image compositor premultiplies scales and blends\n");
     return 0;
 }

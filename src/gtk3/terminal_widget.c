@@ -57,6 +57,7 @@ typedef struct boxrig_gtk3_font_specification_storage {
 
 struct _BoxrigGtk3TerminalWidget {
     GtkContainer parent_instance;
+    unsigned int grid_padding;
     boxrig_ui_model *model;
     bool accessibility_enabled;
     boxrig_ui_view *view;
@@ -66,6 +67,11 @@ struct _BoxrigGtk3TerminalWidget {
     bool gl_failed;
     bool in_gl_render;
     bool cairo_failed;
+    guint cairo_tick_id;
+    GSource *cairo_idle;
+    bool cairo_awaiting_paint;
+    gint64 cairo_output_resume_us;
+    boxrig_ui_status cairo_tick_status;
     bool gl_pending;
     bool gl_presented;
 #if BOXRIG_GTK_OPENGL
@@ -331,6 +337,73 @@ static void request_application_frame(BoxrigGtk3TerminalWidget *widget)
     }
 }
 
+static void cancel_scheduled_cairo(BoxrigGtk3TerminalWidget *widget)
+{
+    widget->cairo_output_resume_us = 0;
+    if (widget->cairo_tick_id != 0) {
+        gtk_widget_remove_tick_callback(GTK_WIDGET(widget), widget->cairo_tick_id);
+        widget->cairo_tick_id = 0;
+    }
+    if (widget->cairo_idle != NULL) {
+        g_source_destroy(widget->cairo_idle);
+        g_clear_pointer(&widget->cairo_idle, g_source_unref);
+    }
+}
+
+static gboolean prepare_scheduled_cairo(gpointer data)
+{
+    BoxrigGtk3TerminalWidget *widget = g_object_ref(data);
+    boxrig_ui_component_frame_result result;
+    uint64_t generation = widget->presentation_generation;
+    gint64 started = g_get_monotonic_time();
+    widget->cairo_tick_status = boxrig_gtk3_terminal_widget_frame(widget, &result);
+    GdkFrameClock *clock = gtk_widget_get_frame_clock(GTK_WIDGET(widget));
+    if (clock != NULL && widget->cairo_tick_status == BOXRIG_UI_OK &&
+        widget->presentation_generation != generation &&
+        widget->render_state.active_backend == BOXRIG_GTK_RENDER_BACKEND_CAIRO) {
+        gint64 finished = g_get_monotonic_time();
+        gint64 refresh_interval, presentation_time;
+        gdk_frame_clock_get_refresh_info(clock, finished, &refresh_interval, &presentation_time);
+        /* If drawing used a whole refresh interval, leave the next one for
+         * incoming updates before rasterizing another retained image. */
+        widget->cairo_output_resume_us = finished - started >= refresh_interval
+            ? finished + refresh_interval : 0;
+    }
+    if (widget->cairo_tick_status != BOXRIG_UI_OK || result.additional_dispatch)
+        request_application_frame(widget);
+    g_object_unref(widget);
+    return G_SOURCE_REMOVE;
+}
+
+static gboolean prepare_cairo_on_tick(GtkWidget *gtk_widget, GdkFrameClock *clock, gpointer data)
+{
+    (void)clock;
+    (void)data;
+    BoxrigGtk3TerminalWidget *widget = BOXRIG_GTK3_TERMINAL_WIDGET(gtk_widget);
+    if (g_get_monotonic_time() < widget->cairo_output_resume_us) return G_SOURCE_CONTINUE;
+    widget->cairo_tick_id = 0;
+    return prepare_scheduled_cairo(widget);
+}
+
+static void schedule_cairo(BoxrigGtk3TerminalWidget *widget)
+{
+    if (widget->cairo_tick_id == 0) {
+        widget->cairo_tick_id = gtk_widget_add_tick_callback(
+            GTK_WIDGET(widget), prepare_cairo_on_tick, NULL, NULL);
+    }
+    /* After GTK has painted the previous image an idle PTY can prepare the
+     * next one early. Continuous input still gets the frame clock deadline. */
+    if (widget->cairo_idle == NULL && !widget->cairo_awaiting_paint &&
+        g_get_monotonic_time() >= widget->cairo_output_resume_us) {
+        widget->cairo_idle = g_idle_source_new();
+        /* Let an already-ready native redraw use this committed image. GTK
+         * allocation work still runs first, and the tick bounds a busy PTY. */
+        g_source_set_priority(widget->cairo_idle, GDK_PRIORITY_REDRAW - 1);
+        g_source_set_callback(widget->cairo_idle, prepare_scheduled_cairo, widget, NULL);
+        g_source_attach(widget->cairo_idle, widget->main_context);
+    }
+}
+
 static void retain_latest_grid_resize(BoxrigGtk3TerminalWidget *widget)
 {
     boxrig_ui_layout_action action;
@@ -349,6 +422,7 @@ static void input_activity(void *context)
 {
     BoxrigGtk3TerminalWidget *widget = context;
 
+    widget->cairo_output_resume_us = 0;
     /* Pending dirty may be held by synchronized output without a scheduled
      * frame. Native input still needs its own dispatch wakeup in that state. */
     request_application_frame(widget);
@@ -1398,9 +1472,11 @@ static bool grid_resize_ready(const BoxrigGtk3TerminalWidget *widget)
         metrics.cell_width == 0 || metrics.cell_height == 0) {
         return false;
     }
-    rows = widget->output_height / metrics.cell_height;
-    columns = (widget->scrollbar_visibility.state.pending && !widget->scrollbar_native_pending
-        ? widget->scrollbar_target_output_width : widget->output_width) / metrics.cell_width;
+    uint64_t padding = (uint64_t)widget->grid_padding * 2 * widget->output_scale;
+    unsigned int width = widget->scrollbar_visibility.state.pending && !widget->scrollbar_native_pending
+        ? widget->scrollbar_target_output_width : widget->output_width;
+    rows = widget->output_height > padding ? (widget->output_height - padding) / metrics.cell_height : 0;
+    columns = width > padding ? (width - padding) / metrics.cell_width : 0;
     /* A host size-command completion can precede the widget's allocation.
      * Only the grid fitted to the actual native extent may use its draw. */
     return widget->pending_grid_resize.rows == (rows == 0 ? 1 : rows) &&
@@ -1450,13 +1526,13 @@ static boxrig_ui_status prepare_zoom_presentation_candidate(
         return BOXRIG_UI_UNAVAILABLE;
     }
     if (widget->surface_candidate_ready) {
-        return widget->surface_candidate_width == layout.grid_width &&
-                       widget->surface_candidate_height == layout.grid_height
+        return widget->surface_candidate_width == action.value.content_size.width &&
+                       widget->surface_candidate_height == action.value.content_size.height
                    ? BOXRIG_UI_OK
                    : BOXRIG_UI_UNAVAILABLE;
     }
-    if (!request_pixel_size(layout.grid_width, &width) ||
-        !request_pixel_size(layout.grid_height, &height) ||
+    if (!request_pixel_size(action.value.content_size.width, &width) ||
+        !request_pixel_size(action.value.content_size.height, &height) ||
         widget->output_scale == 0 ||
         width > UINT_MAX - (widget->output_scale - 1) ||
         height > UINT_MAX - (widget->output_scale - 1)) {
@@ -1495,8 +1571,8 @@ static boxrig_ui_status prepare_zoom_presentation_candidate(
     }
     widget->presentation_candidate = candidate;
     widget->surface_candidate_composition_revision = current_composition_revision(widget);
-    widget->surface_candidate_width = layout.grid_width;
-    widget->surface_candidate_height = layout.grid_height;
+    widget->surface_candidate_width = action.value.content_size.width;
+    widget->surface_candidate_height = action.value.content_size.height;
     widget->surface_candidate_output_width = width;
     widget->surface_candidate_output_height = height;
     widget->surface_candidate_revision = 0;
@@ -1610,6 +1686,8 @@ static void boxrig_gtk3_terminal_widget_preferred_size(
     if (natural_value < minimum_value) {
         natural_value = minimum_value;
     }
+    minimum_value += 2ULL * widget->grid_padding;
+    natural_value += 2ULL * widget->grid_padding;
     if (minimum != NULL) {
         *minimum = minimum_value > INT_MAX ? INT_MAX : (int)minimum_value;
     }
@@ -1732,10 +1810,9 @@ static bool prepare_widget_allocation(
         (boxrig_ui_fixed)metrics.cell_height * BOXRIG_UI_FIXED_ONE;
     input.cell_metrics_revision = metrics.layout_revision;
     input.window_state = widget->window_state;
-    if (boxrig_ui_view_accept_allocation(
-            widget->view,
-            &input,
-            &layout) != BOXRIG_UI_OK) {
+    if (boxrig_ui_view_set_grid_padding(widget->view,
+            (boxrig_ui_fixed)widget->grid_padding * scale * BOXRIG_UI_FIXED_ONE) != BOXRIG_UI_OK ||
+        boxrig_ui_view_accept_allocation(widget->view, &input, &layout) != BOXRIG_UI_OK) {
         return false;
     }
     presentation_covers_previous_allocation =
@@ -1882,6 +1959,8 @@ static gboolean boxrig_gtk3_terminal_widget_draw(
         return TRUE;
     }
     drawing_context = gdk_cairo_get_drawing_context(cairo);
+    if (drawing_context != NULL && gdk_drawing_context_is_valid(drawing_context))
+        widget->cairo_awaiting_paint = false;
     if (accepts_calls(widget) && widget->allocated && !widget->allocation_pending &&
         widget->presentation_visible && gtk_widget_get_mapped(gtk_widget) &&
         drawing_context != NULL &&
@@ -2001,6 +2080,7 @@ static void boxrig_gtk3_terminal_widget_dispose(GObject *object)
     BoxrigGtk3TerminalWidget *widget = BOXRIG_GTK3_TERMINAL_WIDGET(object);
 
     if (!widget->disposed) {
+        cancel_scheduled_cairo(widget);
         if (widget->gl_area != NULL) gtk_widget_destroy(widget->gl_area);
         if (widget->scroll_container != NULL) {
             g_object_remove_weak_pointer(G_OBJECT(widget->scroll_container), (gpointer *)&widget->scroll_container);
@@ -2185,7 +2265,7 @@ static boxrig_ui_status initialize_widget_resources(
         return BOXRIG_UI_UNAVAILABLE;
     }
     widget->rendering_policy.output_scale = (float)scale;
-    widget->direction_policy = BOXRIG_TEXT_DIRECTION_AUTO;
+    widget->direction_policy = BOXRIG_TEXT_DIRECTION_LOGICAL;
     if (!font_specification_storage_copy(
             &default_specification,
             &widget->font)) {
@@ -2489,6 +2569,7 @@ boxrig_ui_status boxrig_gtk3_terminal_widget_quiesce(
         boxrig_ui_lifecycle_begin_shutdown(&widget->lifecycle) == -1) {
         return BOXRIG_UI_UNAVAILABLE;
     }
+    cancel_scheduled_cairo(widget);
     boxrig_ui_scrollbar_visibility_cancel(&widget->scrollbar_visibility);
     widget->scrollbar_native_pending = false;
     boxrig_ui_animation_runtime_detach(widget->view);
@@ -2539,6 +2620,35 @@ boxrig_ui_status boxrig_gtk3_terminal_widget_set_window_state(
     return BOXRIG_UI_OK;
 }
 
+boxrig_ui_status boxrig_gtk3_terminal_widget_set_grid_alignment(BoxrigGtk3TerminalWidget *widget,
+    boxrig_ui_grid_alignment alignment)
+{
+    if (!accepts_calls(widget)) return BOXRIG_UI_INVALID_ARGUMENT;
+    boxrig_ui_status status = boxrig_ui_view_set_grid_alignment(widget->view, alignment);
+    if (status == BOXRIG_UI_OK) {
+        gtk_widget_queue_draw(GTK_WIDGET(widget));
+        request_application_frame(widget);
+    }
+    return status;
+}
+
+boxrig_ui_status boxrig_gtk3_terminal_widget_set_grid_padding(BoxrigGtk3TerminalWidget *widget,
+    unsigned int padding)
+{
+    if (!accepts_calls(widget) || padding > INT_MAX / 2) return BOXRIG_UI_INVALID_ARGUMENT;
+    if (padding == widget->grid_padding) return BOXRIG_UI_OK;
+    unsigned int scale = (unsigned int)gtk_widget_get_scale_factor(GTK_WIDGET(widget));
+    if (scale == 0 || padding > INT_MAX / scale) return BOXRIG_UI_LIMIT_EXCEEDED;
+    boxrig_ui_status status = boxrig_ui_view_set_grid_padding(widget->view,
+        (boxrig_ui_fixed)padding * scale * BOXRIG_UI_FIXED_ONE);
+    if (status != BOXRIG_UI_OK) return status;
+    widget->grid_padding = padding;
+    widget->allocation_pending = true;
+    gtk_widget_queue_resize(GTK_WIDGET(widget));
+    request_application_frame(widget);
+    return BOXRIG_UI_OK;
+}
+
 boxrig_ui_status boxrig_gtk3_terminal_widget_set_geometry_hints(
     BoxrigGtk3TerminalWidget *widget,
     GtkWindow *window,
@@ -2575,10 +2685,11 @@ boxrig_ui_status boxrig_gtk3_terminal_widget_set_geometry_hints(
         cell_height > INT_MAX) {
         return BOXRIG_UI_LIMIT_EXCEEDED;
     }
-    geometry.min_width = (int)cell_width;
-    geometry.min_height = (int)cell_height;
-    geometry.base_width = (int)cell_width;
-    geometry.base_height = (int)cell_height;
+    unsigned int padding = 2 * widget->grid_padding;
+    if (cell_width > INT_MAX - padding || cell_height > INT_MAX - padding)
+        return BOXRIG_UI_LIMIT_EXCEEDED;
+    geometry.min_width = geometry.base_width = (int)(cell_width + padding);
+    geometry.min_height = geometry.base_height = (int)(cell_height + padding);
     geometry.width_inc = (int)cell_width;
     geometry.height_inc = (int)cell_height;
     gtk_window_set_geometry_hints(
@@ -2668,8 +2779,8 @@ bool boxrig_gtk3_terminal_widget_take_layout_action(
              (!widget->surface_candidate_ready ||
               boxrig_ui_view_get_layout(widget->view, &layout) !=
                   BOXRIG_UI_OK ||
-              widget->surface_candidate_width != layout.grid_width ||
-              widget->surface_candidate_height != layout.grid_height)) ||
+              widget->surface_candidate_width != action.value.content_size.width ||
+              widget->surface_candidate_height != action.value.content_size.height)) ||
             !boxrig_ui_view_take_layout_action(widget->view, &action) ||
             action.kind != BOXRIG_UI_LAYOUT_ACTION_CONTENT_SIZE) {
             return false;
@@ -3354,9 +3465,10 @@ boxrig_ui_status boxrig_gtk3_terminal_widget_get_diagnostic(
     return BOXRIG_UI_OK;
 }
 
-boxrig_ui_status boxrig_gtk3_terminal_widget_frame(
+static boxrig_ui_status dispatch_widget_frame(
     BoxrigGtk3TerminalWidget *widget,
-    boxrig_ui_component_frame_result *result_out)
+    boxrig_ui_component_frame_result *result_out,
+    bool use_frame_clock)
 {
     boxrig_terminal *terminal;
     cairo_surface_t *candidate;
@@ -3375,6 +3487,12 @@ boxrig_ui_status boxrig_gtk3_terminal_widget_frame(
     if (widget->in_frame || widget->in_gl_render) {
         return BOXRIG_UI_BUSY;
     }
+    if (widget->cairo_tick_status != BOXRIG_UI_OK) {
+        status = widget->cairo_tick_status;
+        widget->cairo_tick_status = BOXRIG_UI_OK;
+        return status;
+    }
+    if (!use_frame_clock) cancel_scheduled_cairo(widget);
 #if BOXRIG_GTK_OPENGL
     if (widget->gl_failed && widget->gl_retry_desktop) {
         /* Retry outside GTK's render signal so the failed area's resources
@@ -3485,7 +3603,15 @@ boxrig_ui_status boxrig_gtk3_terminal_widget_frame(
             gtk_gl_area_queue_render(GTK_GL_AREA(widget->gl_area));
         } else
 #endif
-        {
+        if (use_frame_clock && widget->presentation != NULL &&
+            widget->render_state.active_backend == BOXRIG_GTK_RENDER_BACKEND_CAIRO &&
+            !widget->render_state.pending && !widget->zoom_generation_active &&
+            widget->presentation_allocation_generation == widget->allocation_generation &&
+            widget->presentation_visible && gtk_widget_get_mapped(GTK_WIDGET(widget))) {
+            /* The view keeps all dirty ranges until the frame clock update.
+             * Later PTY dispatches must neither postpone it nor spin waiting. */
+            schedule_cairo(widget);
+        } else {
 #ifdef BOXRIG_PLAN18_TRACE_BUILD
             gint64 cairo_started = g_get_monotonic_time();
 #endif
@@ -3526,6 +3652,7 @@ boxrig_ui_status boxrig_gtk3_terminal_widget_frame(
             if (widget->presentation_generation != UINT64_MAX) {
                 widget->presentation_generation++;
             }
+            widget->cairo_awaiting_paint = true;
             gtk_widget_queue_draw(GTK_WIDGET(widget));
             if (widget->render_state.active_backend != BOXRIG_GTK_RENDER_BACKEND_CAIRO)
                 widget->render_state.target_generation++;
@@ -3557,10 +3684,11 @@ presentation_complete:
     memset(result_out, 0, sizeof(*result_out));
     result_out->frame_pending =
         waiting_for_grid_resize ||
+        widget->cairo_tick_id != 0 ||
         boxrig_ui_view_frame_requested(widget->view);
     result_out->input_blocked = input_blocked;
     result_out->additional_dispatch =
-        (!widget->gl_pending && !waiting_for_allocation && !waiting_for_grid_resize &&
+        (!widget->gl_pending && widget->cairo_tick_id == 0 && !waiting_for_allocation && !waiting_for_grid_resize &&
          !boxrig_terminal_synchronized_output(terminal) && result_out->frame_pending) ||
         grid_resize_ready(widget) || input_dispatch || candidate_prepared ||
         surface_candidate_preparation_pending(widget);
@@ -3585,6 +3713,18 @@ presentation_complete:
     widget->in_frame = false;
     g_object_unref(widget);
     return status;
+}
+
+boxrig_ui_status boxrig_gtk3_terminal_widget_frame(
+    BoxrigGtk3TerminalWidget *widget, boxrig_ui_component_frame_result *result_out)
+{
+    return dispatch_widget_frame(widget, result_out, false);
+}
+
+boxrig_ui_status boxrig_gtk3_terminal_widget_dispatch_frame(
+    BoxrigGtk3TerminalWidget *widget, boxrig_ui_component_frame_result *result_out)
+{
+    return dispatch_widget_frame(widget, result_out, true);
 }
 
 bool boxrig_gtk3_terminal_widget_has_presentation(

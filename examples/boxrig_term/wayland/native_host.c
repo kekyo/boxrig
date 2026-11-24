@@ -30,12 +30,12 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
-static boxrig_ui_status set_color_glyphs(void *context, bool enabled)
+static boxrig_ui_status set_demo_font_policy(void *context, const boxrig_term_font_demo *demo)
 {
     boxrig_font_rendering_policy policy;
     boxrig_ui_status status = boxrig_wayland_terminal_component_get_font_rendering_policy(context, &policy);
     if (status != BOXRIG_UI_OK) return status;
-    policy.color_glyphs = enabled;
+    boxrig_term_font_demo_update_policy(demo, &policy);
     return boxrig_wayland_terminal_component_set_font_rendering_policy(context, &policy);
 }
 
@@ -1617,6 +1617,8 @@ static int create_terminal_component(
         }
     }
     return status == BOXRIG_UI_OK &&
+                   boxrig_ui_view_set_grid_alignment(boxrig_wayland_terminal_component_view(application->component),
+                       config->grid_alignment) == BOXRIG_UI_OK &&
                    boxrig_wayland_terminal_component_set_text_direction(
                        application->component, BOXRIG_TEXT_DIRECTION_LOGICAL) == BOXRIG_UI_OK &&
                    (boxrig_term_color_demo_initialize(
@@ -1624,7 +1626,7 @@ static int create_terminal_component(
                        boxrig_wayland_terminal_component_view(application->component)) == 0 &&
             boxrig_term_font_demo_initialize(&application->font_demo,
             boxrig_wayland_terminal_component_view(application->component),
-            set_color_glyphs, application->component) == 0 &&
+            set_demo_font_policy, application->component) == 0 &&
         boxrig_term_scrollbar_demo_initialize(&application->scrollbar_demo,
             boxrig_wayland_terminal_component_view(application->component),
             set_scrollbar_policy, application->component) == 0 &&

@@ -1124,7 +1124,7 @@ static int create_renderer(
     renderer->system = *system;
     renderer->apply_raster_scale = reference_context != NULL ? apply_bitmap_scale : NULL;
     renderer->font_size = 12.0f;
-    renderer->direction_policy = BOXRIG_TEXT_DIRECTION_AUTO;
+    renderer->direction_policy = BOXRIG_TEXT_DIRECTION_LOGICAL;
     renderer->background_opacity = 255;
     if (FAILED(initialize_directwrite_stack(renderer, reference_context))) {
         boxrig_win32_renderer_destroy(renderer);
@@ -3155,6 +3155,7 @@ static boxrig_win32_shaped_run fitted_run(const boxrig_win32_shaped_run *run,
     boxrig_win32_shaped_run part = *run;
     part.glyph_count = (UINT32)span->glyph_count;
     part.glyph_indices += span->first_glyph;
+    part.glyph_properties += span->first_glyph;
     part.glyph_advances += span->first_glyph;
     part.glyph_offsets += span->first_glyph;
     part.visual_column = span->visual_column;
@@ -3202,6 +3203,12 @@ static int draw_fitted_run_segment(
     }
     for (glyph_index = 0; glyph_index < run->glyph_count; glyph_index++) {
         natural_width += run->glyph_advances[glyph_index];
+        /* Positioned marks can extend above or below the row. DirectWrite's
+         * opaque target needs an explicit clip to keep that ink inside it. */
+        if (run->glyph_properties[glyph_index].isDiacritic ||
+            run->glyph_offsets[glyph_index].ascenderOffset != 0.0f) {
+            clip_opaque = true;
+        }
     }
     allocated_width = (FLOAT)run->visual_column_count * renderer->cell_width;
     if (natural_width > 0.0f) {

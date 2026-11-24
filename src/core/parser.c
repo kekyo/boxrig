@@ -21,6 +21,25 @@ static bool is_c0(uint8_t byte)
     return byte <= 0x1f;
 }
 
+/* All bytes in [0x20, 0x7e] have a clear high bit, acquire one when
+ * increased by 0x60, and keep it clear when increased by one. For 7-bit
+ * input neither addition carries into the next byte. Any high input bit
+ * already rejects the word. memcpy permits unaligned input on all hosts. */
+static size_t printable_string_prefix(const uint8_t *bytes, size_t limit)
+{
+    size_t length = 0;
+    while (limit - length >= sizeof(uint64_t)) {
+        uint64_t word;
+        memcpy(&word, bytes + length, sizeof(word));
+        uint64_t invalid = word | (word + UINT64_C(0x0101010101010101)) |
+                           ~(word + UINT64_C(0x6060606060606060));
+        if ((invalid & UINT64_C(0x8080808080808080)) != 0) break;
+        length += sizeof(word);
+    }
+    while (length < limit && bytes[length] >= 0x20 && bytes[length] <= 0x7e) length++;
+    return length;
+}
+
 static bool is_final(uint8_t byte)
 {
     return byte >= 0x40 && byte <= 0x7e;
@@ -636,18 +655,14 @@ boxrig_status boxrig_parser_feed(
                 parser->string_length < parser->string_capacity &&
                 parser->actions.string_put_run != NULL &&
                 byte >= 0x20 && byte <= 0x7e) {
-                size_t available = parser->string_capacity - parser->string_length;
-                size_t run_length = 1;
+                size_t limit = parser->string_capacity - parser->string_length;
+                if (limit > length - consumed) limit = length - consumed;
+                if (limit > 1024) limit = 1024;
                 size_t accepted = 0;
 
                 /* Exclude every control and bound lookahead on retries.
                  * Leave limit cancellation to the first excess byte. */
-                while (run_length < 1024 && run_length < available &&
-                       run_length < length - consumed &&
-                       bytes[consumed + run_length] >= 0x20 &&
-                       bytes[consumed + run_length] <= 0x7e) {
-                    run_length++;
-                }
+                size_t run_length = printable_string_prefix(bytes + consumed, limit);
                 status = parser->actions.string_put_run(
                     parser->actions.context, bytes + consumed,
                     run_length, &accepted);

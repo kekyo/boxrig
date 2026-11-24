@@ -10,6 +10,7 @@ BOXRIG_0 {
         boxrig_gtk3_terminal_widget_create;
         boxrig_gtk3_terminal_widget_create_scroll_container;
         boxrig_gtk3_terminal_widget_create_with_render_state;
+        boxrig_gtk3_terminal_widget_dispatch_frame;
         boxrig_gtk3_terminal_widget_font_catalog_revision;
         boxrig_gtk3_terminal_widget_frame;
         boxrig_gtk3_terminal_widget_get_accessibility_enabled;
@@ -43,6 +44,8 @@ BOXRIG_0 {
         boxrig_gtk3_terminal_widget_set_font_specification;
         boxrig_gtk3_terminal_widget_set_frame_request_callback;
         boxrig_gtk3_terminal_widget_set_geometry_hints;
+        boxrig_gtk3_terminal_widget_set_grid_alignment;
+        boxrig_gtk3_terminal_widget_set_grid_padding;
         boxrig_gtk3_terminal_widget_set_input_config;
         boxrig_gtk3_terminal_widget_set_input_enabled;
         boxrig_gtk3_terminal_widget_set_key_router;

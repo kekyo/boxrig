@@ -1,11 +1,14 @@
 #!/bin/bash
 # Observe synchronized text/image updates on the caller's X11 display.
 set -euo pipefail
-[[ $# == 5 && $2 =~ ^(cairo|opengl)$ && $3 =~ ^[1-9][0-9]*$ && $4 =~ ^[1-9][0-9]*$ ]]
+[[ ( $# == 5 || ( $# == 6 && ${6:-} =~ ^(gtk3|x11)$ ) || ( $# == 7 && ${7:-} =~ ^(gtk3|x11)$ ) ) && $2 =~ ^(cairo|opengl)$ &&
+   $3 =~ ^[1-9][0-9]*$ && $4 =~ ^[1-9][0-9]*$ ]]
+[[ -z ${BOXRIG_LATENCY_KEY_ECHO:-} || $# != 7 ]]
 binary=$(realpath "$1")
 renderer=$2
 rows=$3
 columns=$4
+frontend=${7:-${6:-gtk3}}
 out=$(realpath -m "$5")
 performance=$(realpath "${BOXRIG_PERFORMANCE_DIR:-build/tests/performance}")
 mkdir -p "$(dirname "$out")"
@@ -15,12 +18,23 @@ export BOXRIG_LATENCY_OUT="$out" BOXRIG_LATENCY_TOOLS="$performance"
 export BOXRIG_LATENCY_TITLE="boxrig-frame-latency-$$"
 export BOXRIG_LATENCY_SIZE="$rows $columns"
 export BOXRIG_PHASE_TRACE_PATH="$out/trace.tsv"
+urls=0
+width=$((columns*7+30))
+height=$((rows*14+60))
+if [[ $# == 7 ]]; then
+  export BOXRIG_CAPTURE_INPUT BOXRIG_CAPTURE_PEER BOXRIG_IMAGE_WORK_PATH="$out/image-phases.tsv"
+  BOXRIG_CAPTURE_INPUT=$(realpath "$6")
+  BOXRIG_CAPTURE_PEER=$(realpath tests/performance/replay_marked_capture.mjs)
+  if [[ $(jq -r '.workload' "$BOXRIG_CAPTURE_INPUT/manifest.json") == btop ]]; then urls=1; fi
+fi
+if [[ $frontend == x11 ]]; then width=$((columns*7+14)); height=$((rows*14)); fi
+if [[ -n ${BOXRIG_LATENCY_KEY_ECHO:-} ]]; then export BOXRIG_LATENCY_ISOLATED_CELL=1; fi
 export LC_ALL=C.UTF-8
 "$performance/annotation_gl_vendor" > "$out/gpu.txt"
 fc-match monospace > "$out/font.txt"
 git rev-parse HEAD > "$out/revision.txt"
 sha256sum "$binary" > "$out/binary.sha256"
-GDK_BACKEND=x11 NO_AT_BRIDGE=1 BOXRIG_AUTO_URLS=0 "$binary" "--renderer=$renderer" -- bash -c '
+GDK_BACKEND=x11 NO_AT_BRIDGE=1 BOXRIG_AUTO_URLS="$urls" "$binary" "--renderer=$renderer" -- bash -ec '
   printf "\033]0;%s\007" "$BOXRIG_LATENCY_TITLE"
   while [[ ! -e "$BOXRIG_LATENCY_OUT/start" ]]; do sleep 0.02; done
   deadline=$((SECONDS+30))
@@ -30,6 +44,15 @@ GDK_BACKEND=x11 NO_AT_BRIDGE=1 BOXRIG_AUTO_URLS=0 "$binary" "--renderer=$rendere
   done
   "$BOXRIG_LATENCY_TOOLS/terminal_geometry" > "$BOXRIG_LATENCY_OUT/geometry.json" || exit
   touch "$BOXRIG_LATENCY_OUT/ready"
+  if [[ -n ${BOXRIG_CAPTURE_INPUT:-} ]]; then
+    stty raw -echo
+    cat </dev/tty >/dev/null &
+    sink=$!
+    trap "kill $sink 2>/dev/null || true" EXIT
+    node "$BOXRIG_CAPTURE_PEER" "$BOXRIG_CAPTURE_INPUT" "$BOXRIG_LATENCY_OUT"
+    exit
+  fi
+  if [[ -n ${BOXRIG_LATENCY_KEY_ECHO:-} ]]; then stty raw -echo; fi
   exec "$BOXRIG_LATENCY_TOOLS/frame_latency" peer "$BOXRIG_LATENCY_OUT"
 ' > "$out/terminal.log" 2>&1 &
 terminal=$!
@@ -46,7 +69,7 @@ for candidate in $windows; do
   if xprop -id "$candidate" WM_PROTOCOLS | rg -q WM_DELETE_WINDOW; then window=$candidate; break; fi
 done
 [[ -n $window ]]
-xdotool windowsize --sync "$window" "$((columns*7+30))" "$((rows*14+60))"
+xdotool windowsize --sync "$window" "$width" "$height"
 xdotool windowmove "$window" 40 40
 xdotool windowraise "$window"
 touch "$out/start"

@@ -1031,7 +1031,7 @@ static bool test_text_emoji_and_ambiguous_width_cases(void)
             &memory,
             &terminal) ||
         !terminal_has_cell(terminal, face, sizeof(face), 2) ||
-        !terminal_has_cell(terminal, heart, sizeof(heart), 2) ||
+        !terminal_has_cell(terminal, heart, sizeof(heart), 1) ||
         !terminal_has_cell(terminal, skin_tone, sizeof(skin_tone), 2) ||
         !terminal_has_cell(terminal, flag, sizeof(flag), 2) ||
         !terminal_has_cell(terminal, keycap, sizeof(keycap), 2) ||

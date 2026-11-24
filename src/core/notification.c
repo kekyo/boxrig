@@ -983,6 +983,16 @@ boxrig_status boxrig_notification_initialize(boxrig_terminal *terminal)
     return BOXRIG_STATUS_OK;
 }
 
+bool boxrig_notification_checkpoint_ready(const boxrig_terminal *terminal)
+{
+    const boxrig_notification_state *state = terminal->notification_state;
+    if (!state) return true;
+    if (state->reject_unknown_identifiers) return false;
+    for (size_t i = 0; i < terminal->notification_pending_capacity; ++i)
+        if (state->transactions[i].active || state->discards[i].active) return false;
+    return true;
+}
+
 void boxrig_notification_reset(boxrig_terminal *terminal)
 {
     size_t index;

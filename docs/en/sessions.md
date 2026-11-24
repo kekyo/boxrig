@@ -189,4 +189,20 @@ Destroying a Win32 session stops its workers and closes the pseudoconsole, but t
 On both platforms, destroy the session before the terminal and PTY.
 See [Ownership and shutdown](./architecture.md#ownership-and-shutdown) for UI lifetimes.
 
+## Moving a live terminal to another process
+
+A checkpoint carries the screen, scrollback, input modes, incomplete characters and control sequences, queued output and committed Kitty images. An application can send it to a trusted destination and resume the same connection. Create the UI model, native view and rendering caches at the destination. Ordinary reads and writes require no checkpoint calls. [Terminal API](../../include/boxrig/terminal.h)
+
+1. Between dispatches on the owner thread, pause user input, resize, timers and new reads. Relieve host or output backpressure and dispatch with `BOXRIG_SESSION_READY_NONE` to process retained input. Consume observer events and unregister monitors and recognizers.
+2. Call `boxrig_session_export_checkpoint()` to obtain the bytes, length and input-finished flag. On `BOXRIG_STATUS_BUSY`, the source can resume servicing the transport. Finish outstanding clipboard requests, multipart graphics or notifications and retry. Applications with their own transport pump can account for its receive and transmit queues and call `boxrig_terminal_export_checkpoint()` directly.
+3. Pass the bytes and the same size limit to `boxrig_terminal_import_checkpoint()`. Attach the transport callbacks and the input-finished flag with `boxrig_session_create_resumed()`. This resumes outstanding writes and suppresses reads after EOF. Release the source buffer with `boxrig_checkpoint_free()`.
+4. Create a destination view at the original grid size. Rebind the font width callback and monotonic clock. Restore the selection using its saved `boxrig_text_range`. Register monitors with `BOXRIG_TEXT_MONITOR_FUTURE_ONLY` for new matches. Recognizers also scan existing text, so reconcile previously handled ranges if their results trigger external actions.
+5. Commit ownership after the destination is ready. Only the current owner resumes input and transport operations. If the destination fails before commit, restore the source registrations and restart its timers and I/O. If an acknowledgement is lost after commit, resolve the session ID and ownership generation before resuming. Send any resulting grid resize after the transfer.
+
+For a Linux local PTY, pass the master descriptor over a Unix domain socket. The new process reads and writes the PTY directly. The process that spawned the shell remains responsible for reaping it once. Applications provide the transport strategy for SSH connections or Windows ConPTY. Keeping an SSH connection in the original process adds an IPC hop to ordinary traffic after transfer. [Linux descriptor passing](https://man7.org/linux/man-pages/man7/unix.7.html) and [waiting for children](https://man7.org/linux/man-pages/man2/waitpid.2.html).
+
+Run `make test-pty-handoff` for a round trip with a live shell, a resize and a separate pre-commit rollback. Use `make measure-checkpoint-pty` to compare PTY latency and throughput, and `make measure-checkpoint-draw` to time checkpoint transfer through the first rendered frame. [Runnable PTY example](../../examples/pty_handoff/main.c)
+
+On a Linux Core i9-12900KS host, five runs of 400 single-byte pings gave median per-run p95 round trips of 9.9 µs for the original PTY, 8.2 µs after descriptor transfer and 18.8 µs through a relay. Parsing an 8 MiB stream sustained 1.193, 1.186 and 1.191 MiB/s respectively. Transferring a 24 × 80 terminal with 10,000 history rows and a 768 KiB image through its first offscreen PangoCairo frame and acknowledgement took 44.7 ms at the median. These measurements support passing the descriptor for a live Linux shell. Measure SSH and desktop presentation latency in the host application.
+
 [Documentation index](./index.md)

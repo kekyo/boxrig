@@ -136,8 +136,8 @@ static bool feed_bytes(
     return true;
 }
 
-static bool create_platform_renderer_with_direction(platform_renderer_fixture *fixture,
-    boxrig_text_direction_policy direction)
+static bool initialize_platform_renderer(platform_renderer_fixture *fixture,
+    bool use_default_direction)
 {
     memset(fixture, 0, sizeof(*fixture));
 #if defined(BOXRIG_TEST_FRONTEND_X11)
@@ -183,7 +183,7 @@ static bool create_platform_renderer_with_direction(platform_renderer_fixture *f
         CHECK(SUCCEEDED(ID3D11Device_CreateTexture2D(fixture->device, &desc,
             NULL, &fixture->texture)));
         config.device = fixture->device;
-        config.direction_policy = direction;
+        if (!use_default_direction) config.direction_policy = BOXRIG_TEXT_DIRECTION_AUTO;
         config.target.texture = fixture->texture;
         config.target.width = 1; config.target.height = 1;
         fixture->target = config.target;
@@ -261,21 +261,22 @@ static bool create_platform_renderer_with_direction(platform_renderer_fixture *f
         boxrig_pango_cairo_renderer_cell_height(fixture->renderer);
 #endif
     CHECK(fixture->cell_width != 0 && fixture->cell_height != 0);
+    if (use_default_direction) return true;
 #if defined(BOXRIG_TEST_FRONTEND_X11)
-    CHECK(boxrig_x11_renderer_set_direction_policy(fixture->renderer, direction) == 0);
+    CHECK(boxrig_x11_renderer_set_direction_policy(fixture->renderer, BOXRIG_TEXT_DIRECTION_AUTO) == 0);
 #elif defined(BOXRIG_TEST_FRONTEND_WIN32)
-    CHECK(boxrig_win32_renderer_set_direction_policy(fixture->renderer, direction) == 0);
+    CHECK(boxrig_win32_renderer_set_direction_policy(fixture->renderer, BOXRIG_TEXT_DIRECTION_AUTO) == 0);
 #elif defined(BOXRIG_TEST_FRONTEND_OPENGL)
-    CHECK(boxrig_ogl_renderer_set_direction_policy(fixture->renderer, direction) == 0);
+    CHECK(boxrig_ogl_renderer_set_direction_policy(fixture->renderer, BOXRIG_TEXT_DIRECTION_AUTO) == 0);
 #elif defined(BOXRIG_TEST_FRONTEND_PANGO_CAIRO)
-    CHECK(boxrig_pango_cairo_renderer_set_direction_policy(fixture->renderer, direction) == 0);
+    CHECK(boxrig_pango_cairo_renderer_set_direction_policy(fixture->renderer, BOXRIG_TEXT_DIRECTION_AUTO) == 0);
 #endif
     return true;
 }
 
 static bool create_platform_renderer(platform_renderer_fixture *fixture)
 {
-    return create_platform_renderer_with_direction(fixture, BOXRIG_TEXT_DIRECTION_AUTO);
+    return initialize_platform_renderer(fixture, false);
 }
 
 static bool size_platform_renderer(
@@ -3027,6 +3028,17 @@ static bool opengl_4k_terminal_grid_fixture(void)
                   color.blue == colors[index].blue);
         }
     }
+#ifndef _WIN32
+    /* Alternating ANSI colors on one ASCII row still use a single font. */
+    before = after;
+    static const char colored[] = "\033[H\033[2K\033[31mA\033[32mB\033[33mC\033[34mD\033[35mE\033[36mF";
+    CHECK(feed_bytes(terminal, colored, sizeof(colored) - 1));
+    CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+    CHECK(draw_platform_view(&renderer, view, NULL));
+    CHECK(boxrig_ogl_renderer_get_render_statistics(renderer.renderer, &after) == 0);
+    CHECK(after.row_shape_count == before.row_shape_count + 1);
+    CHECK(after.font_key_count - before.font_key_count <= 2);
+#endif
     free(content);
 
     boxrig_ui_view_destroy(view);
@@ -3047,7 +3059,7 @@ static bool common_logical_cell_order_fixture(void)
     boxrig_ui_view *view = NULL;
     config.rows = 2;
     config.columns = 16;
-    CHECK(create_platform_renderer_with_direction(&renderer, BOXRIG_TEXT_DIRECTION_LOGICAL));
+    CHECK(initialize_platform_renderer(&renderer, true));
 #if defined(BOXRIG_TEST_FRONTEND_OPENGL)
     CHECK(boxrig_ogl_renderer_set_composited_scrollbar(renderer.renderer, false, 0) == 0);
 #endif
@@ -3123,6 +3135,25 @@ static bool common_logical_cell_order_fixture(void)
     const uint8_t *copied = boxrig_text_snapshot_data(snapshot, &length);
     CHECK(length == sizeof("אבג") - 1 && memcmp(copied, "אבג", length) == 0);
     boxrig_text_snapshot_destroy(snapshot);
+#if defined(BOXRIG_TEST_FRONTEND_PANGO_CAIRO) || defined(BOXRIG_TEST_FRONTEND_OPENGL) || defined(BOXRIG_TEST_FRONTEND_X11)
+    CHECK(boxrig_ui_view_clear_selection(view) == BOXRIG_UI_OK);
+    CHECK(boxrig_ui_view_set_grid_padding(view, pixels(2)) == BOXRIG_UI_OK);
+    const char mark[] = "\033[H\033[48;2;211;41;37m ";
+    CHECK(feed_bytes(terminal, mark, sizeof(mark) - 1));
+    CHECK(boxrig_ui_model_synchronize(model) == BOXRIG_UI_OK);
+    for (unsigned int bottom = 0; bottom <= 1; bottom++) {
+        CHECK(boxrig_ui_view_set_grid_alignment(view, bottom ? BOXRIG_UI_GRID_BOTTOM : BOXRIG_UI_GRID_TOP) == BOXRIG_UI_OK);
+        CHECK(draw_platform_view(&renderer, view, NULL));
+        CHECK(boxrig_ui_view_get_layout(view, &result) == BOXRIG_UI_OK);
+        int y = (int)(result.origin_y / BOXRIG_UI_FIXED_ONE);
+        CHECK(y == (bottom ? (int)renderer.cell_height - 2 : 2));
+        platform_rgb cell, margin;
+        CHECK(get_platform_pixel(&renderer, 2, y, &cell));
+        CHECK(get_platform_pixel(&renderer, 2, y - 1, &margin));
+        CHECK(cell.red == 211 && cell.green == 41 && cell.blue == 37);
+        CHECK(margin.red != 211);
+    }
+#endif
     boxrig_ui_view_destroy(view);
     boxrig_ui_model_destroy(model);
     boxrig_terminal_destroy(terminal);

@@ -17,6 +17,13 @@ INCLUDEDIR ?= $(PREFIX)/include
 PKGCONFIGDIR ?= $(LIBDIR)/pkgconfig
 BUILD_DIR ?= build
 
+.PHONY: measure-checkpoint-pty
+measure-checkpoint-pty: $(BUILD_DIR)/tests/checkpoint_pty
+	$<
+
+$(BUILD_DIR)/tests/checkpoint_pty: tests/performance/checkpoint_pty.c $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(POSIX_CPPFLAGS) -std=c99 $(WARNINGS) $< $(LIBRARY) -lutil -o $@
+
 WARNINGS := -Wall -Wextra -Wpedantic -Werror
 PNG_CONFIG_DIR := $(BUILD_DIR)/generated/libpng
 PNG_CONFIG := $(PNG_CONFIG_DIR)/pnglibconf.h
@@ -304,7 +311,7 @@ LIBPNG_SOURCES += deps/libpng/arm/arm_init.c \
 ZLIB_OBJECTS := $(patsubst deps/zlib/%.c,$(BUILD_DIR)/deps/zlib/%.o,$(ZLIB_SOURCES))
 LIBPNG_OBJECTS := $(patsubst deps/libpng/%.c,$(BUILD_DIR)/deps/libpng/%.o,$(LIBPNG_SOURCES))
 CORE_PUBLIC_HEADERS := include/boxrig/terminal.h include/boxrig/regex.h include/boxrig/status.h
-CORE_HEADERS := src/core/codec.h src/core/shift_jis_table.h $(CORE_PUBLIC_HEADERS) src/core/dcs.h src/core/graphics.h src/core/parser.h src/core/regex.h src/core/terminal_internal.h src/core/unicode.h
+CORE_HEADERS := src/core/checkpoint_internal.h src/core/codec.h src/core/shift_jis_table.h $(CORE_PUBLIC_HEADERS) src/core/dcs.h src/core/graphics.h src/core/parser.h src/core/regex.h src/core/terminal_internal.h src/core/unicode.h
 LIBRARY := $(BUILD_DIR)/libboxrig.a
 UI_LIBRARY := $(BUILD_DIR)/libboxrig-ui.a
 SESSION_LIBRARY := $(BUILD_DIR)/libboxrig-session.a
@@ -1148,6 +1155,26 @@ $(BUILD_DIR)/tests/test_screen_row_move: tests/test_screen_row_move.c $(CORE_HEA
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(LIBRARY) $(SANITIZERS) -Wl,--wrap=free -o $@
 
 .PHONY: test-history-transfer
+.PHONY: test-checkpoint
+.PHONY: example-pty-handoff test-pty-handoff
+example-pty-handoff: $(BUILD_DIR)/examples/pty_handoff
+
+$(BUILD_DIR)/examples/pty_handoff: examples/pty_handoff/main.c $(POSIX_LIBRARY) $(SESSION_LIBRARY) $(LIBRARY)
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(POSIX_LIBRARY) $(SESSION_LIBRARY) $(LIBRARY) -lutil -o $@
+
+test: test-pty-handoff
+test-pty-handoff: $(BUILD_DIR)/examples/pty_handoff
+	sh tests/check_pty_handoff.sh $<
+
+test: test-checkpoint
+CHECKPOINT_TESTS := $(addprefix $(BUILD_DIR)/tests/,test_checkpoint test_checkpoint_screen test_checkpoint_graphics)
+test-checkpoint: $(CHECKPOINT_TESTS)
+	@set -e; for suite in $^; do ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $$suite; done
+
+$(CHECKPOINT_TESTS): $(BUILD_DIR)/tests/%: tests/%.c $(CORE_HEADERS) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(LIBRARY) $(SANITIZERS) -o $@
+
 test: test-history-transfer
 test-history-transfer: $(BUILD_DIR)/tests/test_history_transfer
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
@@ -1165,6 +1192,17 @@ $(BUILD_DIR)/tests/test_resize_history: tests/test_resize_history.c $(CORE_HEADE
 
 $(BUILD_DIR)/tests/measure_resize_history: tests/performance/resize_history.c $(CORE_HEADERS) $(LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(LIBRARY) $(SANITIZERS) -o $@
+
+$(BUILD_DIR)/tests/measure_scrollback_compression: tests/performance/scrollback_compression.c $(CORE_HEADERS) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(LIBRARY) -o $@
+
+.PHONY: test-scrollback-compression
+test: test-scrollback-compression
+test-scrollback-compression: $(BUILD_DIR)/tests/test_scrollback_compression
+	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
+
+$(BUILD_DIR)/tests/test_scrollback_compression: tests/test_scrollback_compression.c $(CORE_HEADERS) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(LIBRARY) $(SANITIZERS) -Wl,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=free,--wrap=inflate,--wrap=compress2 -o $@
 
 .PHONY: test-cell-text-storage
 test: test-cell-text-storage
@@ -2407,8 +2445,8 @@ $(PARSER_TEST_BINARY): tests/test_parser.c src/core/parser.c src/core/parser.h |
 $(GRAPHICS_TEST_BINARY): tests/test_graphics.c $(LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(LIBRARY) $(SANITIZERS) -o $@
 
-$(SCREEN_TEST_BINARY): tests/test_screen.c src/core/screen.c src/core/text.c src/core/regex.c src/core/unicode.c $(UTF8PROC_SOURCE) $(CORE_HEADERS) | $(BUILD_DIR)/tests
-	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) tests/test_screen.c src/core/screen.c src/core/text.c src/core/regex.c src/core/unicode.c $(UTF8PROC_SOURCE) $(SANITIZERS) -o $@
+$(SCREEN_TEST_BINARY): tests/test_screen.c src/core/screen.c src/core/history.c src/core/text.c src/core/regex.c src/core/unicode.c $(UTF8PROC_SOURCE) $(CORE_HEADERS) $(ZLIB_OBJECTS) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) tests/test_screen.c src/core/screen.c src/core/history.c src/core/text.c src/core/regex.c src/core/unicode.c $(UTF8PROC_SOURCE) $(ZLIB_OBJECTS) $(SANITIZERS) -o $@
 
 $(TEXT_LAYOUT_TEST_BINARY): tests/test_text_layout.c $(UI_LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) tests/test_text_layout.c $(UI_LIBRARY) $(SANITIZERS) -o $@
@@ -2434,7 +2472,7 @@ $(UTF8_TEST_BINARY): tests/test_utf8.c src/ui/utf8.c src/ui/utf8.h | \
 		$(SANITIZERS) -o $@
 
 $(IMAGE_COMPOSITOR_TEST_BINARY): tests/test_image_compositor.c $(UI_LIBRARY) | $(BUILD_DIR)/tests
-	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) tests/test_image_compositor.c $(UI_LIBRARY) $(SANITIZERS) -o $@
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) tests/test_image_compositor.c $(UI_LIBRARY) -Wl,--wrap=boxrig_ui_argb32_source_over $(SANITIZERS) -o $@
 
 $(UI_LIFECYCLE_TEST_BINARY): tests/test_ui_lifecycle.c $(UI_LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) tests/test_ui_lifecycle.c $(UI_LIBRARY) $(SANITIZERS) -o $@
@@ -3300,6 +3338,7 @@ $(X11_INPUT_TEST_BINARY): tests/x11/test_x11_input_adapter.c \
 		-Wl,--wrap=XExtendedMaxRequestSize -o $@
 
 $(X11_EVENT_WAIT_TEST_BINARY): tests/x11/test_x11_event_wait.c \
+		examples/boxrig_term/x11/output_frame.h \
 		$(X11_LIBRARY) $(POSIX_LIBRARY) $(SESSION_LIBRARY) $(UI_LIBRARY) \
 		$(LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_CPPFLAGS) $(X11_CPPFLAGS) \
@@ -3429,14 +3468,40 @@ $(PNG_CONFIG): deps/libpng/scripts/pnglibconf.h.prebuilt | $(PNG_CONFIG_DIR)
 	sed -e '/^#define PNG_FLOATING_ARITHMETIC_SUPPORTED$$/d' \
 		-e '/^#define PNG_FLOATING_POINT_SUPPORTED$$/d' $< > $@
 
-$(EXAMPLE_BINARY): $(EXAMPLE_SOURCES) \
+OPENGL_UPDATE_PROBES := $(BUILD_DIR)/boxrig_term/x11/boxrig_term_work $(BUILD_DIR)/boxrig_term/gtk3/boxrig_term_work
+$(OPENGL_UPDATE_PROBES): UPDATE_PROBE_SOURCE := tests/performance/opengl_update_probe.c
+$(OPENGL_UPDATE_PROBES): UPDATE_PROBE_FLAGS := -Wl,--wrap=boxrig_ogl_renderer_lifecycle_create \
+	-Wl,--wrap=boxrig_ogl_text_provider_shape_row -Wl,--wrap=boxrig_renderer_lifecycle_prepare_frame \
+	-Wl,--wrap=boxrig_terminal_feed -Wl,--wrap=pango_shape_item $(PANGO_CAIRO_CPPFLAGS)
+$(OPENGL_UPDATE_PROBES): tests/performance/opengl_update_probe.c
+.PHONY: opengl-update-probes
+opengl-update-probes: $(OPENGL_UPDATE_PROBES)
+
+IMAGE_PHASE_PROBES := $(BUILD_DIR)/boxrig_term/x11/boxrig_term_image_work $(BUILD_DIR)/boxrig_term/gtk3/boxrig_term_image_work
+IMAGE_PHASE_FLAGS := -Wl,--wrap=boxrig_kitty_graphics_set_consumer -Wl,--wrap=boxrig_terminal_feed \
+	-Wl,--wrap=boxrig_renderer_lifecycle_prepare_frame -Wl,--wrap=boxrig_gl_runtime_upload_texture
+$(IMAGE_PHASE_PROBES): UPDATE_PROBE_SOURCE := tests/performance/image_phase_probe.c
+$(BUILD_DIR)/boxrig_term/x11/boxrig_term_image_work: UPDATE_PROBE_FLAGS := $(IMAGE_PHASE_FLAGS) \
+	$(PANGO_CAIRO_CPPFLAGS) -Wl,--wrap=eglSwapBuffers -Wl,--wrap=glBlitFramebuffer
+$(BUILD_DIR)/boxrig_term/gtk3/boxrig_term_image_work: UPDATE_PROBE_FLAGS := $(IMAGE_PHASE_FLAGS) \
+	-DBOXRIG_IMAGE_GTK -Wl,--wrap=boxrig_pango_cairo_renderer_draw_view_composition \
+	-Wl,--wrap=boxrig_premultiplied_image_create -Wl,--wrap=boxrig_composite_premultiplied_image \
+	-Wl,--wrap=boxrig_pango_cairo_renderer_surface -Wl,--wrap=cairo_surface_mark_dirty \
+	-Wl,--wrap=boxrig_gtk_gl_surface_present -Wl,--wrap=gtk_gl_area_queue_render \
+	-Wl,--wrap=gtk_widget_add_tick_callback
+$(IMAGE_PHASE_PROBES): tests/performance/image_phase_probe.c
+.PHONY: image-phase-probes
+image-phase-probes: $(IMAGE_PHASE_PROBES)
+
+$(EXAMPLE_BINARY) $(BUILD_DIR)/boxrig_term/x11/boxrig_term_work $(BUILD_DIR)/boxrig_term/x11/boxrig_term_image_work: $(EXAMPLE_SOURCES) \
+		examples/boxrig_term/x11/output_frame.h \
 	$(UI_HEADERS) $(X11_HEADERS) include/boxrig/posix.h \
 	$(X11_OPENGL_LIBRARY) $(X11_LIBRARY) $(OPENGL_RENDERER_LIBRARY) \
 	$(POSIX_LIBRARY) $(SESSION_LIBRARY) $(UI_LIBRARY) $(LIBRARY) \
 	| $(BUILD_DIR)/boxrig_term/x11
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_URI_CPPFLAGS) $(POSIX_CPPFLAGS) \
 		$(X11_CPPFLAGS) $(XEXT_CPPFLAGS) $(DBUS_CPPFLAGS) $(CFLAGS) \
-		$(PROJECT_CFLAGS) $(EXAMPLE_SOURCES) \
+		$(PROJECT_CFLAGS) $(EXAMPLE_SOURCES) $(UPDATE_PROBE_SOURCE) $(UPDATE_PROBE_FLAGS) \
 		$(X11_OPENGL_LIBRARY) $(X11_LIBRARY) $(OPENGL_RENDERER_LIBRARY) \
 		$(POSIX_LIBRARY) $(SESSION_LIBRARY) $(UI_LIBRARY) $(LIBRARY) \
 		$(X11_LIBS) $(XEXT_LIBS) $(DBUS_LIBS) $(OPENGL_RENDERER_LIBS) \
@@ -3453,7 +3518,12 @@ $(GTK4_EXAMPLE_BINARY): $(GTK4_EXAMPLE_SOURCES) \
 		$(GTK4_LIBRARY) $(NOTIFICATION_LIBRARY) $(POSIX_LIBRARY) $(SESSION_LIBRARY) $(UI_LIBRARY) \
 		$(LIBRARY) $(GTK4_LIBS) -lutil $(POSIX_URI_LIBS) -o $@
 
-$(GTK3_EXAMPLE_BINARY): $(GTK3_EXAMPLE_SOURCES) \
+GTK3_GRAYSCALE_SAMPLE := $(BUILD_DIR)/boxrig_term/gtk3/boxrig_term_grayscale
+$(GTK3_GRAYSCALE_SAMPLE): UPDATE_PROBE_SOURCE := tests/performance/gtk3_grayscale.c
+$(GTK3_GRAYSCALE_SAMPLE): UPDATE_PROBE_FLAGS := -Wl,--wrap=boxrig_font_rendering_policy_default
+$(GTK3_GRAYSCALE_SAMPLE): tests/performance/gtk3_grayscale.c
+
+$(GTK3_EXAMPLE_BINARY) $(BUILD_DIR)/boxrig_term/gtk3/boxrig_term_work $(BUILD_DIR)/boxrig_term/gtk3/boxrig_term_image_work $(GTK3_GRAYSCALE_SAMPLE): $(GTK3_EXAMPLE_SOURCES) \
 	examples/boxrig_term/gtk3/geometry_trace.h \
 	examples/boxrig_term/gtk3/resize_frame.h \
 	$(UI_HEADERS) $(GTK3_HEADERS) include/boxrig/posix.h \
@@ -3462,7 +3532,7 @@ $(GTK3_EXAMPLE_BINARY): $(GTK3_EXAMPLE_SOURCES) \
 	| $(BUILD_DIR)/boxrig_term/gtk3
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(POSIX_URI_CPPFLAGS) $(POSIX_CPPFLAGS) \
 		$(GTK3_CPPFLAGS) $(CFLAGS) $(GTK3_PROJECT_CFLAGS) \
-		$(GTK3_EXAMPLE_SOURCES) \
+		$(GTK3_EXAMPLE_SOURCES) $(UPDATE_PROBE_SOURCE) $(UPDATE_PROBE_FLAGS) \
 		$(GTK3_LIBRARY) $(NOTIFICATION_LIBRARY) $(POSIX_LIBRARY) $(SESSION_LIBRARY) $(UI_LIBRARY) \
 		$(LIBRARY) $(GTK3_LIBS) -lutil $(POSIX_URI_LIBS) -o $@
 
@@ -5065,6 +5135,7 @@ $(MINGW_I686_BUILD_DIR)/tests/test_terminal_io_views.exe: tests/test_terminal_io
 .PHONY: test-gtk3-rendering
 $(BUILD_DIR)/tests/test_gtk3_rendering: tests/gtk3/test_gtk3_rendering.c $(GTK3_HEADERS) $(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) -Iinclude $(GTK3_CPPFLAGS) $(CFLAGS) $(GTK3_PROJECT_CFLAGS) $(SANITIZERS) $< \
+		-Wl,--wrap=g_get_monotonic_time,--wrap=boxrig_pango_cairo_renderer_draw_view_composition \
 		-Wl,--wrap=gtk_gl_area_new -Wl,--wrap=gdk_gl_context_set_use_es -Wl,--wrap=gdk_gl_context_realize \
 		-Wl,--wrap=boxrig_gtk_gl_surface_create -Wl,--wrap=boxrig_gtk_gl_surface_draw \
 		$(GTK3_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(GTK3_LIBS) -o $@
@@ -5072,6 +5143,7 @@ $(BUILD_DIR)/tests/test_gtk3_rendering: tests/gtk3/test_gtk3_rendering.c $(GTK3_
 test-gtk3-rendering: $(BUILD_DIR)/tests/test_gtk3_rendering
 	$(XVFB_RUN) -a env GDK_BACKEND=x11 ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 \
 		UBSAN_OPTIONS=halt_on_error=1 bash -c 'for policy in cairo prefer require; do for fault in none context; do $(BUILD_DIR)/tests/test_gtk3_rendering $$policy $$fault || exit; done; done'
+	$(XVFB_RUN) -a env BOXRIG_TEST_WESTON_BACKEND=x11 bash tests/gtk/run_gl_wayland.sh $(BUILD_DIR)/tests/test_gtk3_rendering cairo none
 	$(XVFB_RUN) -a env GDK_BACKEND=x11 GDK_GL=gles LIBGL_ALWAYS_SOFTWARE=1 \
 		ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 \
 		$(BUILD_DIR)/tests/test_gtk3_rendering require toggle
@@ -5304,6 +5376,14 @@ test-wayland-surrounding-compositor: $(BUILD_DIR)/tests/wayland_surrounding_comp
 $(EXAMPLE_BINARY) $(GTK3_EXAMPLE_BINARY) $(GTK4_EXAMPLE_BINARY) $(WAYLAND_EXAMPLE_BINARY) $(WAYLAND_NO_LIBDECOR_TEST_BINARY): examples/boxrig_term/common/font_demo.h
 
 .PHONY: test-color-glyphs test-color-glyph-videos
+.PHONY: test-sample-font-options
+test: test-sample-font-options
+test-sample-font-options: $(BUILD_DIR)/tests/test_sample_font_options
+	$<
+
+$(BUILD_DIR)/tests/test_sample_font_options: tests/test_sample_font_options.c examples/boxrig_term/common/font_demo.c examples/boxrig_term/common/font_demo.h $(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< examples/boxrig_term/common/font_demo.c $(UI_LIBRARY) $(LIBRARY) -lm -o $@
+
 test-color-glyphs: $(PANGO_CAIRO_FIXTURE_TEST_BINARY) $(UI_PLATFORM_FIXTURE_TEST_BINARY) $(OPENGL_RENDERER_FIXTURE_TEST_BINARY)
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 $(PANGO_CAIRO_FIXTURE_TEST_BINARY)
 	$(XVFB_RUN) -a env ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 $(UI_PLATFORM_FIXTURE_TEST_BINARY)
@@ -6344,7 +6424,7 @@ $(BUILD_DIR)/tests/performance/terminal_geometry: tests/performance/terminal_geo
 notcurses-evaluation-tools: $(GTK3_EXAMPLE_BINARY) $(BUILD_DIR)/tests/performance/notcurses_replay $(BUILD_DIR)/tests/performance/terminal_geometry $(BUILD_DIR)/tests/performance/annotation_gl_vendor
 
 $(BUILD_DIR)/tests/performance/frame_latency: tests/performance/frame_latency.c | $(BUILD_DIR)/tests/performance
-	$(CC) $(CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $$(pkg-config --cflags --libs x11) -o $@
+	$(CC) $(CPPFLAGS) $(POSIX_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $$(pkg-config --cflags --libs x11 xtst) -o $@
 
 .PHONY: test-frame-latency
 test: test-frame-latency
@@ -6352,6 +6432,14 @@ test-frame-latency: $(PHASE_TRACE_BINARY) $(BUILD_DIR)/tests/performance/frame_l
 	output=$$(mktemp -d $(BUILD_DIR)/tests/performance/frame-latency.XXXXXXXX); \
 		xvfb-run -a -s '-screen 0 1280x800x24' bash tests/performance/run_frame_latency.sh \
 		$(PHASE_TRACE_BINARY) cairo 24 80 "$$output/cairo"
+	output=$$(mktemp -d $(BUILD_DIR)/tests/performance/frame-burst.XXXXXXXX); \
+		BOXRIG_LATENCY_CONTINUOUS=1 xvfb-run -a -s '-screen 0 1280x800x24' bash tests/performance/run_frame_latency.sh \
+		$(PHASE_TRACE_BINARY) cairo 24 80 "$$output/cairo" && \
+		awk 'NR > 1 && $$2 == 0 { exit 1 } END { if (NR != 24) exit 1 }' "$$output/cairo/burst.tsv"
+	output=$$(mktemp -d $(BUILD_DIR)/tests/performance/key-echo.XXXXXXXX); \
+		BOXRIG_PERFORMANCE_DIR=$(BUILD_DIR)/tests/performance BOXRIG_LATENCY_KEY_ECHO=1 \
+		BOXRIG_GTK_IME=gtk GTK_IM_MODULE=gtk-im-context-simple xvfb-run -a \
+		bash tests/performance/run_frame_latency.sh $(PHASE_TRACE_BINARY) cairo 24 80 "$$output/cairo"
 
 .PHONY: test-graphics-work
 test: test-graphics-work
@@ -6368,6 +6456,18 @@ test-pangocairo-updates: $(BUILD_DIR)/tests/test_pangocairo_updates $(BUILD_DIR)
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(BUILD_DIR)/tests/test_pangocairo_paint_updates
 
 $(BUILD_DIR)/tests/test_pangocairo_updates: CAIRO_UPDATE_SANITIZERS = $(SANITIZERS)
+.PHONY: measure-checkpoint-draw
+measure-checkpoint-draw: $(BUILD_DIR)/tests/performance/checkpoint_draw
+	$<
+
+$(BUILD_DIR)/tests/performance/cairo_grid_replay $(BUILD_DIR)/tests/performance/checkpoint_draw: $(BUILD_DIR)/tests/performance/%: tests/performance/%.c \
+		src/pangocairo/renderer.c src/pangocairo/renderer.h src/pangocairo/renderer_private.h \
+		src/pangocairo/glyph_fit.h src/ui/glyph_fit.h $(PANGO_CANDIDATE_OBJECT) $(UI_HEADERS) \
+		$(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests/performance
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) -Isrc $(POSIX_CPPFLAGS) $(PANGO_CAIRO_CPPFLAGS) \
+		$(CFLAGS) $(PROJECT_CFLAGS) $< src/pangocairo/renderer.c $(PANGO_CANDIDATE_OBJECT) \
+		$(UI_LIBRARY) $(LIBRARY) $(PANGO_CAIRO_LIBS) -o $@
+
 $(BUILD_DIR)/tests/test_pangocairo_updates $(BUILD_DIR)/tests/performance/measure_pangocairo_updates: \
 		tests/pangocairo/measure_updates.c src/pangocairo/renderer.c \
 		src/pangocairo/renderer.h src/pangocairo/renderer_private.h src/pangocairo/glyph_fit.h \
@@ -6386,3 +6486,13 @@ $(BUILD_DIR)/tests/test_pangocairo_paint_updates: tests/pangocairo/test_paint_up
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) -Isrc $(POSIX_CPPFLAGS) $(PANGO_CAIRO_CPPFLAGS) \
 		$(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< src/pangocairo/renderer.c \
 		$(PANGO_CANDIDATE_OBJECT) $(UI_LIBRARY) $(LIBRARY) $(PANGO_CAIRO_LIBS) $(SANITIZERS) -o $@
+
+.PHONY: test-sample-grid-alignment
+test: test-sample-grid-alignment
+test-sample-grid-alignment: $(EXAMPLE_BINARY) $(GTK4_EXAMPLE_BINARY) $(WAYLAND_EXAMPLE_BINARY)
+	$(XVFB_RUN) -a node tests/run_sample_grid_alignment.mjs x11 $(EXAMPLE_BINARY) x11
+	$(XVFB_RUN) -a node tests/run_sample_grid_alignment.mjs x11 $(EXAMPLE_BINARY) opengl
+	$(XVFB_RUN) -a node tests/run_sample_grid_alignment.mjs gtk4 $(GTK4_EXAMPLE_BINARY) cairo
+	$(XVFB_RUN) -a node tests/run_sample_grid_alignment.mjs gtk4 $(GTK4_EXAMPLE_BINARY) opengl
+	$(XVFB_RUN) -a node tests/run_sample_grid_alignment.mjs wayland $(WAYLAND_EXAMPLE_BINARY) wayland
+	$(XVFB_RUN) -a node tests/run_sample_grid_alignment.mjs wayland $(WAYLAND_EXAMPLE_BINARY) opengl

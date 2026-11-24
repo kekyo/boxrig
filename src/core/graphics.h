@@ -13,6 +13,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* Decode at most count unpadded quartets into 3 * count available bytes.
+ * Return the number decoded, stopping before the first invalid quartet. */
+size_t boxrig_graphics_decode_quartets(const uint8_t *input, size_t count, uint8_t *output);
+
 enum {
     BOXRIG_KITTY_GRAPHICS_HEADER_CAPACITY = 1024,
     BOXRIG_KITTY_GRAPHICS_PAYLOAD_CAPACITY = 4096,

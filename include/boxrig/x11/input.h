@@ -132,8 +132,9 @@ int boxrig_x11_input_adapter_set_key_router(
  * Installs an application pointer router used before terminal mouse encoding.
  *
  * @param adapter Adapter to configure.
- * @param view Borrowed view used to resolve the native event coordinate, or
- * NULL when disabling routing. It must belong to adapter's terminal.
+ * @param view Borrowed view supplying the cell origin for input and XIM. It
+ * must belong to the adapter's terminal. A standalone adapter with no router
+ * may pass NULL to use its viewport origin and cell size alone.
  * @param router Router callback, or NULL to disable application routing.
  * @param context Opaque callback context, which must be NULL without a router.
  * @return Zero on success, or -1 for invalid input or an active capture.

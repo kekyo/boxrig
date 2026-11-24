@@ -233,6 +233,24 @@ boxrig_ui_status boxrig_gtk3_terminal_widget_set_window_state(
     boxrig_ui_window_state window_state);
 
 /**
+ * Sets the vertical placement of the terminal grid without resizing the host.
+ * @param widget Terminal widget to configure.
+ * @param alignment Vertical grid alignment. Initially BOXRIG_UI_GRID_TOP.
+ * @return A portable UI status.
+ */
+boxrig_ui_status boxrig_gtk3_terminal_widget_set_grid_alignment(BoxrigGtk3TerminalWidget *widget,
+    boxrig_ui_grid_alignment alignment);
+
+/**
+ * Sets the space between the widget edges and the terminal cells.
+ * @param widget Terminal widget to configure.
+ * @param padding Uniform nonnegative padding in GTK logical pixels. Initially zero.
+ * @return A portable UI status.
+ */
+boxrig_ui_status boxrig_gtk3_terminal_widget_set_grid_padding(BoxrigGtk3TerminalWidget *widget,
+    unsigned int padding);
+
+/**
  * Applies or clears optional cell-grid geometry hints on an explicit host.
  *
  * @param widget Widget providing the current effective cell metrics.
@@ -865,6 +883,23 @@ boxrig_ui_status boxrig_gtk3_terminal_widget_get_diagnostic(
  * dispatch only and must not reenter this operation or perform session work.
  */
 boxrig_ui_status boxrig_gtk3_terminal_widget_frame(
+    BoxrigGtk3TerminalWidget *widget,
+    boxrig_ui_component_frame_result *result_out);
+
+/**
+ * Dispatches input and layout work and schedules visible drawing with GTK.
+ *
+ * @param widget Widget to dispatch from its creation main context.
+ * @param result_out Receives remaining work and animation scheduling state.
+ * @return A portable UI status, including a failure from a scheduled draw.
+ * @remarks The frame clock coalesces ordinary Cairo updates to a mapped
+ * widget. An idle event loop can prepare an image early once GTK has
+ * painted the preceding image. When a Cairo frame takes a full refresh
+ * interval, subsequent output can accumulate for one interval after it
+ * finishes. Native input, initial presentation and resize boundaries still
+ * advance during dispatch. Use frame() for an explicit retained render.
+ */
+boxrig_ui_status boxrig_gtk3_terminal_widget_dispatch_frame(
     BoxrigGtk3TerminalWidget *widget,
     boxrig_ui_component_frame_result *result_out);
 

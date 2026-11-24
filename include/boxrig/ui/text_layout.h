@@ -29,7 +29,7 @@ typedef enum boxrig_text_direction_policy {
     BOXRIG_TEXT_DIRECTION_FORCE_LTR,
     /** Use a right-to-left paragraph base while reordering bidirectional runs. */
     BOXRIG_TEXT_DIRECTION_FORCE_RTL,
-    /** Preserve terminal cell order, retaining contextual font shaping. */
+    /** Default for new renderers and components: preserve cell order and contextual font shaping. */
     BOXRIG_TEXT_DIRECTION_LOGICAL
 } boxrig_text_direction_policy;
 
@@ -257,6 +257,16 @@ typedef enum boxrig_font_antialias {
     BOXRIG_FONT_ANTIALIAS_NONE
 } boxrig_font_antialias;
 
+/** How Cairo rasterizes terminal box-drawing characters for one output. */
+typedef enum boxrig_box_drawing_mode {
+    /** Reuse scratch storage while preserving the legacy pixels (default). */
+    BOXRIG_BOX_DRAWING_CONSERVATIVE = 0,
+    /** Rasterize each original paint segment in its own Cairo group. */
+    BOXRIG_BOX_DRAWING_LEGACY,
+    /** Batch independent opaque box cells. Outline pixels may differ. */
+    BOXRIG_BOX_DRAWING_BULK
+} boxrig_box_drawing_mode;
+
 /** Portable font hinting policy for one output. */
 typedef enum boxrig_font_hinting {
     BOXRIG_FONT_HINTING_SYSTEM = 0,
@@ -291,6 +301,8 @@ typedef struct boxrig_font_rendering_policy {
     boxrig_font_subpixel_order subpixel_order;
     /** Whether color glyph rendering is permitted. */
     bool color_glyphs;
+    /** Box-drawing method used by Cairo, independent of antialiasing. */
+    boxrig_box_drawing_mode box_drawing;
 } boxrig_font_rendering_policy;
 
 /** Resource limits enforced by a renderer-owned font catalog. */

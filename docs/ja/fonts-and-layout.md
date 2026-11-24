@@ -63,13 +63,13 @@ X11、Win32、OpenGLの描画器を単独で使う場合は、`boxrig_*_renderer
 
 ## TUIの文字幅とセル順に合わせる
 
-TUIは、端末の行と列を指定して枠や文字を配置するアプリです。描画位置を一致させるには、TUIと端末で文字幅と並び順をそろえます。`boxrig_term`は、次の2つの設定を既定で使います。
+TUIは、端末の行と列を指定して枠や文字を配置するアプリです。描画位置を一致させるには、TUIと端末で文字幅と並び順をそろえます。ライブラリと付属端末`boxrig_term`は、次の2つの設定を既定で使います。
 
-絵文字表示を指定するVS16（U+FE0F）を受信しても、元の文字幅を増やしません。端末生成時に`boxrig_terminal_config.emoji_variation_width`へ`BOXRIG_EMOJI_VARIATION_WIDTH_PRESERVE`を指定する設定です。例えばハートとVS16の組は1列のままで、表示用に割り当てた領域の右側を上書きすることを防ぎます。元から幅の広い絵文字、国旗、キーキャップの列幅は変わりません。幅の計測、分割受信、折り返し、リサイズにも同じ方針を使います。
+絵文字表示を指定するVS16（U+FE0F）を受信しても、元の文字幅を増やしません。端末生成時の`boxrig_terminal_config.emoji_variation_width`の既定値は`BOXRIG_EMOJI_VARIATION_WIDTH_PRESERVE`です。例えばハートとVS16の組は1列のままで、表示用に割り当てた領域の右側を上書きすることを防ぎます。元から幅の広い絵文字、国旗、キーキャップの列幅は変わりません。幅の計測、分割受信、折り返し、リサイズにも同じ方針を使います。
 
-画面上の文字は、端末が保持するセルの並び順で表示します。コンポーネントやGTKウィジェットの`set_text_direction()`へ`BOXRIG_TEXT_DIRECTION_LOGICAL`を渡してください。アラビア文字などの字形を整える処理は引き続き使い、クリック位置や選択範囲もセル順に対応します。
+画面上の文字は、端末が保持するセルの並び順で表示します。コンポーネントやGTKウィジェットの既定値は`BOXRIG_TEXT_DIRECTION_LOGICAL`です。アラビア文字などの字形を整える処理は引き続き使い、クリック位置や選択範囲もセル順に対応します。
 
-従来の動作もAPIで選べます。VS16で2列へ拡張する設定は`BOXRIG_EMOJI_VARIATION_WIDTH_WIDE`、双方向文字の並べ替えを行う設定は`BOXRIG_TEXT_DIRECTION_AUTO`です。`FORCE_LTR`と`FORCE_RTL`は段落の基準方向を指定し、段落内の並べ替えは行います。ライブラリ単体の既定値は、それぞれ`WIDE`と`AUTO`です。
+従来の動作もAPIで選べます。VS16で2列へ拡張する設定は`BOXRIG_EMOJI_VARIATION_WIDTH_WIDE`、双方向文字の並べ替えを行う設定は`BOXRIG_TEXT_DIRECTION_AUTO`です。`FORCE_LTR`と`FORCE_RTL`は段落の基準方向を指定し、段落内の並べ替えは行います。
 
 ## 複雑な文字とカラーフォント
 
@@ -81,6 +81,9 @@ OpenType featureや可変フォントの軸を指定できますが、利用可�
 カラー文字の許可は`boxrig_font_rendering_policy.color_glyphs`で指定します。
 許可しただけで、すべての色付きフォント形式を表示できるわけではありません。
 実際の能力や不足文字の診断を確認します。
+
+Cairoの罫線描画は `boxrig_font_rendering_policy.box_drawing` で選べます。既定の `BOXRIG_BOX_DRAWING_CONSERVATIVE` は作業用画像を再利用し、従来方式と同じ画素を描きます。個別の一時画像を使うには `BOXRIG_BOX_DRAWING_LEGACY` を指定します。`BOXRIG_BOX_DRAWING_BULK` は輪郭が重ならない不透明な罫線をまとめて描くため、輪郭の画素が変わる場合があります。
+GTK3、GTK4、Waylandでは、対象の出力の `get_font_rendering_policy()` で設定を取得し、`box_drawing` を変更して `set_font_rendering_policy()` に渡します。表示中の罫線にも反映されます。
 
 ## 行列数と表示寸法
 
@@ -111,3 +114,7 @@ Waylandでは配置がsurfaceの論理座標、描画先が物理ピクセルと
 親、モデル、表示先の責任は[基本概念](./architecture.md)と[環境別ガイド](./index.md#アプリケーションに組み込む)を参照してください。
 
 [フォントと文字配置のAPI](../../include/boxrig/ui/text_layout.h)、[文書目次](./index.md)
+
+GTK3では、四辺のパディングを `boxrig_gtk3_terminal_widget_set_grid_padding` で指定できます。単位は論理ピクセルで、既定値は0です。付属のGTK3端末では環境変数 `BOXRIG_GRID_PADDING` で指定できます。余白には端末の背景が表示されます。セルのクリック位置は余白を除いた先頭セルを基準にします。
+
+`boxrig_gtk3_terminal_widget_set_grid_alignment` に `BOXRIG_UI_GRID_BOTTOM` を渡すと、行の高さで割り切れない余白を上に置きます。既定の `BOXRIG_UI_GRID_TOP` では下に置きます。横方向の端数は常に右に残ります。付属の端末では、X11版、GTK3版、GTK4版、ネイティブWayland版で `BOXRIG_GRID_ALIGNMENT=bottom` を指定できます。

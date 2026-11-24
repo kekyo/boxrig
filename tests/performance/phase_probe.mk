@@ -45,4 +45,4 @@ $(PHASE_PROBE_BINARY) $(PHASE_TRACE_BINARY): $(GTK3_EXAMPLE_SOURCES) tests/perfo
 		-Wl,--wrap=boxrig_term_gtk3_set_window_title \
 		-Wl,--wrap=boxrig_term_text_policy_resume \
 		-Wl,--wrap=boxrig_pango_cairo_renderer_draw_view_composition \
-		-Wl,--wrap=boxrig_gtk3_terminal_widget_frame -o $@
+		-Wl,--wrap=boxrig_gtk3_terminal_widget_dispatch_frame -o $@

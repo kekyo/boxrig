@@ -173,7 +173,7 @@ boxrig_terminal_config boxrig_terminal_config_default(void)
     config.graphics_animation_storage_capacity = 640u * 1024u * 1024u;
     config.graphics_frame_capacity = 16384;
     config.ambiguous_width = BOXRIG_AMBIGUOUS_WIDTH_NARROW;
-    config.emoji_variation_width = BOXRIG_EMOJI_VARIATION_WIDTH_WIDE;
+    config.emoji_variation_width = BOXRIG_EMOJI_VARIATION_WIDTH_PRESERVE;
     config.cursor_column_mode = BOXRIG_CURSOR_COLUMN_MODE_TERMINAL;
     config.input = boxrig_input_config_default();
     config.paste_newline = BOXRIG_NEWLINE_LF;
@@ -361,7 +361,7 @@ boxrig_ambiguous_width boxrig_terminal_ambiguous_width(const boxrig_terminal *te
 boxrig_emoji_variation_width boxrig_terminal_emoji_variation_width(
     const boxrig_terminal *terminal)
 {
-    return terminal == NULL ? BOXRIG_EMOJI_VARIATION_WIDTH_WIDE :
+    return terminal == NULL ? BOXRIG_EMOJI_VARIATION_WIDTH_PRESERVE :
         terminal->screen.emoji_variation_width;
 }
 
@@ -369,25 +369,20 @@ static boxrig_status font_widths_changed(const boxrig_screen *screen, bool *chan
 {
     *changed_out = false;
     for (size_t row = 0; row < screen->history_count + screen->rows * 2; row++) {
-        const boxrig_cell *cells;
-        if (row < screen->history_count) {
-            size_t slot = (screen->history_start + row) % screen->history_capacity;
-            cells = screen->history[slot].cell_storage;
-        } else if (row - screen->history_count < screen->rows) {
-            cells = screen->primary.row_cells[row - screen->history_count];
-        } else {
-            cells = screen->alternate.row_cells[row - screen->history_count - screen->rows];
-        }
+        bool primary = row < screen->history_count + screen->rows;
+        size_t fragment = primary ? row : row - screen->history_count - screen->rows;
         for (size_t column = 0; column < screen->columns; column++) {
-            const boxrig_cell *cell = &cells[column];
+            const boxrig_cell *cell = boxrig_screen_text_fragment_cell(screen,
+                primary ? BOXRIG_TEXT_SCREEN_PRIMARY : BOXRIG_TEXT_SCREEN_ALTERNATE, fragment, column);
             if (cell->continuation || cell->text_length == 0) continue;
+            size_t old_width = cell->column_width;
             boxrig_text_cluster_measurement measurement;
             boxrig_status status = boxrig_screen_measure_text_cluster(screen,
                 (const uint8_t *)boxrig_cell_text(cell), cell->text_length,
                 cell->style.attributes, &measurement);
             if (status != BOXRIG_STATUS_OK) return status;
             size_t width = measurement.column_width > screen->columns ? 1 : measurement.column_width;
-            if (width != cell->column_width) {
+            if (width != old_width) {
                 *changed_out = true;
                 return BOXRIG_STATUS_OK;
             }
@@ -462,6 +457,7 @@ boxrig_status boxrig_terminal_feed(
         bytes,
         length,
         consumed_out);
+    boxrig_screen_pack_pending_history(&terminal->screen);
     boxrig_kitty_graphics_refresh_placeholders(terminal);
     boxrig_screen_text_sync(&terminal->screen);
     return status;
@@ -516,6 +512,20 @@ size_t boxrig_terminal_scrollback_capacity(const boxrig_terminal *terminal)
     return terminal == NULL ? 0 : terminal->screen.history_capacity;
 }
 
+boxrig_scrollback_compression boxrig_terminal_scrollback_compression(
+    const boxrig_terminal *terminal)
+{
+    return terminal == NULL ? BOXRIG_SCROLLBACK_COMPRESSION_NONE : terminal->screen.history_mode;
+}
+
+boxrig_status boxrig_terminal_set_scrollback_compression(
+    boxrig_terminal *terminal,
+    boxrig_scrollback_compression mode)
+{
+    if (terminal == NULL) return BOXRIG_STATUS_INVALID_ARGUMENT;
+    return boxrig_screen_set_history_compression(&terminal->screen, mode);
+}
+
 boxrig_status boxrig_terminal_set_scrollback_capacity(
     boxrig_terminal *terminal,
     size_t row_capacity)
@@ -567,7 +577,7 @@ boxrig_status boxrig_terminal_set_viewport_offset(
     }
     if (terminal->screen.viewport_offset != row_offset) {
         boxrig_kitty_graphics_viewport_will_change(terminal);
-        terminal->screen.viewport_offset = row_offset;
+        boxrig_screen_change_history_view(&terminal->screen, row_offset);
         terminal->screen.viewport_anchor_column = 0;
         boxrig_kitty_graphics_viewport_did_change(terminal);
         boxrig_screen_mark_all(&terminal->screen);
@@ -1852,6 +1862,8 @@ boxrig_status boxrig_terminal_finish_input(boxrig_terminal *terminal)
 {
     if (terminal == NULL) return BOXRIG_STATUS_INVALID_ARGUMENT;
     boxrig_status status = boxrig_parser_finish(&terminal->parser);
+    boxrig_screen_pack_pending_history(&terminal->screen);
+    boxrig_history_seal_tail(&terminal->screen);
     boxrig_kitty_graphics_refresh_placeholders(terminal);
     boxrig_screen_text_sync(&terminal->screen);
     return status;

@@ -170,14 +170,16 @@ static gboolean dispatch_source_dispatch(
     application->peer_closed =
         application->peer_closed || session_result.peer_closed;
     should_frame = widget_can_frame(application) &&
-                   (application->frame_requested ||
+                   (application->frame_requested || (application->peer_closed &&
+                    boxrig_ui_view_frame_requested(boxrig_gtk3_terminal_widget_view(application->widget))) ||
                     !boxrig_gtk3_terminal_widget_has_presentation(
                         application->widget));
     if (should_frame) {
         application->frame_requested = false;
-        if (boxrig_gtk3_terminal_widget_frame(
-                application->widget,
-                &frame_result) != BOXRIG_UI_OK) {
+        boxrig_ui_status frame_status = application->peer_closed
+            ? boxrig_gtk3_terminal_widget_frame(application->widget, &frame_result)
+            : boxrig_gtk3_terminal_widget_dispatch_frame(application->widget, &frame_result);
+        if (frame_status != BOXRIG_UI_OK) {
             boxrig_term_gtk3_report_render_state(application);
             boxrig_term_gtk3_fail(application);
             return G_SOURCE_REMOVE;

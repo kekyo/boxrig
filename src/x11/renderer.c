@@ -200,6 +200,7 @@ struct boxrig_x11_renderer {
     boxrig_ui_text_annotation_visual_range *annotation_ranges;
     boxrig_ui_text_annotation_style *annotation_styles;
     size_t annotation_range_capacity;
+    int grid_origin_x, grid_origin_y;
     size_t cached_rows;
     size_t cached_columns;
     int target_width;
@@ -2229,7 +2230,7 @@ int boxrig_x11_renderer_create(
     }
     renderer->display = display;
     renderer->window = window;
-    renderer->direction_policy = BOXRIG_TEXT_DIRECTION_AUTO;
+    renderer->direction_policy = BOXRIG_TEXT_DIRECTION_LOGICAL;
     if (XGetWindowAttributes(display, window, &attributes) == 0) {
         boxrig_x11_renderer_destroy(renderer);
         return -1;
@@ -2708,6 +2709,13 @@ int boxrig_x11_renderer_expose(
         request_full_raster(renderer);
         return 0;
     }
+    /* The exposed pixels above were restored in surface coordinates. Translate
+     * only the interval used to mark terminal cells for repainting. */
+    right -= renderer->grid_origin_x;
+    bottom -= renderer->grid_origin_y;
+    if (right <= 0 || bottom <= 0) return 0;
+    left = left > renderer->grid_origin_x ? left - renderer->grid_origin_x : 0;
+    top = top > renderer->grid_origin_y ? top - renderer->grid_origin_y : 0;
     first_column = (size_t)left / renderer->cell_width;
     last_column = ((size_t)right + renderer->cell_width - 1) /
                   renderer->cell_width;
@@ -4560,7 +4568,7 @@ static int draw_fitted_item_segment(
     cairo_pattern_t *ink = cairo_pattern_reference(cairo_get_source(renderer->cairo));
     cairo_push_group(renderer->cairo);
     cairo_set_operator(renderer->cairo, CAIRO_OPERATOR_SOURCE);
-    cairo_set_source_surface(renderer->cairo, underlay, 0, 0);
+    cairo_set_source_surface(renderer->cairo, underlay, -renderer->grid_origin_x, -renderer->grid_origin_y);
     cairo_paint(renderer->cairo);
     cairo_set_operator(renderer->cairo, CAIRO_OPERATOR_OVER);
     cairo_set_source(renderer->cairo, ink);
@@ -4989,8 +4997,8 @@ static int composite_image_layer(
         row > SIZE_MAX / renderer->cell_height) {
         return -1;
     }
-    dirty.x = visual_column * renderer->cell_width;
-    dirty.y = row * renderer->cell_height;
+    dirty.x = renderer->grid_origin_x + visual_column * renderer->cell_width;
+    dirty.y = renderer->grid_origin_y + row * renderer->cell_height;
     dirty.width = visual_column_count * renderer->cell_width;
     dirty.height = renderer->cell_height;
     if (dirty.x >= (size_t)renderer->surface_width ||
@@ -5043,8 +5051,12 @@ static int composite_image_layer(
                 terminal,
                 placement,
                 &operation.target_x,
-                &operation.target_y) ||
-            !boxrig_composite_premultiplied_image(
+                &operation.target_y)) {
+            return -1;
+        }
+        operation.target_x += renderer->grid_origin_x;
+        operation.target_y += renderer->grid_origin_y;
+        if (!boxrig_composite_premultiplied_image(
                 (uint32_t *)data,
                 (size_t)renderer->surface_width,
                 (size_t)renderer->surface_height,
@@ -6273,8 +6285,8 @@ static int present_uploaded_frame_dirty(
             row > SIZE_MAX / renderer->cell_height) {
             continue;
         }
-        x = dirty->column * renderer->cell_width;
-        y = row * renderer->cell_height;
+        x = renderer->grid_origin_x + dirty->column * renderer->cell_width;
+        y = renderer->grid_origin_y + row * renderer->cell_height;
         width = dirty->column_count * renderer->cell_width;
         height = renderer->cell_height;
         if (x >= (size_t)renderer->surface_width ||
@@ -6332,8 +6344,8 @@ static int draw_application_background(boxrig_x11_renderer *renderer, bool scrol
         /* One union clip prevents double application where dirty regions meet. */
         for (size_t row = 0; row < renderer->cached_rows; row++) {
             if (!renderer->frame_dirty[row].dirty) continue;
-            cairo_rectangle(cr, (double)renderer->frame_dirty[row].column * renderer->cell_width,
-                (double)row * renderer->cell_height,
+            cairo_rectangle(cr, renderer->grid_origin_x + (double)renderer->frame_dirty[row].column * renderer->cell_width,
+                renderer->grid_origin_y + (double)row * renderer->cell_height,
                 (double)renderer->frame_dirty[row].column_count * renderer->cell_width,
                 renderer->cell_height);
         }
@@ -6431,8 +6443,8 @@ static int present_frame_dirty(
                 row > SIZE_MAX / renderer->cell_height) {
                 continue;
             }
-            x = dirty->column * renderer->cell_width;
-            y = row * renderer->cell_height;
+            x = renderer->grid_origin_x + dirty->column * renderer->cell_width;
+            y = renderer->grid_origin_y + row * renderer->cell_height;
             width = dirty->column_count * renderer->cell_width;
             height = renderer->cell_height;
             if (x >= (size_t)renderer->surface_width ||
@@ -6525,6 +6537,7 @@ static int draw_renderer(
     bool cursor_changed = false;
     bool draw_composition = false;
     bool scrollbar_dirty = false;
+    bool grid_translated = false;
     boxrig_image_placement_view *placements = NULL;
     size_t placement_count = 0;
     int result = -1;
@@ -6542,6 +6555,15 @@ static int draw_renderer(
     }
     if (boxrig_terminal_synchronized_output(terminal)) {
         return 0;
+    }
+    boxrig_ui_layout_result layout = {0};
+    (void)boxrig_ui_view_get_layout(view, &layout);
+    int origin_x = (int)(layout.origin_x / BOXRIG_UI_FIXED_ONE);
+    int origin_y = (int)(layout.origin_y / BOXRIG_UI_FIXED_ONE);
+    if (renderer->grid_origin_x != origin_x || renderer->grid_origin_y != origin_y) {
+        renderer->grid_origin_x = origin_x;
+        renderer->grid_origin_y = origin_y;
+        request_full_raster(renderer);
     }
     boxrig_ui_rgba background = boxrig_ui_view_get_background_color(view);
     boxrig_ui_background_image_view image_background = boxrig_ui_view_get_background_image(view);
@@ -6710,6 +6732,9 @@ static int draw_renderer(
     if (renderer->full_expose && fill_full_background(renderer) == -1) {
         goto cleanup;
     }
+    cairo_save(renderer->cairo);
+    cairo_translate(renderer->cairo, origin_x, origin_y);
+    grid_translated = true;
     for (row = 0; row < rows; row++) {
         const boxrig_x11_row_shape *shape;
 
@@ -6764,6 +6789,8 @@ static int draw_renderer(
             goto cleanup;
         }
     }
+    cairo_restore(renderer->cairo);
+    grid_translated = false;
     if (draw_composited_scrollbar(
             renderer,
             terminal,
@@ -6809,6 +6836,7 @@ static int draw_renderer(
     result = 0;
 
 cleanup:
+    if (grid_translated) cairo_restore(renderer->cairo);
     free(placements);
     return result;
 }

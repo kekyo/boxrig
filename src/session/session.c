@@ -114,6 +114,34 @@ void boxrig_session_destroy(boxrig_session *session)
     free(session);
 }
 
+boxrig_session_status boxrig_session_create_resumed(
+    boxrig_terminal *terminal, const boxrig_session_transport *transport,
+    const boxrig_session_config *config, bool input_finished, boxrig_session **session_out)
+{
+    boxrig_session_status status = boxrig_session_create(terminal, transport, config, session_out);
+    if (status == BOXRIG_SESSION_OK) {
+        (*session_out)->peer_closed = input_finished;
+        (*session_out)->input_finished = input_finished;
+    }
+    return status;
+}
+
+boxrig_status boxrig_session_export_checkpoint(
+    const boxrig_session *session, size_t maximum_bytes,
+    uint8_t **data_out, size_t *length_out, bool *input_finished_out)
+{
+    if (data_out) *data_out = NULL;
+    if (length_out) *length_out = 0;
+    if (input_finished_out) *input_finished_out = false;
+    if (!session || !data_out || !length_out || !input_finished_out)
+        return BOXRIG_STATUS_INVALID_ARGUMENT;
+    if (boxrig_session_input_pending(session)) return BOXRIG_STATUS_BUSY;
+    boxrig_status status = boxrig_terminal_export_checkpoint(
+        session->terminal, maximum_bytes, data_out, length_out);
+    if (status == BOXRIG_STATUS_OK) *input_finished_out = session->input_finished;
+    return status;
+}
+
 boxrig_terminal *boxrig_session_terminal(boxrig_session *session)
 {
     return session == NULL ? NULL : session->terminal;

@@ -119,6 +119,8 @@ static bool paint_updates(const char *prefix)
     CHECK(boxrig_ui_view_create(model, &view_config, &view) == BOXRIG_UI_OK);
     CHECK(boxrig_pango_cairo_renderer_create(560, 336, &renderer) == 0);
     CHECK(boxrig_pango_cairo_renderer_set_font(renderer, &font, &policy) == BOXRIG_FONT_CATALOG_OK);
+    /* Exercise visual BiDi ordering while repainting mixed-script rows. */
+    CHECK(boxrig_pango_cairo_renderer_set_direction_policy(renderer, BOXRIG_TEXT_DIRECTION_AUTO) == 0);
     CHECK(boxrig_pango_cairo_renderer_bind_view(renderer, view) == BOXRIG_UI_OK);
     unsigned int cw = boxrig_pango_cairo_renderer_cell_width(renderer);
     unsigned int ch = boxrig_pango_cairo_renderer_cell_height(renderer);
@@ -304,12 +306,12 @@ static bool partial_paint_updates(bool repeated)
         CHECK(boxrig_pango_cairo_renderer_get_render_statistics(renderer, &statistics) == 0);
         CHECK(statistics.row_shape_count == 0);
         CHECK(matches_fresh(terminal, renderer, &font, &policy, &transparency,
-            BOXRIG_TEXT_DIRECTION_AUTO, 24 * cw, ch));
+            BOXRIG_TEXT_DIRECTION_LOGICAL, 24 * cw, ch));
         if (repeated) {
             CHECK(boxrig_pango_cairo_renderer_expose(renderer, 5 * cw + 1, 1, 12 * cw - 2, ch - 2) == 0);
             CHECK(boxrig_pango_cairo_renderer_draw_view(renderer, view) == 0);
             CHECK(matches_fresh(terminal, renderer, &font, &policy, &transparency,
-                BOXRIG_TEXT_DIRECTION_AUTO, 24 * cw, ch));
+                BOXRIG_TEXT_DIRECTION_LOGICAL, 24 * cw, ch));
         }
     }
     boxrig_pango_cairo_renderer_destroy(renderer);
@@ -382,11 +384,161 @@ static bool conceal_preserves_neighboring_ascii(bool repeated)
     return true;
 }
 
+static bool glyph_groups_copy_the_backing_pixels(void)
+{
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    config.rows = 1;
+    config.columns = 8;
+    boxrig_terminal *terminal;
+    boxrig_pango_cairo_renderer *renderer;
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_pango_cairo_renderer_create(56, 14, &renderer) == 0);
+    CHECK(feed(terminal, "\033[?7l\033[?25lABCDEFGH"));
+    CHECK(boxrig_pango_cairo_renderer_draw(renderer, terminal) == 0);
+    boxrig_pango_cairo_render_statistics work;
+    CHECK(boxrig_pango_cairo_renderer_get_render_statistics(renderer, &work) == 0);
+    CHECK(work.glyph_group_count > 0 && work.glyph_underlay_paint_count == 0);
+    /* A translated backing surface needs Cairo's source coordinate mapping. */
+    cairo_surface_set_device_offset(boxrig_pango_cairo_renderer_surface(renderer), 1, 0);
+    CHECK(feed(terminal, "\033[H12345678"));
+    boxrig_pango_cairo_renderer_reset_render_statistics(renderer);
+    CHECK(boxrig_pango_cairo_renderer_draw(renderer, terminal) == 0);
+    CHECK(boxrig_pango_cairo_renderer_get_render_statistics(renderer, &work) == 0);
+    CHECK(work.glyph_group_count > 0 && work.glyph_underlay_paint_count == work.glyph_group_count);
+    boxrig_pango_cairo_renderer_destroy(renderer);
+    boxrig_terminal_destroy(terminal);
+    return true;
+}
+
+static bool outline_updates(const char *prefix, boxrig_box_drawing_mode mode,
+    boxrig_font_antialias antialias)
+{
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    config.rows = 2;
+    config.columns = 24;
+    boxrig_terminal *terminal;
+    boxrig_pango_cairo_renderer *renderer;
+    boxrig_font_specification font = boxrig_font_specification_default();
+    boxrig_font_rendering_policy policy = boxrig_font_rendering_policy_default();
+    policy.antialias = antialias;
+    policy.box_drawing = mode;
+    boxrig_ui_transparency_state alpha = {0};
+    alpha.effective = BOXRIG_UI_TRANSPARENCY_PREMULTIPLIED_ALPHA;
+    alpha.effective_scopes = BOXRIG_UI_TRANSPARENCY_VIEW_SURFACE;
+    alpha.effective_background_opacity = 119;
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_pango_cairo_renderer_create(168, 28, &renderer) == 0);
+    CHECK(boxrig_pango_cairo_renderer_apply_transparency_state(renderer, &alpha) == 0);
+    size_t recolor_draws = 0;
+    for (int scale = 0; scale < 2; scale++) {
+        policy.output_scale = scale == 0 ? 1.0f : 1.25f;
+        font.size_dip += scale * 0.75f;
+        boxrig_font_rendering_policy reference = policy;
+        reference.box_drawing = BOXRIG_BOX_DRAWING_LEGACY;
+        CHECK(boxrig_pango_cairo_renderer_set_font(renderer, &font, &policy) == BOXRIG_FONT_CATALOG_OK);
+        unsigned int cw = boxrig_pango_cairo_renderer_cell_width(renderer);
+        unsigned int ch = boxrig_pango_cairo_renderer_cell_height(renderer);
+        CHECK(boxrig_terminal_set_cell_pixel_geometry(terminal, cw, ch) == BOXRIG_STATUS_OK);
+        CHECK(boxrig_pango_cairo_renderer_set_surface_size(renderer, 24 * cw, 2 * ch) == 0);
+        CHECK(feed(terminal, "\033[?7l\033[?25l\033[H\033_Ga=T,f=32,s=1,v=1,i=7,p=1,c=12,r=2,z=-1,C=1,q=2;/wAAgA==\033\\"));
+        for (int phase = 0; phase < 4; phase++) {
+            if (phase == 3) {
+                CHECK(boxrig_pango_cairo_renderer_expose(renderer, 4 * cw + 1, 1, 8 * cw - 2, ch - 2) == 0);
+            } else {
+                for (size_t row = 0; row < config.rows; row++) {
+                    for (size_t column = 0; column < config.columns; column++) {
+                        char input[90];
+                        const char *glyph = (column + (phase == 2)) % 5 == 0 ? "╼" : "┿";
+                        snprintf(input, sizeof(input), "\033[%zu;%zuH\033[0;%s38;2;%zu;%d;%zum%s",
+                            row + 1, column + 1, row == 1 ? "3;" : "",
+                            (column * 17 + phase * 11) % 256, 61 + phase, (column * 19) % 256, glyph);
+                        CHECK(feed(terminal, input));
+                    }
+                }
+            }
+            boxrig_pango_cairo_renderer_reset_render_statistics(renderer);
+            CHECK(boxrig_pango_cairo_renderer_draw(renderer, terminal) == 0);
+            CHECK(matches_fresh(terminal, renderer, &font, &reference, &alpha, BOXRIG_TEXT_DIRECTION_LOGICAL, 24 * cw, 2 * ch));
+            boxrig_pango_cairo_render_statistics work;
+            CHECK(boxrig_pango_cairo_renderer_get_render_statistics(renderer, &work) == 0);
+            if (phase == 1) recolor_draws += work.glyph_draw_count;
+            if (prefix != NULL) {
+                char path[4096];
+                int length = snprintf(path, sizeof(path), "%s-%d-%d.png", prefix, scale, phase);
+                CHECK(length > 0 && (size_t)length < sizeof(path));
+                CHECK(cairo_surface_write_to_png(boxrig_pango_cairo_renderer_surface(renderer), path) == CAIRO_STATUS_SUCCESS);
+            }
+        }
+    }
+    boxrig_pango_cairo_renderer_destroy(renderer);
+    boxrig_terminal_destroy(terminal);
+    fprintf(stderr, "Cairo glyph draws for two 48-cell outline recolors: %zu\n", recolor_draws);
+    if (antialias == BOXRIG_FONT_ANTIALIAS_GRAYSCALE) CHECK(recolor_draws < 48);
+    return true;
+}
+
+static bool box_drawing_modes(void)
+{
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    config.rows = 1;
+    config.columns = 24;
+    boxrig_terminal *terminal;
+    boxrig_pango_cairo_renderer *renderer;
+    boxrig_font_specification font = boxrig_font_specification_default();
+    boxrig_font_rendering_policy policy = boxrig_font_rendering_policy_default();
+    CHECK(policy.box_drawing == BOXRIG_BOX_DRAWING_CONSERVATIVE);
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_pango_cairo_renderer_create(168, 14, &renderer) == 0);
+    unsigned int width = 24 * boxrig_pango_cairo_renderer_cell_width(renderer);
+    unsigned int height = boxrig_pango_cairo_renderer_cell_height(renderer);
+    CHECK(boxrig_pango_cairo_renderer_set_surface_size(renderer, width, height) == 0);
+    CHECK(feed(terminal, "\033[?25l\033[?7l"));
+    for (size_t column = 0; column < 24; column++)
+        CHECK(feed(terminal, column % 2 ? "\033[31m│" : "\033[36m┃"));
+    boxrig_font_rendering_policy legacy = policy;
+    legacy.box_drawing = BOXRIG_BOX_DRAWING_LEGACY;
+    const boxrig_box_drawing_mode modes[] = {BOXRIG_BOX_DRAWING_CONSERVATIVE,
+        BOXRIG_BOX_DRAWING_BULK, BOXRIG_BOX_DRAWING_LEGACY, BOXRIG_BOX_DRAWING_CONSERVATIVE};
+    for (size_t i = 0; i < sizeof(modes) / sizeof(modes[0]); i++) {
+        policy.box_drawing = modes[i];
+        CHECK(boxrig_pango_cairo_renderer_set_font(renderer, &font, &policy) == BOXRIG_FONT_CATALOG_OK);
+        boxrig_pango_cairo_renderer_reset_render_statistics(renderer);
+        CHECK(boxrig_pango_cairo_renderer_draw(renderer, terminal) == 0);
+        boxrig_pango_cairo_render_statistics stats;
+        CHECK(boxrig_pango_cairo_renderer_get_render_statistics(renderer, &stats) == 0);
+        if (modes[i] == BOXRIG_BOX_DRAWING_CONSERVATIVE) CHECK(stats.box_scratch_draws > 0);
+        if (modes[i] == BOXRIG_BOX_DRAWING_BULK) CHECK(stats.box_bulk_cells > stats.box_bulk_runs);
+        CHECK(matches_fresh(terminal, renderer, &font,
+            modes[i] == BOXRIG_BOX_DRAWING_BULK ? &policy : &legacy, NULL,
+            BOXRIG_TEXT_DIRECTION_LOGICAL, width, height));
+        CHECK(feed(terminal, i % 2 ? "\033[1;4H\033[32m┼" : "\033[1;4H\033[35m─"));
+        CHECK(boxrig_pango_cairo_renderer_draw(renderer, terminal) == 0);
+        CHECK(matches_fresh(terminal, renderer, &font,
+            modes[i] == BOXRIG_BOX_DRAWING_BULK ? &policy : &legacy, NULL,
+            BOXRIG_TEXT_DIRECTION_LOGICAL, width, height));
+    }
+    policy.box_drawing = (boxrig_box_drawing_mode)99;
+    CHECK(boxrig_font_rendering_policy_validate(&policy) == BOXRIG_FONT_CATALOG_INVALID_ARGUMENT);
+    boxrig_pango_cairo_renderer_destroy(renderer);
+    boxrig_terminal_destroy(terminal);
+    return true;
+}
+
 int main(int argc, char **argv)
 {
-    bool passed = paint_updates(argc == 2 ? argv[1] : NULL) &&
+    bool passed = box_drawing_modes() && glyph_groups_copy_the_backing_pixels() &&
+        paint_updates(argc == 2 ? argv[1] : NULL) &&
         partial_paint_updates(false) && partial_paint_updates(true) &&
-        conceal_preserves_neighboring_ascii(false) && conceal_preserves_neighboring_ascii(true);
+        conceal_preserves_neighboring_ascii(false) && conceal_preserves_neighboring_ascii(true) &&
+        outline_updates(argc == 2 ? argv[1] : NULL, BOXRIG_BOX_DRAWING_CONSERVATIVE,
+            BOXRIG_FONT_ANTIALIAS_GRAYSCALE);
+    const boxrig_box_drawing_mode modes[] = {BOXRIG_BOX_DRAWING_LEGACY,
+        BOXRIG_BOX_DRAWING_CONSERVATIVE, BOXRIG_BOX_DRAWING_BULK};
+    for (size_t i = 0; passed && i < sizeof(modes)/sizeof(modes[0]); i++) {
+        passed = outline_updates(NULL, modes[i], BOXRIG_FONT_ANTIALIAS_SYSTEM);
+        if (passed && modes[i] != BOXRIG_BOX_DRAWING_CONSERVATIVE)
+            passed = outline_updates(NULL, modes[i], BOXRIG_FONT_ANTIALIAS_GRAYSCALE);
+    }
     if (!passed) return 1;
     cairo_debug_reset_static_data();
     FcFini();

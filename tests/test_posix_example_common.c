@@ -43,6 +43,11 @@ static bool config_defaults_and_environment_are_portable(void)
               &environment,
               default_child,
               &config) == BOXRIG_TERM_POSIX_CONFIG_OK);
+    CHECK(config.grid_alignment == BOXRIG_UI_GRID_TOP);
+    environment.grid_alignment = "bottom";
+    CHECK(boxrig_term_posix_configure(1, arguments, BOXRIG_TERM_POSIX_RENDERER_FRONTEND_NONE,
+        &environment, default_child, &config) == BOXRIG_TERM_POSIX_CONFIG_OK);
+    CHECK(config.grid_alignment == BOXRIG_UI_GRID_BOTTOM);
     CHECK(config.child_arguments == default_child);
     CHECK(strcmp(config.child_arguments[0], environment.shell) == 0);
     CHECK(strcmp(config.terminal_type, "xterm") == 0);
@@ -101,6 +106,10 @@ static bool argument_and_environment_errors_are_deterministic(void)
               default_child,
               &config) == BOXRIG_TERM_POSIX_CONFIG_INVALID_TERMINAL_TYPE);
     environment.terminal_type = NULL;
+    environment.grid_alignment = "left";
+    CHECK(boxrig_term_posix_configure(4, command, BOXRIG_TERM_POSIX_RENDERER_FRONTEND_NONE,
+        &environment, default_child, &config) == BOXRIG_TERM_POSIX_CONFIG_INVALID_GRID_ALIGNMENT);
+    environment.grid_alignment = "top";
     environment.background_opacity = "101";
     CHECK(boxrig_term_posix_configure(
               4,

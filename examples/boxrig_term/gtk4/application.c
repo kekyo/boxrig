@@ -64,12 +64,12 @@ static int initialize_background_effect(boxrig_term_gtk4_application *applicatio
 #endif
 }
 
-static boxrig_ui_status set_color_glyphs(void *context, bool enabled)
+static boxrig_ui_status set_demo_font_policy(void *context, const boxrig_term_font_demo *demo)
 {
     boxrig_font_rendering_policy policy;
     boxrig_ui_status status = boxrig_gtk4_terminal_widget_get_font_rendering_policy(context, &policy);
     if (status != BOXRIG_UI_OK) return status;
-    policy.color_glyphs = enabled;
+    boxrig_term_font_demo_update_policy(demo, &policy);
     return boxrig_gtk4_terminal_widget_set_font_rendering_policy(context, &policy);
 }
 
@@ -483,7 +483,9 @@ static void activate_application(
         "map",
         G_CALLBACK(widget_mapped),
         application);
-    if (boxrig_gtk4_terminal_widget_set_text_direction(application->widget,
+    if (boxrig_ui_view_set_grid_alignment(boxrig_gtk4_terminal_widget_view(application->widget),
+            application->config->grid_alignment) != BOXRIG_UI_OK ||
+        boxrig_gtk4_terminal_widget_set_text_direction(application->widget,
             BOXRIG_TEXT_DIRECTION_LOGICAL) != BOXRIG_UI_OK ||
         boxrig_gtk4_terminal_widget_set_window_state(
             application->widget,
@@ -493,7 +495,7 @@ static void activate_application(
             boxrig_gtk4_terminal_widget_view(application->widget)) == -1 ||
             boxrig_term_font_demo_initialize(&application->font_demo,
             boxrig_gtk4_terminal_widget_view(application->widget),
-            set_color_glyphs, application->widget) == -1 ||
+            set_demo_font_policy, application->widget) == -1 ||
         boxrig_term_scrollbar_demo_initialize(&application->scrollbar_demo,
             boxrig_gtk4_terminal_widget_view(application->widget),
             set_scrollbar_policy, application->widget) == -1 ||

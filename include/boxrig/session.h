@@ -180,6 +180,35 @@ boxrig_session_status boxrig_session_create(
 void boxrig_session_destroy(boxrig_session *session);
 
 /**
+ * Attaches a transferred transport to a restored terminal.
+ * @param terminal Borrowed terminal returned by boxrig_terminal_import_checkpoint.
+ * @param transport Destination's callbacks, with the ownership rules of boxrig_session_create.
+ * @param config Destination's buffering and dispatch limits.
+ * @param input_finished EOF flag returned by boxrig_session_export_checkpoint.
+ * @param session_out Receives the new session.
+ * @return A session status. Finished input suppresses further reads and still permits writes.
+ */
+boxrig_session_status boxrig_session_create_resumed(
+    boxrig_terminal *terminal, const boxrig_session_transport *transport,
+    const boxrig_session_config *config, bool input_finished, boxrig_session **session_out);
+
+/**
+ * Captures a quiescent session on its owner thread, between dispatch calls.
+ * @param session Session whose transport and host operations have been paused.
+ * @param maximum_bytes Maximum wire size, including the header and checksum.
+ * @param data_out Receives owned checkpoint bytes to release using boxrig_checkpoint_free.
+ * @param length_out Receives their length.
+ * @param input_finished_out Receives the EOF flag to transfer with the checkpoint.
+ * @return A core checkpoint status, including BOXRIG_STATUS_BUSY for retained input
+ * or pending EOF. Resolve backpressure and dispatch READY_NONE to drain before retrying.
+ * @remarks The caller transfers the transport separately. Unsent terminal output
+ * is included, while bytes already accepted by the transport remain its responsibility.
+ */
+boxrig_status boxrig_session_export_checkpoint(
+    const boxrig_session *session, size_t maximum_bytes,
+    uint8_t **data_out, size_t *length_out, bool *input_finished_out);
+
+/**
  * Returns the terminal borrowed by a session.
  *
  * @param session Session to inspect.

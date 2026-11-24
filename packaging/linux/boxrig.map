@@ -30,6 +30,9 @@ BOXRIG_0 {
         boxrig_terminal_emoji_variation_width;
         boxrig_terminal_set_font_width_resolver;
         boxrig_terminal_create;
+        boxrig_terminal_export_checkpoint;
+        boxrig_terminal_import_checkpoint;
+        boxrig_checkpoint_free;
         boxrig_terminal_create_text_search;
         boxrig_terminal_create_text_snapshot;
         boxrig_terminal_create_text_snapshot_rows;
@@ -73,6 +76,7 @@ BOXRIG_0 {
         boxrig_terminal_resolve_viewport_cell;
         boxrig_terminal_resume_text_recognizers;
         boxrig_terminal_scrollback_capacity;
+        boxrig_terminal_scrollback_compression;
         boxrig_terminal_scrollback_rows;
         boxrig_terminal_send_bytes;
         boxrig_terminal_send_focus;
@@ -83,6 +87,7 @@ BOXRIG_0 {
         boxrig_terminal_set_cell_pixel_geometry;
         boxrig_terminal_set_input_config;
         boxrig_terminal_set_scrollback_capacity;
+        boxrig_terminal_set_scrollback_compression;
         boxrig_terminal_set_tty_erase;
         boxrig_terminal_set_viewport_offset;
         boxrig_terminal_size;

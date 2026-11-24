@@ -117,6 +117,8 @@ BOXRIG_PUBLIC_CONTRACT(
 BOXRIG_PUBLIC_CONTRACT(
     OPERATION, "include/boxrig/gtk3/terminal_widget.h", COMPONENT_ALLOCATION, 4u,
     "boxrig_gtk3_terminal_widget_set_window_state "
+    "boxrig_gtk3_terminal_widget_set_grid_alignment "
+    "boxrig_gtk3_terminal_widget_set_grid_padding "
     "boxrig_gtk3_terminal_widget_get_layout "
     "boxrig_gtk3_terminal_widget_get_effective_metrics")
 
@@ -153,6 +155,7 @@ BOXRIG_PUBLIC_CONTRACT(
 BOXRIG_PUBLIC_CONTRACT(
     OPERATION, "include/boxrig/gtk3/terminal_widget.h", COMPONENT_FRAME_DIRTY, 4u,
     "boxrig_gtk3_terminal_widget_set_frame_request_callback "
+    "boxrig_gtk3_terminal_widget_dispatch_frame "
     "boxrig_gtk3_terminal_widget_frame")
 
 BOXRIG_PUBLIC_CONTRACT(
@@ -322,6 +325,8 @@ BOXRIG_PUBLIC_CONTRACT(
     "boxrig_session_terminal "
     "boxrig_session_interests "
     "boxrig_session_input_pending "
+    "boxrig_session_create_resumed "
+    "boxrig_session_export_checkpoint "
     "boxrig_session_dispatch "
     "boxrig_session_resize")
 
@@ -335,12 +340,17 @@ BOXRIG_PUBLIC_CONTRACT(
     "boxrig_terminal_set_font_width_resolver "
     "boxrig_terminal_measure_text_cluster "
     "boxrig_terminal_feed "
+    "boxrig_terminal_export_checkpoint "
+    "boxrig_terminal_import_checkpoint "
+    "boxrig_checkpoint_free "
     "boxrig_terminal_finish_input "
     "boxrig_terminal_resize "
     "boxrig_terminal_size "
     "boxrig_terminal_scrollback_rows "
     "boxrig_terminal_scrollback_capacity "
     "boxrig_terminal_set_scrollback_capacity "
+    "boxrig_terminal_scrollback_compression "
+    "boxrig_terminal_set_scrollback_compression "
     "boxrig_terminal_text_revision "
     "boxrig_terminal_text_fragment_count "
     "boxrig_terminal_get_text_fragment "
@@ -639,6 +649,8 @@ BOXRIG_PUBLIC_CONTRACT(
     "boxrig_ui_view_set_geometry_capabilities "
     "boxrig_ui_view_get_geometry_capabilities "
     "boxrig_ui_view_accept_allocation "
+    "boxrig_ui_view_set_grid_alignment "
+    "boxrig_ui_view_set_grid_padding "
     "boxrig_ui_view_apply_layout_change "
     "boxrig_ui_view_get_size_command_state "
     "boxrig_ui_view_complete_size_command "

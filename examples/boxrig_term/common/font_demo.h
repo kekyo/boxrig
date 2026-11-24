@@ -4,24 +4,37 @@
 
 #include "boxrig/ui.h"
 
-/** Applies only the color-glyph setting, preserving the current font and DPI.
+typedef struct boxrig_term_font_demo boxrig_term_font_demo;
+
+/** Applies the requested fields, preserving the current font and DPI.
  * @param context Borrowed native widget or component.
- * @param enabled Whether color glyphs are permitted.
+ * @param demo Requested startup or shortcut settings.
  * @return Native policy-application status, including BUSY for a deferred retry.
  */
-typedef boxrig_ui_status (*boxrig_term_font_demo_setter)(void *context, bool enabled);
+typedef boxrig_ui_status (*boxrig_term_font_demo_setter)(void *context, const boxrig_term_font_demo *demo);
 
 /** Optional color-glyph control, whose borrowed objects outlive this state. */
-typedef struct boxrig_term_font_demo {
+struct boxrig_term_font_demo {
     boxrig_ui_view *view; /**< View to invalidate when a setting is queued. */
     boxrig_term_font_demo_setter setter; /**< Native policy setter. */
     void *context; /**< Borrowed setter context. */
     bool color_glyphs; /**< Latest requested value. */
     bool enabled; /**< Explicit environment setting enables the shortcut. */
     bool pending; /**< Work to apply outside input dispatch. */
-} boxrig_term_font_demo;
+    bool set_antialias; /**< Apply the explicit antialias setting on startup. */
+    boxrig_font_antialias antialias; /**< Requested outline antialiasing. */
+    bool set_box_drawing; /**< Apply the explicit box method on startup. */
+    boxrig_box_drawing_mode box_drawing; /**< Requested Cairo box method. */
+};
 
-/** Reads BOXRIG_COLOR_GLYPHS=0|1 and applies the initial setting.
+/** Copies explicitly requested fields into the current output policy.
+ * @param demo Startup or shortcut settings.
+ * @param policy Current policy updated in place.
+ */
+void boxrig_term_font_demo_update_policy(const boxrig_term_font_demo *demo,
+    boxrig_font_rendering_policy *policy);
+
+/** Reads BOXRIG_COLOR_GLYPHS, BOXRIG_BOX_DRAWING and BOXRIG_FONT_ANTIALIAS at startup.
  * @param demo Caller-owned state.
  * @param view Borrowed view.
  * @param setter Native policy setter.

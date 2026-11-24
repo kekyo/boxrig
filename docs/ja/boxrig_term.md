@@ -107,9 +107,12 @@ Ctrl＋`+`／`-`で文字を拡大・縮小し、Ctrl＋`0`で既定へ戻しま
 | 環境変数 | 試す内容 | 有効時の切り替え |
 | --- | --- | --- |
 | `BOXRIG_SCROLLBAR=always/auto/never` | バーを常時表示／履歴がある場合／非表示 | Ctrl＋Shift＋F9 |
+| `BOXRIG_GRID_ALIGNMENT=top/bottom` | Linuxで端末の行を上寄せ／下寄せ（既定は `top`） | 起動時に指定 |
 | `BOXRIG_SELECTION_STYLE_DEMO=1` | 選択範囲の装飾 | Ctrl＋Shift＋F10 |
 | `BOXRIG_CURSOR_STYLE_DEMO=1` | カーソルの装飾 | Ctrl＋Shift＋F11 |
 | `BOXRIG_CURSOR_STYLE_DEMO=2` | フォーカスに応じて塗り分ける3形状の箱 | Ctrl＋Shift＋F11 |
+| `BOXRIG_FONT_ANTIALIAS=system/grayscale` | 文字の輪郭をシステム標準またはグレースケールで描く（既定は `system`） | — |
+| `BOXRIG_BOX_DRAWING=legacy/conservative/bulk` | Cairoの罫線描画（既定は `conservative`） | — |
 | `BOXRIG_COLOR_GLYPHS=0/1` | Linuxで絵文字などの単色／カラー表示 | Ctrl＋Shift＋F11 |
 | `BOXRIG_COLOR_FILTER_DEMO=1` | 表示色の補正 | Ctrl＋Shift＋F12 |
 | `BOXRIG_AMBIGUOUS_WIDTH=narrow/wide/font` | 曖昧幅文字を1列／2列／フォント依存で表示 | 起動時に指定 |
@@ -118,6 +121,15 @@ Ctrl＋`+`／`-`で文字を拡大・縮小し、Ctrl＋`0`で既定へ戻しま
 曖昧幅文字の既定値は`narrow`の1列です。2列に固定する場合は`wide`、フォント依存にする場合は`font`を指定してください。フォント依存では送り幅を整数列へ切り上げ、字形を元の幅で中央に配置します。例えば2.1セル分なら3列になります。
 デモ用の切り替えキーは対応する環境変数を設定したときだけ使えます。
 F11を使う二つのデモは個別に試してください。
+
+ウインドウを画面の右半分に並べたときも、`bottom` なら最終行が端末の表示領域の下端に揃います。
+行の高さに満たない余白は上、列の幅に満たない余白は右です。
+X11版では `bottom` を選ぶと、ウインドウマネージャーがタイルの幅と高さをピクセル単位で割り当てられます。
+GTK3版、GTK4版、ネイティブWayland版でも同じ環境変数を指定できます。GTK3版では、サイズ変更用の枠の内側が端末の表示領域です。
+
+```sh
+BOXRIG_GRID_ALIGNMENT=bottom ./build/boxrig_term/wayland/boxrig_term
+```
 
 <a id="表示色の補正を試す"></a>
 
