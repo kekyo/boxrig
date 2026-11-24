@@ -218,3 +218,70 @@ Start with the introductory guide, then move to the feature pages you need.
 boxrig is distributed under the [MIT License](./LICENSE).
 Libraries you link and files you distribute have their own licenses.
 See the [third-party license guide](./packaging/licenses/README.md).
+
+---
+
+## History
+
+- 0.16.0
+  - Added versioned checkpoints for resuming a terminal session in another process with its screen, scrollback, pending output, and uploaded Kitty images intact. A Linux example transfers a running shell's PTY to another process and back.
+  - Applications can reduce scrollback memory use by switching from the uncompressed default to packed rows or level 1 DEFLATE. The setting applies to existing and future history.
+  - The library now uses the same text defaults as `boxrig_term`. Views display text in stored cell order, and the emoji presentation selector (VS16) preserves the base character's width.
+  - Added bottom alignment and uniform padding for terminal grids.
+  - Cairo outputs can switch between conservative (default), legacy, and bulk rendering for box-drawing characters. The Linux samples can select grayscale font antialiasing independently.
+  - The X11 sample and GTK 3 Cairo widget now group redraws during output bursts. OpenGL text shaping also uses less CPU.
+  - Sped up decoding of direct Kitty RGBA uploads on CPUs with SSSE3. The compositor now skips resampling when drawing images at their original size.
+  - Fixed stale pixels after changing how block characters are drawn. On Windows, DirectWrite now clips combining marks to their own row.
+- 0.15.0
+  - Filled block characters such as `▀` and `█` now use cell-aligned rectangles to prevent gaps between adjacent blocks. Each view can also use font glyphs.
+  - Changed `boxrig_term` to display text in stored cell order and preserve the base character's width when followed by the emoji presentation selector (VS16). These defaults keep text interfaces aligned.
+  - Fixed Kitty graphics compatibility with the notcurses terminal UI library by accepting placement IDs on image-only uploads and suppressing replies to image deletions.
+  - Reduced Cairo redraw work when text colors change and fixed an OpenGL failure when displaying large images.
+- 0.14.0
+  - Fixed Kitty image transfers that use separate Base64 padding for each chunk.
+- 0.13.0
+  - Added a per-view option to keep explicitly colored cell backgrounds opaque on a transparent terminal.
+  - Applications can switch an active selection between linear and rectangular shapes or change its unit to words or lines, even when its endpoints are offscreen.
+  - Updated character widths and word selection to Unicode 18.0.
+  - Kept the last complete frame visible during font zoom in GTK 3's OpenGL renderer.
+- 0.12.0
+  - Added link decoration options that preserve terminal colors, reverse video, and existing underline styles.
+  - Avoided unnecessary redraws on GTK and Wayland when no input method composition is active.
+- 0.11.0
+  - Made dragging a text selection faster in terminals with long scrollback by avoiding repeated scans for the same lines.
+- 0.10.0
+  - Added support for moving a running terminal between windows on X11, Wayland, GTK 3/4, and Win32 while preserving its session and selection.
+  - Expanded the Linux shared-library SDK to include X11, Wayland, OpenGL, notifications, and background effects.
+  - Reduced OpenGL rendering overhead for partial screen updates.
+- 0.9.0
+  - Aligned selection highlighting with copied text at line breaks. A selected newline is also visible when the text fills the last column.
+  - Reduced the cost of matching regular expressions, drawing text annotations, and tracking OSC 8 hyperlinks in scrollback.
+  - Fixed missed text recognition notifications when many matches arrive at once.
+  - Fixed a GTK 4 rendering failure during repeated font zoom.
+- 0.8.0
+  - Added font-based sizing for ambiguous-width characters as an alternative to fixed one- or two-column widths.
+  - Fixed block cursors to cover wide characters and fitted shaped text to its assigned columns.
+  - Rectangular copies now trim trailing ASCII spaces by default, with a per-view option to preserve them.
+- 0.7.0
+  - Fixed lost scrollback when a full-width scrolling region starts at the top of the main screen and ends above a fixed footer.
+- 0.6.0
+  - Improved window resize performance for GTK with OpenGL, X11 with EGL, and native Wayland.
+  - Reduced the cost of rewrapping scrollback on resize. Height-only changes can reuse rows that already fit.
+- 0.5.0
+  - Extended rectangular selection and copying into offscreen scrollback, including rows with wide characters, combining marks, and bidirectional text.
+  - Kept the selection anchor stable while scrolling or dragging a rectangle back to zero width.
+- 0.4.0
+  - Added block, bar, and underline cursors that can switch from filled to outlined when focus leaves the terminal, with a configurable outline width.
+  - Allowed GTK terminal widgets to set their font at creation so a replacement view can match the original cell size.
+- 0.3.0
+  - Made screen-reader access to GTK terminal text opt-in and switchable at runtime.
+  - Sped up scrolling and ASCII output, reused text recognition results for unchanged lines, and reduced Cairo repaint work on partially changed rows.
+- 0.2.0
+  - Added fcitx 4 and 5 support for GTK and native Wayland, with automatic input method selection and in-terminal candidate panels.
+  - Added a standalone UTF-8 regular expression API with named captures and Unicode character categories. Screen text recognizers can also return captures.
+  - Exposed visible terminal text to screen readers on GTK 3 and 4.
+  - Added runtime keyboard settings, input suspension, and notifications when a terminal application requests a new grid size.
+  - Added nonblocking POSIX PTY startup diagnostics so hosts can distinguish a failure to start a command from the command's exit status.
+  - Shipped Linux shared libraries for the core, UI, sessions, POSIX PTYs, and GTK widgets.
+- 0.1.0
+  - Initial public release of the C99 terminal core and embeddable UI components for X11, Wayland, GTK 3/4, and Win32.
