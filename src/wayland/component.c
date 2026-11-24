@@ -2851,7 +2851,13 @@ static void retain_view_dirty(
         boxrig_wayland_shm_pool_add_full_dirty(component->pool);
         return;
     }
-    for (row = 0; row < component->layout.rows; row++) {
+    boxrig_ui_layout_result layout;
+    if (boxrig_ui_view_get_layout(component->view, &layout) != BOXRIG_UI_OK) {
+        boxrig_wayland_shm_pool_add_full_dirty(component->pool);
+        return;
+    }
+    uint64_t grid_y = (uint64_t)(layout.origin_y / BOXRIG_UI_FIXED_ONE);
+    for (row = 0; row < layout.rows; row++) {
         boxrig_ui_dirty_layer layer;
         bool row_dirty = false;
 
@@ -2868,7 +2874,7 @@ static void retain_view_dirty(
             }
         }
         if (row_dirty) {
-            uint64_t top = (uint64_t)row * metrics.cell_height;
+            uint64_t top = grid_y + (uint64_t)row * metrics.cell_height;
             uint64_t bottom = top + metrics.cell_height;
 
             if (top >= component->buffer_height) {

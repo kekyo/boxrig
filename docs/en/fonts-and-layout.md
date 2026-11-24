@@ -117,4 +117,4 @@ See [Basic concepts](./architecture.md) and the [platform guides](./index.md#int
 
 Use `boxrig_gtk3_terminal_widget_set_grid_padding` to set uniform padding in GTK logical pixels. The default is zero. The GTK3 sample accepts the same value in `BOXRIG_GRID_PADDING`. The padding displays the terminal background. Terminal mouse reports use coordinates relative to the first cell.
 
-Use `boxrig_gtk3_terminal_widget_set_grid_alignment` with `BOXRIG_UI_GRID_BOTTOM` to leave the height remaining after fitting whole rows above the grid. The default, `BOXRIG_UI_GRID_TOP`, leaves it below. Unused width stays on the right. The GTK3 sample accepts `BOXRIG_GRID_ALIGNMENT=bottom`.
+Use `boxrig_gtk3_terminal_widget_set_grid_alignment` with `BOXRIG_UI_GRID_BOTTOM` to leave the height remaining after fitting whole rows above the grid. The default, `BOXRIG_UI_GRID_TOP`, leaves it below. Unused width stays on the right. The X11, GTK3, GTK4 and native Wayland samples accept `BOXRIG_GRID_ALIGNMENT=bottom`.

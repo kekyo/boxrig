@@ -1168,6 +1168,7 @@ static boxrig_ui_status initialize_component_resources(
             config->paste_capacity,
             config->paste_chunk_size,
             &component->input) == -1 ||
+        boxrig_x11_input_adapter_set_mouse_router(component->input, component->view, NULL, NULL) == -1 ||
         boxrig_x11_input_adapter_set_editable_document(
             component->input,
             boxrig_ui_view_editable_document(component->view)) == -1 ||
@@ -2762,7 +2763,7 @@ boxrig_ui_status boxrig_x11_terminal_component_set_mouse_router(
     if (component == NULL ||
         boxrig_x11_input_adapter_set_mouse_router(
             component->input,
-            router == NULL ? NULL : component->view,
+            component->view,
             router,
             context) == -1) {
         return BOXRIG_UI_INVALID_ARGUMENT;

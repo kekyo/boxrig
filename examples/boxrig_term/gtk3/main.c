@@ -23,6 +23,7 @@ int main(int argument_count, char **arguments)
     environment.shell = getenv("SHELL");
     environment.terminal_type = getenv("BOXRIG_TERM");
     environment.background_opacity = getenv("BOXRIG_BACKGROUND_OPACITY");
+    environment.grid_alignment = getenv("BOXRIG_GRID_ALIGNMENT");
     environment.allow_graphics_external =
         getenv("BOXRIG_ALLOW_GRAPHICS_EXTERNAL");
     environment.allow_notifications = getenv("BOXRIG_ALLOW_NOTIFICATIONS");
@@ -41,6 +42,10 @@ int main(int argument_count, char **arguments)
         fprintf(
             stderr,
             "boxrig_term: BOXRIG_TERM must be xterm or xterm-256color\n");
+        return 2;
+    }
+    if (status == BOXRIG_TERM_POSIX_CONFIG_INVALID_GRID_ALIGNMENT) {
+        fprintf(stderr, "boxrig_term: BOXRIG_GRID_ALIGNMENT must be top or bottom\n");
         return 2;
     }
     if (status == BOXRIG_TERM_POSIX_CONFIG_INVALID_OPACITY) {

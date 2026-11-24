@@ -102,6 +102,7 @@ boxrig_term_posix_config boxrig_term_posix_config_default(
         NULL);
     config.transparency = boxrig_ui_transparency_config_default();
     config.renderer = BOXRIG_TERM_POSIX_RENDERER_AUTO;
+    config.grid_alignment = BOXRIG_UI_GRID_TOP;
     config.enable_background_opacity_shortcuts = false;
     config.window_title = "boxrig";
     return config;
@@ -185,6 +186,13 @@ boxrig_term_posix_config_status boxrig_term_posix_configure(
     }
     *config_out = boxrig_term_posix_config_default(child_arguments);
     config_out->renderer = renderer;
+    if (environment->grid_alignment != NULL) {
+        if (strcmp(environment->grid_alignment, "bottom") == 0) {
+            config_out->grid_alignment = BOXRIG_UI_GRID_BOTTOM;
+        } else if (strcmp(environment->grid_alignment, "top") != 0) {
+            return BOXRIG_TERM_POSIX_CONFIG_INVALID_GRID_ALIGNMENT;
+        }
+    }
     config_out->transparency.request = BOXRIG_UI_TRANSPARENCY_PREFERRED;
     if (environment->terminal_type != NULL &&
         environment->terminal_type[0] != '\0') {
@@ -252,11 +260,15 @@ int boxrig_term_posix_runtime_start(
     session_config = boxrig_session_config_default();
     boxrig_tty_erase unavailable = {false, 0};
     (void)boxrig_terminal_set_tty_erase(runtime->terminal, unavailable);
+    /* The host may already have accepted a tiled or fullscreen allocation
+     * before the first child starts. Give its PTY the visible grid. */
+    size_t rows, columns;
+    boxrig_terminal_size(runtime->terminal, &rows, &columns);
     if (boxrig_posix_pty_spawn(
             config->child_arguments,
             config->terminal_type,
-            config->terminal.rows,
-            config->terminal.columns,
+            rows,
+            columns,
             &runtime->pty) == -1 ||
         boxrig_posix_pty_session_create(
             runtime->terminal,

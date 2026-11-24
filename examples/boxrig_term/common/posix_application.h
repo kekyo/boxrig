@@ -34,6 +34,8 @@ typedef struct boxrig_term_posix_environment {
     const char *terminal_type;
     /** Value of BOXRIG_BACKGROUND_OPACITY, or NULL when it is unset. */
     const char *background_opacity;
+    /** Value of BOXRIG_GRID_ALIGNMENT, or NULL for top alignment. */
+    const char *grid_alignment;
     /** Value of BOXRIG_ALLOW_GRAPHICS_EXTERNAL, or NULL when unset. */
     const char *allow_graphics_external;
     /** Value of BOXRIG_ALLOW_NOTIFICATIONS, or NULL when unset. */
@@ -77,6 +79,8 @@ typedef struct boxrig_term_posix_config {
     boxrig_ui_transparency_config transparency;
     /** Creation-time renderer policy. */
     boxrig_term_posix_renderer renderer;
+    /** Vertical placement of cells in the allocated content area. */
+    boxrig_ui_grid_alignment grid_alignment;
     /** Whether application opacity shortcuts are enabled. */
     bool enable_background_opacity_shortcuts;
     /** Initial frontend window title. */
@@ -93,6 +97,8 @@ typedef enum boxrig_term_posix_config_status {
     BOXRIG_TERM_POSIX_CONFIG_INVALID_TERMINAL_TYPE,
     /** BOXRIG_BACKGROUND_OPACITY was not an integer from 0 through 100. */
     BOXRIG_TERM_POSIX_CONFIG_INVALID_OPACITY,
+    /** BOXRIG_GRID_ALIGNMENT was neither top nor bottom. */
+    BOXRIG_TERM_POSIX_CONFIG_INVALID_GRID_ALIGNMENT,
     /** --renderer did not name a renderer accepted by this frontend. */
     BOXRIG_TERM_POSIX_CONFIG_INVALID_RENDERER,
     /** --renderer was specified more than once. */

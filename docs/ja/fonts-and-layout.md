@@ -117,4 +117,4 @@ Waylandでは配置がsurfaceの論理座標、描画先が物理ピクセルと
 
 GTK3では、四辺のパディングを `boxrig_gtk3_terminal_widget_set_grid_padding` で指定できます。単位は論理ピクセルで、既定値は0です。付属のGTK3端末では環境変数 `BOXRIG_GRID_PADDING` で指定できます。余白には端末の背景が表示されます。セルのクリック位置は余白を除いた先頭セルを基準にします。
 
-`boxrig_gtk3_terminal_widget_set_grid_alignment` に `BOXRIG_UI_GRID_BOTTOM` を渡すと、行の高さで割り切れない余白を上に置きます。既定の `BOXRIG_UI_GRID_TOP` では下に置きます。横方向の端数は常に右に残ります。GTK3端末では `BOXRIG_GRID_ALIGNMENT=bottom` で下寄せを試せます。
+`boxrig_gtk3_terminal_widget_set_grid_alignment` に `BOXRIG_UI_GRID_BOTTOM` を渡すと、行の高さで割り切れない余白を上に置きます。既定の `BOXRIG_UI_GRID_TOP` では下に置きます。横方向の端数は常に右に残ります。付属の端末では、X11版、GTK3版、GTK4版、ネイティブWayland版で `BOXRIG_GRID_ALIGNMENT=bottom` を指定できます。

@@ -74,6 +74,7 @@ typedef struct boxrig_term_x11_application {
     unsigned long pending_allocation_serial;
     unsigned int pending_allocation_width;
     unsigned int pending_allocation_height;
+    boxrig_ui_grid_alignment grid_alignment;
     unsigned int resize_hints_scrollbar_width;
     bool pending_allocation;
     bool pending_size;

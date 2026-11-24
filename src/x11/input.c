@@ -1970,37 +1970,20 @@ static uint32_t button_mask(boxrig_mouse_button button)
 static int route_mouse_transition(
     boxrig_x11_input_adapter *adapter,
     const boxrig_mouse_event *event,
+    const boxrig_ui_hit_test_result *hit,
     uint32_t button)
 {
-    boxrig_ui_hit_test_result hit;
-    boxrig_input_mouse_route route;
+    boxrig_input_mouse_route route = BOXRIG_INPUT_MOUSE_ROUTE_TERMINAL;
     bool captured = button != 0
                         ? (adapter->application_buttons & button) != 0
                         : adapter->application_buttons != 0;
 
-    if (adapter->mouse_router == NULL) {
-        return 0;
-    }
     if (event->action == BOXRIG_MOUSE_RELEASE && !captured) {
         return 0;
     }
-    if (adapter->mouse_view == NULL ||
-        event->x > INT64_MAX / BOXRIG_UI_FIXED_ONE ||
-        event->x < INT64_MIN / BOXRIG_UI_FIXED_ONE ||
-        event->y > INT64_MAX / BOXRIG_UI_FIXED_ONE ||
-        event->y < INT64_MIN / BOXRIG_UI_FIXED_ONE ||
-        boxrig_ui_view_hit_test_with_composition(
-            adapter->mouse_view,
-            adapter->composition,
-            event->x * BOXRIG_UI_FIXED_ONE,
-            event->y * BOXRIG_UI_FIXED_ONE,
-            &hit) != BOXRIG_UI_OK) {
-        return -1;
+    if (adapter->mouse_router != NULL) {
+        route = adapter->mouse_router(event, hit, adapter->mouse_router_context);
     }
-    route = adapter->mouse_router(
-        event,
-        &hit,
-        adapter->mouse_router_context);
     if (route != BOXRIG_INPUT_MOUSE_ROUTE_TERMINAL &&
         route != BOXRIG_INPUT_MOUSE_ROUTE_APPLICATION &&
         route != BOXRIG_INPUT_MOUSE_ROUTE_ERROR) {
@@ -2016,7 +1999,10 @@ static int route_mouse_transition(
     if (captured) {
         return 1;
     }
-    if (route == BOXRIG_INPUT_MOUSE_ROUTE_APPLICATION) {
+    boxrig_ui_layout_result layout;
+    bool margin = !hit->inside_grid && boxrig_ui_view_get_layout(adapter->mouse_view, &layout) == BOXRIG_UI_OK &&
+        boxrig_ui_input_hits_margin(&layout, hit);
+    if (route == BOXRIG_INPUT_MOUSE_ROUTE_APPLICATION || (margin && event->action != BOXRIG_MOUSE_RELEASE)) {
         if (event->action == BOXRIG_MOUSE_PRESS) {
             adapter->application_buttons |= button;
         }
@@ -2025,34 +2011,33 @@ static int route_mouse_transition(
     return 0;
 }
 
-static void translate_coordinates(
-    boxrig_x11_input_adapter *adapter,
-    int x,
-    int y,
-    int64_t *local_x_out,
-    int64_t *local_y_out,
-    size_t *row_out,
-    size_t *column_out)
+static bool translate_coordinates(
+    boxrig_x11_input_adapter *adapter, int x, int y,
+    boxrig_mouse_event *event, boxrig_ui_hit_test_result *hit)
 {
-    size_t rows;
-    size_t columns;
     int64_t local_x = (int64_t)x - adapter->viewport_x;
     int64_t local_y = (int64_t)y - adapter->viewport_y;
-    size_t row = local_y < 0 ? 0 : (size_t)local_y / adapter->cell_height;
-    size_t column =
-        local_x < 0 ? 0 : (size_t)local_x / adapter->cell_width;
-
+    boxrig_ui_layout_result layout = {0};
+    if (boxrig_ui_view_get_layout(adapter->mouse_view, &layout) == BOXRIG_UI_OK) {
+        if (boxrig_ui_view_hit_test_with_composition(adapter->mouse_view,
+                adapter->composition, local_x * BOXRIG_UI_FIXED_ONE,
+                local_y * BOXRIG_UI_FIXED_ONE, hit) != BOXRIG_UI_OK) return false;
+        local_x -= layout.origin_x / BOXRIG_UI_FIXED_ONE;
+        local_y -= layout.origin_y / BOXRIG_UI_FIXED_ONE;
+    } else {
+        /* A standalone adapter has only cell metrics and no view margins. */
+        if (adapter->mouse_router != NULL) return false;
+        hit->inside_grid = true;
+    }
+    size_t rows, columns;
     boxrig_terminal_size(adapter->terminal, &rows, &columns);
-    if (row >= rows) {
-        row = rows - 1;
-    }
-    if (column >= columns) {
-        column = columns - 1;
-    }
-    *local_x_out = local_x;
-    *local_y_out = local_y;
-    *row_out = row;
-    *column_out = column;
+    size_t row = local_y < 0 ? 0 : (size_t)local_y / adapter->cell_height;
+    size_t column = local_x < 0 ? 0 : (size_t)local_x / adapter->cell_width;
+    event->row = row < rows ? row : rows - 1;
+    event->column = column < columns ? column : columns - 1;
+    event->x = local_x;
+    event->y = local_y;
+    return true;
 }
 
 static uint8_t press_click_count(
@@ -2120,14 +2105,8 @@ static int process_button_event(
     logical.button = button;
     logical.pressed_buttons = adapter->pressed_buttons;
     logical.modifiers = translate_modifiers(adapter, event->state);
-    translate_coordinates(
-        adapter,
-        event->x,
-        event->y,
-        &logical.x,
-        &logical.y,
-        &logical.row,
-        &logical.column);
+    boxrig_ui_hit_test_result hit = {0};
+    if (!translate_coordinates(adapter, event->x, event->y, &logical, &hit)) return -1;
     if (logical.action == BOXRIG_MOUSE_PRESS) {
         logical.click_count = press_click_count(
             adapter,
@@ -2137,7 +2116,7 @@ static int process_button_event(
             logical.column);
     }
     {
-        int route = route_mouse_transition(adapter, &logical, mask);
+        int route = route_mouse_transition(adapter, &logical, &hit, mask);
 
         if (route != 0) {
             return route;
@@ -2163,16 +2142,10 @@ static int process_motion_event(
     logical.button = BOXRIG_MOUSE_BUTTON_NONE;
     logical.pressed_buttons = adapter->pressed_buttons;
     logical.modifiers = translate_modifiers(adapter, event->state);
-    translate_coordinates(
-        adapter,
-        event->x,
-        event->y,
-        &logical.x,
-        &logical.y,
-        &logical.row,
-        &logical.column);
+    boxrig_ui_hit_test_result hit = {0};
+    if (!translate_coordinates(adapter, event->x, event->y, &logical, &hit)) return -1;
     {
-        int route = route_mouse_transition(adapter, &logical, 0);
+        int route = route_mouse_transition(adapter, &logical, &hit, 0);
 
         if (route != 0) {
             return route;
@@ -3514,8 +3487,10 @@ int boxrig_x11_input_adapter_synchronize_candidate(
     if (!view.candidate.visible || adapter->input_context == NULL) {
         return 0;
     }
-    spot_x = (int64_t)view.candidate.spot_x + adapter->viewport_x;
-    spot_y = (int64_t)view.candidate.spot_y + adapter->viewport_y;
+    boxrig_ui_layout_result layout = {0};
+    (void)boxrig_ui_view_get_layout(adapter->mouse_view, &layout);
+    spot_x = (int64_t)view.candidate.spot_x + adapter->viewport_x + layout.origin_x / BOXRIG_UI_FIXED_ONE;
+    spot_y = (int64_t)view.candidate.spot_y + adapter->viewport_y + layout.origin_y / BOXRIG_UI_FIXED_ONE;
     if (spot_x < SHRT_MIN || spot_x > SHRT_MAX || spot_y < SHRT_MIN ||
         spot_y > SHRT_MAX) {
         return -1;
@@ -4119,11 +4094,8 @@ int boxrig_x11_input_adapter_set_mouse_router(
     void *context)
 {
     if (adapter == NULL ||
-        (router == NULL && (view != NULL || context != NULL)) ||
-        (router != NULL &&
-         (view == NULL ||
-          boxrig_ui_model_terminal(boxrig_ui_view_model(view)) !=
-              adapter->terminal)) ||
+        (router == NULL && context != NULL) || (router != NULL && view == NULL) ||
+        (view != NULL && boxrig_ui_model_terminal(boxrig_ui_view_model(view)) != adapter->terminal) ||
         adapter->pressed_buttons != 0 ||
         adapter->application_buttons != 0) {
         return -1;

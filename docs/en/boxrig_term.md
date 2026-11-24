@@ -107,6 +107,7 @@ The space immediately before `q` is required.
 | Environment variable | Feature to try | Toggle when enabled |
 | --- | --- | --- |
 | `BOXRIG_SCROLLBAR=always/auto/never` | Always show / show with history / hide the bar | Ctrl+Shift+F9 |
+| `BOXRIG_GRID_ALIGNMENT=top/bottom` | Align terminal rows to the top or bottom on Linux (default `top`) | Set at startup |
 | `BOXRIG_SELECTION_STYLE_DEMO=1` | Selection decorations | Ctrl+Shift+F10 |
 | `BOXRIG_CURSOR_STYLE_DEMO=1` | Cursor decorations | Ctrl+Shift+F11 |
 | `BOXRIG_CURSOR_STYLE_DEMO=2` | Three focus-sensitive cursor boxes | Ctrl+Shift+F11 |
@@ -120,6 +121,15 @@ When unset, the scrollbar is always shown and color fonts are enabled.
 Ambiguous characters default to `narrow`, one column. Set `wide` for a fixed two-column width or `font` for font-dependent columns. In font-dependent mode, advances round up to whole columns and glyphs retain their natural width at the center. For example, a 2.1-cell advance occupies three columns.
 Demo toggle keys are active only when their corresponding environment variables are set.
 Try the two F11 demos separately.
+
+Set `bottom` to align the last row with the bottom of the terminal area when tiling the window on the right half of the screen.
+Any space smaller than a row stays above the grid. Space smaller than a column stays on the right.
+With `bottom`, the X11 window manager can assign the exact width and height of the tile in pixels.
+The GTK3, GTK4 and native Wayland samples accept the same setting. In the GTK3 sample, the terminal area sits inside the window's resize border.
+
+```sh
+BOXRIG_GRID_ALIGNMENT=bottom ./build/boxrig_term/wayland/boxrig_term
+```
 
 <a id="表示色の補正を試す"></a>
 

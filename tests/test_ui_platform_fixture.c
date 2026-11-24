@@ -3135,7 +3135,7 @@ static bool common_logical_cell_order_fixture(void)
     const uint8_t *copied = boxrig_text_snapshot_data(snapshot, &length);
     CHECK(length == sizeof("אבג") - 1 && memcmp(copied, "אבג", length) == 0);
     boxrig_text_snapshot_destroy(snapshot);
-#if defined(BOXRIG_TEST_FRONTEND_PANGO_CAIRO) || defined(BOXRIG_TEST_FRONTEND_OPENGL)
+#if defined(BOXRIG_TEST_FRONTEND_PANGO_CAIRO) || defined(BOXRIG_TEST_FRONTEND_OPENGL) || defined(BOXRIG_TEST_FRONTEND_X11)
     CHECK(boxrig_ui_view_clear_selection(view) == BOXRIG_UI_OK);
     CHECK(boxrig_ui_view_set_grid_padding(view, pixels(2)) == BOXRIG_UI_OK);
     const char mark[] = "\033[H\033[48;2;211;41;37m ";
