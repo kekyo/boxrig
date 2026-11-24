@@ -5,12 +5,14 @@
  */
 
 #include "terminal_internal.h"
+#include "checkpoint_internal.h"
 
 #include <png.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <zlib.h>
+
 
 #define FIELD_BIT(field) (UINT64_C(1) << (unsigned int)(field))
 
@@ -7592,4 +7594,239 @@ boxrig_status boxrig_kitty_graphics_protocol_resize(
     free(placeholder_instances);
     finish_screen_mutation(terminal);
     return BOXRIG_STATUS_OK;
+}
+
+/* Committed image bytes are kept in the checkpoint. A live upload has no
+ * stable boundary, and is retried after the transaction completes. */
+void boxrig_checkpoint_graphics(boxrig_checkpoint_io *io, boxrig_terminal *terminal)
+{
+    boxrig_kitty_graphics_protocol_state *protocol = &terminal->graphics_protocol;
+    size_t count = protocol->image_count;
+    if (protocol->upload || protocol->transaction.active ||
+        protocol->external_requests) {
+        io->status = BOXRIG_STATUS_BUSY;
+        return;
+    }
+    boxrig_cp_size(io, &count);
+    if (count > protocol->image_capacity ||
+        (io->reading && count > (io->limit - io->offset) / 40)) {
+        boxrig_cp_fail(io);
+        return;
+    }
+    boxrig_cp_u64(io, &protocol->revision);
+    boxrig_cp_u64(io, &protocol->next_image_handle);
+    boxrig_cp_u64(io, &protocol->next_creation_serial);
+    boxrig_cp_u64(io, &protocol->next_external_serial);
+    boxrig_cp_u32(io, &protocol->next_image_id);
+    boxrig_cp_u32(io, &protocol->cell_pixel_width);
+    boxrig_cp_u32(io, &protocol->cell_pixel_height);
+    if (io->reading && count) {
+        protocol->images = calloc(count, sizeof(*protocol->images));
+        if (!protocol->images) {
+            io->status = BOXRIG_STATUS_OUT_OF_MEMORY;
+            return;
+        }
+        protocol->image_slot_capacity = count;
+    }
+    for (size_t i = 0; i < count && io->status == BOXRIG_STATUS_OK; i++) {
+        boxrig_image_resource_state *resource;
+        if (io->reading) {
+            resource = calloc(1, sizeof(*resource));
+            if (!resource) {
+                io->status = BOXRIG_STATUS_OUT_OF_MEMORY;
+                return;
+            }
+            protocol->images[i] = resource;
+            protocol->image_count++;
+        } else resource = protocol->images[i];
+        boxrig_image_view *view = &resource->view;
+        boxrig_cp_u64(io, &view->handle);
+        boxrig_cp_u64(io, &view->revision);
+        boxrig_cp_u32(io, &view->image_id);
+        boxrig_cp_u32(io, &view->image_number);
+        boxrig_cp_size(io, &view->width);
+        boxrig_cp_size(io, &view->height);
+        boxrig_cp_size(io, &view->stride);
+        boxrig_cp_size(io, &view->rgba_length);
+        boxrig_cp_u64(io, &resource->creation_serial);
+        boxrig_cp_u64(io, &resource->last_external_frame_serial);
+        boxrig_cp_bool(io, &resource->transient);
+        boxrig_cp_bool(io, &resource->root_transient);
+        boxrig_cp_bool(io, &resource->has_image_number);
+        boxrig_cp_bool(io, &resource->remove_if_orphaned);
+        boxrig_cp_size(io, &resource->frame_count);
+        boxrig_cp_size(io, &resource->current_frame);
+        boxrig_cp_size(io, &resource->animation_frame);
+        boxrig_cp_i32(io, &resource->root_gap_milliseconds);
+        boxrig_cp_u64(io, &resource->animation_deadline_milliseconds);
+        boxrig_cp_u32(io, &resource->animation_loop_count);
+        boxrig_cp_u32(io, &resource->animation_remaining_wraps);
+        boxrig_cp_enum(io, &resource->animation_playback_state);
+        boxrig_cp_bool(io, &resource->animation_deadline_set);
+        boxrig_cp_bool(io, &resource->animation_waiting);
+        if (io->status != BOXRIG_STATUS_OK) return;
+        if (view->handle == 0 || view->width == 0 || view->height == 0 ||
+            view->width > BOXRIG_GRAPHICS_IMAGE_SIDE_MAX ||
+            view->height > BOXRIG_GRAPHICS_IMAGE_SIDE_MAX ||
+            view->width > SIZE_MAX / 4 || view->stride != view->width * 4 ||
+            view->height > SIZE_MAX / view->stride ||
+            view->rgba_length != view->height * view->stride ||
+            (io->reading && (protocol->storage_usage > protocol->storage_capacity ||
+                view->rgba_length > protocol->storage_capacity - protocol->storage_usage)) ||
+            (io->reading && resource->frame_count >
+                protocol->frame_capacity - protocol->animation_frame_count) ||
+            resource->frame_count > (io->reading ? (io->limit - io->offset) / 6 : SIZE_MAX) ||
+            resource->current_frame > resource->frame_count + 1 ||
+            resource->animation_frame > resource->frame_count + 1 ||
+            resource->animation_playback_state > BOXRIG_ANIMATION_PLAYBACK_LOOPING ||
+            (io->reading && view->rgba_length > io->limit - io->offset)) {
+            boxrig_cp_fail(io);
+            return;
+        }
+        if (io->reading) {
+            resource->rgba = malloc(view->rgba_length);
+            if (!resource->rgba) {
+                io->status = BOXRIG_STATUS_OUT_OF_MEMORY;
+                return;
+            }
+            view->rgba = resource->rgba;
+        }
+        boxrig_cp_bytes(io, resource->rgba, view->rgba_length);
+        if (io->reading && io->status == BOXRIG_STATUS_OK)
+            protocol->storage_usage += view->rgba_length;
+        if (io->reading && resource->frame_count) {
+            resource->frames = calloc(resource->frame_count, sizeof(*resource->frames));
+            if (!resource->frames) {
+                io->status = BOXRIG_STATUS_OUT_OF_MEMORY;
+                return;
+            }
+        }
+        for (size_t frame = 0; frame < resource->frame_count && io->status == BOXRIG_STATUS_OK; frame++) {
+            boxrig_animation_frame_state *state = &resource->frames[frame];
+            boxrig_cp_i32(io, &state->gap_milliseconds);
+            boxrig_cp_bool(io, &state->transient);
+            if (io->reading) {
+                if (view->rgba_length > protocol->animation_storage_capacity - protocol->animation_storage_usage ||
+                    view->rgba_length > io->limit - io->offset) {
+                    boxrig_cp_fail(io);
+                    return;
+                }
+                state->rgba = malloc(view->rgba_length);
+                if (!state->rgba) {
+                    io->status = BOXRIG_STATUS_OUT_OF_MEMORY;
+                    return;
+                }
+            }
+            boxrig_cp_bytes(io, state->rgba, view->rgba_length);
+            if (io->reading && io->status == BOXRIG_STATUS_OK) {
+                protocol->animation_storage_usage += view->rgba_length;
+                protocol->animation_frame_count++;
+            }
+        }
+        if (io->reading && io->status == BOXRIG_STATUS_OK)
+            view->rgba = frame_rgba(resource, resource->current_frame);
+    }
+    size_t placement_count = protocol->placement_count;
+    boxrig_cp_size(io, &placement_count);
+    if (placement_count > protocol->placement_capacity ||
+        (io->reading && placement_count > (io->limit - io->offset) / 48)) {
+        boxrig_cp_fail(io);
+        return;
+    }
+    if (io->reading && placement_count) {
+        protocol->placements = calloc(placement_count, sizeof(*protocol->placements));
+        if (!protocol->placements) {
+            io->status = BOXRIG_STATUS_OUT_OF_MEMORY;
+            return;
+        }
+        protocol->placement_slot_capacity = placement_count;
+    }
+    for (size_t i = 0; i < placement_count && io->status == BOXRIG_STATUS_OK; i++) {
+        boxrig_image_placement_state *placement;
+        size_t resource_index = 0;
+        size_t parent_index = 0;
+        if (io->reading) {
+            placement = calloc(1, sizeof(*placement));
+            if (!placement) {
+                io->status = BOXRIG_STATUS_OUT_OF_MEMORY;
+                return;
+            }
+            protocol->placements[i] = placement;
+            protocol->placement_count++;
+        } else {
+            placement = protocol->placements[i];
+            for (; resource_index < count && protocol->images[resource_index] != placement->resource;
+                resource_index++);
+            for (; parent_index < i && protocol->placements[parent_index] != placement->parent;
+                parent_index++);
+            parent_index = placement->parent ? parent_index + 1 : 0;
+        }
+        boxrig_cp_size(io, &resource_index);
+        boxrig_cp_size(io, &parent_index);
+        if (resource_index >= count || parent_index > i) {
+            boxrig_cp_fail(io);
+            return;
+        }
+        if (io->reading) {
+            placement->resource = protocol->images[resource_index];
+            if (parent_index) placement->parent = protocol->placements[parent_index - 1];
+        }
+        boxrig_image_placement_view *view = &placement->view;
+        boxrig_cp_u64(io, &view->image_handle);
+        boxrig_cp_u64(io, &view->revision);
+        boxrig_cp_u64(io, &view->resource_creation_serial);
+        boxrig_cp_u64(io, &view->placement_creation_serial);
+        boxrig_cp_enum(io, &view->kind);
+        boxrig_cp_u32(io, &view->image_id);
+        boxrig_cp_u32(io, &view->image_number);
+        boxrig_cp_u32(io, &view->placement_id);
+        boxrig_cp_size(io, &view->anchor_row);
+        boxrig_cp_size(io, &view->anchor_column);
+        boxrig_cp_size(io, &view->visual_row);
+        boxrig_cp_size(io, &view->visual_column);
+        boxrig_cp_size(io, &view->source_x);
+        boxrig_cp_size(io, &view->source_y);
+        boxrig_cp_size(io, &view->source_width);
+        boxrig_cp_size(io, &view->source_height);
+        boxrig_cp_u32(io, &view->cell_x_offset);
+        boxrig_cp_u32(io, &view->cell_y_offset);
+        boxrig_cp_size(io, &view->columns);
+        boxrig_cp_size(io, &view->rows);
+        boxrig_cp_size(io, &view->destination_pixel_width);
+        boxrig_cp_size(io, &view->destination_pixel_height);
+        boxrig_cp_size(io, &view->clip_x);
+        boxrig_cp_size(io, &view->clip_y);
+        boxrig_cp_size(io, &view->clip_width);
+        boxrig_cp_size(io, &view->clip_height);
+        boxrig_cp_i32(io, &view->z_index);
+        boxrig_cp_u64(io, &placement->creation_serial);
+        boxrig_cp_u32(io, &placement->requested_columns);
+        boxrig_cp_u32(io, &placement->requested_rows);
+        uint64_t anchor_line = (uint64_t)placement->anchor_line;
+        uint64_t anchor_column = (uint64_t)placement->anchor_column;
+        boxrig_cp_u64(io, &anchor_line);
+        boxrig_cp_u64(io, &anchor_column);
+        if (io->reading) {
+            placement->anchor_line = (int64_t)anchor_line;
+            placement->anchor_column = (int64_t)anchor_column;
+        }
+        boxrig_cp_i32(io, &placement->relative_x_offset);
+        boxrig_cp_i32(io, &placement->relative_y_offset);
+        boxrig_cp_size(io, &placement->clip_cell_top);
+        boxrig_cp_size(io, &placement->clip_cell_bottom);
+        boxrig_cp_size(io, &placement->clip_cell_left);
+        boxrig_cp_size(io, &placement->clip_cell_right);
+        boxrig_cp_bool(io, &placement->columns_specified);
+        boxrig_cp_bool(io, &placement->rows_specified);
+        boxrig_cp_bool(io, &placement->move_cursor);
+        boxrig_cp_bool(io, &placement->alternate_buffer);
+        boxrig_cp_bool(io, &placement->virtual_placement);
+        boxrig_cp_bool(io, &placement->relative_placement);
+        boxrig_cp_bool(io, &placement->viewport_anchored);
+        boxrig_cp_bool(io, &placement->relative_parent_visible);
+        if (view->image_handle != placement->resource->view.handle ||
+            view->kind > BOXRIG_IMAGE_PLACEMENT_RELATIVE) boxrig_cp_fail(io);
+    }
+    if (io->reading && io->status == BOXRIG_STATUS_OK)
+        refresh_derived_placements(terminal, true);
 }

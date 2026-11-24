@@ -297,6 +297,10 @@ struct boxrig_animation_clock {
     boxrig_terminal *terminal;
 };
 
+bool boxrig_monitor_checkpoint_config(const boxrig_terminal *terminal, boxrig_terminal_config *config);
+bool boxrig_recognizer_checkpoint_config(const boxrig_terminal *terminal, boxrig_terminal_config *config);
+bool boxrig_notification_checkpoint_ready(const boxrig_terminal *terminal);
+
 struct boxrig_terminal {
     boxrig_parser parser;
     boxrig_encoding encoding;
