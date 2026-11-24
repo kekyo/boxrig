@@ -6456,7 +6456,11 @@ test-pangocairo-updates: $(BUILD_DIR)/tests/test_pangocairo_updates $(BUILD_DIR)
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(BUILD_DIR)/tests/test_pangocairo_paint_updates
 
 $(BUILD_DIR)/tests/test_pangocairo_updates: CAIRO_UPDATE_SANITIZERS = $(SANITIZERS)
-$(BUILD_DIR)/tests/performance/cairo_grid_replay: tests/performance/cairo_grid_replay.c \
+.PHONY: measure-checkpoint-draw
+measure-checkpoint-draw: $(BUILD_DIR)/tests/performance/checkpoint_draw
+	$<
+
+$(BUILD_DIR)/tests/performance/cairo_grid_replay $(BUILD_DIR)/tests/performance/checkpoint_draw: $(BUILD_DIR)/tests/performance/%: tests/performance/%.c \
 		src/pangocairo/renderer.c src/pangocairo/renderer.h src/pangocairo/renderer_private.h \
 		src/pangocairo/glyph_fit.h src/ui/glyph_fit.h $(PANGO_CANDIDATE_OBJECT) $(UI_HEADERS) \
 		$(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests/performance
