@@ -1,6 +1,5 @@
 /* boxrig - Under MIT. */
 #include "boxrig/terminal.h"
-#include "../src/core/terminal_internal.h"
 
 #include <assert.h>
 #include <stdlib.h>
@@ -38,14 +37,12 @@ int main(void)
     assert(consumed == strlen(child));
     assert(boxrig_terminal_image_count(source) == 2);
     assert(boxrig_terminal_image_placement_count(source) == 2);
-    assert(source->graphics_protocol.animation_frame_count == 1);
     assert(boxrig_terminal_export_checkpoint(source, 1024 * 1024,
         &data, &length) == BOXRIG_STATUS_OK);
     assert(boxrig_terminal_import_checkpoint(data, length, 1024 * 1024,
         &destination) == BOXRIG_STATUS_OK);
     assert(boxrig_terminal_image_count(destination) == 2);
     assert(boxrig_terminal_image_placement_count(destination) == 2);
-    assert(destination->graphics_protocol.animation_frame_count == 1);
     assert(boxrig_terminal_image_handle_at(source, 0, &original_handle) == BOXRIG_STATUS_OK);
     assert(boxrig_terminal_image_handle_at(destination, 0, &restored_handle) == BOXRIG_STATUS_OK);
     assert(boxrig_terminal_get_image(source, original_handle, &original_image) == BOXRIG_STATUS_OK);
@@ -54,6 +51,15 @@ int main(void)
     assert(original_image.rgba_length == restored_image.rgba_length);
     assert(memcmp(original_image.rgba, restored_image.rgba,
         original_image.rgba_length) == 0);
+    const char *select_frame = "\033_Ga=a,i=9,c=2,q=2\033\\";
+    assert(!boxrig_terminal_feed(source, (const uint8_t *)select_frame, strlen(select_frame), &consumed));
+    assert(!boxrig_terminal_feed(destination, (const uint8_t *)select_frame, strlen(select_frame), &consumed));
+    assert(!boxrig_terminal_get_image(source, original_handle, &original_image));
+    assert(!boxrig_terminal_get_image(destination, restored_handle, &restored_image));
+    const uint8_t expected[] = {4, 2, 3, 4};
+    assert(restored_image.rgba_length == sizeof(expected));
+    assert(!memcmp(restored_image.rgba, expected, sizeof(expected)));
+    assert(!memcmp(original_image.rgba, restored_image.rgba, sizeof(expected)));
     assert(boxrig_terminal_get_image_placement(source, 0,
         &original_placement) == BOXRIG_STATUS_OK);
     assert(boxrig_terminal_get_image_placement(destination, 0,
