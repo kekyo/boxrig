@@ -7620,6 +7620,8 @@ void boxrig_checkpoint_graphics(boxrig_checkpoint_io *io, boxrig_terminal *termi
     boxrig_cp_u32(io, &protocol->next_image_id);
     boxrig_cp_u32(io, &protocol->cell_pixel_width);
     boxrig_cp_u32(io, &protocol->cell_pixel_height);
+    boxrig_cp_u64(io, &protocol->monotonic_time_milliseconds);
+    boxrig_cp_bool(io, &protocol->monotonic_time_set);
     if (io->reading && count) {
         protocol->images = calloc(count, sizeof(*protocol->images));
         if (!protocol->images) {
@@ -7640,6 +7642,7 @@ void boxrig_checkpoint_graphics(boxrig_checkpoint_io *io, boxrig_terminal *termi
             protocol->image_count++;
         } else resource = protocol->images[i];
         boxrig_image_view *view = &resource->view;
+        size_t checkpoint_frame_count = resource->frame_count;
         boxrig_cp_u64(io, &view->handle);
         boxrig_cp_u64(io, &view->revision);
         boxrig_cp_u32(io, &view->image_id);
@@ -7654,7 +7657,7 @@ void boxrig_checkpoint_graphics(boxrig_checkpoint_io *io, boxrig_terminal *termi
         boxrig_cp_bool(io, &resource->root_transient);
         boxrig_cp_bool(io, &resource->has_image_number);
         boxrig_cp_bool(io, &resource->remove_if_orphaned);
-        boxrig_cp_size(io, &resource->frame_count);
+        boxrig_cp_size(io, &checkpoint_frame_count);
         boxrig_cp_size(io, &resource->current_frame);
         boxrig_cp_size(io, &resource->animation_frame);
         boxrig_cp_i32(io, &resource->root_gap_milliseconds);
@@ -7673,11 +7676,11 @@ void boxrig_checkpoint_graphics(boxrig_checkpoint_io *io, boxrig_terminal *termi
             view->rgba_length != view->height * view->stride ||
             (io->reading && (protocol->storage_usage > protocol->storage_capacity ||
                 view->rgba_length > protocol->storage_capacity - protocol->storage_usage)) ||
-            (io->reading && resource->frame_count >
+            (io->reading && checkpoint_frame_count >
                 protocol->frame_capacity - protocol->animation_frame_count) ||
-            resource->frame_count > (io->reading ? (io->limit - io->offset) / 6 : SIZE_MAX) ||
-            resource->current_frame > resource->frame_count + 1 ||
-            resource->animation_frame > resource->frame_count + 1 ||
+            checkpoint_frame_count > (io->reading ? (io->limit - io->offset) / 6 : SIZE_MAX) ||
+            resource->current_frame > checkpoint_frame_count + 1 ||
+            resource->animation_frame > checkpoint_frame_count + 1 ||
             resource->animation_playback_state > BOXRIG_ANIMATION_PLAYBACK_LOOPING ||
             (io->reading && view->rgba_length > io->limit - io->offset)) {
             boxrig_cp_fail(io);
@@ -7694,19 +7697,20 @@ void boxrig_checkpoint_graphics(boxrig_checkpoint_io *io, boxrig_terminal *termi
         boxrig_cp_bytes(io, resource->rgba, view->rgba_length);
         if (io->reading && io->status == BOXRIG_STATUS_OK)
             protocol->storage_usage += view->rgba_length;
-        if (io->reading && resource->frame_count) {
-            resource->frames = calloc(resource->frame_count, sizeof(*resource->frames));
+        if (io->reading && checkpoint_frame_count) {
+            resource->frames = calloc(checkpoint_frame_count, sizeof(*resource->frames));
             if (!resource->frames) {
                 io->status = BOXRIG_STATUS_OUT_OF_MEMORY;
                 return;
             }
         }
-        for (size_t frame = 0; frame < resource->frame_count && io->status == BOXRIG_STATUS_OK; frame++) {
+        for (size_t frame = 0; frame < checkpoint_frame_count && io->status == BOXRIG_STATUS_OK; frame++) {
             boxrig_animation_frame_state *state = &resource->frames[frame];
             boxrig_cp_i32(io, &state->gap_milliseconds);
             boxrig_cp_bool(io, &state->transient);
             if (io->reading) {
-                if (view->rgba_length > protocol->animation_storage_capacity - protocol->animation_storage_usage ||
+                if (protocol->animation_storage_usage > protocol->animation_storage_capacity ||
+                    view->rgba_length > protocol->animation_storage_capacity - protocol->animation_storage_usage ||
                     view->rgba_length > io->limit - io->offset) {
                     boxrig_cp_fail(io);
                     return;
@@ -7716,6 +7720,7 @@ void boxrig_checkpoint_graphics(boxrig_checkpoint_io *io, boxrig_terminal *termi
                     io->status = BOXRIG_STATUS_OUT_OF_MEMORY;
                     return;
                 }
+                resource->frame_count++;
             }
             boxrig_cp_bytes(io, state->rgba, view->rgba_length);
             if (io->reading && io->status == BOXRIG_STATUS_OK) {
