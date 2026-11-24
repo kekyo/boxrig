@@ -70,6 +70,16 @@ int main(void)
     assert(restored_placement.kind == original_placement.kind);
     assert(restored_placement.image_id == original_placement.image_id);
     const char *unfinished = "\033_Ga=t,i=11,f=32,s=1,v=1,m=1;AQID";
+    const char *placeholder = "\033_Ga=t,i=42,f=24,s=1,v=1;BAUG\033\\"
+        "\033_Ga=p,i=42,c=1,r=1,U=1,C=1\033\\"
+        "\033[38;5;42m\xf4\x8e\xbb\xae\xcc\x85\xcc\x85";
+    assert(!boxrig_terminal_feed(source, (const uint8_t *)placeholder, strlen(placeholder), &consumed));
+    assert(boxrig_terminal_image_placement_count(source) == 3);
+    boxrig_checkpoint_free(data);
+    boxrig_terminal_destroy(destination);
+    assert(!boxrig_terminal_export_checkpoint(source, 1024 * 1024, &data, &length));
+    assert(!boxrig_terminal_import_checkpoint(data, length, 1024 * 1024, &destination));
+    assert(boxrig_terminal_image_placement_count(destination) == 3);
     assert(boxrig_terminal_feed(source, (const uint8_t *)unfinished,
         strlen(unfinished), &consumed) == BOXRIG_STATUS_OK);
     assert(consumed == strlen(unfinished));

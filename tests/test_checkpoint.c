@@ -72,6 +72,43 @@ static void round_trip(const char *prefix, const char *tail)
 
 int main(void)
 {
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    boxrig_terminal *source = NULL, *copy = NULL;
+    uint8_t *bytes = NULL;
+    size_t length = 0;
+    const size_t limit = 1024 * 1024;
+    assert(!boxrig_terminal_create(&config, &source));
+    feed(source, "\033_Ga=t,i=9");
+    assert(boxrig_terminal_export_checkpoint(source, limit, &bytes, &length) == BOXRIG_STATUS_BUSY);
+    feed(source, "\030");
+    feed(source, "\033]52;c;?\007");
+    boxrig_host_item item;
+    assert(boxrig_terminal_host_item_peek(source, &item));
+    assert(!boxrig_terminal_host_item_consume(source));
+    assert(boxrig_terminal_export_checkpoint(source, limit, &bytes, &length) == BOXRIG_STATUS_BUSY);
+    assert(!boxrig_terminal_complete_host_request(source, item.request_id,
+        BOXRIG_HOST_REQUEST_SUCCESS, (const uint8_t *)"X", 1));
+    assert(!boxrig_terminal_export_checkpoint(source, limit, &bytes, &length));
+    bytes[6]++;
+    assert(boxrig_terminal_import_checkpoint(bytes, length, limit, &copy) == BOXRIG_STATUS_INVALID_ARGUMENT && !copy);
+    bytes[6]--;
+    bytes[length - 1] ^= 1;
+    assert(boxrig_terminal_import_checkpoint(bytes, length, limit, &copy) == BOXRIG_STATUS_INVALID_ARGUMENT && !copy);
+    bytes[length - 1] ^= 1;
+    assert(!boxrig_terminal_import_checkpoint(bytes, length, limit, &copy));
+    boxrig_checkpoint_free(bytes);
+    boxrig_terminal_destroy(copy);
+    boxrig_terminal_destroy(source);
+
+    config.control_string_capacity = 17 * 1024 * 1024;
+    assert(!boxrig_terminal_create(&config, &source));
+    assert(boxrig_terminal_export_checkpoint(source, limit, &bytes, &length) == BOXRIG_STATUS_LIMIT_EXCEEDED);
+    assert(!bytes && !length);
+    assert(!boxrig_terminal_export_checkpoint(source, 32 * limit, &bytes, &length));
+    assert(!boxrig_terminal_import_checkpoint(bytes, length, 32 * limit, &copy));
+    boxrig_terminal_destroy(copy);
+    boxrig_checkpoint_free(bytes);
+    boxrig_terminal_destroy(source);
     round_trip("test\xe3\x81", "\x82");
     round_trip("line\r\n\x1b[?1049hALT\x1b[3", "1mred\x1b[?1049l\x1b[6n");
     round_trip("\x1b[6n\x1b]8;;https://example.", "org\x1b\\link\x1b]8;;\x1b\\");

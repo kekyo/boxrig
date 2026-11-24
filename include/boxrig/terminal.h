@@ -642,8 +642,11 @@ typedef struct boxrig_terminal_config {
  * INVALID_ARGUMENT for invalid arguments, or OUT_OF_MEMORY.
  * @remarks Stop dispatch and drain any input retained by the transport
  * session first. The checkpoint excludes transport and UI resources.
- * Complete host requests, drain events, and detach application monitors and
- * recognizers before export. Bind host callbacks to the restored terminal.
+ * Complete host requests and any open graphics command/upload, drain events,
+ * and detach application monitors and recognizers before export. Bind host
+ * callbacks to the restored terminal. Use the same maximum_bytes on import.
+ * Both operations bound eager workspace dimensions using maximum_bytes,
+ * with a 16 MiB floor for default workspaces and a 1 GiB ceiling.
  */
 boxrig_status boxrig_terminal_export_checkpoint(
     const boxrig_terminal *terminal, size_t maximum_bytes,

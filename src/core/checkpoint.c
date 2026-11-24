@@ -11,7 +11,7 @@ static const uint8_t signature[8] = { 'B', 'O', 'X', 'R', 'I', 'G', 1, 0 };
 
 static boxrig_status capture_config(const boxrig_terminal *t, boxrig_terminal_config *cfg)
 {
-    if (t->host_item_count || t->pending_request_count ||
+    if (t->host_item_count || t->pending_request_count || t->graphics.active ||
         !boxrig_notification_checkpoint_ready(t) ||
         !boxrig_monitor_checkpoint_config(t, cfg) ||
         !boxrig_recognizer_checkpoint_config(t, cfg)) return BOXRIG_STATUS_BUSY;
@@ -115,8 +115,10 @@ static void configuration(boxrig_checkpoint_io *io, boxrig_terminal_config *cfg,
 /* A tiny damaged blob must not provoke an enormous speculative allocation.
  * Lazy graphics/storage limits may exceed the checkpoint size. Only bounds
  * that eagerly allocate in the constructor are checked here. */
-static bool allocation_sizes_valid(const boxrig_terminal_config *cfg, size_t budget)
+static bool allocation_sizes_valid(const boxrig_terminal_config *cfg, size_t maximum_bytes)
 {
+    size_t budget = maximum_bytes < 16 * 1024 * 1024 ? 16 * 1024 * 1024 : maximum_bytes;
+    if (budget > (size_t)1024 * 1024 * 1024) budget = (size_t)1024 * 1024 * 1024;
     return cfg->columns && cfg->rows && cfg->rows <= budget / cfg->columns / (2 * sizeof(boxrig_cell)) &&
            cfg->scrollback_capacity <= budget / sizeof(boxrig_history_line) &&
            cfg->host_item_capacity <= budget / sizeof(boxrig_host_item_entry) &&
@@ -319,6 +321,7 @@ boxrig_status boxrig_terminal_export_checkpoint(const boxrig_terminal *terminal,
     boxrig_checkpoint_io io = {.limit = maximum_bytes};
     io.status = capture_config(terminal, &cfg);
     if (io.status) return io.status;
+    if (!allocation_sizes_valid(&cfg, maximum_bytes)) return BOXRIG_STATUS_LIMIT_EXCEEDED;
     boxrig_cp_bytes(&io, (void *)signature, sizeof(signature));
     configuration(&io, &cfg, NULL);
     if (!io.status) body(&io, (boxrig_terminal *)terminal);
@@ -354,9 +357,7 @@ boxrig_status boxrig_terminal_import_checkpoint(const uint8_t *data, size_t leng
     if (io.status) return io.status;
     /* Allow the default terminal's eager workspaces even with a small wire
      * limit. Cap a single construction allocation independently of wire CRC. */
-    size_t budget = maximum_bytes < 16 * 1024 * 1024 ? 16 * 1024 * 1024 : maximum_bytes;
-    if (budget > (size_t)1024 * 1024 * 1024) budget = (size_t)1024 * 1024 * 1024;
-    if (!allocation_sizes_valid(&cfg, budget)) return BOXRIG_STATUS_LIMIT_EXCEEDED;
+    if (!allocation_sizes_valid(&cfg, maximum_bytes)) return BOXRIG_STATUS_LIMIT_EXCEEDED;
     boxrig_terminal *terminal = NULL;
     io.status = boxrig_terminal_create(&cfg, &terminal);
     if (!io.status) body(&io, terminal);

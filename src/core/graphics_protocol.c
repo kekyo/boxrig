@@ -7831,6 +7831,8 @@ void boxrig_checkpoint_graphics(boxrig_checkpoint_io *io, boxrig_terminal *termi
         boxrig_cp_bool(io, &placement->relative_parent_visible);
         if (view->image_handle != placement->resource->view.handle ||
             view->kind > BOXRIG_IMAGE_PLACEMENT_RELATIVE) boxrig_cp_fail(io);
+        if (io->reading && !io->status && placement->virtual_placement &&
+            !ensure_placeholder_storage(terminal)) io->status = BOXRIG_STATUS_OUT_OF_MEMORY;
     }
     if (io->reading && io->status == BOXRIG_STATUS_OK)
         refresh_derived_placements(terminal, true);
