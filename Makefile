@@ -17,6 +17,13 @@ INCLUDEDIR ?= $(PREFIX)/include
 PKGCONFIGDIR ?= $(LIBDIR)/pkgconfig
 BUILD_DIR ?= build
 
+.PHONY: measure-checkpoint-pty
+measure-checkpoint-pty: $(BUILD_DIR)/tests/checkpoint_pty
+	$<
+
+$(BUILD_DIR)/tests/checkpoint_pty: tests/performance/checkpoint_pty.c $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(POSIX_CPPFLAGS) -std=c99 $(WARNINGS) $< $(LIBRARY) -lutil -o $@
+
 WARNINGS := -Wall -Wextra -Wpedantic -Werror
 PNG_CONFIG_DIR := $(BUILD_DIR)/generated/libpng
 PNG_CONFIG := $(PNG_CONFIG_DIR)/pnglibconf.h
