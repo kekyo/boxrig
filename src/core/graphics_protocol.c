@@ -7834,6 +7834,13 @@ void boxrig_checkpoint_graphics(boxrig_checkpoint_io *io, boxrig_terminal *termi
         if (io->reading && !io->status && placement->virtual_placement &&
             !ensure_placeholder_storage(terminal)) io->status = BOXRIG_STATUS_OUT_OF_MEMORY;
     }
-    if (io->reading && io->status == BOXRIG_STATUS_OK)
+    if (io->reading && io->status == BOXRIG_STATUS_OK && placement_count) {
+        if (!ensure_image_dirty_storage(terminal)) {
+            io->status = BOXRIG_STATUS_OUT_OF_MEMORY;
+            return;
+        }
         refresh_derived_placements(terminal, true);
+        for (size_t i = 0; i < placement_count; ++i)
+            mark_cached_placement_view(terminal, protocol->placements[i]);
+    }
 }

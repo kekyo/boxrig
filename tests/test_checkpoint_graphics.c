@@ -80,6 +80,8 @@ int main(void)
     assert(!boxrig_terminal_export_checkpoint(source, 1024 * 1024, &data, &length));
     assert(!boxrig_terminal_import_checkpoint(data, length, 1024 * 1024, &destination));
     assert(boxrig_terminal_image_placement_count(destination) == 3);
+    boxrig_dirty repaint;
+    assert(boxrig_terminal_take_image_dirty(destination, &repaint));
     assert(boxrig_terminal_feed(source, (const uint8_t *)unfinished,
         strlen(unfinished), &consumed) == BOXRIG_STATUS_OK);
     assert(consumed == strlen(unfinished));
