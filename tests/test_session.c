@@ -231,6 +231,13 @@ static bool parser_backpressure_preserves_unconsumed_transport_bytes(void)
     CHECK(memcmp(item.payload, "first", 5) == 0);
     CHECK(boxrig_terminal_host_item_consume(terminal) == BOXRIG_STATUS_OK);
 
+    uint8_t *wire = NULL;
+    size_t length = 0;
+    bool closed = true;
+    CHECK(boxrig_session_export_checkpoint(session, 1024 * 1024,
+        &wire, &length, &closed) == BOXRIG_STATUS_BUSY);
+    CHECK(!wire && !length && !closed);
+
     CHECK(boxrig_session_dispatch(
               session,
               BOXRIG_SESSION_READY_NONE,
@@ -241,7 +248,38 @@ static bool parser_backpressure_preserves_unconsumed_transport_bytes(void)
     CHECK(item.type == BOXRIG_HOST_ITEM_TITLE);
     CHECK(item.payload_length == 6);
     CHECK(memcmp(item.payload, "second", 6) == 0);
+    CHECK(boxrig_session_export_checkpoint(session, 1024 * 1024,
+        &wire, &length, &closed) == BOXRIG_STATUS_BUSY);
     CHECK(boxrig_terminal_host_item_consume(terminal) == BOXRIG_STATUS_OK);
+
+    CHECK(!boxrig_terminal_send_text(terminal, "abcdef", 6));
+    transport.write_limit = 2;
+    CHECK(!boxrig_session_dispatch(session, BOXRIG_SESSION_READY_WRITE, &dispatch));
+    CHECK(transport.output_length == 2 && !memcmp(transport.output, "ab", 2));
+    CHECK(!boxrig_session_export_checkpoint(session, 1024 * 1024, &wire, &length, &closed));
+    CHECK(!closed);
+    boxrig_terminal *copy = NULL;
+    CHECK(!boxrig_terminal_import_checkpoint(wire, length, 1024 * 1024, &copy));
+    const uint8_t *remaining = NULL;
+    CHECK(boxrig_terminal_output_peek(copy, &remaining) == 4 && !memcmp(remaining, "cdef", 4));
+    boxrig_terminal_destroy(copy);
+    boxrig_checkpoint_free(wire);
+    CHECK(!boxrig_session_dispatch(session, BOXRIG_SESSION_READY_READ, &dispatch));
+    CHECK(dispatch.peer_closed);
+    CHECK(!boxrig_session_export_checkpoint(session, 1024 * 1024, &wire, &length, &closed));
+    CHECK(closed);
+    copy = NULL;
+    CHECK(!boxrig_terminal_import_checkpoint(wire, length, 1024 * 1024, &copy));
+    boxrig_session *resumed = NULL;
+    transport.input_offset = 0;
+    callbacks.destroy = NULL;
+    CHECK(!boxrig_session_create_resumed(copy, &callbacks, &session_config, closed, &resumed));
+    CHECK(boxrig_session_interests(resumed) == BOXRIG_SESSION_INTEREST_WRITE);
+    CHECK(!boxrig_session_dispatch(resumed, BOXRIG_SESSION_READY_READ | BOXRIG_SESSION_READY_WRITE, &dispatch));
+    CHECK(dispatch.peer_closed && dispatch.transport_bytes_read == 0 && dispatch.transport_bytes_written == 2);
+    boxrig_session_destroy(resumed);
+    boxrig_terminal_destroy(copy);
+    boxrig_checkpoint_free(wire);
 
     boxrig_session_destroy(session);
     CHECK(transport.destroy_count == 1);

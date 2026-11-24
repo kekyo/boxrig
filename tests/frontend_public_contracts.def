@@ -325,6 +325,8 @@ BOXRIG_PUBLIC_CONTRACT(
     "boxrig_session_terminal "
     "boxrig_session_interests "
     "boxrig_session_input_pending "
+    "boxrig_session_create_resumed "
+    "boxrig_session_export_checkpoint "
     "boxrig_session_dispatch "
     "boxrig_session_resize")
 
