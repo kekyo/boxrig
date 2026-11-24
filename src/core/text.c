@@ -3415,6 +3415,20 @@ boxrig_status boxrig_text_monitor_initialize(
     return BOXRIG_STATUS_OK;
 }
 
+bool boxrig_monitor_checkpoint_config(const boxrig_terminal *terminal, boxrig_terminal_config *config)
+{
+    const boxrig_text_monitor_state *state = terminal->text_monitor_state;
+    config->text_monitor_capacity = state->monitor_capacity;
+    config->text_monitor_pattern_capacity = state->pattern_capacity;
+    config->text_monitor_snapshot_byte_capacity = state->snapshot_byte_capacity;
+    config->text_monitor_snapshot_line_capacity = state->snapshot_line_capacity;
+    config->text_monitor_staging_capacity = state->staging_capacity;
+    config->text_monitor_event_capacity = state->event_capacity;
+    config->text_monitor_change_byte_capacity = state->change_byte_capacity;
+    config->text_monitor_change_line_capacity = state->change_line_capacity;
+    return !state->monitor_count && !state->event_count && !state->mutation_active;
+}
+
 void boxrig_text_monitor_destroy(boxrig_terminal *terminal)
 {
     boxrig_text_monitor_state *state;

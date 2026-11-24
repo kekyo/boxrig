@@ -30,6 +30,9 @@ BOXRIG_0 {
         boxrig_terminal_emoji_variation_width;
         boxrig_terminal_set_font_width_resolver;
         boxrig_terminal_create;
+        boxrig_terminal_export_checkpoint;
+        boxrig_terminal_import_checkpoint;
+        boxrig_checkpoint_free;
         boxrig_terminal_create_text_search;
         boxrig_terminal_create_text_snapshot;
         boxrig_terminal_create_text_snapshot_rows;

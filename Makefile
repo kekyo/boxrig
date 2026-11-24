@@ -17,6 +17,13 @@ INCLUDEDIR ?= $(PREFIX)/include
 PKGCONFIGDIR ?= $(LIBDIR)/pkgconfig
 BUILD_DIR ?= build
 
+.PHONY: measure-checkpoint-pty
+measure-checkpoint-pty: $(BUILD_DIR)/tests/checkpoint_pty
+	$<
+
+$(BUILD_DIR)/tests/checkpoint_pty: tests/performance/checkpoint_pty.c $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(POSIX_CPPFLAGS) -std=c99 $(WARNINGS) $< $(LIBRARY) -lutil -o $@
+
 WARNINGS := -Wall -Wextra -Wpedantic -Werror
 PNG_CONFIG_DIR := $(BUILD_DIR)/generated/libpng
 PNG_CONFIG := $(PNG_CONFIG_DIR)/pnglibconf.h
@@ -304,7 +311,7 @@ LIBPNG_SOURCES += deps/libpng/arm/arm_init.c \
 ZLIB_OBJECTS := $(patsubst deps/zlib/%.c,$(BUILD_DIR)/deps/zlib/%.o,$(ZLIB_SOURCES))
 LIBPNG_OBJECTS := $(patsubst deps/libpng/%.c,$(BUILD_DIR)/deps/libpng/%.o,$(LIBPNG_SOURCES))
 CORE_PUBLIC_HEADERS := include/boxrig/terminal.h include/boxrig/regex.h include/boxrig/status.h
-CORE_HEADERS := src/core/codec.h src/core/shift_jis_table.h $(CORE_PUBLIC_HEADERS) src/core/dcs.h src/core/graphics.h src/core/parser.h src/core/regex.h src/core/terminal_internal.h src/core/unicode.h
+CORE_HEADERS := src/core/checkpoint_internal.h src/core/codec.h src/core/shift_jis_table.h $(CORE_PUBLIC_HEADERS) src/core/dcs.h src/core/graphics.h src/core/parser.h src/core/regex.h src/core/terminal_internal.h src/core/unicode.h
 LIBRARY := $(BUILD_DIR)/libboxrig.a
 UI_LIBRARY := $(BUILD_DIR)/libboxrig-ui.a
 SESSION_LIBRARY := $(BUILD_DIR)/libboxrig-session.a
@@ -1148,6 +1155,26 @@ $(BUILD_DIR)/tests/test_screen_row_move: tests/test_screen_row_move.c $(CORE_HEA
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(LIBRARY) $(SANITIZERS) -Wl,--wrap=free -o $@
 
 .PHONY: test-history-transfer
+.PHONY: test-checkpoint
+.PHONY: example-pty-handoff test-pty-handoff
+example-pty-handoff: $(BUILD_DIR)/examples/pty_handoff
+
+$(BUILD_DIR)/examples/pty_handoff: examples/pty_handoff/main.c $(POSIX_LIBRARY) $(SESSION_LIBRARY) $(LIBRARY)
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(POSIX_LIBRARY) $(SESSION_LIBRARY) $(LIBRARY) -lutil -o $@
+
+test: test-pty-handoff
+test-pty-handoff: $(BUILD_DIR)/examples/pty_handoff
+	sh tests/check_pty_handoff.sh $<
+
+test: test-checkpoint
+CHECKPOINT_TESTS := $(addprefix $(BUILD_DIR)/tests/,test_checkpoint test_checkpoint_screen test_checkpoint_graphics)
+test-checkpoint: $(CHECKPOINT_TESTS)
+	@set -e; for suite in $^; do ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $$suite; done
+
+$(CHECKPOINT_TESTS): $(BUILD_DIR)/tests/%: tests/%.c $(CORE_HEADERS) $(LIBRARY) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(LIBRARY) $(SANITIZERS) -o $@
+
 test: test-history-transfer
 test-history-transfer: $(BUILD_DIR)/tests/test_history_transfer
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $<
@@ -6429,7 +6456,11 @@ test-pangocairo-updates: $(BUILD_DIR)/tests/test_pangocairo_updates $(BUILD_DIR)
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(BUILD_DIR)/tests/test_pangocairo_paint_updates
 
 $(BUILD_DIR)/tests/test_pangocairo_updates: CAIRO_UPDATE_SANITIZERS = $(SANITIZERS)
-$(BUILD_DIR)/tests/performance/cairo_grid_replay: tests/performance/cairo_grid_replay.c \
+.PHONY: measure-checkpoint-draw
+measure-checkpoint-draw: $(BUILD_DIR)/tests/performance/checkpoint_draw
+	$<
+
+$(BUILD_DIR)/tests/performance/cairo_grid_replay $(BUILD_DIR)/tests/performance/checkpoint_draw: $(BUILD_DIR)/tests/performance/%: tests/performance/%.c \
 		src/pangocairo/renderer.c src/pangocairo/renderer.h src/pangocairo/renderer_private.h \
 		src/pangocairo/glyph_fit.h src/ui/glyph_fit.h $(PANGO_CANDIDATE_OBJECT) $(UI_HEADERS) \
 		$(UI_LIBRARY) $(LIBRARY) | $(BUILD_DIR)/tests/performance

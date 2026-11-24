@@ -440,6 +440,15 @@ boxrig_status boxrig_text_recognizer_initialize(
     return BOXRIG_STATUS_OK;
 }
 
+bool boxrig_recognizer_checkpoint_config(const boxrig_terminal *terminal, boxrig_terminal_config *config)
+{
+    const boxrig_text_recognizer_state *state = terminal->text_recognizer_state;
+    config->text_recognizer_capacity = state->recognizer_capacity;
+    config->text_recognizer_pattern_capacity = state->pattern_capacity;
+    config->text_recognizer_event_capacity = state->event_capacity;
+    return !state->recognizer_count && !state->event_count;
+}
+
 void boxrig_text_recognizer_destroy(boxrig_terminal *terminal)
 {
     boxrig_text_recognizer_state *state;

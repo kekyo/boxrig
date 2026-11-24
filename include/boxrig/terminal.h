@@ -632,6 +632,48 @@ typedef struct boxrig_terminal_config {
     boxrig_encoding encoding;
 } boxrig_terminal_config;
 
+/**
+ * Captures the live terminal on its owner thread between API calls.
+ * @param terminal Source, retained unchanged on success or failure.
+ * @param maximum_bytes Largest acceptable serialized checkpoint.
+ * @param data_out Receives independently owned bytes, or NULL on failure.
+ * @param length_out Receives their size, or zero on failure.
+ * @return OK, BUSY for outstanding host work, LIMIT_EXCEEDED if too large,
+ * INVALID_ARGUMENT for invalid arguments, or OUT_OF_MEMORY.
+ * @remarks Stop dispatch and drain any input retained by the transport
+ * session first. The checkpoint excludes transport and UI resources.
+ * Complete host requests and any open graphics command/upload, drain events,
+ * and detach application monitors and recognizers before export. Bind host
+ * callbacks to the restored terminal. Use the same maximum_bytes on import.
+ * Both operations bound eager workspace dimensions using maximum_bytes,
+ * with a 16 MiB floor for default workspaces and a 1 GiB ceiling.
+ */
+boxrig_status boxrig_terminal_export_checkpoint(
+    const boxrig_terminal *terminal, size_t maximum_bytes,
+    uint8_t **data_out, size_t *length_out);
+
+/**
+ * Restores an independent terminal from versioned checkpoint bytes.
+ * @param data Complete checkpoint from a trusted peer.
+ * @param length Number of available bytes.
+ * @param maximum_bytes Largest acceptable serialized checkpoint.
+ * @param terminal_out Receives the new terminal, or NULL on failure.
+ * @return OK, INVALID_ARGUMENT for malformed/unsupported data,
+ * LIMIT_EXCEEDED for resource limits, or OUT_OF_MEMORY.
+ * @remarks The snapshot describes logical state in little-endian order.
+ * A checksum detects damaged data. Host callbacks, native views and the
+ * communication channel must be attached by the caller before resuming.
+ */
+boxrig_status boxrig_terminal_import_checkpoint(
+    const uint8_t *data, size_t length, size_t maximum_bytes,
+    boxrig_terminal **terminal_out);
+
+/**
+ * Releases checkpoint storage using the allocator of the producing library.
+ * @param data Owned bytes returned by export, or NULL.
+ */
+void boxrig_checkpoint_free(uint8_t *data);
+
 /** The representation used by a terminal color. */
 typedef enum boxrig_color_kind {
     BOXRIG_COLOR_DEFAULT = 0,

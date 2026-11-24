@@ -325,6 +325,8 @@ BOXRIG_PUBLIC_CONTRACT(
     "boxrig_session_terminal "
     "boxrig_session_interests "
     "boxrig_session_input_pending "
+    "boxrig_session_create_resumed "
+    "boxrig_session_export_checkpoint "
     "boxrig_session_dispatch "
     "boxrig_session_resize")
 
@@ -338,6 +340,9 @@ BOXRIG_PUBLIC_CONTRACT(
     "boxrig_terminal_set_font_width_resolver "
     "boxrig_terminal_measure_text_cluster "
     "boxrig_terminal_feed "
+    "boxrig_terminal_export_checkpoint "
+    "boxrig_terminal_import_checkpoint "
+    "boxrig_checkpoint_free "
     "boxrig_terminal_finish_input "
     "boxrig_terminal_resize "
     "boxrig_terminal_size "
