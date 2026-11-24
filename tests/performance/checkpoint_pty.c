@@ -68,7 +68,8 @@ static double process_cpu(pid_t process)
     return usage.tv_sec + usage.tv_nsec / 1000000000.0;
 }
 
-static sample measure(int fd, const char *path, pid_t peer_pid, pid_t relay_pid)
+static sample measure(int fd, const char *path, pid_t peer_pid, pid_t relay_pid,
+    boxrig_terminal *terminal)
 {
     double delays[PINGS];
     double arrivals[PINGS];
@@ -91,9 +92,6 @@ static sample measure(int fd, const char *path, pid_t peer_pid, pid_t relay_pid)
     qsort(arrivals, PINGS, sizeof(double), compare_double);
     char request = 'b';
     uint8_t bytes[4096];
-    boxrig_terminal_config config = boxrig_terminal_config_default();
-    boxrig_terminal *terminal = NULL;
-    if (boxrig_terminal_create(&config, &terminal) != BOXRIG_STATUS_OK) abort();
     double start = seconds();
     transfer_all(fd, &request, 1, 1);
     for (size_t done = 0; done < BULK_BYTES;) {
@@ -104,6 +102,7 @@ static sample measure(int fd, const char *path, pid_t peer_pid, pid_t relay_pid)
         double feed_start = seconds();
         if (boxrig_terminal_feed(terminal, bytes, (size_t)count, &consumed) !=
             BOXRIG_STATUS_OK || consumed != (size_t)count) abort();
+        double feed_duration = (seconds() - feed_start) * 1000000.0;
         if (feed_count == feed_capacity) {
             size_t next_capacity = feed_capacity ? feed_capacity * 2 : 4096;
             double *next = realloc(feed_delays, next_capacity * sizeof(*next));
@@ -111,11 +110,10 @@ static sample measure(int fd, const char *path, pid_t peer_pid, pid_t relay_pid)
             feed_delays = next;
             feed_capacity = next_capacity;
         }
-        feed_delays[feed_count++] = (seconds() - feed_start) * 1000000.0;
+        feed_delays[feed_count++] = feed_duration;
         done += (size_t)count;
     }
     double duration = seconds() - start;
-    boxrig_terminal_destroy(terminal);
     double cpu_after = process_cpu(0) + process_cpu(peer_pid);
     if (relay_pid) cpu_after += process_cpu(relay_pid);
     qsort(feed_delays, feed_count, sizeof(double), compare_double);
@@ -205,7 +203,7 @@ static int start_peer(pid_t *child)
 
 static void print_sample(sample item)
 {
-    printf("%s p50_us=%.1f p95_us=%.1f max_us=%.1f arrival_p50_us=%.1f arrival_p95_us=%.1f arrival_max_us=%.1f feed_p50_us=%.1f feed_p95_us=%.1f feed_max_us=%.1f bulk_mib_s=%.1f total_cpu_ms=%.1f\n",
+    printf("%s p50_us=%.1f p95_us=%.1f max_us=%.1f arrival_p50_us=%.1f arrival_p95_us=%.1f arrival_max_us=%.1f feed_p50_us=%.1f feed_p95_us=%.1f feed_max_us=%.1f bulk_mib_s=%.3f total_cpu_ms=%.1f\n",
         item.path, item.p50_us, item.p95_us, item.max_us,
         item.arrival_p50_us, item.arrival_p95_us, item.arrival_max_us,
         item.feed_p50_us, item.feed_p95_us, item.feed_max_us,
@@ -237,28 +235,46 @@ static void relay(int master, int socket)
 
 int main(void)
 {
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    boxrig_terminal *direct_terminal = NULL;
+    if (boxrig_terminal_create(&config, &direct_terminal) != BOXRIG_STATUS_OK) abort();
+    uint8_t *checkpoint = NULL;
+    size_t checkpoint_length = 0;
+    if (boxrig_terminal_export_checkpoint(direct_terminal, 1024 * 1024,
+        &checkpoint, &checkpoint_length) != BOXRIG_STATUS_OK) abort();
     pid_t child;
     int master = start_peer(&child);
-    print_sample(measure(master, "direct", child, 0));
+    print_sample(measure(master, "direct", child, 0, direct_terminal));
+    boxrig_terminal_destroy(direct_terminal);
     int channel[2];
     if (socketpair(AF_UNIX, SOCK_STREAM, 0, channel)) abort();
     pid_t worker = fork();
     if (worker < 0) abort();
     if (!worker) {
         close(channel[0]);
+        close(master);
+        boxrig_terminal *restored = NULL;
+        if (boxrig_terminal_import_checkpoint(checkpoint, checkpoint_length,
+            1024 * 1024, &restored) != BOXRIG_STATUS_OK) abort();
         int inherited = receive_fd(channel[1]);
-        print_sample(measure(inherited, "after_fd_handoff", child, 0));
+        print_sample(measure(inherited, "after_fd_handoff", child, 0, restored));
         close(inherited);
+        boxrig_terminal_destroy(restored);
         _exit(0);
     }
     close(channel[1]);
     if (send_fd(channel[0], master)) abort();
     close(master);
     close(channel[0]);
-    if (waitpid(worker, NULL, 0) != worker) abort();
+    int status = 0;
+    if (waitpid(worker, &status, 0) != worker ||
+        !WIFEXITED(status) || WEXITSTATUS(status) != 0) abort();
+    boxrig_checkpoint_free(checkpoint);
     if (kill(child, SIGTERM)) abort();
     if (waitpid(child, NULL, 0) != child) abort();
     int relay_master = start_peer(&child);
+    boxrig_terminal *relay_terminal = NULL;
+    if (boxrig_terminal_create(&config, &relay_terminal) != BOXRIG_STATUS_OK) abort();
     if (socketpair(AF_UNIX, SOCK_STREAM, 0, channel)) abort();
     worker = fork();
     if (worker < 0) abort();
@@ -268,9 +284,11 @@ int main(void)
     }
     close(channel[1]);
     close(relay_master);
-    print_sample(measure(channel[0], "pty_relay", child, worker));
+    print_sample(measure(channel[0], "pty_relay", child, worker, relay_terminal));
+    boxrig_terminal_destroy(relay_terminal);
     close(channel[0]);
-    if (waitpid(worker, NULL, 0) != worker) abort();
+    if (waitpid(worker, &status, 0) != worker ||
+        !WIFEXITED(status) || WEXITSTATUS(status) != 0) abort();
     if (kill(child, SIGTERM)) abort();
     if (waitpid(child, NULL, 0) != child) abort();
     return 0;
