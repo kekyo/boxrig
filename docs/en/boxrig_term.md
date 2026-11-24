@@ -122,10 +122,10 @@ Ambiguous characters default to `narrow`, one column. Set `wide` for a fixed two
 Demo toggle keys are active only when their corresponding environment variables are set.
 Try the two F11 demos separately.
 
-Set `bottom` to align the last row with the bottom edge when tiling the window on the right half of the screen.
+Set `bottom` to align the last row with the bottom of the terminal area when tiling the window on the right half of the screen.
 Any space smaller than a row stays above the grid. Space smaller than a column stays on the right.
 With `bottom`, the X11 window manager can assign the exact width and height of the tile in pixels.
-The GTK3, GTK4 and native Wayland samples accept the same setting.
+The GTK3, GTK4 and native Wayland samples accept the same setting. In the GTK3 sample, the terminal area sits inside the window's resize border.
 
 ```sh
 BOXRIG_GRID_ALIGNMENT=bottom ./build/boxrig_term/wayland/boxrig_term
