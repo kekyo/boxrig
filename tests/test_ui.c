@@ -2162,6 +2162,7 @@ static bool block_glyph_mode_is_view_local(void)
     CHECK(boxrig_ui_view_set_block_glyph_mode(first, BOXRIG_UI_BLOCK_GLYPH_FONT) == BOXRIG_UI_OK);
     CHECK(frames.count == 1 && boxrig_ui_view_frame_requested(first));
     CHECK(take_expected_dirty(first, BOXRIG_UI_DIRTY_MODEL, 0, 2, 0, 4));
+    CHECK(take_expected_dirty(first, BOXRIG_UI_DIRTY_PRESENT, 0, 2, 0, 4));
     CHECK(boxrig_ui_view_set_block_glyph_mode(first, BOXRIG_UI_BLOCK_GLYPH_RECTANGLES) == BOXRIG_UI_OK);
     CHECK(boxrig_ui_view_get_block_glyph_mode(second) == BOXRIG_UI_BLOCK_GLYPH_FONT);
     CHECK(!boxrig_ui_view_frame_requested(second));

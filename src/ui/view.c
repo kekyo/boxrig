@@ -6370,9 +6370,10 @@ boxrig_ui_status boxrig_ui_view_set_block_glyph_mode(
     if (view->resolving_colors) return BOXRIG_UI_BUSY;
     if (view->block_glyph_mode != mode) {
         view->block_glyph_mode = mode;
-        /* MODEL requests raster work even when a native expose could reuse
-         * the old backing surface. Shaping signatures remain unchanged. */
+        /* Both the cells and their retained pixels need repainting. A
+         * renderer can still reuse the row layout when its text is unchanged. */
         mark_full_dirty(view, BOXRIG_UI_DIRTY_MODEL);
+        mark_full_dirty(view, BOXRIG_UI_DIRTY_PRESENT);
     }
     return BOXRIG_UI_OK;
 }
