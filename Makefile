@@ -1149,6 +1149,17 @@ $(BUILD_DIR)/tests/test_screen_row_move: tests/test_screen_row_move.c $(CORE_HEA
 
 .PHONY: test-history-transfer
 .PHONY: test-checkpoint
+.PHONY: example-pty-handoff test-pty-handoff
+example-pty-handoff: $(BUILD_DIR)/examples/pty_handoff
+
+$(BUILD_DIR)/examples/pty_handoff: examples/pty_handoff/main.c $(POSIX_LIBRARY) $(SESSION_LIBRARY) $(LIBRARY)
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $< $(POSIX_LIBRARY) $(SESSION_LIBRARY) $(LIBRARY) -lutil -o $@
+
+test: test-pty-handoff
+test-pty-handoff: $(BUILD_DIR)/examples/pty_handoff
+	sh tests/check_pty_handoff.sh $<
+
 test: test-checkpoint
 CHECKPOINT_TESTS := $(addprefix $(BUILD_DIR)/tests/,test_checkpoint test_checkpoint_screen test_checkpoint_graphics)
 test-checkpoint: $(CHECKPOINT_TESTS)
