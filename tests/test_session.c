@@ -349,9 +349,10 @@ static bool output_backpressure_still_services_ready_transport(void)
 
 int main(void)
 {
-    CHECK(partial_io_and_resize_are_retried_exactly());
-    CHECK(parser_backpressure_preserves_unconsumed_transport_bytes());
-    CHECK(output_backpressure_still_services_ready_transport());
+    if (!partial_io_and_resize_are_retried_exactly() ||
+        !parser_backpressure_preserves_unconsumed_transport_bytes() ||
+        !output_backpressure_still_services_ready_transport())
+        return 1;
     printf("PASS reusable session preserves partial I/O and core backpressure\n");
     return 0;
 }
