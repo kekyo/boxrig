@@ -6534,11 +6534,13 @@ test-core-features:
 test: test-core-features
 .PHONY: test-elder-terms-encoding
 ELDER_TERMS_DIR ?= ../elder-terms
+ELDER_SDK_DIR := $(abspath $(BUILD_DIR)/elder-terms-sdk)
 ELDER_CODEC_DIR = $(ELDER_TERMS_DIR)/elder-terms-terminal/src/terminal-sessions
 test-elder-terms-encoding: $(BUILD_DIR)/tests/test_elder_terms_encoding
 	$<
-$(BUILD_DIR)/tests/test_elder_terms_encoding: tests/test_elder_terms_encoding.cpp $(ELDER_CODEC_DIR)/terminal-text-stream.cpp $(ELDER_CODEC_DIR)/terminal-text-stream.h $(LIBRARY) | $(BUILD_DIR)/tests
-	$(CXX) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(CXXFLAGS) -std=c++20 $(WARNINGS) -I$(ELDER_CODEC_DIR) $< $(ELDER_CODEC_DIR)/terminal-text-stream.cpp $(LIBRARY) -lm -o $@
+$(BUILD_DIR)/tests/test_elder_terms_encoding: tests/test_elder_terms_encoding.cpp $(ELDER_CODEC_DIR)/terminal-text-stream.cpp $(ELDER_CODEC_DIR)/terminal-text-stream.h $(LIBRARY) $(CORE_SDK_HEADERS) | $(BUILD_DIR)/tests
+	+$(MAKE) install-core PREFIX=/usr DESTDIR="$(ELDER_SDK_DIR)"
+	$(CXX) $(CXXFLAGS) -std=c++20 $(WARNINGS) -I$(ELDER_SDK_DIR)/usr/include -I$(ELDER_CODEC_DIR) $< $(ELDER_CODEC_DIR)/terminal-text-stream.cpp $(ELDER_SDK_DIR)/usr/lib/libboxrig.a -lm -o $@
 
 test-encoding-hooks: $(BUILD_DIR)/tests/test_encoding_hooks
 	$<
@@ -6549,6 +6551,11 @@ $(BUILD_DIR)/tests/test_encoding_hooks: tests/test_encoding_hooks.c $(LIBRARY) $
 test-embedded-log: $(LIBRARY)
 	+sh tests/check_embedded_log.sh "$(MAKE)" "$(BUILD_DIR)/embedded-log" "$(LIBRARY)"
 test: test-embedded-log
+
+.PHONY: test-encoding-sdk
+test-encoding-sdk: $(CODEGEN_DIR)/generate-config.mjs
+	+sh tests/check_encoding_sdk.sh "$(MAKE)" "$(BUILD_DIR)/encoding-sdk" "$(abspath $(CODEGEN_DIR))"
+test: test-encoding-sdk
 
 .PHONY: test-checkpoint-builds
 test-checkpoint-builds: $(LIBRARY) | $(BUILD_DIR)/tests

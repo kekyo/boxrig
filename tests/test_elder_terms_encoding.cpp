@@ -16,6 +16,8 @@ struct Connection {
     TerminalTextStreamPtr send;
     std::string raw;
     std::string cooked;
+    std::string macro_pending;
+    bool send_replacement = false;
 
     explicit Connection(const std::string &encoding)
         : name(encoding), body(create_terminal_text_decoder(name)),
@@ -40,6 +42,7 @@ static boxrig_status convert(void *context, boxrig_encoding_channel channel, con
         auto result = finish ? finish_terminal_text(stream.get()) : convert_terminal_text(stream.get(), {input,length});
         assert(result.bytes.size() <= bound);
         std::copy(result.bytes.begin(), result.bytes.end(), bytes);
+        if (channel == BOXRIG_ENCODING_SEND && result.used_replacement) c.send_replacement = true;
         *written = result.bytes.size();
         if (finish) stream.reset();
         return BOXRIG_STATUS_OK;
@@ -50,7 +53,9 @@ static boxrig_status convert(void *context, boxrig_encoding_channel channel, con
 
 static void observe(void *context, const uint8_t *bytes, size_t length)
 {
-    static_cast<Connection *>(context)->cooked.append(reinterpret_cast<const char *>(bytes), length);
+    auto &connection = *static_cast<Connection *>(context);
+    connection.cooked.append(reinterpret_cast<const char *>(bytes), length);
+    connection.macro_pending.append(reinterpret_cast<const char *>(bytes), length);
 }
 
 static void attach(boxrig_terminal *terminal, Connection &c, boxrig_encoding_mode mode)
@@ -99,6 +104,10 @@ int main()
     attach(terminal, utf, BOXRIG_ENCODING_FIELDS);
     feed(terminal, utf, "語");
     assert(cp.cooked + utf.cooked == "日�語" && cp.raw + utf.raw == "\x93\xfa\x82語");
+    assert(cp.macro_pending + utf.macro_pending == "日�語");
+    assert(boxrig_terminal_send_text(terminal,"語",3) == BOXRIG_STATUS_OK);
+    drain(terminal, "語");
+    assert(boxrig_terminal_finish_encoding_output(terminal) == BOXRIG_STATUS_OK);
     check_cell(terminal,0,0,"日");
     check_cell(terminal,0,2,"�");
     check_cell(terminal,0,3,"語");
@@ -120,5 +129,33 @@ int main()
     for (size_t i=0; i<binary.size(); ++i) binary[i]=static_cast<uint8_t>(i);
     assert(boxrig_terminal_send_bytes(terminal,binary.data(),binary.size()) == BOXRIG_STATUS_OK);
     drain(terminal,std::string(reinterpret_cast<const char *>(binary.data()),binary.size()));
+    assert(boxrig_terminal_finish_input(terminal) == BOXRIG_STATUS_OK);
+    assert(boxrig_terminal_finish_encoding_output(terminal) == BOXRIG_STATUS_OK);
+    Connection paced("CP932");
+    attach(terminal, paced, BOXRIG_ENCODING_FIELDS);
+    feed(terminal, paced, "\033[?2004h");
+    feed(terminal, paced, "\x93");
+    /* A dedicated paced sender can borrow the send channel while the body
+     * decoder retains a lead byte. Capacity and pacing count encoded bytes. */
+    auto ordinary_sender = std::move(paced.send);
+    paced.send = create_terminal_text_encoder("CP932");
+    boxrig_paste_event event{BOXRIG_PASTE_BEGIN, nullptr, 0};
+    assert(boxrig_terminal_send_paste(terminal, &event) == BOXRIG_STATUS_OK);
+    event = {BOXRIG_PASTE_CHUNK, "日🙂\n", 8};
+    assert(boxrig_terminal_send_paste(terminal, &event) == BOXRIG_STATUS_OK);
+    event = {BOXRIG_PASTE_END, nullptr, 0};
+    assert(boxrig_terminal_send_paste(terminal, &event) == BOXRIG_STATUS_OK);
+    assert(boxrig_terminal_finish_encoding_output(terminal) == BOXRIG_STATUS_OK);
+    const uint8_t *wire;
+    std::string transcript;
+    while (size_t available = boxrig_terminal_output_peek(terminal, &wire)) {
+        size_t allowance = std::min<size_t>(2, available);
+        transcript.append(reinterpret_cast<const char *>(wire), allowance);
+        assert(boxrig_terminal_output_consume(terminal, allowance) == BOXRIG_STATUS_OK);
+    }
+    assert(transcript == "\033[200~\x93\xfa?\n\033[201~" && paced.send_replacement);
+    paced.send = std::move(ordinary_sender);
+    feed(terminal, paced, "\xfa");
+    assert(paced.macro_pending == "\033[?2004h日");
     boxrig_terminal_destroy(terminal);
 }
