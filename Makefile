@@ -218,6 +218,11 @@ endif
 ifneq ($(filter BOXRIG_FEATURE_CHECKPOINT=0,$(BOXRIG_FEATURE_SETTINGS)),)
 CORE_SOURCES := $(filter-out src/core/checkpoint%.c,$(CORE_SOURCES))
 endif
+ifneq ($(filter BOXRIG_FEATURE_COMPACT_CELLS=1,$(BOXRIG_FEATURE_SETTINGS)),)
+CORE_SOURCES := $(addprefix src/core/,compact.c codec.c encoding.c io.c log_controls.c parser.c utf8.c)
+else
+CORE_SOURCES := $(filter-out src/core/compact.c,$(CORE_SOURCES))
+endif
 CORE_OBJECTS := $(patsubst src/core/%.c,$(BUILD_DIR)/core/%.o,$(CORE_SOURCES))
 TEXT_MEASUREMENT_BUILD_DIR := $(BUILD_DIR)/text-measurement
 TEXT_MEASUREMENT_TEXT_OBJECT := $(TEXT_MEASUREMENT_BUILD_DIR)/text.o
@@ -302,7 +307,7 @@ WAYLAND_OBJECTS := $(patsubst src/wayland/%.c,$(BUILD_DIR)/wayland/%.o,$(WAYLAND
 WAYLAND_OBJECTS += $(IME_OBJECTS) $(PANGO_CANDIDATE_OBJECT)
 WAYLAND_OBJECTS += $(BUILD_DIR)/background_effect/wayland.o $(BUILD_DIR)/background_effect/protocol.o
 UTF8PROC_SOURCE := deps/utf8proc/utf8proc.c
-UTF8PROC_OBJECT := $(BUILD_DIR)/core/utf8proc.o
+UTF8PROC_OBJECT := $(if $(filter BOXRIG_FEATURE_COMPACT_CELLS=0,$(BOXRIG_FEATURE_SETTINGS)),$(BUILD_DIR)/core/utf8proc.o)
 ZLIB_SOURCES := deps/zlib/adler32.c deps/zlib/compress.c deps/zlib/crc32.c \
 	deps/zlib/deflate.c deps/zlib/infback.c deps/zlib/inffast.c \
 	deps/zlib/inflate.c deps/zlib/inftrees.c deps/zlib/trees.c \
@@ -327,7 +332,7 @@ ZLIB_OBJECTS := $(patsubst deps/zlib/%.c,$(BUILD_DIR)/deps/zlib/%.o,$(ZLIB_SOURC
 LIBPNG_OBJECTS := $(patsubst deps/libpng/%.c,$(BUILD_DIR)/deps/libpng/%.o,$(LIBPNG_SOURCES))
 CORE_PUBLIC_HEADERS := include/boxrig/config.h include/boxrig/terminal.h include/boxrig/regex.h include/boxrig/status.h
 CORE_SDK_HEADERS = $(filter-out include/boxrig/config.h,$(CORE_PUBLIC_HEADERS)) $(SDK_CONFIG)
-CORE_HEADERS := src/core/checkpoint_internal.h src/core/codec.h $(CORE_PUBLIC_HEADERS) src/core/dcs.h src/core/graphics.h src/core/parser.h src/core/regex.h src/core/terminal_internal.h src/core/unicode.h
+CORE_HEADERS := src/core/log_controls.h src/core/checkpoint_internal.h src/core/codec.h $(CORE_PUBLIC_HEADERS) src/core/dcs.h src/core/graphics.h src/core/parser.h src/core/regex.h src/core/terminal_internal.h src/core/unicode.h
 LIBRARY := $(BUILD_DIR)/libboxrig.a
 UI_LIBRARY := $(BUILD_DIR)/libboxrig-ui.a
 SESSION_LIBRARY := $(BUILD_DIR)/libboxrig-session.a
@@ -673,8 +678,8 @@ WIN32_SOURCES := $(wildcard src/win32/*.c)
 WIN32_HEADERS := include/boxrig/win32.h $(wildcard include/boxrig/win32/*.h)
 MINGW_AMD64_WIN32_OBJECTS := $(patsubst src/win32/%.c,$(MINGW_AMD64_BUILD_DIR)/win32/%.o,$(WIN32_SOURCES))
 MINGW_I686_WIN32_OBJECTS := $(patsubst src/win32/%.c,$(MINGW_I686_BUILD_DIR)/win32/%.o,$(WIN32_SOURCES))
-MINGW_AMD64_UTF8PROC_OBJECT := $(MINGW_AMD64_BUILD_DIR)/core/utf8proc.o
-MINGW_I686_UTF8PROC_OBJECT := $(MINGW_I686_BUILD_DIR)/core/utf8proc.o
+MINGW_AMD64_UTF8PROC_OBJECT := $(if $(filter BOXRIG_FEATURE_COMPACT_CELLS=0,$(BOXRIG_FEATURE_SETTINGS)),$(MINGW_AMD64_BUILD_DIR)/core/utf8proc.o)
+MINGW_I686_UTF8PROC_OBJECT := $(if $(filter BOXRIG_FEATURE_COMPACT_CELLS=0,$(BOXRIG_FEATURE_SETTINGS)),$(MINGW_I686_BUILD_DIR)/core/utf8proc.o)
 MINGW_AMD64_ZLIB_OBJECTS := $(patsubst deps/zlib/%.c,$(MINGW_AMD64_BUILD_DIR)/deps/zlib/%.o,$(ZLIB_SOURCES))
 MINGW_I686_ZLIB_OBJECTS := $(patsubst deps/zlib/%.c,$(MINGW_I686_BUILD_DIR)/deps/zlib/%.o,$(ZLIB_SOURCES))
 MINGW_AMD64_LIBPNG_OBJECTS := $(patsubst deps/libpng/%.c,$(MINGW_AMD64_BUILD_DIR)/deps/libpng/%.o,$(LIBPNG_SOURCES))
@@ -942,7 +947,14 @@ install-win32-opengl-i686: win32-opengl-i686 $(MINGW_I686_BUILD_DIR)/libboxrig-r
 	verify-i686-session-archive verify-amd64-win32-archive \
 	verify-i686-win32-archive
 
+.PHONY: core
+core: $(LIBRARY)
+
+ifneq ($(filter BOXRIG_FEATURE_COMPACT_CELLS=1,$(BOXRIG_FEATURE_SETTINGS)),)
+all: core
+else
 all: native win32
+endif
 
 .PHONY: test-wayland-protocol-build
 test: test-wayland-protocol-build
@@ -6532,3 +6544,8 @@ test-encoding-hooks: $(BUILD_DIR)/tests/test_encoding_hooks
 	$<
 $(BUILD_DIR)/tests/test_encoding_hooks: tests/test_encoding_hooks.c $(LIBRARY) $(CORE_PUBLIC_HEADERS) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(LIBRARY) -lm -o $@
+
+.PHONY: test-embedded-log
+test-embedded-log: $(LIBRARY)
+	+sh tests/check_embedded_log.sh "$(MAKE)" "$(BUILD_DIR)/embedded-log" "$(LIBRARY)"
+test: test-embedded-log

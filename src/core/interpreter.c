@@ -5,6 +5,7 @@
  */
 
 #include "terminal_internal.h"
+#include "log_controls.h"
 
 #include "utf8proc.h"
 
@@ -14,6 +15,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if BOXRIG_FEATURE_EXTENDED_VT
 static uint32_t first_parameter(
     const boxrig_parser_parameter *parameters,
     size_t parameter_count,
@@ -38,7 +40,7 @@ static uint32_t parameter_at(
     }
     return parameters[index].value;
 }
-
+#endif
 static boxrig_status emit_codepoint(void *context, int32_t codepoint)
 {
     boxrig_terminal *terminal = context;
@@ -105,6 +107,8 @@ static boxrig_status interpreter_execute(void *context, uint8_t control)
 {
     boxrig_terminal *terminal = context;
 
+    if (!BOXRIG_FEATURE_EXTENDED_VT && control != 0x08 && control != 0x09 &&
+        control != 0x0a && control != 0x0d) return BOXRIG_STATUS_OK;
     if (control == 0x07) {
         return boxrig_terminal_push_host_item(
             terminal,
@@ -138,6 +142,7 @@ static boxrig_status interpreter_execute(void *context, uint8_t control)
     return BOXRIG_STATUS_OK;
 }
 
+#if BOXRIG_FEATURE_EXTENDED_VT
 static boxrig_status interpreter_dispatch_escape(
     void *context,
     const uint8_t *intermediates,
@@ -565,7 +570,7 @@ static boxrig_status interpreter_dcs_unhook(
 {
     return boxrig_dcs_unhook(context, cancelled, terminator);
 }
-
+#endif
 static boxrig_status interpreter_string_start(
     void *context,
     boxrig_parser_string_kind kind)
@@ -643,6 +648,7 @@ static boxrig_status interpreter_string_put_run(
     return BOXRIG_STATUS_OK;
 }
 
+#if BOXRIG_FEATURE_EXTENDED_VT
 static bool is_host_text_control(utf8proc_int32_t codepoint)
 {
     return (codepoint >= 0 && codepoint <= 0x1f) ||
@@ -1702,7 +1708,7 @@ static boxrig_status dispatch_osc(
     }
     return BOXRIG_STATUS_OK;
 }
-
+#endif
 static boxrig_status interpreter_string_end(
     void *context,
     bool cancelled,
@@ -1714,8 +1720,9 @@ static boxrig_status interpreter_string_end(
 #if BOXRIG_FEATURE_KITTY_GRAPHICS
     if (terminal->active_string_kind == BOXRIG_PARSER_STRING_APC) {
         status = boxrig_kitty_graphics_end(&terminal->graphics, cancelled);
-    } else
+    }
 #endif
+#if BOXRIG_FEATURE_EXTENDED_VT
     if (!cancelled &&
                terminal->active_string_kind == BOXRIG_PARSER_STRING_OSC) {
         status = dispatch_osc(terminal, terminator);
@@ -1724,26 +1731,66 @@ static boxrig_status interpreter_string_end(
         terminal->active_string_kind == BOXRIG_PARSER_STRING_OSC) {
         terminal->osc_buffer_length = 0;
     }
+#else
+    (void)terminal; (void)cancelled; (void)terminator;
+#endif
     return status;
 }
 
 boxrig_parser_actions boxrig_interpreter_actions(boxrig_terminal *terminal)
 {
-    boxrig_parser_actions actions;
+    boxrig_parser_actions actions = {0};
 
     actions.context = terminal;
     actions.print = interpreter_print;
     actions.print_run = interpreter_print_run;
     actions.flush_print = interpreter_flush_print;
     actions.execute = interpreter_execute;
+#if BOXRIG_FEATURE_EXTENDED_VT
     actions.dispatch_escape = interpreter_dispatch_escape;
     actions.dispatch_csi = interpreter_dispatch_csi;
     actions.dcs_hook = interpreter_dcs_hook;
     actions.dcs_put = interpreter_dcs_put;
     actions.dcs_unhook = interpreter_dcs_unhook;
+#else
+    actions.dispatch_csi = boxrig_log_dispatch_csi;
+#endif
     actions.string_start = interpreter_string_start;
     actions.string_put = interpreter_string_put;
     actions.string_put_run = interpreter_string_put_run;
     actions.string_end = interpreter_string_end;
     return actions;
 }
+
+#if !BOXRIG_FEATURE_EXTENDED_VT
+#if BOXRIG_FEATURE_LOG_CURSOR
+void boxrig_log_cursor(boxrig_terminal *terminal, uint8_t marker,
+    const boxrig_parser_parameter *parameters, size_t count, uint8_t final)
+{
+    boxrig_text_monitor_begin_mutation(terminal);
+    boxrig_screen_dispatch_csi(&terminal->screen, marker, parameters, count, NULL, 0, final);
+    boxrig_text_monitor_end_mutation(terminal);
+}
+#endif
+
+void boxrig_log_set_color(boxrig_terminal *terminal, bool foreground, int index)
+{
+    boxrig_color color = {0};
+    if (index >= 0) {
+        color.kind = BOXRIG_COLOR_INDEXED;
+        color.index = (uint8_t)index;
+    }
+    if (foreground) terminal->screen.style.foreground = color;
+    else terminal->screen.style.background = color;
+}
+
+void boxrig_log_erase(boxrig_terminal *terminal, unsigned mode)
+{
+    boxrig_screen *screen = &terminal->screen;
+    size_t column = screen->active->cursor.column;
+    boxrig_text_monitor_begin_mutation(terminal);
+    boxrig_screen_erase_cells(screen, screen->active->cursor.row,
+        mode == 0 ? column : 0, mode == 1 ? column + 1 : screen->columns);
+    boxrig_text_monitor_end_mutation(terminal);
+}
+#endif

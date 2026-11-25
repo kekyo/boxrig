@@ -322,6 +322,21 @@ struct boxrig_terminal {
     bool osc_title;
     bool osc_selector_done;
 #endif
+    size_t output_capacity;
+    size_t output_usage;
+    boxrig_output_segment *output_head;
+    boxrig_output_segment *output_tail;
+#if BOXRIG_FEATURE_COMPACT_CELLS
+    struct boxrig_compact_cell { uint8_t character, colors; } *cells;
+    struct boxrig_compact_damage { size_t start, end; } *damage;
+    size_t rows, columns, row, column;
+    uint8_t colors;
+#if BOXRIG_FEATURE_LOG_CURSOR
+    bool cursor_hidden;
+#endif
+    bool pending_wrap;
+    boxrig_receive_newline receive_newline;
+#else
     boxrig_dcs_state dcs;
 #if BOXRIG_FEATURE_KITTY_GRAPHICS
     boxrig_kitty_graphics_state graphics;
@@ -365,10 +380,6 @@ struct boxrig_terminal {
     boxrig_tty_erase tty_erase;
     boxrig_newline paste_newline;
     boxrig_receive_newline receive_newline;
-    size_t output_capacity;
-    size_t output_usage;
-    boxrig_output_segment *output_head;
-    boxrig_output_segment *output_tail;
     uint64_t next_text_search_result_id;
     bool text_search_result_limit;
 #if BOXRIG_FEATURE_TEXT_MONITOR
@@ -378,6 +389,7 @@ struct boxrig_terminal {
     boxrig_text_recognizer_state *text_recognizer_state;
 #endif
     boxrig_animation_clock *animation_clock;
+#endif
 };
 
 boxrig_status boxrig_screen_initialize(

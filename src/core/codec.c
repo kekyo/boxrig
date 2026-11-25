@@ -1,7 +1,6 @@
 /* boxrig - Under MIT. */
 #include "terminal_internal.h"
 #include "codec.h"
-#include "utf8proc.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -27,9 +26,8 @@ boxrig_status boxrig_terminal_append_encoded_text(
     if (!hooked && validated && !transform && newline == BOXRIG_NEWLINE_LF)
         return boxrig_terminal_append_output(terminal, bytes, length);
     for (size_t offset = 0; offset < length;) {
-        utf8proc_int32_t scalar;
-        utf8proc_ssize_t decoded = utf8proc_iterate(bytes + offset,
-            (utf8proc_ssize_t)(length - offset), &scalar);
+        int32_t scalar;
+        size_t decoded = boxrig_utf8_scalar(bytes + offset, length - offset, &scalar);
         if (decoded <= 0) return BOXRIG_STATUS_INVALID_ARGUMENT;
         size_t count = (size_t)decoded;
         if (scalar == '\n' && newline != BOXRIG_NEWLINE_LF) {
@@ -54,9 +52,8 @@ boxrig_status boxrig_terminal_append_encoded_text(
     size_t position = 0;
     if (alt) result[position++] = 0x1b;
     for (size_t offset = 0; offset < length;) {
-        utf8proc_int32_t scalar;
-        utf8proc_ssize_t decoded = utf8proc_iterate(bytes + offset,
-            (utf8proc_ssize_t)(length - offset), &scalar);
+        int32_t scalar;
+        size_t decoded = boxrig_utf8_scalar(bytes + offset, length - offset, &scalar);
         if (scalar == '\n' && newline != BOXRIG_NEWLINE_LF) {
             result[position++] = '\r';
             if (newline == BOXRIG_NEWLINE_CRLF) result[position++] = '\n';

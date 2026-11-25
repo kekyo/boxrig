@@ -4,7 +4,13 @@ BOXRIG_VERSION ?= 0.0.0
 BOXRIG_SOVERSION := 0
 SHARED_PKGCONFIG_DIR := $(if $(BOXRIG_PREGENERATED_PKGCONFIG),$(BOXRIG_PREGENERATED_PKGCONFIG),$(BUILD_DIR)/pkgconfig)
 SHARED_INSTALL_PKGCONFIG_DIR := $(if $(BOXRIG_PREGENERATED_PKGCONFIG),$(BOXRIG_PREGENERATED_PKGCONFIG),$(BUILD_DIR)/shared/pkgconfig)
+ifneq ($(filter BOXRIG_FEATURE_COMPACT_CELLS=1,$(BOXRIG_FEATURE_SETTINGS)),)
+SHARED_BASE_NAMES := boxrig
+SHARED_CORE_MAP := packaging/linux/boxrig-compact.map
+else
 SHARED_BASE_NAMES := boxrig boxrig-ui boxrig-session boxrig-posix
+SHARED_CORE_MAP := packaging/linux/boxrig.map
+endif
 SHARED_BASE_LINKS := $(addprefix $(BUILD_DIR)/lib,$(addsuffix .so,$(SHARED_BASE_NAMES)))
 SHARED_BASE_METADATA := $(addprefix $(SHARED_PKGCONFIG_DIR)/,$(addsuffix .pc,$(SHARED_BASE_NAMES)))
 SHARED_GTK_NAMES := boxrig-gtk3 boxrig-gtk4
@@ -83,8 +89,8 @@ $(sort $(SHARED_GTK_METADATA) $(SHARED_NATIVE_METADATA) $(SHARED_OPENGL_METADATA
 	BOXRIG_GTK_OPENGL=$(GTK_OPENGL) node $(CODEGEN_DIR)/generate-linux-metadata.mjs "$(BUILD_DIR)/pkgconfig" "$(BOXRIG_VERSION)" "$(PREFIX)" "$(LIBDIR)" "$(INCLUDEDIR)" "$(PKGCONFIGDIR)" $*
 endif
 
-$(BUILD_DIR)/libboxrig.so.$(BOXRIG_SOVERSION): $(LIBRARY) packaging/linux/boxrig.map packaging/linux/rules.mk
-	$(CC) $(CFLAGS) $(LDFLAGS) $(SHARED_LDFLAGS) $(SHARED_MAP_FLAGS) $(SHARED_ARCHIVE_FLAGS) -lm -o $@
+$(BUILD_DIR)/libboxrig.so.$(BOXRIG_SOVERSION): $(LIBRARY) $(SHARED_CORE_MAP) packaging/linux/rules.mk
+	$(CC) $(CFLAGS) $(LDFLAGS) $(SHARED_LDFLAGS) -Wl,--version-script=$(SHARED_CORE_MAP),-soname,$(@F) $(SHARED_ARCHIVE_FLAGS) -lm -o $@
 
 $(BUILD_DIR)/libboxrig-ui.so.$(BOXRIG_SOVERSION): $(UI_LIBRARY) packaging/linux/boxrig-ui.map $(BUILD_DIR)/libboxrig.so packaging/linux/rules.mk
 	$(CC) $(CFLAGS) $(LDFLAGS) $(SHARED_LDFLAGS) $(SHARED_MAP_FLAGS) $(SHARED_ARCHIVE_FLAGS) -L$(BUILD_DIR) -lboxrig -lm -o $@
@@ -133,8 +139,11 @@ $(BUILD_DIR)/libboxrig-background-gtk4.so.$(BOXRIG_SOVERSION): $(BACKGROUND_GTK4
 
 install-shared-base: shared-base install-common-licenses
 	$(INSTALL) -d $(DESTDIR)$(LIBDIR) $(DESTDIR)$(INCLUDEDIR)/boxrig/ui $(DESTDIR)$(PKGCONFIGDIR)
-	$(INSTALL) -m 644 $(CORE_SDK_HEADERS) include/boxrig/ui.h include/boxrig/session.h include/boxrig/posix.h $(DESTDIR)$(INCLUDEDIR)/boxrig
+	$(INSTALL) -m 644 $(CORE_SDK_HEADERS) $(DESTDIR)$(INCLUDEDIR)/boxrig
+ifeq ($(filter BOXRIG_FEATURE_COMPACT_CELLS=1,$(BOXRIG_FEATURE_SETTINGS)),)
+	$(INSTALL) -m 644 include/boxrig/ui.h include/boxrig/session.h include/boxrig/posix.h $(DESTDIR)$(INCLUDEDIR)/boxrig
 	$(INSTALL) -m 644 include/boxrig/ui/*.h $(DESTDIR)$(INCLUDEDIR)/boxrig/ui
+endif
 	@set -e; for name in $(SHARED_BASE_NAMES); do \
 		$(INSTALL) -m 644 "$(BUILD_DIR)/shared/lib$$name.a" "$(BUILD_DIR)/shared/lib$$name.so.$(BOXRIG_SOVERSION)" "$(DESTDIR)$(LIBDIR)"; \
 		ln -sfn "lib$$name.so.$(BOXRIG_SOVERSION)" "$(DESTDIR)$(LIBDIR)/lib$$name.so"; \

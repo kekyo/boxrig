@@ -49,10 +49,14 @@ static boxrig_status convert(boxrig_terminal *t, boxrig_encoding_channel channel
 
 bool boxrig_encoding_barrier_pending(const boxrig_terminal *t)
 {
+#if BOXRIG_FEATURE_COMPACT_CELLS
+    (void)t;
+#else
     if (t->encoding_hooks.mode == BOXRIG_ENCODING_STREAM && t->pending_request_count) {
         for (const boxrig_output_segment *s = t->output_head; s; s = s->next)
             if (s->kind == BOXRIG_OUTPUT_SEGMENT_BARRIER) return true;
     }
+#endif
     return false;
 }
 
@@ -242,7 +246,10 @@ boxrig_status boxrig_terminal_set_encoding_hooks(boxrig_terminal *t, const boxri
     if (!t || (hooks && (!hooks->convert || (unsigned)hooks->mode > BOXRIG_ENCODING_STREAM)))
         return BOXRIG_STATUS_INVALID_ARGUMENT;
     if (t->receive_active || t->decoded_for_input || t->decoded_offset != t->decoded_length ||
-        t->send_active || t->output_usage || t->input.paste_active || t->decoder.length ||
+        t->send_active || t->output_usage || t->decoder.length ||
+#if !BOXRIG_FEATURE_COMPACT_CELLS
+        t->input.paste_active ||
+#endif
         t->parser.state != BOXRIG_PARSER_GROUND) return BOXRIG_STATUS_BUSY;
     t->encoding_hooks = hooks ? *hooks : (boxrig_encoding_hooks){0};
     free(t->decoded_bytes);

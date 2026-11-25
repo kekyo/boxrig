@@ -10,17 +10,22 @@ for (const definition of definitions) {
   if (!match) throw new Error(`Invalid feature setting ${definition}`);
   values[match[1]] = match[2];
 }
+// Lock each advertised feature to the value used to build this SDK.
+const settings = Object.keys(values)
+  .map((name) =>
+    [
+      `#if defined(${name}) && ${name} != {{${name}}}`,
+      `#error "${name} conflicts with the installed boxrig library"`,
+      '#endif',
+      `#ifndef ${name}`,
+      `#define ${name} {{${name}}}`,
+      '#endif',
+    ].join('\n')
+  )
+  .join('\n');
 const sdk = template.replace(
-  /^#ifndef (BOXRIG_FEATURE_\w+)\n#define \1 [01]\n#endif$/gmu,
-  (_, name: string) => {
-    if (!(name in values)) throw new Error(`Missing build value for ${name}`);
-    return `#if defined(${name}) && ${name} != {{${name}}}
-#error "${name} conflicts with the installed boxrig library"
-#endif
-#ifndef ${name}
-#define ${name} {{${name}}}
-#endif`;
-  }
+  '#define BOXRIG_CONFIG_H',
+  '#define BOXRIG_CONFIG_H\n\n' + settings
 );
 await mkdir(dirname(output), { recursive: true });
 await writeFile(output, await renderCodeTemplate(sdk, values, source));
