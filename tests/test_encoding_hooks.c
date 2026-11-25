@@ -86,6 +86,13 @@ static void stream_backpressure(void)
     assert(boxrig_terminal_feed(terminal, titles + consumed, sizeof(titles) - 1 - consumed, &tail) == BOXRIG_STATUS_OK);
     assert(tail == 2 && state.observed_length == sizeof(titles) - 1);
     assert(!memcmp(state.observed, titles, state.observed_length));
+    assert(boxrig_terminal_output_consume(terminal, sizeof(expected) - 1) == BOXRIG_STATUS_OK);
+    const uint8_t enable_meta[] = "\033[?1034h";
+    assert(boxrig_terminal_feed(terminal, enable_meta, sizeof(enable_meta)-1, &consumed) == BOXRIG_STATUS_OK);
+    boxrig_key_event key = {.key = BOXRIG_KEY_NONE, .codepoint = 'a', .text = "a",
+        .text_length = 1, .modifiers = BOXRIG_MODIFIER_META};
+    assert(boxrig_terminal_send_key(terminal, &key) == BOXRIG_STATUS_OK);
+    assert(boxrig_terminal_output_peek(terminal, &wire) == 2 && !memcmp(wire, "á", 2));
     boxrig_terminal_destroy(terminal);
 }
 #endif
