@@ -133,7 +133,7 @@ $(BUILD_DIR)/libboxrig-background-gtk4.so.$(BOXRIG_SOVERSION): $(BACKGROUND_GTK4
 
 install-shared-base: shared-base install-common-licenses
 	$(INSTALL) -d $(DESTDIR)$(LIBDIR) $(DESTDIR)$(INCLUDEDIR)/boxrig/ui $(DESTDIR)$(PKGCONFIGDIR)
-	$(INSTALL) -m 644 $(CORE_PUBLIC_HEADERS) include/boxrig/ui.h include/boxrig/session.h include/boxrig/posix.h $(DESTDIR)$(INCLUDEDIR)/boxrig
+	$(INSTALL) -m 644 $(CORE_SDK_HEADERS) include/boxrig/ui.h include/boxrig/session.h include/boxrig/posix.h $(DESTDIR)$(INCLUDEDIR)/boxrig
 	$(INSTALL) -m 644 include/boxrig/ui/*.h $(DESTDIR)$(INCLUDEDIR)/boxrig/ui
 	@set -e; for name in $(SHARED_BASE_NAMES); do \
 		$(INSTALL) -m 644 "$(BUILD_DIR)/shared/lib$$name.a" "$(BUILD_DIR)/shared/lib$$name.so.$(BOXRIG_SOVERSION)" "$(DESTDIR)$(LIBDIR)"; \

@@ -78,7 +78,8 @@ elif [[ " $* " == *' win32 '* ]]; then
         printf 'emitter\n' > "build/boxrig_emitter/win32/$arch/boxrig_emitter.exe"
     done
 elif [[ " $* " == *' package-codegen '* ]]; then
-    mkdir -p build/tools/codegen build/generated/licenses build/generated/pkgconfig
+    mkdir -p build/tools/codegen build/generated/licenses build/generated/pkgconfig build/generated/include/boxrig
+    printf 'configured header\n' > build/generated/include/boxrig/config.h
     printf 'generated JavaScript\n' > build/tools/codegen/generate-wayland-notices.mjs
     printf 'generated JavaScript\n' > build/tools/codegen/generate-linux-metadata.mjs
     printf 'generated package metadata\n' > build/generated/pkgconfig/boxrig.pc

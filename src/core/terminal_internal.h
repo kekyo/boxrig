@@ -301,9 +301,27 @@ bool boxrig_monitor_checkpoint_config(const boxrig_terminal *terminal, boxrig_te
 bool boxrig_recognizer_checkpoint_config(const boxrig_terminal *terminal, boxrig_terminal_config *config);
 bool boxrig_notification_checkpoint_ready(const boxrig_terminal *terminal);
 
+#if BOXRIG_FEATURE_ENCODING_HOOKS
+boxrig_status boxrig_encoding_resolve_barrier(boxrig_terminal *terminal, boxrig_output_segment *barrier,
+    const uint8_t *response, size_t length);
+#endif
+
 struct boxrig_terminal {
     boxrig_parser parser;
     boxrig_unicode_decoder decoder;
+#if BOXRIG_FEATURE_ENCODING_HOOKS
+    boxrig_encoding_hooks encoding_hooks;
+    uint8_t *decoded_bytes;
+    size_t decoded_capacity;
+    size_t decoded_length;
+    size_t decoded_offset;
+    boxrig_encoding_channel receive_channel;
+    bool receive_active;
+    bool decoded_for_input;
+    bool send_active;
+    bool osc_title;
+    bool osc_selector_done;
+#endif
     boxrig_dcs_state dcs;
     boxrig_kitty_graphics_state graphics;
     boxrig_kitty_graphics_protocol_state graphics_protocol;

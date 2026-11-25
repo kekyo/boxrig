@@ -7,6 +7,8 @@
 #ifndef BOXRIG_TERMINAL_H
 #define BOXRIG_TERMINAL_H
 
+#include "boxrig/config.h"
+
 #include "boxrig/regex.h"
 
 #include <stdbool.h>
@@ -19,6 +21,79 @@ extern "C" {
 
 /** Opaque terminal emulator state. */
 typedef struct boxrig_terminal boxrig_terminal;
+
+#if BOXRIG_FEATURE_ENCODING_HOOKS
+/** Location of external conversion relative to control syntax. */
+typedef enum boxrig_encoding_mode {
+    BOXRIG_ENCODING_FIELDS, /**< Convert screen text and OSC titles separately. */
+    BOXRIG_ENCODING_STREAM /**< Convert the entire textual terminal stream. */
+} boxrig_encoding_mode;
+
+/** Independent states maintained by the application's converter. */
+typedef enum boxrig_encoding_channel {
+    BOXRIG_ENCODING_RECEIVE, /**< Wire text or the whole stream to UTF-8. */
+    BOXRIG_ENCODING_TITLE, /**< A title field to UTF-8. */
+    BOXRIG_ENCODING_SEND /**< UTF-8 to wire bytes. */
+} boxrig_encoding_channel;
+
+/** Output reservation valid for the duration of a conversion callback. */
+typedef struct boxrig_encoding_buffer boxrig_encoding_buffer;
+
+/**
+ * Reserves output before advancing a stateful converter.
+ * @param buffer Destination passed to the current callback.
+ * @param capacity Maximum bytes the converter will write.
+ * @param bytes_out Receives writable storage, possibly NULL for zero.
+ * @return OK, WOULD_BLOCK for temporary queue pressure, or a resource error.
+ * @remarks Reserve once and report actual bytes produced on success.
+ */
+boxrig_status boxrig_encoding_reserve(boxrig_encoding_buffer *buffer,
+    size_t capacity, uint8_t **bytes_out);
+
+/** Codec registration copied by the terminal. */
+typedef struct boxrig_encoding_hooks {
+    boxrig_encoding_mode mode; /**< Field or whole-stream conversion. */
+    void *context; /**< Borrowed until replacement, removal or destruction. */
+    /**
+     * Transforms a fragment or finalizes a channel.
+     * @param context Registered application state.
+     * @param channel Independent converter to use.
+     * @param input Borrowed input, NULL when finishing.
+     * @param length Input byte count.
+     * @param finish Finalize this channel, handling incomplete input.
+     * @param buffer Reservation for the result.
+     * @param written Actual output byte count, initially zero.
+     * @return OK after accepting all input. Preserve the prior state on error.
+     * @remarks Reserve before committing codec state. Field decoders produce
+     * printable UTF-8. A finished channel starts fresh on its next input.
+     * Callbacks must not reenter the terminal or propagate exceptions.
+     */
+    boxrig_status (*convert)(void *context, boxrig_encoding_channel channel,
+        const uint8_t *input, size_t length, bool finish,
+        boxrig_encoding_buffer *buffer, size_t *written);
+    /** Receives committed cooked bytes including control syntax, in order.
+     * The optional observer borrows the span only during this call. */
+    void (*received)(void *context, const uint8_t *bytes, size_t length);
+} boxrig_encoding_hooks;
+
+/**
+ * Registers, replaces or removes a codec while retaining the screen and history.
+ * @param terminal Terminal to configure.
+ * @param hooks Registration to copy, or NULL to resume built-in UTF-8.
+ * @return OK, INVALID_ARGUMENT, or BUSY while input, output or syntax is pending.
+ * @remarks Drain retained session input, finish input and encoding output and
+ * drain wire output before exchanging a live codec.
+ */
+boxrig_status boxrig_terminal_set_encoding_hooks(boxrig_terminal *terminal,
+    const boxrig_encoding_hooks *hooks);
+
+/**
+ * Emits the encoder's final shift sequence once.
+ * @param terminal Terminal whose send channel is being finalized.
+ * @return OK or an output status. Retry WOULD_BLOCK after draining output.
+ */
+boxrig_status boxrig_terminal_finish_encoding_output(boxrig_terminal *terminal);
+#endif
 
 /** Exclusive host ownership of a terminal animation clock. */
 typedef struct boxrig_animation_clock boxrig_animation_clock;
@@ -633,7 +708,7 @@ typedef struct boxrig_terminal_config {
  * @remarks Stop dispatch and drain any input retained by the transport
  * session first. The checkpoint excludes transport and UI resources.
  * Complete host requests and any open graphics command/upload, drain events,
- * and detach application monitors and recognizers before export. Bind host
+ * and detach application monitors, recognizers and encoding hooks before export. Bind host
  * callbacks to the restored terminal. Use the same maximum_bytes on import.
  * Both operations bound eager workspace dimensions using maximum_bytes,
  * with a 16 MiB floor for default workspaces and a 1 GiB ceiling.

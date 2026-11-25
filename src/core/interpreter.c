@@ -573,6 +573,10 @@ static boxrig_status interpreter_string_start(
     boxrig_terminal *terminal = context;
 
     terminal->active_string_kind = kind;
+#if BOXRIG_FEATURE_ENCODING_HOOKS
+    terminal->osc_title = false;
+    terminal->osc_selector_done = false;
+#endif
     if (kind == BOXRIG_PARSER_STRING_APC) {
         boxrig_kitty_graphics_start(&terminal->graphics);
     } else if (kind == BOXRIG_PARSER_STRING_OSC) {
@@ -594,6 +598,16 @@ static boxrig_status interpreter_string_put(void *context, uint8_t byte)
     if (terminal->osc_buffer_length >= terminal->osc_buffer_capacity) {
         return BOXRIG_STATUS_LIMIT_EXCEEDED;
     }
+#if BOXRIG_FEATURE_ENCODING_HOOKS
+    if (terminal->encoding_hooks.convert && !terminal->osc_selector_done && byte == ';') {
+        size_t n = terminal->osc_buffer_length;
+        size_t i = 0;
+        while (i + 1 < n && terminal->osc_buffer[i] == '0') i++;
+        terminal->osc_title = n && i == n - 1 &&
+            terminal->osc_buffer[i] >= '0' && terminal->osc_buffer[i] <= '2';
+        terminal->osc_selector_done = true;
+    }
+#endif
     terminal->osc_buffer[terminal->osc_buffer_length] = byte;
     terminal->osc_buffer_length++;
     return BOXRIG_STATUS_OK;

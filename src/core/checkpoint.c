@@ -11,6 +11,9 @@ static const uint8_t signature[8] = { 'B', 'O', 'X', 'R', 'I', 'G', 2, 0 };
 
 static boxrig_status capture_config(const boxrig_terminal *t, boxrig_terminal_config *cfg)
 {
+#if BOXRIG_FEATURE_ENCODING_HOOKS
+    if (t->encoding_hooks.convert) return BOXRIG_STATUS_BUSY;
+#endif
     if (t->host_item_count || t->pending_request_count || t->graphics.active ||
         !boxrig_notification_checkpoint_ready(t) ||
         !boxrig_monitor_checkpoint_config(t, cfg) ||

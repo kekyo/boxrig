@@ -343,6 +343,9 @@ void boxrig_terminal_destroy(boxrig_terminal *terminal)
         free(segment);
         segment = next;
     }
+#if BOXRIG_FEATURE_ENCODING_HOOKS
+    free(terminal->decoded_bytes);
+#endif
     free(terminal->osc_buffer);
     free(terminal->host_items);
     free(terminal->pending_requests);
@@ -449,11 +452,12 @@ boxrig_status boxrig_terminal_feed(
     if (length == 0) {
         return BOXRIG_STATUS_OK;
     }
-    status = boxrig_parser_feed(
-        &terminal->parser,
-        bytes,
-        length,
-        consumed_out);
+#if BOXRIG_FEATURE_ENCODING_HOOKS
+    if (terminal->encoding_hooks.convert)
+        status = boxrig_encoding_feed(terminal, bytes, length, consumed_out);
+    else
+#endif
+        status = boxrig_parser_feed(&terminal->parser, bytes, length, consumed_out);
     boxrig_screen_pack_pending_history(&terminal->screen);
     boxrig_kitty_graphics_refresh_placeholders(terminal);
     boxrig_screen_text_sync(&terminal->screen);
@@ -1283,6 +1287,9 @@ boxrig_status boxrig_terminal_queue_clipboard_request(
         return BOXRIG_STATUS_INVALID_ARGUMENT;
     }
     if (read) {
+#if BOXRIG_FEATURE_ENCODING_HOOKS
+        if (boxrig_encoding_barrier_pending(terminal)) return BOXRIG_STATUS_WOULD_BLOCK;
+#endif
         if (response_reservation > terminal->output_capacity) {
             return BOXRIG_STATUS_LIMIT_EXCEEDED;
         }
@@ -1363,6 +1370,9 @@ boxrig_status boxrig_terminal_queue_graphics_request(
             terminal->output_capacity - terminal->output_usage) {
         return BOXRIG_STATUS_WOULD_BLOCK;
     }
+#if BOXRIG_FEATURE_ENCODING_HOOKS
+    if (response_reservation && boxrig_encoding_barrier_pending(terminal)) return BOXRIG_STATUS_WOULD_BLOCK;
+#endif
     name_copy = malloc(transport->name_length);
     if (name_copy == NULL) {
         return BOXRIG_STATUS_OUT_OF_MEMORY;
@@ -1474,6 +1484,10 @@ boxrig_status boxrig_terminal_resolve_graphics_barrier(
         return response_length == 0 ? BOXRIG_STATUS_OK
                                     : BOXRIG_STATUS_INVALID_ARGUMENT;
     }
+#if BOXRIG_FEATURE_ENCODING_HOOKS
+    if (response_length && terminal->encoding_hooks.mode == BOXRIG_ENCODING_STREAM)
+        return boxrig_encoding_resolve_barrier(terminal, barrier, response, response_length);
+#endif
     if (response_length > barrier->reservation) {
         return BOXRIG_STATUS_LIMIT_EXCEEDED;
     }
@@ -1667,6 +1681,13 @@ static boxrig_status resolve_clipboard_barrier(
         response[offset] = 0x1b;
         response[offset + 1] = (uint8_t)'\\';
     }
+#if BOXRIG_FEATURE_ENCODING_HOOKS
+    if (terminal->encoding_hooks.mode == BOXRIG_ENCODING_STREAM) {
+        boxrig_status status = boxrig_encoding_resolve_barrier(terminal, barrier, response, response_length);
+        free(response);
+        return status;
+    }
+#endif
     terminal->output_usage -= barrier->reservation;
     terminal->output_usage += response_length;
     barrier->kind = BOXRIG_OUTPUT_SEGMENT_DATA;
@@ -1795,7 +1816,16 @@ boxrig_status boxrig_terminal_host_item_consume(boxrig_terminal *terminal)
     return BOXRIG_STATUS_OK;
 }
 
-boxrig_status boxrig_terminal_append_output(
+boxrig_status boxrig_terminal_append_output(boxrig_terminal *terminal, const uint8_t *bytes, size_t length)
+{
+#if BOXRIG_FEATURE_ENCODING_HOOKS
+    if (length && terminal->encoding_hooks.convert && terminal->encoding_hooks.mode == BOXRIG_ENCODING_STREAM)
+        return boxrig_encoding_send(terminal, bytes, length, false, false, false);
+#endif
+    return boxrig_terminal_append_wire(terminal, bytes, length);
+}
+
+boxrig_status boxrig_terminal_append_wire(
     boxrig_terminal *terminal,
     const uint8_t *bytes,
     size_t length)
@@ -1858,7 +1888,11 @@ boxrig_status boxrig_terminal_append_output(
 boxrig_status boxrig_terminal_finish_input(boxrig_terminal *terminal)
 {
     if (terminal == NULL) return BOXRIG_STATUS_INVALID_ARGUMENT;
-    boxrig_status status = boxrig_parser_finish(&terminal->parser);
+    boxrig_status status = BOXRIG_STATUS_OK;
+#if BOXRIG_FEATURE_ENCODING_HOOKS
+    if (terminal->encoding_hooks.convert) status = boxrig_encoding_finish_input(terminal);
+#endif
+    if (status == BOXRIG_STATUS_OK) status = boxrig_parser_finish(&terminal->parser);
     boxrig_screen_pack_pending_history(&terminal->screen);
     boxrig_history_seal_tail(&terminal->screen);
     boxrig_kitty_graphics_refresh_placeholders(terminal);
@@ -1871,7 +1905,10 @@ boxrig_status boxrig_terminal_send_bytes(
 {
     if (terminal == NULL || (bytes == NULL && length != 0))
         return BOXRIG_STATUS_INVALID_ARGUMENT;
-    return boxrig_terminal_append_output(terminal, bytes, length);
+#if BOXRIG_FEATURE_ENCODING_HOOKS
+    if (length && boxrig_encoding_barrier_pending(terminal)) return BOXRIG_STATUS_WOULD_BLOCK;
+#endif
+    return boxrig_terminal_append_wire(terminal, bytes, length);
 }
 
 boxrig_status boxrig_terminal_send_text(

@@ -9,6 +9,7 @@ export default defineConfig({
     emptyOutDir: true,
     lib: {
       entry: {
+        'generate-config': 'src/generate-config.ts',
         'generate-wayland-notices': 'src/generate-wayland-notices.ts',
         'generate-linux-metadata': 'src/generate-linux-metadata.ts',
       },

@@ -24,6 +24,7 @@ for template in packaging/linux/*.pc.in; do
     package=${package%.pc.in}
     [ -s "build/generated/pkgconfig/$package.pc" ] || package_fail "Source preparation is missing: $package.pc"
 done
+export BOXRIG_PREGENERATED_CONFIG="$PWD/build/generated/include/boxrig/config.h"
 export BOXRIG_PREGENERATED_PKGCONFIG="$PWD/build/generated/pkgconfig"
 bash packaging/build_sdk.sh linux "$version" /output "$jobs" "$distro-$release-$arch"
 for library in build/libboxrig*.a build/shared/libboxrig*.so.0; do

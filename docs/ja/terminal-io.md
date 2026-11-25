@@ -161,6 +161,12 @@ POSIXドライバーでの値の変更と受信バイトを確認するコマン
 
 受信本文と送信する文字列にはUTF-8を使います。未完の受信文字は入力終了時にU+FFFDになります。
 
+別の文字コードを扱うアプリは、端末生成後に `boxrig_terminal_set_encoding_hooks()` で変換器を登録できます。`BOXRIG_ENCODING_FIELDS` は画面本文とタイトルを変換します。URIや画像データは元の符号化を保ちます。`BOXRIG_ENCODING_STREAM` は端末の制御列も含めて変換するため、ISO-2022-JPなどの接続に使えます。生バイトを送るときは `send_bytes()` を使います。
+
+変換器は受信・タイトル・送信の状態をアプリ側に持ちます。コールバックは `boxrig_encoding_reserve()` で出力先を確保してから状態を進め、実際に書いたバイト数を返します。`received` で制御列を含む変換後の受信バイトを観測できます。接続中に交換するときはセッションの保留入力を処理し、`boxrig_terminal_finish_input()` と `boxrig_terminal_finish_encoding_output()` を呼び、残りの出力を送ってから登録し直します。チェックポイントの保存前も同じ手順で登録を解除します。
+
+機能の既定値は `<boxrig/config.h>` にあります。UTF-8専用ビルドでは `CPPFLAGS=-DBOXRIG_FEATURE_ENCODING_HOOKS=0` を指定します。配布SDKにはビルド時の設定が入ります。
+
 `send_text()`には完全なUTF-8を渡します。
 不正・未完の文字列は追加せずエラーを返します。
 変換済みの列や独自の制御列には`send_bytes()`を使ってください。

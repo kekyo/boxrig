@@ -1,5 +1,7 @@
 BOXRIG_0 {
     global:
+        boxrig_encoding_*;
+        boxrig_terminal_*encoding_*;
         boxrig_animation_clock_release;
         boxrig_animation_clock_update_monotonic_time;
         boxrig_input_config_default;

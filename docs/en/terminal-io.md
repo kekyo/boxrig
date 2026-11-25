@@ -171,6 +171,12 @@ actual bytes received by the PTY child.
 
 Incoming and outgoing text uses UTF-8. An incomplete received character becomes U+FFFD at end of input.
 
+Register an application converter after creating the terminal with `boxrig_terminal_set_encoding_hooks()`. Select `BOXRIG_ENCODING_FIELDS` for screen text and titles with independent URI and image encodings, or `BOXRIG_ENCODING_STREAM` for peers that encode control syntax too, such as ISO-2022-JP. Explicit `send_bytes()` sends wire bytes directly.
+
+Keep separate receive, title and send states. Reserve output with `boxrig_encoding_reserve()` before advancing the converter, then return the actual number of bytes written. The optional `received` callback observes committed bytes including control syntax. To exchange codecs, drain retained session input, call `boxrig_terminal_finish_input()` and `boxrig_terminal_finish_encoding_output()`, drain wire output and register the replacement. Detach the codec this way before exporting a checkpoint.
+
+See `<boxrig/config.h>` for supported build definitions. Build with `CPPFLAGS=-DBOXRIG_FEATURE_ENCODING_HOOKS=0` for UTF-8 only. The installed SDK records the library's settings.
+
 Pass complete UTF-8 to `send_text()`.
 Invalid or incomplete text returns an error without being appended.
 Use `send_bytes()` for already encoded sequences or custom control sequences.
