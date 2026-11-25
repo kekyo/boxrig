@@ -21,6 +21,11 @@ LINUX_PACKAGE_METADATA := $(patsubst packaging/linux/%.pc.in,%,$(wildcard packag
 
 .PHONY: codegen-tools package-codegen
 codegen-tools: $(CODEGEN_TOOLS)
+# Offline packages ship the configuration resolved on the build host. Compile
+# the library with that same header, including in recursive platform builds.
+ifdef BOXRIG_PREGENERATED_CONFIG
+override CPPFLAGS += -include "$(abspath $(BOXRIG_PREGENERATED_CONFIG))"
+endif
 # Resolve the same public fallbacks used by the compiler, including -D overrides.
 BOXRIG_FEATURE_SETTINGS := $(sort $(shell $(CC) $(CPPFLAGS) -dM -E -x c include/boxrig/config.h | awk '$$2 ~ /^BOXRIG_FEATURE_/ {print $$2 "=" $$3}'))
 BOXRIG_CONFIG_STAMP := $(BUILD_DIR)/features.config

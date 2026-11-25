@@ -21,6 +21,10 @@ for setting in default 0 1; do
     "${CC:-cc}" -std=c99 -O2 -Wall -Wextra -Werror -I"$headers" tests/test_encoding_hooks.c \
         "$archive" -lm -o "$directory/consumer"
     "$directory/consumer"
+    if [ "$setting" = 0 ]; then
+        mkdir -p "$directory/offline/include/boxrig"
+        cp "$headers/boxrig/config.h" "$directory/offline/include/boxrig/config.h"
+    fi
     other=$((1-expected))
     if printf '#include <boxrig/terminal.h>\n' |
         "${CC:-cc}" -x c -std=c99 -I"$headers" -DBOXRIG_FEATURE_ENCODING_HOOKS=$other \
@@ -29,4 +33,10 @@ for setting in default 0 1; do
     if [ "$expected" = 0 ] && nm -g --defined-only "$archive" |
         grep -Eq ' [Tt] boxrig_(terminal_(set_encoding_hooks|finish_encoding_output)|encoding_reserve)$'; then exit 1; fi
 done
+offline=$(cd "$directory/offline" && pwd)
+"$make_command" BUILD_DIR="$offline" BOXRIG_PREGENERATED_CONFIG="$offline/include/boxrig/config.h" core
+if nm -g --defined-only "$offline/libboxrig.a" | grep -q ' T boxrig_terminal_set_encoding_hooks$'; then
+    echo 'The offline library must use the settings in its packaged header.' >&2
+    exit 1
+fi
 printf '%s\n' 'PASS default, disabled and re-enabled encoding SDKs in the same build directory'
