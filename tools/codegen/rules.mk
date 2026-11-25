@@ -23,6 +23,15 @@ LINUX_PACKAGE_METADATA := $(patsubst packaging/linux/%.pc.in,%,$(wildcard packag
 codegen-tools: $(CODEGEN_TOOLS)
 # Offline packages ship the configuration resolved on the build host. Compile
 # the library with that same header, including in recursive platform builds.
+ifdef BOXRIG_PREGENERATED_PKGCONFIG
+ifndef BOXRIG_PREGENERATED_CONFIG
+# package-codegen stores both outputs below generated/. The metadata directory
+# can also be staged separately while CODEGEN_DIR points to the prepared tree.
+BOXRIG_PREGENERATED_CONFIG := $(firstword $(wildcard \
+	$(abspath $(BOXRIG_PREGENERATED_PKGCONFIG)/../include/boxrig/config.h) \
+	$(abspath $(CODEGEN_DIR)/../../generated/include/boxrig/config.h)))
+endif
+endif
 ifdef BOXRIG_PREGENERATED_CONFIG
 override CPPFLAGS += -include "$(abspath $(BOXRIG_PREGENERATED_CONFIG))"
 endif
