@@ -5,6 +5,11 @@ make_command=$1
 directory=$2
 codegen=$3
 stage=$(mkdir -p "$directory/sdk" && cd "$directory/sdk" && pwd)
+if printf '#include <boxrig/config.h>\n' |
+    "${CC:-cc}" -x c -std=c99 -Iinclude -DBOXRIG_FEATURE_ENCODING_HOOKS=2 -fsyntax-only - 2>"$directory/invalid.log"; then
+    echo 'Expected the source configuration to reject a value other than 0 or 1.' >&2
+    exit 1
+fi
 for setting in default 0 1; do
     flags=
     expected=1
