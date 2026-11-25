@@ -3,7 +3,7 @@
 [English](../en/terminal-io.md)
 
 Enterや貼り付けの改行、受信する改行、文字コードを通信相手に合わせるための設定です。
-例えば、EnterでLFを送る機器との接続や、Shift_JISを使う相手との送受信に利用できます。
+例えば、EnterでLFを送る機器との接続に利用できます。
 これらはboxrig coreの設定で、端末を生成するときに指定します。
 Enter・消去キー・矢印キーの設定は、生成後にも一括で変更できます。
 同じ端末を表示する複数の表示先は、同じ送受信規則を使います。
@@ -159,14 +159,7 @@ POSIXドライバーでの値の変更と受信バイトを確認するコマン
 
 ## 文字コードと生バイト
 
-`encoding`は既定の`BOXRIG_ENCODING_UTF8`と`BOXRIG_ENCODING_SHIFT_JIS`から選びます。
-Shift_JISでは受信文字をUnicodeへ、送信するUTF-8の文字をShift_JISへ変換します。
-セル、検索、選択、コピー、IMEで扱う文字列はUTF-8のままです。
-
-Shift_JISの対応は[WHATWG Encoding Standard](https://encoding.spec.whatwg.org/#shift_jis)に従います。
-不正な受信はU+FFFD、表せない送信文字はASCIIの`?`へ置換します。
-別のCP932実装との完全一致や、全ての文字の往復を保証するものではありません。
-対応表の[ライセンス](../../data/encoding/whatwg/LICENSE)も再配布時に添えます。
+受信本文と送信する文字列にはUTF-8を使います。未完の受信文字は入力終了時にU+FFFDになります。
 
 `send_text()`には完全なUTF-8を渡します。
 不正・未完の文字列は追加せずエラーを返します。
@@ -174,7 +167,7 @@ Shift_JISの対応は[WHATWG Encoding Standard](https://encoding.spec.whatwg.org
 問い合わせ応答や画像のpayloadへ文字コード変換を重ねることはありません。
 
 [文字コードの例](../../examples/core/encoding.c)は`make example-encoding`で作れます。
-送信した「日本語」は`93 fa 96 7b 8c ea`となり、受信後のセルはUTF-8として確認できます。
+「日本語」を1バイトずつ受信し、セルと送信キューのUTF-8を確認できます。
 
 ## 容量不足と受信終了
 

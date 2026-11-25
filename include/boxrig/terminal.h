@@ -485,14 +485,6 @@ typedef enum boxrig_receive_newline {
     BOXRIG_RECEIVE_NEWLINE_CRLF
 } boxrig_receive_newline;
 
-/** Text encoding used for the terminal client connection. */
-typedef enum boxrig_encoding {
-    /** Unicode UTF-8, the default encoding. */
-    BOXRIG_ENCODING_UTF8 = 0,
-    /** WHATWG Shift_JIS, including its index and replacement rules. */
-    BOXRIG_ENCODING_SHIFT_JIS
-} boxrig_encoding;
-
 /** Storage policy for offscreen primary-screen history, selected per terminal. */
 typedef enum boxrig_scrollback_compression {
     /** Retain the original cells. This is the default. */
@@ -628,8 +620,6 @@ typedef struct boxrig_terminal_config {
      * boundaries; any intervening byte ends the pair. Retained across resets.
      */
     boxrig_receive_newline receive_newline;
-    /** Text codec, fixed at construction and retained across terminal resets. */
-    boxrig_encoding encoding;
 } boxrig_terminal_config;
 
 /**
@@ -2658,8 +2648,7 @@ boxrig_status boxrig_terminal_send_key(
  * @remarks A transaction starts with BOXRIG_PASTE_BEGIN, contains zero or
  * more BOXRIG_PASTE_CHUNK events, and ends with BOXRIG_PASTE_END. Begin and
  * end events must have empty text. Each chunk must contain complete, valid
- * UTF-8; characters may not span chunks. Text is encoded using the configured
- * codec and unrepresentable Shift_JIS scalars become ASCII question marks.
+ * UTF-8; characters may not span chunks.
  * ESC bytes are rejected from chunks so a
  * pasted payload cannot forge the bracketed-paste end marker. When this
  * function returns BOXRIG_STATUS_WOULD_BLOCK, no bytes or transaction state
@@ -2752,8 +2741,7 @@ boxrig_status boxrig_terminal_send_bytes(
  * @param text Length-delimited UTF-8, including any NUL or control characters.
  * @param length Number of bytes in text.
  * @return OK, INVALID_ARGUMENT for malformed UTF-8, or a capacity/error status.
- * @remarks Unrepresentable Shift_JIS scalars become ASCII question marks.
- * No newline conversion is performed; a failed event queues no prefix.
+ * @remarks No newline conversion is performed; a failed event queues no prefix.
  */
 boxrig_status boxrig_terminal_send_text(
     boxrig_terminal *terminal,

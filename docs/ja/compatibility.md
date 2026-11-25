@@ -22,7 +22,7 @@ OS、描画方式、入力メソッド、アプリケーション側の接続に
 | 用途 | 対応する内容 | 詳細 |
 | --- | --- | --- |
 | 文字と制御 | UTF-8、結合文字、絵文字、ANSI色、RGB色、装飾、点滅、画面と履歴 | [制御列](./reference/terminal-sequences.md) |
-| 入力 | 改行設定、Shift_JIS変換、キー設定、Kitty keyboard、貼り付け、マウス、フォーカス | [送受信設定](./terminal-io.md) |
+| 入力 | 改行設定、キー設定、Kitty keyboard、貼り付け、マウス、フォーカス | [送受信設定](./terminal-io.md) |
 | 本文の利用 | スナップショット、選択、完全一致検索、出現監視、範囲を制限した正規表現認識 | [文字列](./text.md) |
 | 画像 | Kitty graphicsの静止画、配置、外部転送、アニメーション | [画像仕様](./reference/graphics.md) |
 | ホスト連携 | タイトル、リンク、クリップボード、通知、外部画像の要求 | [ホスト連携](./host-integration.md) |

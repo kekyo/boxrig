@@ -99,7 +99,7 @@ PREFERREDは全ての失敗を隠す設定ではありません。
 
 boxrigは[MIT License](../../../LICENSE)です。
 第三者コードとデータの条件は、それぞれの原文を保持します。
-SDKの`share/licenses/boxrig/`にはutf8proc、libpng、zlib、Unicode、WHATWG Encoding、構成別のWayland、cardio、MinGW-w64、GCCなどの資料が入ります。
+SDKの`share/licenses/boxrig/`にはutf8proc、libpng、zlib、Unicode、構成別のWayland、cardio、MinGW-w64、GCCなどの資料が入ります。
 
 取得元URLとハッシュは[sources.json](../../../packaging/licenses/sources.json)、構成ごとの説明は[第三者ライセンス資料](../../../packaging/licenses/README_ja.md)にあります。
 GCCのランタイムには[GCC Runtime Library Exception](https://www.gnu.org/licenses/gcc-exception-3.1.html)も関係します。

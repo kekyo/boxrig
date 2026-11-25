@@ -80,7 +80,6 @@ elif [[ " $* " == *' win32 '* ]]; then
 elif [[ " $* " == *' package-codegen '* ]]; then
     mkdir -p build/tools/codegen build/generated/licenses build/generated/pkgconfig
     printf 'generated JavaScript\n' > build/tools/codegen/generate-wayland-notices.mjs
-    printf 'generated JavaScript\n' > build/tools/codegen/generate-shift-jis.mjs
     printf 'generated JavaScript\n' > build/tools/codegen/generate-linux-metadata.mjs
     printf 'generated package metadata\n' > build/generated/pkgconfig/boxrig.pc
     printf 'protocol notices\n' > build/generated/licenses/Wayland-protocols-NOTICES.md

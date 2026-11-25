@@ -303,8 +303,7 @@ bool boxrig_notification_checkpoint_ready(const boxrig_terminal *terminal);
 
 struct boxrig_terminal {
     boxrig_parser parser;
-    boxrig_encoding encoding;
-    boxrig_codec_decoder decoder;
+    boxrig_unicode_decoder decoder;
     boxrig_dcs_state dcs;
     boxrig_kitty_graphics_state graphics;
     boxrig_kitty_graphics_protocol_state graphics_protocol;

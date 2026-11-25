@@ -36,19 +36,18 @@ static bool output_is(boxrig_terminal *terminal, const void *expected, size_t le
 static bool receive_every_split(void)
 {
     boxrig_terminal *terminal = NULL;
-    /* Japanese text, then a DEC drawing designation surrounding characters
-     * whose Shift_JIS trail bytes overlap ASCII/DEC drawing codes. */
-    const uint8_t bytes[] = {0x93,0xfa,0x96,0x7b,0x8c,0xea,13,10,
-        27,'(','0',0x82,0x60,0x83,0x5c,0x95,0x5c,'q',27,'(','B',0xb1};
+    /* Exercise Japanese text across a DEC drawing designation. */
+    const uint8_t bytes[] = "日本語\r\n\033(0Ａソ表q\033(Bｱ";
+    const size_t length = sizeof(bytes) - 1;
     boxrig_terminal_config config = boxrig_terminal_config_default();
-    config.encoding = BOXRIG_ENCODING_SHIFT_JIS;
+
     config.rows = 4; config.columns = 30;
-    for (size_t split = 0; split <= sizeof(bytes) + 1; split++) {
+    for (size_t split = 0; split <= length + 1; split++) {
         CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
-        if (split <= sizeof(bytes)) {
+        if (split <= length) {
             CHECK(feed(terminal, bytes, split));
-            CHECK(feed(terminal, bytes + split, sizeof(bytes) - split));
-        } else for (size_t offset = 0; offset < sizeof(bytes); offset++)
+            CHECK(feed(terminal, bytes + split, length - split));
+        } else for (size_t offset = 0; offset < length; offset++)
             CHECK(feed(terminal, bytes + offset, 1));
         CHECK(cell_is(terminal, 0, 0, "日"));
         CHECK(cell_is(terminal, 0, 2, "本"));
@@ -72,10 +71,10 @@ static bool malformed_and_eof(void)
 {
     boxrig_terminal *terminal = NULL;
     boxrig_terminal_config config = boxrig_terminal_config_default();
-    config.encoding = BOXRIG_ENCODING_SHIFT_JIS;
+
     config.receive_newline = BOXRIG_RECEIVE_NEWLINE_CRLF;
     CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
-    const uint8_t invalid[] = {0x82,'"',0xff,0x82,' ',0x82};
+    const uint8_t invalid[] = {0xe6,'"',0xff,0xe6,' ',0xe6};
     CHECK(feed(terminal, invalid, sizeof(invalid)));
     CHECK(cell_is(terminal, 0, 0, "�") && cell_is(terminal, 0, 1, "\""));
     CHECK(cell_is(terminal, 0, 2, "�") && cell_is(terminal, 0, 3, "�"));
@@ -102,7 +101,7 @@ static bool malformed_and_eof(void)
         CHECK(output_is(terminal, NULL, 0));
     }
     boxrig_terminal_destroy(terminal); terminal = NULL;
-    config.encoding = BOXRIG_ENCODING_UTF8;
+
     CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
     CHECK(feed(terminal, "\xe6\x97", 2));
     CHECK(cell_is(terminal, 0, 0, " "));
@@ -119,38 +118,22 @@ static bool outgoing_text_and_raw(void)
 {
     boxrig_terminal *terminal = NULL;
     boxrig_terminal_config config = boxrig_terminal_config_default();
-    CHECK(config.encoding == BOXRIG_ENCODING_UTF8);
-    for (unsigned encoding = 0; encoding < 2; encoding++) {
-        config.encoding = (boxrig_encoding)encoding;
-        CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
-        const char utf8[] = "日本語ｱ\0\n";
-        const uint8_t sjis[] = {0x93,0xfa,0x96,0x7b,0x8c,0xea,0xb1,0,10};
-        CHECK(boxrig_terminal_send_text(terminal, utf8, sizeof(utf8) - 1) == BOXRIG_STATUS_OK);
-        CHECK(output_is(terminal, encoding ? (const void *)sjis : utf8,
-            encoding ? sizeof(sjis) : sizeof(utf8) - 1));
-        const uint8_t raw[] = {0xff,0x82,0,27,'[','A'};
-        CHECK(boxrig_terminal_send_bytes(terminal, raw, sizeof(raw)) == BOXRIG_STATUS_OK);
-        CHECK(output_is(terminal, raw, sizeof(raw)));
-        const char *invalid[] = {"\x82", "\xe6\x97", "\xc0\xaf", "\xed\xa0\x80", "\xf4\x90\x80\x80", "A\xe6"};
-        for (size_t i = 0; i < sizeof(invalid) / sizeof(invalid[0]); i++) {
-            CHECK(boxrig_terminal_send_text(terminal, invalid[i], strlen(invalid[i])) == BOXRIG_STATUS_INVALID_ARGUMENT);
-            CHECK(output_is(terminal, NULL, 0));
-        }
-        CHECK(boxrig_terminal_send_text(terminal, NULL, 0) == BOXRIG_STATUS_OK);
-        CHECK(boxrig_terminal_send_bytes(terminal, NULL, 1) == BOXRIG_STATUS_INVALID_ARGUMENT);
-        boxrig_terminal_destroy(terminal); terminal = NULL;
-    }
-    config.encoding = BOXRIG_ENCODING_SHIFT_JIS;
+
     CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
-    CHECK(boxrig_terminal_send_text(terminal, "¥‾−😀\xee\x80\x80", 15) == BOXRIG_STATUS_OK);
-    const uint8_t lossy[] = {0x5c,0x7e,0x81,0x7c,'?','?'};
-    CHECK(output_is(terminal, lossy, sizeof(lossy)));
+    const char utf8[] = "日本語ｱ\0\n";
+    CHECK(boxrig_terminal_send_text(terminal, utf8, sizeof(utf8) - 1) == BOXRIG_STATUS_OK);
+    CHECK(output_is(terminal, utf8, sizeof(utf8) - 1));
+    const uint8_t raw[] = {0xff,0x82,0,27,'[','A'};
+    CHECK(boxrig_terminal_send_bytes(terminal, raw, sizeof(raw)) == BOXRIG_STATUS_OK);
+    CHECK(output_is(terminal, raw, sizeof(raw)));
+    const char *invalid[] = {"\x82", "\xe6\x97", "\xc0\xaf", "\xed\xa0\x80", "\xf4\x90\x80\x80", "A\xe6"};
+    for (size_t i = 0; i < sizeof(invalid) / sizeof(invalid[0]); i++) {
+        CHECK(boxrig_terminal_send_text(terminal, invalid[i], strlen(invalid[i])) == BOXRIG_STATUS_INVALID_ARGUMENT);
+        CHECK(output_is(terminal, NULL, 0));
+    }
+    CHECK(boxrig_terminal_send_text(terminal, NULL, 0) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_send_bytes(terminal, NULL, 1) == BOXRIG_STATUS_INVALID_ARGUMENT);
     boxrig_terminal_destroy(terminal); terminal = NULL;
-    config.encoding = (boxrig_encoding)-1;
-    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_INVALID_ARGUMENT);
-    CHECK(terminal == NULL);
-    config.encoding = (boxrig_encoding)2;
-    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_INVALID_ARGUMENT);
     return true;
 fail:
     boxrig_terminal_destroy(terminal); return false;
@@ -162,14 +145,14 @@ static bool keys_paste_and_protocols(void)
     const uint8_t mapped[] = {0xff,0,0x82};
     const boxrig_key_mapping mapping = {BOXRIG_KEY_UP, 0, mapped, sizeof(mapped)};
     boxrig_terminal_config config = boxrig_terminal_config_default();
-    config.encoding = BOXRIG_ENCODING_SHIFT_JIS;
+
     config.paste_newline = BOXRIG_NEWLINE_CRLF;
     config.input.key_mappings = &mapping; config.input.key_mapping_count = 1;
     CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
     boxrig_key_event key = {.key = BOXRIG_KEY_NONE, .codepoint = 0x65e5,
         .text = "日", .text_length = 3, .modifiers = BOXRIG_MODIFIER_ALT};
     CHECK(boxrig_terminal_send_key(terminal, &key) == BOXRIG_STATUS_OK);
-    CHECK(output_is(terminal, "\033\x93\xfa", 3));
+    CHECK(output_is(terminal, "\033日", 4));
     key.modifiers = 0;
     CHECK(feed(terminal, "\033[=8u", 5));
     CHECK(boxrig_terminal_send_key(terminal, &key) == BOXRIG_STATUS_OK);
@@ -188,7 +171,7 @@ static bool keys_paste_and_protocols(void)
     CHECK(output_is(terminal, "\033[200~", 6));
     paste.phase = BOXRIG_PASTE_CHUNK; paste.text = "日\n本"; paste.text_length = 7;
     CHECK(boxrig_terminal_send_paste(terminal, &paste) == BOXRIG_STATUS_OK);
-    CHECK(output_is(terminal, "\x93\xfa\r\n\x96\x7b", 6));
+    CHECK(output_is(terminal, "日\r\n本", 8));
     const char *bad[] = {"\xe6\x97", "\033[201~", "\xff"};
     for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
         paste.text = bad[i]; paste.text_length = strlen(bad[i]);
@@ -209,8 +192,8 @@ static bool atomic_encoded_capacity(void)
 {
     boxrig_terminal *terminal = NULL;
     boxrig_terminal_config config = boxrig_terminal_config_default();
-    config.encoding = BOXRIG_ENCODING_SHIFT_JIS;
-    config.output_capacity = 4; config.paste_newline = BOXRIG_NEWLINE_CRLF;
+
+    config.output_capacity = 6; config.paste_newline = BOXRIG_NEWLINE_CRLF;
     CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
     CHECK(boxrig_terminal_send_text(terminal, "ab", 2) == BOXRIG_STATUS_OK);
     CHECK(boxrig_terminal_send_text(terminal, "日本", 6) == BOXRIG_STATUS_WOULD_BLOCK);
@@ -218,18 +201,18 @@ static bool atomic_encoded_capacity(void)
     CHECK(boxrig_terminal_send_text(terminal, "日本", 6) == BOXRIG_STATUS_OK);
     CHECK(boxrig_terminal_output_consume(terminal, 1) == BOXRIG_STATUS_OK);
     CHECK(boxrig_terminal_send_text(terminal, "日", 3) == BOXRIG_STATUS_WOULD_BLOCK);
-    CHECK(output_is(terminal, "\xfa\x96\x7b", 3));
+    CHECK(output_is(terminal, "\x97\xa5本", 5));
     CHECK(boxrig_terminal_send_text(terminal, "日", 3) == BOXRIG_STATUS_OK);
-    CHECK(output_is(terminal, "\x93\xfa", 2));
+    CHECK(output_is(terminal, "日", 3));
     CHECK(boxrig_terminal_send_text(terminal, "日本語", 9) == BOXRIG_STATUS_LIMIT_EXCEEDED);
     boxrig_paste_event paste = {.phase = BOXRIG_PASTE_BEGIN};
     CHECK(boxrig_terminal_send_paste(terminal, &paste) == BOXRIG_STATUS_OK);
     paste = (boxrig_paste_event){.phase = BOXRIG_PASTE_CHUNK, .text = "日\n", .text_length = 4};
-    CHECK(boxrig_terminal_send_text(terminal, "x", 1) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_terminal_send_text(terminal, "xx", 2) == BOXRIG_STATUS_OK);
     CHECK(boxrig_terminal_send_paste(terminal, &paste) == BOXRIG_STATUS_WOULD_BLOCK);
-    CHECK(output_is(terminal, "x", 1));
+    CHECK(output_is(terminal, "xx", 2));
     CHECK(boxrig_terminal_send_paste(terminal, &paste) == BOXRIG_STATUS_OK);
-    CHECK(output_is(terminal, "\x93\xfa\r\n", 4));
+    CHECK(output_is(terminal, "日\r\n", 5));
     paste.text = "日\n\n"; paste.text_length = 5;
     CHECK(boxrig_terminal_send_paste(terminal, &paste) == BOXRIG_STATUS_LIMIT_EXCEEDED);
     CHECK(output_is(terminal, NULL, 0));
@@ -242,9 +225,9 @@ static bool titles_and_receive_backpressure(void)
 {
     boxrig_terminal *terminal = NULL;
     boxrig_terminal_config config = boxrig_terminal_config_default();
-    config.encoding = BOXRIG_ENCODING_SHIFT_JIS; config.host_item_capacity = 1;
+    config.host_item_capacity = 1;
     CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
-    CHECK(feed(terminal, "\007\x82", 2));
+    CHECK(feed(terminal, "\007\xe6", 2));
     size_t consumed = 99;
     CHECK(boxrig_terminal_feed(terminal, (const uint8_t *)"\007X", 2, &consumed) == BOXRIG_STATUS_WOULD_BLOCK);
     CHECK(consumed == 0 && cell_is(terminal, 0, 0, "�"));
@@ -255,7 +238,7 @@ static bool titles_and_receive_backpressure(void)
     CHECK(cell_is(terminal, 0, 1, "X"));
     CHECK(boxrig_terminal_host_item_consume(terminal) == BOXRIG_STATUS_OK);
     for (unsigned command = 0; command < 3; command++) {
-        uint8_t title[] = {27,']',(uint8_t)('0' + command),';',0x93,0xfa,0x82,7};
+        uint8_t title[] = {27,']',(uint8_t)('0' + command),';',0xe6,0x97,0xa5,0xe6,7};
         for (size_t i = 0; i < sizeof(title); i++) CHECK(feed(terminal, title + i, 1));
         boxrig_host_item item;
         CHECK(boxrig_terminal_host_item_peek(terminal, &item));
@@ -263,7 +246,7 @@ static bool titles_and_receive_backpressure(void)
         CHECK(memcmp(item.payload, "日�", 6) == 0);
         CHECK(boxrig_terminal_host_item_consume(terminal) == BOXRIG_STATUS_OK);
     }
-    /* URI payloads keep UTF-8 even when ground text uses Shift_JIS. */
+    /* URI payloads preserve UTF-8. */
     const char uri[] = "\033]7;file:///日本\007";
     CHECK(feed(terminal, uri, sizeof(uri) - 1));
     boxrig_host_item item;
@@ -280,16 +263,16 @@ static bool reset_and_owned_settings(void)
 {
     boxrig_terminal *first = NULL, *second = NULL;
     boxrig_terminal_config config = boxrig_terminal_config_default();
-    config.encoding = BOXRIG_ENCODING_SHIFT_JIS;
+
     CHECK(boxrig_terminal_create(&config, &first) == BOXRIG_STATUS_OK);
-    config.encoding = BOXRIG_ENCODING_UTF8;
+
     CHECK(boxrig_terminal_create(&config, &second) == BOXRIG_STATUS_OK);
     const char *resets[] = {"", "\033c", "\033[!p", "\033[?1049h", "\033[?1049l"};
     for (size_t i = 0; i < sizeof(resets) / sizeof(resets[0]); i++) {
         CHECK(feed(first, resets[i], strlen(resets[i])));
         CHECK(feed(second, resets[i], strlen(resets[i])));
         CHECK(boxrig_terminal_send_text(first, "あ", 3) == BOXRIG_STATUS_OK);
-        CHECK(output_is(first, "\x82\xa0", 2));
+        CHECK(output_is(first, "あ", 3));
         CHECK(boxrig_terminal_send_text(second, "あ", 3) == BOXRIG_STATUS_OK);
         CHECK(output_is(second, "あ", 3));
     }

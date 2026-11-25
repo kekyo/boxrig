@@ -3,7 +3,7 @@
 [日本語](../ja/terminal-io.md)
 
 You can adjust Enter and paste newlines, received newlines, and character encoding to match the communication peer.
-Examples include devices that expect LF for Enter and peers using Shift_JIS.
+Examples include devices that expect LF for Enter.
 These are boxrig core settings supplied when creating the terminal.
 Enter, erase bindings, and arrow mappings can also be exchanged together at runtime.
 All views of the same terminal share these I/O rules.
@@ -169,14 +169,7 @@ actual bytes received by the PTY child.
 
 ## Character encodings and raw bytes
 
-Choose `encoding` from the default `BOXRIG_ENCODING_UTF8` and `BOXRIG_ENCODING_SHIFT_JIS`.
-With Shift_JIS, received characters are converted to Unicode, and outgoing UTF-8 text is converted to Shift_JIS.
-Text in cells, search, selection, copying, and IME remains UTF-8.
-
-Shift_JIS support follows the [WHATWG Encoding Standard](https://encoding.spec.whatwg.org/#shift_jis).
-Invalid received data becomes U+FFFD, and unrepresentable outgoing characters become ASCII `?`.
-This does not guarantee exact equivalence to other CP932 implementations or round trips for every character.
-Include the mapping table's [license](../../data/encoding/whatwg/LICENSE) when redistributing it.
+Incoming and outgoing text uses UTF-8. An incomplete received character becomes U+FFFD at end of input.
 
 Pass complete UTF-8 to `send_text()`.
 Invalid or incomplete text returns an error without being appended.
@@ -184,7 +177,7 @@ Use `send_bytes()` for already encoded sequences or custom control sequences.
 Encoding conversion is not applied again to query responses or image payloads.
 
 Build the [encoding example](../../examples/core/encoding.c) with `make example-encoding`.
-The outgoing text “日本語” becomes `93 fa 96 7b 8c ea`, and received cells can be inspected as UTF-8.
+It receives Japanese text one byte at a time and checks the UTF-8 in the cells and output queue.
 
 ## Capacity limits and end of input
 

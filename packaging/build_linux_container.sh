@@ -16,7 +16,6 @@ if [ "$distro" = debian ] && [ "$release" = trixie ]; then expected_release=13; 
 [ "$(dpkg --print-architecture)" = "$(package_debian_arch "$arch")" ] ||
     package_fail "Wrong container architecture for $arch"
 for generated in build/tools/codegen/generate-wayland-notices.mjs \
-    build/tools/codegen/generate-shift-jis.mjs \
     build/generated/licenses/Wayland-protocols-NOTICES.md; do
     [ -s "$generated" ] || package_fail "Source preparation is missing: $generated"
 done

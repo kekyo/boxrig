@@ -54,7 +54,7 @@ static boxrig_status emit_codepoint(void *context, int32_t codepoint)
 static boxrig_status interpreter_print(void *context, uint8_t byte)
 {
     boxrig_terminal *terminal = context;
-    return boxrig_codec_decoder_put(&terminal->decoder, terminal->encoding,
+    return boxrig_unicode_decoder_put(&terminal->decoder,
         byte, emit_codepoint, terminal);
 }
 
@@ -68,8 +68,7 @@ static boxrig_status interpreter_print_run(
 
     *consumed_out = 0;
     while (*consumed_out < length) {
-        if (terminal->encoding == BOXRIG_ENCODING_UTF8 &&
-            terminal->decoder.utf8.length == 0) {
+        if (terminal->decoder.length == 0) {
             size_t placed = boxrig_screen_put_ascii_run(
                 &terminal->screen,
                 bytes + *consumed_out,
@@ -97,8 +96,7 @@ static boxrig_status interpreter_print_run(
 static boxrig_status interpreter_flush_print(void *context)
 {
     boxrig_terminal *terminal = context;
-    boxrig_status status = boxrig_codec_decoder_flush(&terminal->decoder,
-        terminal->encoding, emit_codepoint, terminal);
+    boxrig_status status = boxrig_unicode_decoder_flush(&terminal->decoder, emit_codepoint, terminal);
     if (status == BOXRIG_STATUS_OK) boxrig_screen_end_text(&terminal->screen);
     return status;
 }
@@ -684,45 +682,6 @@ static boxrig_status sanitize_host_text(
     return BOXRIG_STATUS_OK;
 }
 
-typedef struct boxrig_title_decoder_output {
-    uint8_t *bytes;
-    size_t length;
-} boxrig_title_decoder_output;
-
-static boxrig_status append_title_scalar(void *context, int32_t codepoint)
-{
-    boxrig_title_decoder_output *output = context;
-    if (!is_host_text_control(codepoint)) {
-        uint8_t encoded[4];
-        size_t length = boxrig_unicode_encode(codepoint, encoded);
-        memcpy(output->bytes + output->length, encoded, length);
-        output->length += length;
-    }
-    return BOXRIG_STATUS_OK;
-}
-
-static boxrig_status decode_title_text(
-    const uint8_t *input, size_t length, uint8_t **output_out, size_t *length_out)
-{
-    *output_out = NULL;
-    *length_out = 0;
-    if (length == 0) return BOXRIG_STATUS_OK;
-    if (length > SIZE_MAX / 3) return BOXRIG_STATUS_LIMIT_EXCEEDED;
-    boxrig_title_decoder_output output = {malloc(length * 3), 0};
-    if (output.bytes == NULL) return BOXRIG_STATUS_OUT_OF_MEMORY;
-    boxrig_codec_decoder decoder = {0};
-    /* Shift_JIS maps into the BMP, so three UTF-8 bytes per source byte also
-     * bound malformed prefixes followed by an independently restored ASCII. */
-    for (size_t index = 0; index < length; index++)
-        (void)boxrig_codec_decoder_put(&decoder, BOXRIG_ENCODING_SHIFT_JIS,
-            input[index], append_title_scalar, &output);
-    (void)boxrig_codec_decoder_flush(&decoder, BOXRIG_ENCODING_SHIFT_JIS,
-        append_title_scalar, &output);
-    *output_out = output.bytes;
-    *length_out = output.length;
-    return BOXRIG_STATUS_OK;
-}
-
 static boxrig_status push_text_host_item(
     boxrig_terminal *terminal,
     boxrig_host_item_type type,
@@ -732,9 +691,7 @@ static boxrig_status push_text_host_item(
 {
     uint8_t *sanitized = NULL;
     size_t sanitized_length = 0;
-    boxrig_status status = type == BOXRIG_HOST_ITEM_TITLE &&
-        terminal->encoding == BOXRIG_ENCODING_SHIFT_JIS ? decode_title_text(
-            payload, payload_length, &sanitized, &sanitized_length) : sanitize_host_text(
+    boxrig_status status = sanitize_host_text(
         payload,
         payload_length,
         &sanitized,

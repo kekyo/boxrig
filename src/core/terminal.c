@@ -178,7 +178,6 @@ boxrig_terminal_config boxrig_terminal_config_default(void)
     config.input = boxrig_input_config_default();
     config.paste_newline = BOXRIG_NEWLINE_LF;
     config.receive_newline = BOXRIG_RECEIVE_NEWLINE_TERMINAL;
-    config.encoding = BOXRIG_ENCODING_UTF8;
     return config;
 }
 
@@ -206,7 +205,6 @@ boxrig_status boxrig_terminal_create(
         config->text_recognizer_capacity >
             SIZE_MAX / sizeof(boxrig_text_recognizer_state *) ||
         !graphics_config_valid(config) ||
-        (unsigned int)config->encoding > (unsigned int)BOXRIG_ENCODING_SHIFT_JIS ||
         (unsigned int)config->paste_newline > BOXRIG_NEWLINE_CRLF ||
         (unsigned int)config->receive_newline > BOXRIG_RECEIVE_NEWLINE_CRLF ||
         (config->ambiguous_width != BOXRIG_AMBIGUOUS_WIDTH_NARROW &&
@@ -250,7 +248,6 @@ boxrig_status boxrig_terminal_create(
     terminal->output_capacity = config->output_capacity;
     terminal->paste_newline = config->paste_newline;
     terminal->receive_newline = config->receive_newline;
-    terminal->encoding = config->encoding;
     terminal->next_request_id = 1;
     terminal->next_text_search_result_id = 1;
     initialize_colors(terminal);

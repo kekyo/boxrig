@@ -311,7 +311,7 @@ LIBPNG_SOURCES += deps/libpng/arm/arm_init.c \
 ZLIB_OBJECTS := $(patsubst deps/zlib/%.c,$(BUILD_DIR)/deps/zlib/%.o,$(ZLIB_SOURCES))
 LIBPNG_OBJECTS := $(patsubst deps/libpng/%.c,$(BUILD_DIR)/deps/libpng/%.o,$(LIBPNG_SOURCES))
 CORE_PUBLIC_HEADERS := include/boxrig/terminal.h include/boxrig/regex.h include/boxrig/status.h
-CORE_HEADERS := src/core/checkpoint_internal.h src/core/codec.h src/core/shift_jis_table.h $(CORE_PUBLIC_HEADERS) src/core/dcs.h src/core/graphics.h src/core/parser.h src/core/regex.h src/core/terminal_internal.h src/core/unicode.h
+CORE_HEADERS := src/core/checkpoint_internal.h src/core/codec.h $(CORE_PUBLIC_HEADERS) src/core/dcs.h src/core/graphics.h src/core/parser.h src/core/regex.h src/core/terminal_internal.h src/core/unicode.h
 LIBRARY := $(BUILD_DIR)/libboxrig.a
 UI_LIBRARY := $(BUILD_DIR)/libboxrig-ui.a
 SESSION_LIBRARY := $(BUILD_DIR)/libboxrig-session.a
@@ -4970,18 +4970,14 @@ $(MINGW_I686_BUILD_DIR)/tests/test_terminal_key_mapping.exe: tests/test_terminal
 $(MINGW_I686_BUILD_DIR)/tests/key_mapping_example.exe: examples/core/key_mapping.c $(MINGW_I686_LIBRARY) $(CORE_HEADERS) | $(MINGW_I686_BUILD_DIR)/tests
 	$(MINGW_I686_CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(MINGW_I686_CORE_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) -static-libgcc $< $(MINGW_I686_LIBRARY) -lm -o $@
 
-.PHONY: test-terminal-codec test-terminal-codec-frontends test-terminal-codec-win32 example-encoding generate-shift-jis install-common-licenses
-test-terminal-codec: $(BUILD_DIR)/tests/test_terminal_codec $(BUILD_DIR)/tests/test_codec_decoder $(BUILD_DIR)/tests/test_session_codec $(BUILD_DIR)/tests/test_input_text_chunk $(BUILD_DIR)/examples/encoding
+.PHONY: test-terminal-codec test-terminal-codec-frontends test-terminal-codec-win32 example-encoding install-common-licenses
+test-terminal-codec: $(BUILD_DIR)/tests/test_terminal_codec $(BUILD_DIR)/tests/test_session_codec $(BUILD_DIR)/tests/test_input_text_chunk $(BUILD_DIR)/examples/encoding
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(BUILD_DIR)/tests/test_terminal_codec
-	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(BUILD_DIR)/tests/test_codec_decoder
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(BUILD_DIR)/tests/test_session_codec
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(BUILD_DIR)/tests/test_input_text_chunk
 	$(BUILD_DIR)/examples/encoding
 
 $(BUILD_DIR)/tests/test_terminal_codec: tests/test_terminal_codec.c $(LIBRARY) $(CORE_HEADERS) | $(BUILD_DIR)/tests
-	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(LIBRARY) -lm -o $@
-
-$(BUILD_DIR)/tests/test_codec_decoder: tests/test_codec_decoder.c $(LIBRARY) $(CORE_HEADERS) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(LIBRARY) -lm -o $@
 
 $(BUILD_DIR)/tests/test_session_codec: tests/test_session_codec.c $(SESSION_LIBRARY) $(LIBRARY) $(CORE_HEADERS) include/boxrig/session.h | $(BUILD_DIR)/tests
@@ -5038,9 +5034,6 @@ test-p2-win32: $(MINGW_AMD64_BUILD_DIR)/tests/test_terminal_codec.exe $(MINGW_AM
 test: test-codegen
 test-codegen: codegen-tools
 	npm --prefix tools/codegen test
-
-generate-shift-jis: codegen-tools
-	node $(CODEGEN_DIR)/generate-shift-jis.mjs .
 
 install-gtk3 install-gtk4 install-wayland install-render-ogl install-x11-opengl install-wayland-opengl install-core-win32-amd64 install-win32-amd64 install-win32-opengl-amd64 install-render-d3d11-amd64 install-win32-d3d11-amd64 install-core-win32-i686 install-win32-i686 install-win32-opengl-i686 install-render-d3d11-i686 install-win32-d3d11-i686: install-common-licenses
 
@@ -6312,7 +6305,7 @@ test-input-profile: $(BUILD_DIR)/tests/performance/profile_input
 	bash tests/performance/test_input_profile.sh $< $(BUILD_DIR)/tests/performance
 
 $(BUILD_DIR)/tests/performance/profile_input: INPUT_PROFILE_FLAGS = \
-	-Wl,--wrap=boxrig_screen_put_ascii_run -Wl,--wrap=boxrig_codec_decoder_put \
+	-Wl,--wrap=boxrig_screen_put_ascii_run -Wl,--wrap=boxrig_unicode_decoder_put \
 	-Wl,--wrap=boxrig_screen_put_codepoint -Wl,--wrap=utf8proc_grapheme_break_stateful \
 	-Wl,--wrap=utf8proc_get_property -Wl,--wrap=utf8proc_charwidth
 $(BUILD_DIR)/tests/performance/profile_input_unwrapped: INPUT_PROFILE_FLAGS = -DBOXRIG_INPUT_UNWRAPPED

@@ -7,7 +7,7 @@
 
 /* The eight-byte signature includes the incompatible wire-format version.
  * A little-endian CRC-32 of the entire payload follows the payload. */
-static const uint8_t signature[8] = { 'B', 'O', 'X', 'R', 'I', 'G', 1, 0 };
+static const uint8_t signature[8] = { 'B', 'O', 'X', 'R', 'I', 'G', 2, 0 };
 
 static boxrig_status capture_config(const boxrig_terminal *t, boxrig_terminal_config *cfg)
 {
@@ -30,7 +30,6 @@ static boxrig_status capture_config(const boxrig_terminal *t, boxrig_terminal_co
     cfg->notification_pending_capacity = t->notification_pending_capacity;
     cfg->receive_newline = t->receive_newline;
     cfg->paste_newline = t->paste_newline;
-    cfg->encoding = t->encoding;
     cfg->graphics_storage_capacity = g->storage_capacity;
     cfg->graphics_decode_capacity = g->decode_capacity;
     cfg->graphics_image_capacity = g->image_capacity;
@@ -82,7 +81,6 @@ static void configuration(boxrig_checkpoint_io *io, boxrig_terminal_config *cfg,
     boxrig_cp_enum(io, &cfg->ambiguous_width);
     boxrig_cp_enum(io, &cfg->emoji_variation_width);
     boxrig_cp_enum(io, &cfg->cursor_column_mode);
-    boxrig_cp_enum(io, &cfg->encoding);
     boxrig_cp_enum(io, &cfg->receive_newline);
     boxrig_cp_enum(io, &cfg->paste_newline);
     boxrig_cp_enum(io, &cfg->input.enter_newline);
@@ -172,13 +170,12 @@ static void parser_state(boxrig_checkpoint_io *io, boxrig_terminal *t)
     boxrig_cp_bool(io, &t->dcs.request_overflow);
     boxrig_cp_bool(io, &t->dcs.response_ready);
     boxrig_cp_bool(io, &t->dcs.active);
-    boxrig_unicode_decoder *u = &t->decoder.utf8;
+    boxrig_unicode_decoder *u = &t->decoder;
     boxrig_cp_u8(io, &u->length);
     boxrig_cp_u8(io, &u->expected_length);
     if ((u->length && (u->length >= u->expected_length || u->expected_length > 4)) ||
         (!u->length && u->expected_length)) boxrig_cp_fail(io);
     boxrig_cp_bytes(io, u->bytes, u->length);
-    boxrig_cp_u8(io, &t->decoder.lead);
 }
 
 static void keyboard(boxrig_checkpoint_io *io, boxrig_kitty_keyboard_mode *k)

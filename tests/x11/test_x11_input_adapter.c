@@ -3354,49 +3354,44 @@ static bool test_terminal_io_configuration(void)
     CHECK(display != NULL);
     Window window = XCreateSimpleWindow(display, DefaultRootWindow(display), 0, 0, 80, 60, 0, 0, 0);
     CHECK(window != None);
-    for (unsigned encoding = 0; encoding < 2; encoding++) {
 
-        const uint8_t mapped[] = {0x1b, 'U', 0};
-        const boxrig_key_mapping mapping = {BOXRIG_KEY_UP, 0, mapped, sizeof(mapped)};
-        boxrig_terminal_config config = boxrig_terminal_config_default();
-        config.encoding = (boxrig_encoding)encoding;
-        config.input.enter_newline = BOXRIG_NEWLINE_LF;
-        config.paste_newline = BOXRIG_NEWLINE_CRLF;
-        config.input.key_mappings = &mapping;
-        config.input.key_mapping_count = 1;
-        boxrig_terminal *terminal = NULL;
-        CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    const uint8_t mapped[] = {0x1b, 'U', 0};
+    const boxrig_key_mapping mapping = {BOXRIG_KEY_UP, 0, mapped, sizeof(mapped)};
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    config.input.enter_newline = BOXRIG_NEWLINE_LF;
+    config.paste_newline = BOXRIG_NEWLINE_CRLF;
+    config.input.key_mappings = &mapping;
+    config.input.key_mapping_count = 1;
+    boxrig_terminal *terminal = NULL;
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
 
-        boxrig_x11_input_adapter *adapter = NULL;
-        CHECK(boxrig_x11_input_adapter_create(display, window, window, terminal,
-                  10, 20, 1024, config.output_capacity, &adapter) == 0);
-        CHECK(boxrig_x11_input_adapter_preedit_start(adapter) == 0);
-        CHECK(boxrig_x11_input_adapter_commit_utf8(adapter, "日本", 6) == 0);
-        XEvent event = {0};
-        event.xkey.display = display;
-        event.xkey.window = window;
-        event.xkey.root = DefaultRootWindow(display);
-        const KeySym keys[] = {XK_Up, XK_Return};
-        for (unsigned index = 0; index < 2; index++) {
-            event.xkey.keycode = XKeysymToKeycode(display, keys[index]);
-            event.xkey.type = KeyPress;
-            CHECK(boxrig_x11_input_adapter_process_event(adapter, &event) == 1);
-            event.xkey.type = KeyRelease;
-            CHECK(boxrig_x11_input_adapter_process_event(adapter, &event) == 1);
-        }
-        CHECK(boxrig_x11_input_adapter_queue_paste(adapter, (const uint8_t *)"日本\n", 7) == 0);
-
-        const uint8_t utf8_expected[] = "日本\033U\0\n日本\r\n";
-        const uint8_t sjis_expected[] = "\x93\xfa\x96\x7b\033U\0\n\x93\xfa\x96\x7b\r\n";
-        const uint8_t *expected = encoding ? sjis_expected : utf8_expected;
-        size_t length = encoding ? sizeof(sjis_expected) - 1 : sizeof(utf8_expected) - 1;
-        const uint8_t *output;
-        CHECK(boxrig_terminal_output_peek(terminal, &output) == length);
-        CHECK(memcmp(output, expected, length) == 0);
-
-        boxrig_x11_input_adapter_destroy(adapter);
-        boxrig_terminal_destroy(terminal);
+    boxrig_x11_input_adapter *adapter = NULL;
+    CHECK(boxrig_x11_input_adapter_create(display, window, window, terminal,
+              10, 20, 1024, config.output_capacity, &adapter) == 0);
+    CHECK(boxrig_x11_input_adapter_preedit_start(adapter) == 0);
+    CHECK(boxrig_x11_input_adapter_commit_utf8(adapter, "日本", 6) == 0);
+    XEvent event = {0};
+    event.xkey.display = display;
+    event.xkey.window = window;
+    event.xkey.root = DefaultRootWindow(display);
+    const KeySym keys[] = {XK_Up, XK_Return};
+    for (unsigned index = 0; index < 2; index++) {
+        event.xkey.keycode = XKeysymToKeycode(display, keys[index]);
+        event.xkey.type = KeyPress;
+        CHECK(boxrig_x11_input_adapter_process_event(adapter, &event) == 1);
+        event.xkey.type = KeyRelease;
+        CHECK(boxrig_x11_input_adapter_process_event(adapter, &event) == 1);
     }
+    CHECK(boxrig_x11_input_adapter_queue_paste(adapter, (const uint8_t *)"日本\n", 7) == 0);
+
+    const uint8_t expected[] = "日本\033U\0\n日本\r\n";
+    size_t length = sizeof(expected) - 1;
+    const uint8_t *output;
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == length);
+    CHECK(memcmp(output, expected, length) == 0);
+
+    boxrig_x11_input_adapter_destroy(adapter);
+    boxrig_terminal_destroy(terminal);
     XDestroyWindow(display, window);
     XCloseDisplay(display);
     return true;
@@ -3493,7 +3488,7 @@ int main(void)
         const char *name;
         bool (*run)(void);
     } tests[] = {
-        {"terminal UTF-8/Shift_JIS IME, key and paste settings", test_terminal_io_configuration},
+        {"terminal UTF-8 IME, key and paste settings", test_terminal_io_configuration},
         {"input inhibition and started paste completion", test_input_inhibition},
         {"XIM protocol events are filtered",
          test_xim_protocol_events_are_filtered},

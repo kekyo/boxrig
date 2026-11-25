@@ -21,7 +21,6 @@ for arch in amd64 i686; do
     cmp deps/libpng/LICENSE "$licenses/libpng-LICENSE"
     cmp deps/zlib/LICENSE "$licenses/zlib-LICENSE"
     cmp resources/unicode/18.0.0/LICENSE.txt "$licenses/Unicode-LICENSE.txt"
-    cmp data/encoding/whatwg/LICENSE "$licenses/WHATWG-Encoding-LICENSE"
     test -s "$licenses/README_ja.md"
     test -s "$licenses/README.md"
     test -s "$licenses/MinGW-w64-LICENSE.txt"
@@ -41,7 +40,6 @@ done
     exit 1
 }
 test -s "$root/amd64/opt/boxrig/bin/boxrig-win32-ogl.dll"
-cmp data/encoding/whatwg/LICENSE "$root/amd64/opt/boxrig/share/licenses/boxrig/WHATWG-Encoding-LICENSE"
 test ! -e "$root/no-conpty"
 
 for configuration in static shared-gtk3 shared-gtk4 shared-native shared-opengl shared-effects shared; do

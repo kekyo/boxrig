@@ -37,7 +37,7 @@ GTK、Wayland、Win32にも対応するsetterがあります。
 ## Unicodeと代替フォント
 
 coreはUnicode 18.0.0に基づく文字とセル幅を保持し、UIの文字描画系が利用可能なフォントへ割り当てます。
-受信文字コードがShift_JISでも、フォントへ渡す文字列はUnicodeです。
+フォントへ渡す文字列はUnicodeです。
 
 「①」のように、Unicodeで1列と2列のどちらにも扱える文字を曖昧幅文字と呼びます。
 端末生成時の`boxrig_terminal_config.ambiguous_width`で幅を選び、既定値は`BOXRIG_AMBIGUOUS_WIDTH_NARROW`の1列です。

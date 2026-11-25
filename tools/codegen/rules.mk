@@ -16,7 +16,7 @@ BACKGROUND_WAYLAND_XML := $(WAYLAND_PROTOCOLS_DIR)/staging/ext-background-effect
 WAYLAND_LICENSE_XMLS := $(WAYLAND_PROTOCOL_XMLS) $(BACKGROUND_WAYLAND_XML)
 WAYLAND_LICENSE_NOTICES := $(BUILD_DIR)/generated/licenses/Wayland-protocols-NOTICES.md
 CODEGEN_DIR := $(BUILD_DIR)/tools/codegen
-CODEGEN_TOOLS := $(addprefix $(CODEGEN_DIR)/,generate-wayland-notices.mjs generate-shift-jis.mjs generate-linux-metadata.mjs)
+CODEGEN_TOOLS := $(addprefix $(CODEGEN_DIR)/,generate-wayland-notices.mjs generate-linux-metadata.mjs)
 LINUX_PACKAGE_METADATA := $(patsubst packaging/linux/%.pc.in,%,$(wildcard packaging/linux/*.pc.in))
 
 .PHONY: codegen-tools package-codegen

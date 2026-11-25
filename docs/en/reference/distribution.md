@@ -98,7 +98,7 @@ Sources are the [package](https://www.nuget.org/packages/Microsoft.Windows.Conso
 
 boxrig uses the [MIT License](../../../LICENSE).
 Preserve the original terms for third-party code and data.
-The SDK's `share/licenses/boxrig/` contains material for utf8proc, libpng, zlib, Unicode, WHATWG Encoding, and configuration-specific Wayland, cardio, MinGW-w64, GCC, and other dependencies.
+The SDK's `share/licenses/boxrig/` contains material for utf8proc, libpng, zlib, Unicode, and configuration-specific Wayland, cardio, MinGW-w64, GCC, and other dependencies.
 
 Source URLs and hashes are in [sources.json](../../../packaging/licenses/sources.json), and configuration notes are in the [third-party license documentation](../../../packaging/licenses/README.md).
 The [GCC Runtime Library Exception](https://www.gnu.org/licenses/gcc-exception-3.1.html) also applies to GCC runtime components.
