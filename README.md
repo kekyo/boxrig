@@ -52,6 +52,10 @@ Overlaying an image on a backdrop and then making the background transparent ([e
 
 ![Transparent background example](./images/transparent-background.png)
 
+Kitty graphics images by [scheme-cd-ripper cover-art](https://github.com/kekyo/scheme-cd-ripper/).
+
+![scheme-cd-ripper cover-art](./images/scheme-cd-ripper.png)
+
 One of boxrig's first-party projects is [elder-terms](https://github.com/kekyo/elder-terms/).
 Since it covers a wide range of features, if you want to see what boxrig can actually do, give elder-terms a try.
 

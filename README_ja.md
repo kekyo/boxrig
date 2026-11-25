@@ -51,6 +51,10 @@ Kitty graphicsによるターミナル内の画像表示:
 
 ![透過背景の表示例](./images/transparent-background.png)
 
+[scheme-cd-ripper cover-art](https://github.com/kekyo/scheme-cd-ripper/) によるKitty graphics画像表示:
+
+![scheme-cd-ripper cover-art](./images/scheme-cd-ripper.png)
+
 boxrigのファーストパーティプロジェクトとして、 [elder-terms](https://github.com/kekyo/elder-terms/) があります。
 様々な機能を網羅しているので、現実的にboxrigで何が出来るのかを確認したい場合は、elder-termsを試して下さい。
 
