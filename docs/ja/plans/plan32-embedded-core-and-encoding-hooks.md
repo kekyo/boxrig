@@ -168,6 +168,8 @@ OSCに加え、機器への要求に使うDCS、Kitty画像に使うAPCなどに
 
 elder-termsの`TerminalTextStream`を配布SDKのフックに登録する結合試験を追加した。`make test-elder-terms-encoding ELDER_TERMS_DIR=../elder-terms`で実行できる。CP932の未完文字を確定してUTF-8に交換し、生ログ、変換後ログ、受信マクロ用のバイト列と送信順を確認した。ISO-2022-JPとUTF-16LEではストリーム全体の変換を使った。貼り付け用の送信状態は受信中のCP932先頭バイトを維持したまま交換できた。変換後の出力を2バイトずつ読み出し、置換の通知と貼り付けマーカーの順序を確認した。生バイト送信では0から255までの全値が一致した。elder-termsの接続・転送処理の移行と、その後のMesonテスト6件は同プロジェクトで行う。[SDKを使う結合試験](../../../tests/test_elder_terms_encoding.cpp)
 
+elder-termsの作業ブランチ`9f443c96`のコピーで、新しいboxrigをMesonの`-Dboxrig_source`に指定した。最初のSDK準備は、削除済みの`data/encoding/whatwg/LICENSE`を読み込む箇所で失敗した。移行時には`scripts/prepare-boxrig.mts`の入力一覧、`meson.build`のインストール対象、Linux配布スクリプト2本の同梱検査から旧ライセンスを外す。検証用コピーでこれらの参照を削除し、接続・マクロ・ログ・変換器・テキスト送信を含む既存のMesonテスト6件が新SDKで通った。6件は従来の接続側変換を使っており、フック経由の動作は上記の結合試験で確認した。オフライン配布では`package-codegen`が作る`generated/include/boxrig/config.h`を`BOXRIG_PREGENERATED_CONFIG`に指定すると、配布先も同じ設定でコンパイルできる。[SDKの準備](https://github.com/kekyo/elder-terms/blob/254bddc8816b38f2e74a8baa22c971492053fcf1/scripts/prepare-boxrig.mts#L189)・[Mesonの配布対象](https://github.com/kekyo/elder-terms/blob/254bddc8816b38f2e74a8baa22c971492053fcf1/meson.build#L146)・[パッケージ検査](https://github.com/kekyo/elder-terms/blob/254bddc8816b38f2e74a8baa22c971492053fcf1/build_package.sh#L471)・[コンテナの同梱検査](https://github.com/kekyo/elder-terms/blob/254bddc8816b38f2e74a8baa22c971492053fcf1/scripts/build_linux_dist_container.sh#L185)
+
 ### 同じログを表示したときの容量
 
 Linux x86-64、GCC 13.3.0、`-O2`で測定した。全構成で履歴を0行にし、同じ公開APIを呼ぶドライバーを静的なcoreにリンクした。表の`.text`と`.rodata`は最終ELFファイルのセクションサイズで、単位はバイト。ヒープは端末生成直後に確保中の要求バイト数を合計した。アロケーターの管理領域、フォント、描画先のメモリは含まない。変更前の行は`77c1511`のヘッダーとライブラリで同じドライバーをビルドした値である。[測定ドライバー](../../../tests/measure_embedded_core.c)
