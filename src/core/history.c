@@ -7,7 +7,9 @@
 
 #include <stdlib.h>
 #include <string.h>
+#if BOXRIG_FEATURE_HISTORY_DEFLATE
 #include <zlib.h>
+#endif
 
 /* Printable ASCII bytes are literal cells. The other records carry a run of
  * empty cells, one exceptional cell, or a change of rendition and OSC 8 link.
@@ -28,13 +30,14 @@ struct boxrig_history_block {
 
 enum { BLOCK_ROWS = 32, BLOCK_BYTES = 64 * 1024 };
 
+#if BOXRIG_FEATURE_HISTORY_DEFLATE
 typedef struct history_codec {
     z_stream inflater;
     boxrig_history_block *decoded;
     uint8_t plain[BLOCK_BYTES];
     uint8_t compressed[BLOCK_BYTES];
 } history_codec;
-
+#endif
 typedef struct history_view_row {
     boxrig_history_block *block;
     uint32_t offset;
@@ -44,7 +47,9 @@ typedef struct history_view_row {
 struct boxrig_history_cache {
     size_t rows, columns, rotation, shown;
     boxrig_cell *cell_storage;
+#if BOXRIG_FEATURE_HISTORY_DEFLATE
     history_codec *codec;
+#endif
     /* The final slot is scratch for offscreen reads. */
     history_view_row view[];
 };
@@ -74,6 +79,7 @@ boxrig_history_cache *boxrig_history_cache_create(size_t rows, size_t columns,
     cache->rows = rows;
     cache->columns = columns;
     for (size_t i = 0; i <= rows; i++) cache->view[i].cells = cache->cell_storage + i * columns;
+#if BOXRIG_FEATURE_HISTORY_DEFLATE
     if (mode == BOXRIG_SCROLLBACK_COMPRESSION_DEFLATE_LEVEL_1) {
         history_codec *codec = calloc(1, sizeof(*codec));
         if (codec == NULL || inflateInit(&codec->inflater) != Z_OK) {
@@ -83,6 +89,9 @@ boxrig_history_cache *boxrig_history_cache_create(size_t rows, size_t columns,
         }
         cache->codec = codec;
     }
+#else
+    (void)mode;
+#endif
     return cache;
 }
 
@@ -90,11 +99,13 @@ void boxrig_history_cache_destroy(boxrig_history_cache *cache)
 {
     if (cache == NULL) return;
     for (size_t i = 0; i <= cache->rows; i++) forget_row(&cache->view[i]);
+#if BOXRIG_FEATURE_HISTORY_DEFLATE
     if (cache->codec != NULL) {
         inflateEnd(&cache->codec->inflater);
         boxrig_history_block_release(cache->codec->decoded);
         free(cache->codec);
     }
+#endif
     free(cache->cell_storage);
     free(cache);
 }
@@ -103,10 +114,12 @@ void boxrig_history_forget_reads(boxrig_history_cache *cache)
 {
     if (cache == NULL) return;
     forget_row(&cache->view[cache->rows]);
+#if BOXRIG_FEATURE_HISTORY_DEFLATE
     if (cache->codec != NULL) {
         boxrig_history_block_release(cache->codec->decoded);
         cache->codec->decoded = NULL;
     }
+#endif
 }
 
 typedef struct row_writer {
@@ -257,6 +270,7 @@ boxrig_status boxrig_history_pack_row(boxrig_history_line *line,
     return BOXRIG_STATUS_OK;
 }
 
+#if BOXRIG_FEATURE_HISTORY_DEFLATE
 static boxrig_status compress_group(history_codec *codec, boxrig_history_line **lines, size_t count)
 {
     uint32_t offsets[BLOCK_ROWS], string_offsets[BLOCK_ROWS];
@@ -308,9 +322,10 @@ static boxrig_status compress_group(history_codec *codec, boxrig_history_line **
     }
     return BOXRIG_STATUS_OK;
 }
-
+#endif
 boxrig_status boxrig_history_seal(boxrig_screen *screen, size_t first, size_t count)
 {
+#if BOXRIG_FEATURE_HISTORY_DEFLATE
     if (screen->history_mode != BOXRIG_SCROLLBACK_COMPRESSION_DEFLATE_LEVEL_1 || !count)
         return BOXRIG_STATUS_OK;
     boxrig_history_line *lines[BLOCK_ROWS];
@@ -333,6 +348,12 @@ boxrig_status boxrig_history_seal(boxrig_screen *screen, size_t first, size_t co
         bytes += size;
     }
     return used ? compress_group(screen->history_cache->codec, lines, used) : BOXRIG_STATUS_OK;
+#else
+    (void)screen;
+    (void)first;
+    (void)count;
+    return BOXRIG_STATUS_OK;
+#endif
 }
 
 void boxrig_history_seal_tail(boxrig_screen *screen)
@@ -354,6 +375,7 @@ void boxrig_history_finish_slot(boxrig_screen *screen, size_t slot)
 static void decode_row(boxrig_history_cache *cache, history_view_row *row,
     const boxrig_history_line *line)
 {
+    (void)cache;
     boxrig_history_block *block = line->storage.block;
     if (row->block == block && row->offset == line->block_offset) return;
     forget_row(row);
@@ -362,6 +384,7 @@ static void decode_row(boxrig_history_cache *cache, history_view_row *row,
     block->references++;
     const uint8_t *p = block->data;
     const char *strings = (const char *)block->data + block->codes_size;
+#if BOXRIG_FEATURE_HISTORY_DEFLATE
     if (block->inflated_size) {
         history_codec *codec = cache->codec;
         if (codec->decoded != block) {
@@ -385,6 +408,7 @@ static void decode_row(boxrig_history_cache *cache, history_view_row *row,
         strings += offset;
         p += sizeof(offset);
     }
+#endif
     boxrig_cell cell = { .column_width = 1 };
     size_t col = 0;
     for (uint8_t token; (token = *p++) != ROW_END;) {

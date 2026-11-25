@@ -100,7 +100,7 @@ static boxrig_status begin_string(
         parser->state = BOXRIG_PARSER_STRING;
         parser->string_length = 0;
         parser->string_escape_delivered = false;
-        parser->string_discarding = false;
+        parser->string_discarding = !BOXRIG_FEATURE_KITTY_GRAPHICS && kind == BOXRIG_PARSER_STRING_APC;
     }
     return status;
 }

@@ -152,8 +152,10 @@ static boxrig_status interpreter_dispatch_escape(
     if (intermediate_count == 0 && final_byte == (uint8_t)'c') {
         boxrig_notification_reset(terminal);
         boxrig_dcs_reset(&terminal->dcs);
+#if BOXRIG_FEATURE_KITTY_GRAPHICS
         boxrig_kitty_graphics_reset(&terminal->graphics);
         boxrig_kitty_graphics_protocol_reset(terminal);
+#endif
     }
     boxrig_input_dispatch_escape(
         &terminal->input,
@@ -273,32 +275,30 @@ static boxrig_status append_pixel_geometry_report(
     boxrig_terminal *terminal,
     uint32_t operation)
 {
-    const boxrig_kitty_graphics_protocol_state *graphics =
-        &terminal->graphics_protocol;
     char response[96];
     size_t height;
     size_t width;
     unsigned int response_kind;
     int length;
 
-    if (graphics->cell_pixel_width == 0 ||
-        graphics->cell_pixel_height == 0) {
+    if (terminal->graphics_protocol.cell_pixel_width == 0 ||
+        terminal->graphics_protocol.cell_pixel_height == 0) {
         return BOXRIG_STATUS_OK;
     }
     if (operation == 14) {
         if (terminal->screen.rows >
-                SIZE_MAX / graphics->cell_pixel_height ||
+                SIZE_MAX / terminal->graphics_protocol.cell_pixel_height ||
             terminal->screen.columns >
-                SIZE_MAX / graphics->cell_pixel_width) {
+                SIZE_MAX / terminal->graphics_protocol.cell_pixel_width) {
             return BOXRIG_STATUS_LIMIT_EXCEEDED;
         }
         response_kind = 4;
-        height = terminal->screen.rows * graphics->cell_pixel_height;
-        width = terminal->screen.columns * graphics->cell_pixel_width;
+        height = terminal->screen.rows * terminal->graphics_protocol.cell_pixel_height;
+        width = terminal->screen.columns * terminal->graphics_protocol.cell_pixel_width;
     } else {
         response_kind = 6;
-        height = graphics->cell_pixel_height;
-        width = graphics->cell_pixel_width;
+        height = terminal->graphics_protocol.cell_pixel_height;
+        width = terminal->graphics_protocol.cell_pixel_width;
     }
     length = snprintf(
         response,
@@ -577,9 +577,12 @@ static boxrig_status interpreter_string_start(
     terminal->osc_title = false;
     terminal->osc_selector_done = false;
 #endif
+#if BOXRIG_FEATURE_KITTY_GRAPHICS
     if (kind == BOXRIG_PARSER_STRING_APC) {
         boxrig_kitty_graphics_start(&terminal->graphics);
-    } else if (kind == BOXRIG_PARSER_STRING_OSC) {
+    } else
+#endif
+    if (kind == BOXRIG_PARSER_STRING_OSC) {
         terminal->osc_buffer_length = 0;
     }
     return BOXRIG_STATUS_OK;
@@ -589,9 +592,11 @@ static boxrig_status interpreter_string_put(void *context, uint8_t byte)
 {
     boxrig_terminal *terminal = context;
 
+#if BOXRIG_FEATURE_KITTY_GRAPHICS
     if (terminal->active_string_kind == BOXRIG_PARSER_STRING_APC) {
         return boxrig_kitty_graphics_put(&terminal->graphics, byte);
     }
+#endif
     if (terminal->active_string_kind != BOXRIG_PARSER_STRING_OSC) {
         return BOXRIG_STATUS_OK;
     }
@@ -619,12 +624,13 @@ static boxrig_status interpreter_string_put_run(
     size_t length,
     size_t *consumed_out)
 {
+#if BOXRIG_FEATURE_KITTY_GRAPHICS
     boxrig_terminal *terminal = context;
-
     if (terminal->active_string_kind == BOXRIG_PARSER_STRING_APC) {
         return boxrig_kitty_graphics_put_run(
             &terminal->graphics, bytes, length, consumed_out);
     }
+#endif
     for (size_t index = 0; index < length; index++) {
         boxrig_status status = interpreter_string_put(context, bytes[index]);
 
@@ -1705,9 +1711,12 @@ static boxrig_status interpreter_string_end(
     boxrig_terminal *terminal = context;
     boxrig_status status = BOXRIG_STATUS_OK;
 
+#if BOXRIG_FEATURE_KITTY_GRAPHICS
     if (terminal->active_string_kind == BOXRIG_PARSER_STRING_APC) {
         status = boxrig_kitty_graphics_end(&terminal->graphics, cancelled);
-    } else if (!cancelled &&
+    } else
+#endif
+    if (!cancelled &&
                terminal->active_string_kind == BOXRIG_PARSER_STRING_OSC) {
         status = dispatch_osc(terminal, terminator);
     }

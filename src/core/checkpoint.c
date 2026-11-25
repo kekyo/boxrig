@@ -7,19 +7,26 @@
 
 /* The eight-byte signature includes the incompatible wire-format version.
  * A little-endian CRC-32 of the entire payload follows the payload. */
-static const uint8_t signature[8] = { 'B', 'O', 'X', 'R', 'I', 'G', 2, 0 };
+static const uint8_t signature[8] = { 'B', 'O', 'X', 'R', 'I', 'G', 2,
+    BOXRIG_FEATURE_ALT_SCREEN | (BOXRIG_FEATURE_KITTY_GRAPHICS << 1) | (BOXRIG_FEATURE_HISTORY_DEFLATE << 2) };
 
 static boxrig_status capture_config(const boxrig_terminal *t, boxrig_terminal_config *cfg)
 {
 #if BOXRIG_FEATURE_ENCODING_HOOKS
     if (t->encoding_hooks.convert) return BOXRIG_STATUS_BUSY;
 #endif
-    if (t->host_item_count || t->pending_request_count || t->graphics.active ||
-        !boxrig_notification_checkpoint_ready(t) ||
-        !boxrig_monitor_checkpoint_config(t, cfg) ||
-        !boxrig_recognizer_checkpoint_config(t, cfg)) return BOXRIG_STATUS_BUSY;
+    if (t->host_item_count || t->pending_request_count || !boxrig_notification_checkpoint_ready(t)) return BOXRIG_STATUS_BUSY;
 
+#if BOXRIG_FEATURE_TEXT_MONITOR
+    if (!boxrig_monitor_checkpoint_config(t, cfg)) return BOXRIG_STATUS_BUSY;
+#endif
+#if BOXRIG_FEATURE_TEXT_RECOGNIZER
+    if (!boxrig_recognizer_checkpoint_config(t, cfg)) return BOXRIG_STATUS_BUSY;
+#endif
+#if BOXRIG_FEATURE_KITTY_GRAPHICS
+    if (t->graphics.active) return BOXRIG_STATUS_BUSY;
     const boxrig_kitty_graphics_protocol_state *g = &t->graphics_protocol;
+#endif
     cfg->rows = t->screen.rows;
     cfg->columns = t->screen.columns;
     cfg->scrollback_capacity = t->screen.history_capacity;
@@ -33,6 +40,7 @@ static boxrig_status capture_config(const boxrig_terminal *t, boxrig_terminal_co
     cfg->notification_pending_capacity = t->notification_pending_capacity;
     cfg->receive_newline = t->receive_newline;
     cfg->paste_newline = t->paste_newline;
+#if BOXRIG_FEATURE_KITTY_GRAPHICS
     cfg->graphics_storage_capacity = g->storage_capacity;
     cfg->graphics_decode_capacity = g->decode_capacity;
     cfg->graphics_image_capacity = g->image_capacity;
@@ -40,6 +48,7 @@ static boxrig_status capture_config(const boxrig_terminal *t, boxrig_terminal_co
     cfg->graphics_transport_name_capacity = g->transport_name_capacity;
     cfg->graphics_animation_storage_capacity = g->animation_storage_capacity;
     cfg->graphics_frame_capacity = g->frame_capacity;
+#endif
     cfg->input = t->input_config;
     cfg->ambiguous_width = t->screen.ambiguous_width;
     cfg->emoji_variation_width = t->screen.emoji_variation_width;
@@ -308,7 +317,9 @@ static void body(boxrig_checkpoint_io *io, boxrig_terminal *terminal)
     output_queue(io, terminal);
     hyperlinks(io, terminal);
     if (!io->status) boxrig_checkpoint_screen(io, terminal);
+#if BOXRIG_FEATURE_KITTY_GRAPHICS
     if (!io->status) boxrig_checkpoint_graphics(io, terminal);
+#endif
 }
 
 boxrig_status boxrig_terminal_export_checkpoint(const boxrig_terminal *terminal,

@@ -209,6 +209,15 @@ CONPTY_X86_HOST := $(CONPTY_BUILD_DIR)/hosts/x86/OpenConsole.exe
 CONPTY_X64_HOST := $(CONPTY_BUILD_DIR)/hosts/x64/OpenConsole.exe
 CONPTY_ARM64_HOST := $(CONPTY_BUILD_DIR)/hosts/arm64/OpenConsole.exe
 CORE_SOURCES := $(wildcard src/core/*.c)
+ifneq ($(filter BOXRIG_FEATURE_TEXT_RECOGNIZER=0,$(BOXRIG_FEATURE_SETTINGS)),)
+CORE_SOURCES := $(filter-out src/core/recognizer.c,$(CORE_SOURCES))
+endif
+ifneq ($(filter BOXRIG_FEATURE_KITTY_GRAPHICS=0,$(BOXRIG_FEATURE_SETTINGS)),)
+CORE_SOURCES := $(filter-out src/core/graphics.c src/core/graphics_protocol.c src/core/graphics_base64.c,$(CORE_SOURCES))
+endif
+ifneq ($(filter BOXRIG_FEATURE_CHECKPOINT=0,$(BOXRIG_FEATURE_SETTINGS)),)
+CORE_SOURCES := $(filter-out src/core/checkpoint%.c,$(CORE_SOURCES))
+endif
 CORE_OBJECTS := $(patsubst src/core/%.c,$(BUILD_DIR)/core/%.o,$(CORE_SOURCES))
 TEXT_MEASUREMENT_BUILD_DIR := $(BUILD_DIR)/text-measurement
 TEXT_MEASUREMENT_TEXT_OBJECT := $(TEXT_MEASUREMENT_BUILD_DIR)/text.o
@@ -308,6 +317,12 @@ LIBPNG_SOURCES := deps/libpng/png.c deps/libpng/pngerror.c \
 # guards, so they must accompany the generic decoder even in cross builds.
 LIBPNG_SOURCES += deps/libpng/arm/arm_init.c \
 	deps/libpng/arm/filter_neon_intrinsics.c deps/libpng/arm/palette_neon_intrinsics.c
+ifneq ($(filter BOXRIG_FEATURE_KITTY_GRAPHICS=0,$(BOXRIG_FEATURE_SETTINGS)),)
+LIBPNG_SOURCES :=
+ifeq ($(filter BOXRIG_FEATURE_HISTORY_DEFLATE=1 BOXRIG_FEATURE_CHECKPOINT=1,$(BOXRIG_FEATURE_SETTINGS)),)
+ZLIB_SOURCES :=
+endif
+endif
 ZLIB_OBJECTS := $(patsubst deps/zlib/%.c,$(BUILD_DIR)/deps/zlib/%.o,$(ZLIB_SOURCES))
 LIBPNG_OBJECTS := $(patsubst deps/libpng/%.c,$(BUILD_DIR)/deps/libpng/%.o,$(LIBPNG_SOURCES))
 CORE_PUBLIC_HEADERS := include/boxrig/config.h include/boxrig/terminal.h include/boxrig/regex.h include/boxrig/status.h
@@ -2226,7 +2241,7 @@ $(BUILD_DIR)/deps/libpng/%.o: deps/libpng/%.c $(PNG_CONFIG) | $(BUILD_DIR)/deps/
 
 $(UTF8PROC_OBJECT) $(LIBPNG_OBJECTS) $(ZLIB_OBJECTS): Makefile
 
-$(CORE_OBJECTS): $(CORE_HEADERS) $(PNG_CONFIG) Makefile
+$(CORE_OBJECTS): $(CORE_HEADERS) $(if $(LIBPNG_SOURCES),$(PNG_CONFIG)) Makefile
 
 $(MINGW_AMD64_LIBRARY): $(MINGW_AMD64_CORE_OBJECTS) $(MINGW_AMD64_UTF8PROC_OBJECT) $(MINGW_AMD64_LIBPNG_OBJECTS) $(MINGW_AMD64_ZLIB_OBJECTS) | $(MINGW_AMD64_BUILD_DIR) verify-amd64-core-archive
 	$(RM) $@
@@ -2319,7 +2334,7 @@ $(MINGW_AMD64_ZLIB_OBJECTS) $(MINGW_I686_ZLIB_OBJECTS) \
 $(MINGW_AMD64_LIBPNG_OBJECTS) $(MINGW_I686_LIBPNG_OBJECTS): Makefile
 
 $(MINGW_AMD64_CORE_OBJECTS) $(MINGW_I686_CORE_OBJECTS): \
-	$(CORE_HEADERS) $(PNG_CONFIG) Makefile
+	$(CORE_HEADERS) $(if $(LIBPNG_SOURCES),$(PNG_CONFIG)) Makefile
 
 $(UI_OBJECTS) $(MINGW_AMD64_UI_OBJECTS) $(MINGW_I686_UI_OBJECTS): \
 	include/boxrig/ui.h include/boxrig/ui/view.h include/boxrig/ui/color.h \
@@ -6501,6 +6516,10 @@ install-core: $(LIBRARY) $(SDK_CONFIG) install-common-licenses
 	$(INSTALL) -m 644 $(CORE_SDK_HEADERS) $(DESTDIR)$(INCLUDEDIR)/boxrig
 
 test: test-encoding-hooks
+.PHONY: test-core-features
+test-core-features:
+	+sh tests/check_core_features.sh "$(MAKE)" "$(BUILD_DIR)/core-features" KITTY_GRAPHICS TEXT_MONITOR TEXT_RECOGNIZER HISTORY_DEFLATE CHECKPOINT ALT_SCREEN
+test: test-core-features
 .PHONY: test-elder-terms-encoding
 ELDER_TERMS_DIR ?= ../elder-terms
 ELDER_CODEC_DIR = $(ELDER_TERMS_DIR)/elder-terms-terminal/src/terminal-sessions
