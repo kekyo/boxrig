@@ -52,7 +52,7 @@ bool boxrig_encoding_barrier_pending(const boxrig_terminal *t)
 #if BOXRIG_FEATURE_COMPACT_CELLS
     (void)t;
 #else
-    if (t->encoding_hooks.mode == BOXRIG_ENCODING_STREAM && t->pending_request_count) {
+    if (t->encoding_hooks.mode == BOXRIG_ENCODING_STREAM) {
         for (const boxrig_output_segment *s = t->output_head; s; s = s->next)
             if (s->kind == BOXRIG_OUTPUT_SEGMENT_BARRIER) return true;
     }
