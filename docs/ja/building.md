@@ -288,6 +288,33 @@ OS付属ConPTYにも追加のDLLやEXEは不要ですが、任意のboxrig DLL�
 
 ## 任意機能を選ぶ
 
+### coreの機能を選ぶ
+
+`make core`で端末本体の静的ライブラリを作れます。利用できる定義と既定値は設定ヘッダーにあります。既定の端末はUnicodeを扱い、すべての端末機能を使えます。[設定ヘッダー](../../include/boxrig/config.h)
+
+例えば、UTF-8で受信した英数字を16色で表示する機器には、次の構成を使えます。
+
+```sh
+make core BUILD_DIR=build/serial \
+  CPPFLAGS='-DBOXRIG_FEATURE_COMPACT_CELLS=1 -DBOXRIG_FEATURE_ENCODING_HOOKS=0'
+```
+
+| 定義（接頭辞は`BOXRIG_FEATURE_`） | 選べる内容 |
+| --- | --- |
+| `ENCODING_HOOKS` | `1`で外部の文字コード変換器を登録できます。既定値はどちらのセル形式でも`1`です。[文字コードと生バイト](./terminal-io.md#文字コードと生バイト) |
+| `KITTY_GRAPHICS` | `0`で画像の処理とlibpngを省けます。 |
+| `TEXT_MONITOR`、`TEXT_RECOGNIZER` | 文字列の出現監視とパターン認識を個別に選べます。Unicode構成では、両方を`0`にしても通常の検索が使えます。 |
+| `HISTORY_DEFLATE`、`CHECKPOINT` | 履歴の圧縮と端末状態の保存・復元を個別に選べます。この2つと画像を`0`にするとzlibを省けます。保持する履歴の行数は生成時の`scrollback_capacity`で指定します。 |
+| `ALT_SCREEN` | `0`で主画面だけを確保します。 |
+| `EXTENDED_VT`、`LOG_CURSOR` | `EXTENDED_VT=0`で、復帰・改行・後退・タブ、折り返し、スクロール、16色、行消去を使うログ表示になります。`LOG_CURSOR=1`を加えるとカーソルの移動・表示切り替えと画面消去も使えます。 |
+| `COMPACT_CELLS` | `1`で1セルをASCII文字1バイトと前景・背景色各4ビットで保持します。表示できない文字は1文字につき`?`が1列を占めます。日本語や結合文字を表示するときは既定のUnicodeセルを選びます。 |
+
+小型セルは履歴のない単画面のcore用です。画像、文字監視・認識、履歴圧縮、チェックポイント、代替画面、拡張VTの既定値が`0`になります。描画側は`boxrig_terminal_take_dirty()`で変更範囲を取得し、`boxrig_terminal_get_cell()`で任意のセルを読み直せます。小型セルで画面サイズを変えると、左上を基準に重なる範囲が残ります。
+
+配布時は上と同じ`BUILD_DIR`と`CPPFLAGS`を指定して`make install-core`を実行してください。インストール先の`boxrig/config.h`には確定した設定が入ります。SDKを使うアプリは、このヘッダーで利用できるAPIを判定できます。`make test-embedded-log`で、同じログを各構成に入力して実行ファイルとヒープのサイズを比較できます。
+
+### GUIの描画方式を選ぶ
+
 GTKの既定ビルドはCairoとOpenGLの両方を含みます。
 Cairoだけの構成は次のように作ります。
 

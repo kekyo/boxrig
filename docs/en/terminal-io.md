@@ -180,7 +180,7 @@ See `<boxrig/config.h>` for supported build definitions. Build with `CPPFLAGS=-D
 Pass complete UTF-8 to `send_text()`.
 Invalid or incomplete text returns an error without being appended.
 Use `send_bytes()` for already encoded sequences or custom control sequences.
-Encoding conversion is not applied again to query responses or image payloads.
+In field mode, protocol responses and image payloads retain their wire bytes. In stream mode, terminal-generated controls pass through the send hook as well.
 
 Build the [encoding example](../../examples/core/encoding.c) with `make example-encoding`.
 It receives Japanese text one byte at a time and checks the UTF-8 in the cells and output queue.

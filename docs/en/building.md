@@ -287,6 +287,33 @@ See the [ConPTY distribution files](../../deps/conpty/README.md).
 
 ## Select optional features
 
+### Select core features
+
+Build the static terminal library with `make core`. The default terminal has Unicode cells and the full control language. The configuration header lists the available definitions and their defaults. [Configuration header](../../include/boxrig/config.h)
+
+For a UTF-8 serial log display with ASCII glyphs and 16 colors, build with:
+
+```sh
+make core BUILD_DIR=build/serial \
+  CPPFLAGS='-DBOXRIG_FEATURE_COMPACT_CELLS=1 -DBOXRIG_FEATURE_ENCODING_HOOKS=0'
+```
+
+| Definition after `BOXRIG_FEATURE_` | Effect |
+| --- | --- |
+| `ENCODING_HOOKS` | Enables application-provided character converters. Defaults to 1 with either cell format. [Character encodings and raw bytes](./terminal-io.md#character-encodings-and-raw-bytes) |
+| `KITTY_GRAPHICS` | Set to 0 to omit image handling and libpng. |
+| `TEXT_MONITOR`, `TEXT_RECOGNIZER` | Select text monitoring and pattern recognition independently. Regular text search remains available with Unicode cells. |
+| `HISTORY_DEFLATE`, `CHECKPOINT` | Select compressed history and checkpoint export/import independently. Disable both and graphics to omit zlib. Set the number of retained rows with `scrollback_capacity` at creation. |
+| `ALT_SCREEN` | Set to 0 to allocate only the primary screen. |
+| `EXTENDED_VT`, `LOG_CURSOR` | Set `EXTENDED_VT=0` for CR/LF/BS/HT, wrap, scroll, 16-color SGR and line erase. Add `LOG_CURSOR=1` for cursor movement, visibility and display erase. |
+| `COMPACT_CELLS` | Set to 1 for one ASCII byte and two four-bit colors per cell. Each unrepresentable scalar displays as one `?`. Choose the default Unicode cells for Japanese and combining characters. |
+
+Compact cells support a single core screen with zero scrollback. Graphics, monitoring, recognition, DEFLATE history, checkpoints, the alternate screen and extended VT default to 0 in that configuration. Render changed regions with `boxrig_terminal_take_dirty()` and reread any cell using `boxrig_terminal_get_cell()`. Resizing a compact screen retains the intersecting cells at the top left.
+
+Use the same `BUILD_DIR` and `CPPFLAGS` with `make install-core` to distribute the library. Applications can inspect the installed `boxrig/config.h` for the available API. Run `make test-embedded-log` to compare executable and heap sizes across configurations using the same serial records.
+
+### Select a GUI renderer
+
 The default GTK build includes both Cairo and OpenGL.
 Build a Cairo-only configuration as follows.
 
