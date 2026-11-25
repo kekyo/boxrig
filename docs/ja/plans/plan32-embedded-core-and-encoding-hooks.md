@@ -14,6 +14,23 @@
 
 通信路の文字コード、端末が解釈する制御列、セルが表せる文字と色は別々に選べるようにする。例えば、Shift_JISの計測器と通信し、日本語を16色で表示する製品では、画像、履歴、代替画面をそれぞれ省ける。
 
+### 開発者が参照する設定ヘッダー
+
+ソースツリーに`include/boxrig/config.h`を置く。移植する開発者はこの1ファイルで、機能選択に使える定義、その用途、許容値、既定値、他の機能との依存関係を確認できる。機能を実装する段階で該当する項目を追加する。Autoconfの設定ヘッダーを参考にし、既存のMakefileで利用できる形式にする。[GNU Autoconfの設定ヘッダー](https://www.gnu.org/software/autoconf/manual/autoconf-2.68/html_node/Configuration-Headers.html)
+
+最初の項目は外部の文字コード変換器を呼び出すフックとする。通常のビルドでelder-termsが使えるよう、既定値は`1`を提案する。UTF-8だけで足りる移植先は、boxrigのビルド時に`CPPFLAGS=-DBOXRIG_FEATURE_ENCODING_HOOKS=0`を指定する。ヘッダー内では項目ごとに未定義の場合だけ既定値を補う。
+
+```c
+/** Enable external encoding hooks (0 or 1, default 1). */
+#ifndef BOXRIG_FEATURE_ENCODING_HOOKS
+#define BOXRIG_FEATURE_ENCODING_HOOKS 1
+#endif
+```
+
+機能に依存する公開宣言と実装は、どちらも先に`<boxrig/config.h>`を読み、`#if BOXRIG_FEATURE_ENCODING_HOOKS`で分岐する。`#ifdef`は値が`0`のときも成立する。ビルド対象やリンクする依存を選ぶ際にも、同じ設定を使う。
+
+ビルド済みライブラリと一緒に配るSDKには、そのビルドで確定した値を反映した`boxrig/config.h`を同梱する。利用側は追加の`-D`指定なしで使えるAPIを判定できる。ライブラリと食い違う値を利用側だけで指定した場合は、コンパイル時に知らせる。ソースからビルドする際の既定値は上記のヘッダーで一元管理する。[LinuxのSDK配布規則](../../../packaging/linux/rules.mk)・[SDKの作成](../../../packaging/build_sdk.sh)
+
 ## 現行coreの容量と小型画面の試算
 
 フラッシュには実行コードと定数表が載る。RAMには端末ごとに画面やバッファを確保する。下表の現在値は既存のLinux x86-64ビルドと既定の構成に基づく。移植先での実行ファイルの削減量やヒープ総量は、対象機器のビルドで測る。
@@ -33,17 +50,15 @@
 
 採用するのは、アプリの変換器を呼ぶための公開フックAPIである。標準の文字コードはUTF-8とし、組み込みのShift_JIS変換表と専用処理は廃止する。フックのAPI自体をライブラリのビルド時に選べるようにする。変換器を提供する側が対応する文字コードを決める。セル、検索、選択、コピー、IMEの確定文字列には引き続きUTF-8を使う。
 
-ビルド定義の仮称を`BOXRIG_FEATURE_ENCODING_HOOKS`とする。値を`0`と`1`で指定する場合、C側では`#if BOXRIG_FEATURE_ENCODING_HOOKS`で分岐する。`#ifdef`だけでは値が`0`でも定義済みになる。配布するヘッダーとライブラリが同じ設定を示すようにする。
-
 | ライブラリの構成 | 端末の振る舞い |
 | --- | --- |
 | フックを組み込まない | UTF-8専用。フック用の公開API、呼び出し分岐、端末ごとのフック状態を省く。 |
-| フックを組み込み、変換器を指定しない | 既定のUTF-8経路を使う。elder-termsのように、接続側ですでに変換しているアプリもこの経路を使える。 |
+| フックを組み込み、変換器を指定しない | 既定のUTF-8経路を使う。接続側からUTF-8を渡すアプリもこの経路を使える。 |
 | フックを組み込み、変換器を指定する | 接続先の文字コードが適用される箇所で変換器を呼ぶ。変換表や`iconv`など、変換器が使う依存はアプリが選ぶ。 |
 
 ### 変換するデータと通過させるデータ
 
-端末に届くバイト列には、表示する文字のほかに、カーソル操作やタイトル設定などを伝える制御列が混ざる。OSCは、タイトルやURIなどを端末に渡す制御列である。現行実装にも、同じ接続の本文とタイトルをShift_JISで受け取り、作業ディレクトリを通知する`OSC 7`のURIをUTF-8として扱うテストがある。接続先の符号化を使う場所を識別できる位置にフックを置く。[現在の入出力契約](../terminal-io.md#文字コードと生バイト)・[本文・タイトル・URIのテスト](../../../tests/test_terminal_codec.c)
+端末に届くバイト列には、表示する文字のほかに、カーソル操作やタイトル設定などを伝える制御列が混ざる。OSCは、タイトルやURIなどを端末に渡す制御列である。現行実装にも、同じ接続の本文とタイトルをShift_JISで受け取り、作業ディレクトリを通知する`OSC 7`のURIをUTF-8として扱うテストがある。このように接続先の符号化を使うフィールドだけを変換する場合は、フックを次の位置に置く。[現在の入出力契約](../terminal-io.md#文字コードと生バイト)・[本文・タイトル・URIのテスト](../../../tests/test_terminal_codec.c)
 
 | 経路 | フックに渡す内容 | boxrigが扱う内容 |
 | --- | --- | --- |
@@ -52,13 +67,17 @@
 
 受信のフックにはチャンクをまたぐ状態と、入力終了時に未完文字を確定する操作が要る。現行のShift_JIS変換では、不正な受信文字を`U+FFFD`に、送信時に表せない文字を`?`に置き換える。外部変換器についても置換やエラーの扱いを定める。送信では変換後のバイト数でキューの容量を判定する。空き待ちの`WOULD_BLOCK`から同じイベントを再試行しても、すでに処理した文字が重複しないようにする。貼り付けの改行変換と開始・終了マーカーの順序も従来の契約に含まれる。[受信終了と再試行](../terminal-io.md#容量不足と受信終了)・[貼り付けの実装](../../../src/core/input.c)
 
-本文フックだけで扱えるのは、端末の制御バイトを文字から識別できる符号化である。例えばISO-2022-JPでは、文字集合の切り替えにも`ESC`を使う。これをboxrig側で扱うなら、通常の端末パーサーが`ESC`を消費する前にどちらの指定かを識別する必要がある。接続側で先に変換する方法もある。フックが引き受ける符号化の範囲は、公開契約を決める際に明記する。[boxrigのパーサー](../../../src/core/parser.c)・[ISO-2022-JPの復号規則](https://encoding.spec.whatwg.org/#iso-2022-jp-decoder)
+ISO-2022-JPは文字集合の切り替えにも`ESC`を使う。UTF-16LEでは制御文字自体が2バイトになる。こうした接続向けには、同じフックAPIで端末ストリーム全体を変換する方式も用意する案とする。受信では制御列の解析前にUTF-8に戻す。送信では通常の文字と端末が生成した制御列を接続先の符号化で出力し、明示的な生バイト送信は素通しする。フィールド単位の方式とどちらを使うかは、接続先の規約に合わせて登録時に選ぶ。例えば本文がCP932でURIだけがUTF-8なら、フィールド単位の方式が必要になる。[boxrigのパーサー](../../../src/core/parser.c)・[ISO-2022-JPの復号規則](https://encoding.spec.whatwg.org/#iso-2022-jp-decoder)
 
 ### 廃止の範囲と公開APIの未決事項
 
 廃止対象には`BOXRIG_ENCODING_SHIFT_JIS`、`shift_jis_table.h`、専用の送受信処理とタイトル処理が含まれる。生成元のWHATWGデータ、`generate-shift-jis`、ビルド・配布・ライセンス同梱の参照も整理する。Shift_JIS固定の例とテストは見直し、分割受信や再試行などの契約は外部変換器を使う例で引き続き検証する。[調査時の変換処理](https://github.com/kekyo/boxrig/blob/77c151178caf1f497fd20f32f43e25e1067a3ba0/src/core/codec.c)・[生成規則](../../../tools/codegen/rules.mk)・[ライセンスの同梱規則](../../../packaging/licenses/licenses.mk)
 
-フックの公開名、ビルド時の既定値、コールバックの引数、変換状態の所有者と寿命は未決である。端末生成時に変換器を渡す案がある。端末状態の保存・復元に使うチェックポイントには、現在、符号化の種類と受信途中のバイトが入る。関数ポインターは元のプロセスでだけ有効なので、復元先で変換器を結び直す方法と、変換途中でも保存できる条件を決める。[チェックポイントの実装](../../../src/core/checkpoint.c)・[端末状態を引き継ぐ計画](./plan31-cross-process-terminal-handoff.md)
+変換状態はアプリが接続ごとに所有し、boxrigは登録から解除まで借りる案とする。端末生成後にも登録・交換・解除できることを要件とする。接続を保ったまま、受信・送信それぞれの変換を終了できるようにする。公開名とコールバックの引数は未決である。
+
+現行の送信処理には、出力長の計算と書き込みで同じ文字を2回変換する経路がある。状態を持つ変換器では、この間に文字集合が切り替わり得る。受理した入力は一度だけ変換し、送信待ちの間はその結果を保持する。`WOULD_BLOCK`や容量超過で操作を受理しなかった場合、次の操作は元の変換状態から始められるようにする。文字あたりの出力長は固定せず、キューの上限を守る方法を32.2で検証する。[現行の送信処理](../../../src/core/codec.c)
+
+端末状態の保存・復元に使うチェックポイントには、現在、符号化の種類と受信途中のバイトが入る。外部の変換状態を復元できる条件は別途決める。例えば、変換器が初期状態で入出力の保留もない時点に限って保存し、復元先で変換器を結び直す方法がある。関数ポインターや`iconv`の変換記述子はプロセスの外へ持ち出せない。[チェックポイントの実装](../../../src/core/checkpoint.c)・[端末状態を引き継ぐ計画](./plan31-cross-process-terminal-handoff.md)
 
 ## elder-termsで確認した接続側の変換
 
@@ -66,9 +85,20 @@ elder-termsの作業ブランチ`8338dd64`と`origin/main`の`254bddc8`で実装
 
 通常の受信では接続先のデータをUTF-8へ変換してからboxrigに渡し、変換前後の両方をログに渡せる。逆方向では、キー入力や端末応答が入ったboxrigの出力キューを接続先の文字コードへ変換する。ペーストとテキストファイル送信は専用の送信処理で改行を整え、一度だけ変換する。X/Y/ZMODEMのバイナリ転送には生バイトの経路がある。[受信](https://github.com/kekyo/elder-terms/blob/254bddc8816b38f2e74a8baa22c971492053fcf1/elder-terms-terminal/src/terminal-connection.cpp#L220)・[通常の送信](https://github.com/kekyo/elder-terms/blob/254bddc8816b38f2e74a8baa22c971492053fcf1/elder-terms-terminal/src/terminal-connection.cpp#L375)・[テキスト送信](https://github.com/kekyo/elder-terms/blob/254bddc8816b38f2e74a8baa22c971492053fcf1/elder-terms-terminal/src/terminal-text-send-runner.cpp#L202)・[バイナリ送信](https://github.com/kekyo/elder-terms/blob/254bddc8816b38f2e74a8baa22c971492053fcf1/elder-terms-terminal/src/terminal-connection.cpp#L1053)
 
-調査では、作業ブランチの既存テスト`terminal-text-stream-test`、`boxrig-connection-test`、`terminal-text-send-runner-test`がすべて通った。CP932の「日本語」を1バイトずつ扱う入出力と、ISO-2022-JPの文字集合の状態をチャンク間で保つ処理も確認できた。接続中に符号化を切り替える際は、以前のデコーダーの未完文字と送信待ちのデータを処理してから変換器を交換する。[接続テスト](https://github.com/kekyo/elder-terms/blob/254bddc8816b38f2e74a8baa22c971492053fcf1/elder-terms-terminal/tests/cpp/boxrig-connection-test.cpp#L226)・[変換状態のテスト](https://github.com/kekyo/elder-terms/blob/254bddc8816b38f2e74a8baa22c971492053fcf1/elder-terms-terminal/tests/cpp/terminal-text-stream-test.cpp#L54)・[接続中の切り替え](https://github.com/kekyo/elder-terms/blob/254bddc8816b38f2e74a8baa22c971492053fcf1/elder-terms-terminal/src/terminal-connection.cpp#L843)
+調査では、作業ブランチの既存テスト6件が通った。対象は`terminal-text-stream-test`、`boxrig-connection-test`、`terminal-text-send-runner-test`、`terminal-log-test`、`boxrig-macros-test`、`boxrig-runtime-macros-test`である。CP932の「日本語」を1バイトずつ扱う入出力と、ISO-2022-JPの文字集合の状態をチャンク間で保つ処理も確認できた。接続中に符号化を切り替える際は、以前のデコーダーの未完文字と送信待ちのデータを処理してから変換器を交換する。[接続テスト](https://github.com/kekyo/elder-terms/blob/254bddc8816b38f2e74a8baa22c971492053fcf1/elder-terms-terminal/tests/cpp/boxrig-connection-test.cpp#L226)・[変換状態のテスト](https://github.com/kekyo/elder-terms/blob/254bddc8816b38f2e74a8baa22c971492053fcf1/elder-terms-terminal/tests/cpp/terminal-text-stream-test.cpp#L54)・[接続中の切り替え](https://github.com/kekyo/elder-terms/blob/254bddc8816b38f2e74a8baa22c971492053fcf1/elder-terms-terminal/src/terminal-connection.cpp#L843)
 
-したがって、boxrigの標準UTF-8入出力を維持すれば、elder-termsは専用表の廃止後も接続側で変換できる。ただし、CP932接続で`OSC 7`のURIだけがUTF-8で届く例では、そのURIも接続側の変換を通る。boxrigのフックには、同じ接続の中でもフィールドごとに変換を選べる利点がある。
+### elder-termsからフックを使う条件
+
+elder-termsの`TerminalTextStream`は、受信と送信に独立した変換器を持ち、断片の変換とストリームの終了を指定できる。これらをCのコールバックで包み、端末に登録できる。通常の受信は接続先のバイトをboxrigへ渡し、通常の送信はboxrigの出力を通信路へ書く。ここで接続側にある一括変換を外せば、同じ文字を二度変換することを防げる。変換器の選択と`iconv`への依存はelder-termsが引き受ける。[変換器のインターフェイス](https://github.com/kekyo/elder-terms/blob/254bddc8816b38f2e74a8baa22c971492053fcf1/elder-terms-terminal/src/terminal-sessions/terminal-text-stream.h)
+
+現行のUTF-8 coreとこの変換器をつなぐ小さなドライバーで、CP932、ISO-2022-JP、UTF-16LEを試した。「日」、カーソルを2行3列に移す制御列、続く「本」を通信路から1バイトずつ入力し、変換後の制御列と移動先のセルを確認した。逆方向では「日本」が各符号化の期待バイト列と一致し、ISO-2022-JPでは末尾でASCIIに戻った。この試験で確かめたのは変換器とcoreの入出力である。公開フックを介した結合は32.2で検証する。
+
+| 利用箇所 | 移行後に満たす条件 |
+| --- | --- |
+| 接続中の切り替えと再接続 | 端末と画面を保ったまま、次の送受信変換器を用意する。新しい変換器を作れないときは旧設定で続ける。読み取りと新規入力を止め、セッションが再試行待ちで保持する受信データを旧変換器に渡す。未完文字を確定し、旧出力と文字集合を戻す末尾バイトを書き終えてから交換する。切断と再接続をまたいで未完文字を連結しない。[セッションの保留入力](../../../include/boxrig/session.h)・[切り替えのテスト](https://github.com/kekyo/elder-terms/blob/254bddc8816b38f2e74a8baa22c971492053fcf1/elder-terms-terminal/tests/cpp/boxrig-connection-test.cpp#L299) |
+| 受信ログとマクロ | 生ログは従来どおり通信路の端末バイトを記録する。変換後ログと受信マクロには、変換済みの本文、制御列、素通ししたフィールドを受信順に届ける。フック有効時のAPIに、確定した受信バイト列を観測する手段を設ける。マクロによる読み取りの一時停止、パーサーの再試行、EOFでの置換があっても一度だけ通知する。[ログの入力選択](https://github.com/kekyo/elder-terms/blob/254bddc8816b38f2e74a8baa22c971492053fcf1/elder-terms-terminal/src/terminal-log.cpp#L278)・[受信マクロへの配信](https://github.com/kekyo/elder-terms/blob/254bddc8816b38f2e74a8baa22c971492053fcf1/elder-terms-terminal/src/terminal-runtime.cpp#L1270) |
+| 貼り付けとテキストファイル送信 | 専用送信に切り替えるときは、通常送信の末尾まで通信路に流す。専用送信では同じ送信フックに独立した変換状態を与える案とする。elder-termsで改行を整え、一度だけ変換し、実際に書くバイト数で速度を制御する。変換器から置換の有無を受け取り、表せない文字の警告も維持する。[送信経路の引き渡し](https://github.com/kekyo/elder-terms/blob/254bddc8816b38f2e74a8baa22c971492053fcf1/elder-terms-terminal/src/terminal-connection.cpp#L973)・[改行・変換・速度制御](https://github.com/kekyo/elder-terms/blob/254bddc8816b38f2e74a8baa22c971492053fcf1/elder-terms-terminal/src/terminal-text-send-runner.cpp#L202) |
+| バイナリ転送 | ZMODEMの自動開始判定とX/Y/ZMODEMのフレームは通信路で扱い、文字コード変換を通さない。転送の開始・終了をまたいでも先読みしたバイトが失われず、全バイト値が一致することを調べる。[受信の振り分け](https://github.com/kekyo/elder-terms/blob/254bddc8816b38f2e74a8baa22c971492053fcf1/elder-terms-terminal/src/terminal-connection.cpp#L299) |
 
 ## 案1で切り替える機能の候補
 
@@ -111,7 +141,9 @@ OSCに加え、機器への要求に使うDCS、Kitty画像に使うAPCなどに
 
 ### 32.2 フックを有効・無効にして同じ端末を動かす
 
-外部変換器を使う小さなドライバーで、分割受信、タイトルとURIの混在、貼り付け、送信の再試行を検証する。フック有効時は本文とタイトルを意図したとおりに変換し、生バイトと端末応答をそのまま送る。無効時はフック用APIを省いたSDKでUTF-8のドライバーをビルドして実行できることを完了条件とする。チェックポイントは、合意した復元条件をこの段階で検証する。
+1. `config.h`とフックを導入し、無指定・明示的な`1`・`0`でライブラリをビルドする。同じビルド先で値を変えた場合も設定が反映されることを確かめる。有効・無効それぞれの配布SDKだけを使い、同じドライバーをコンパイル、リンク、実行する。無効版はフック用APIと端末ごとの状態を省き、UTF-8で動く。SDKと異なる値の指定はコンパイル時に検出する。
+2. 有効版ではCP932の本文・タイトルとUTF-8の`OSC 7`を混在させ、本文、URI、端末応答、生バイト送信の値を確かめる。ストリーム全体を変換する構成では、ISO-2022-JPの文字集合の指定とカーソル移動を1バイトずつ受け取る。送信はキューを満たしてから再試行し、文字と制御列が期待する順序で一度ずつ届くことを確かめる。チェックポイントは、合意した復元条件をこの段階で検証する。
+3. 新SDKの結合試験でelder-termsの`TerminalTextStream`を登録する。同じ端末でCP932の「日」と未完の先頭バイトを受信し、旧送信が残った状態でUTF-8に切り替えて「語」を受信する。画面と変換後ログは「日�語」、生ログは元の受信バイト列になることを確かめる。送信は旧・新の順に一度ずつ届くことも確認する。受信マクロ、速度を指定した貼り付け、バイナリ転送は上表の条件で検証する。後続のelder-terms側の移行では、Mesonの`-Dboxrig_source=...`で対象のboxrigを選び、既存テスト6件をフック経由で再実行する。[elder-termsのSDK選択](https://github.com/kekyo/elder-terms/blob/254bddc8816b38f2e74a8baa22c971492053fcf1/meson.build#L61)
 
 ### 32.3 機能ごとにコードと割り当てを減らす
 
