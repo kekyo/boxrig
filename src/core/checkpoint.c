@@ -8,7 +8,10 @@
 /* The eight-byte signature includes the incompatible wire-format version.
  * A little-endian CRC-32 of the entire payload follows the payload. */
 static const uint8_t signature[8] = { 'B', 'O', 'X', 'R', 'I', 'G', 2,
-    BOXRIG_FEATURE_ALT_SCREEN | (BOXRIG_FEATURE_KITTY_GRAPHICS << 1) | (BOXRIG_FEATURE_HISTORY_DEFLATE << 2) };
+    BOXRIG_FEATURE_ALT_SCREEN | (BOXRIG_FEATURE_KITTY_GRAPHICS << 1) |
+    (BOXRIG_FEATURE_HISTORY_DEFLATE << 2) | (BOXRIG_FEATURE_EXTENDED_VT << 3) |
+    (BOXRIG_FEATURE_TEXT_MONITOR << 4) | (BOXRIG_FEATURE_TEXT_RECOGNIZER << 5) |
+    ((!BOXRIG_FEATURE_EXTENDED_VT && BOXRIG_FEATURE_LOG_CURSOR) << 6) };
 
 static boxrig_status capture_config(const boxrig_terminal *t, boxrig_terminal_config *cfg)
 {
@@ -145,7 +148,7 @@ static bool allocation_sizes_valid(const boxrig_terminal_config *cfg, size_t max
 static void fixed_buffer(boxrig_checkpoint_io *io, uint8_t *bytes, size_t *used, size_t capacity)
 {
     boxrig_cp_size(io, used);
-    if (*used > capacity) boxrig_cp_fail(io);
+    if (*used > capacity || (*used && !bytes)) boxrig_cp_fail(io);
     boxrig_cp_bytes(io, bytes, *used);
 }
 
@@ -155,6 +158,12 @@ static void parser_state(boxrig_checkpoint_io *io, boxrig_terminal *t)
     boxrig_cp_enum(io, &p->state);
     boxrig_cp_size(io, &p->parameter_count);
     if (p->state > BOXRIG_PARSER_STRING_ESCAPE || p->parameter_count > BOXRIG_PARSER_MAX_PARAMETERS) {
+        boxrig_cp_fail(io);
+        return;
+    }
+    if (!BOXRIG_FEATURE_EXTENDED_VT && p->state >= BOXRIG_PARSER_DCS_ENTRY &&
+        p->state <= BOXRIG_PARSER_DCS_PASSTHROUGH_ESCAPE &&
+        p->state != BOXRIG_PARSER_DCS_IGNORE && p->state != BOXRIG_PARSER_DCS_IGNORE_ESCAPE) {
         boxrig_cp_fail(io);
         return;
     }

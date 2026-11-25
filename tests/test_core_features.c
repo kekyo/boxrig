@@ -34,11 +34,29 @@ int main(void)
 #endif
     feed(t, "A\r\nB\r\nC");
     assert(boxrig_terminal_scrollback_rows(t) == 1);
+    assert(boxrig_terminal_set_viewport_offset(t, 1) == BOXRIG_STATUS_OK);
+    boxrig_cell_view top;
+    assert(boxrig_terminal_get_cell(t, 0, 0, &top) == BOXRIG_STATUS_OK && top.text[0] == 'A');
+    assert(boxrig_terminal_set_viewport_offset(t, 0) == BOXRIG_STATUS_OK);
 #if !BOXRIG_FEATURE_ALT_SCREEN
     feed(t, "\033[?1049hX\033[?1049l");
     boxrig_cell_view cell;
     assert(boxrig_terminal_get_cell(t,1,1,&cell) == BOXRIG_STATUS_OK && !memcmp(cell.text,"X",1));
 #endif
     assert(boxrig_terminal_resize(t, 3, 12) == BOXRIG_STATUS_OK);
+#if BOXRIG_FEATURE_CHECKPOINT
+    uint8_t *snapshot;
+    size_t length;
+    const size_t budget = 32u << 20;
+    assert(boxrig_terminal_export_checkpoint(t, budget, &snapshot, &length) == BOXRIG_STATUS_OK);
+    boxrig_terminal *restored;
+    assert(boxrig_terminal_import_checkpoint(snapshot, length, budget, &restored) == BOXRIG_STATUS_OK);
+    boxrig_cell_view before, after;
+    assert(boxrig_terminal_get_cell(t, 0, 0, &before) == BOXRIG_STATUS_OK);
+    assert(boxrig_terminal_get_cell(restored, 0, 0, &after) == BOXRIG_STATUS_OK);
+    assert(before.text_length == after.text_length && !memcmp(before.text, after.text, before.text_length));
+    boxrig_checkpoint_free(snapshot);
+    boxrig_terminal_destroy(restored);
+#endif
     boxrig_terminal_destroy(t);
 }

@@ -2473,8 +2473,8 @@ $(PARSER_TEST_BINARY): tests/test_parser.c src/core/parser.c src/core/parser.h |
 $(GRAPHICS_TEST_BINARY): tests/test_graphics.c $(LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(LIBRARY) $(SANITIZERS) -o $@
 
-$(SCREEN_TEST_BINARY): tests/test_screen.c src/core/screen.c src/core/history.c src/core/text.c src/core/regex.c src/core/unicode.c $(UTF8PROC_SOURCE) $(CORE_HEADERS) $(ZLIB_OBJECTS) | $(BUILD_DIR)/tests
-	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) tests/test_screen.c src/core/screen.c src/core/history.c src/core/text.c src/core/regex.c src/core/unicode.c $(UTF8PROC_SOURCE) $(ZLIB_OBJECTS) $(SANITIZERS) -o $@
+$(SCREEN_TEST_BINARY): tests/test_screen.c src/core/screen.c src/core/history.c src/core/text.c src/core/regex.c src/core/unicode.c src/core/utf8.c $(UTF8PROC_SOURCE) $(CORE_HEADERS) $(ZLIB_OBJECTS) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) tests/test_screen.c src/core/screen.c src/core/history.c src/core/text.c src/core/regex.c src/core/unicode.c src/core/utf8.c $(UTF8PROC_SOURCE) $(ZLIB_OBJECTS) $(SANITIZERS) -o $@
 
 $(TEXT_LAYOUT_TEST_BINARY): tests/test_text_layout.c $(UI_LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) tests/test_text_layout.c $(UI_LIBRARY) $(SANITIZERS) -o $@
@@ -6549,3 +6549,15 @@ $(BUILD_DIR)/tests/test_encoding_hooks: tests/test_encoding_hooks.c $(LIBRARY) $
 test-embedded-log: $(LIBRARY)
 	+sh tests/check_embedded_log.sh "$(MAKE)" "$(BUILD_DIR)/embedded-log" "$(LIBRARY)"
 test: test-embedded-log
+
+.PHONY: test-checkpoint-builds
+test-checkpoint-builds: $(LIBRARY) | $(BUILD_DIR)/tests
+	+$(MAKE) BUILD_DIR="$(BUILD_DIR)/checkpoint-log" CPPFLAGS="-DBOXRIG_FEATURE_EXTENDED_VT=0" core
+	$(CC) $(PUBLIC_CPPFLAGS) $(PROJECT_CFLAGS) tests/test_checkpoint_build.c $(LIBRARY) -lm -o $(BUILD_DIR)/tests/checkpoint-full
+	$(CC) $(PUBLIC_CPPFLAGS) $(PROJECT_CFLAGS) -DBOXRIG_FEATURE_EXTENDED_VT=0 tests/test_checkpoint_build.c $(BUILD_DIR)/checkpoint-log/libboxrig.a -lm -o $(BUILD_DIR)/checkpoint-log/checkpoint-log
+	$(BUILD_DIR)/tests/checkpoint-full write $(BUILD_DIR)/checkpoint-log/full.cp
+	$(BUILD_DIR)/checkpoint-log/checkpoint-log reject $(BUILD_DIR)/checkpoint-log/full.cp
+	$(BUILD_DIR)/checkpoint-log/checkpoint-log write $(BUILD_DIR)/checkpoint-log/log.cp
+	$(BUILD_DIR)/checkpoint-log/checkpoint-log read $(BUILD_DIR)/checkpoint-log/log.cp
+	$(BUILD_DIR)/tests/checkpoint-full reject $(BUILD_DIR)/checkpoint-log/log.cp
+test: test-checkpoint-builds
