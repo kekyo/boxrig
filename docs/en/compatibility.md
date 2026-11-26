@@ -22,7 +22,7 @@ Your application connects shell communication and OS operations such as titles a
 | Purpose | Supported functionality | Details |
 | --- | --- | --- |
 | Text and controls | UTF-8, combining characters, emoji, ANSI and RGB colors, decorations, blinking, screen, and history | [Control sequences](./reference/terminal-sequences.md) |
-| Input | Newline settings, Shift_JIS conversion, key mappings, Kitty keyboard, paste, mouse, and focus | [Terminal I/O settings](./terminal-io.md) |
+| Input | Newline settings, key mappings, Kitty keyboard, paste, mouse, and focus | [Terminal I/O settings](./terminal-io.md) |
 | Working with text | Snapshots, selection, exact search, occurrence monitoring, and bounded regular-expression recognition | [Text](./text.md) |
 | Images | Kitty graphics still images, placement, external transfers, and animation | [Graphics specification](./reference/graphics.md) |
 | Host integration | Requests for titles, links, clipboard access, notifications, and external images | [Host integration](./host-integration.md) |

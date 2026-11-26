@@ -7,6 +7,8 @@
 #ifndef BOXRIG_TERMINAL_H
 #define BOXRIG_TERMINAL_H
 
+#include "boxrig/config.h"
+
 #include "boxrig/regex.h"
 
 #include <stdbool.h>
@@ -19,6 +21,79 @@ extern "C" {
 
 /** Opaque terminal emulator state. */
 typedef struct boxrig_terminal boxrig_terminal;
+
+#if BOXRIG_FEATURE_ENCODING_HOOKS
+/** Location of external conversion relative to control syntax. */
+typedef enum boxrig_encoding_mode {
+    BOXRIG_ENCODING_FIELDS, /**< Convert screen text and OSC titles separately. */
+    BOXRIG_ENCODING_STREAM /**< Convert the entire textual terminal stream. */
+} boxrig_encoding_mode;
+
+/** Independent states maintained by the application's converter. */
+typedef enum boxrig_encoding_channel {
+    BOXRIG_ENCODING_RECEIVE, /**< Wire text or the whole stream to UTF-8. */
+    BOXRIG_ENCODING_TITLE, /**< A title field to UTF-8. */
+    BOXRIG_ENCODING_SEND /**< UTF-8 to wire bytes. */
+} boxrig_encoding_channel;
+
+/** Output reservation valid for the duration of a conversion callback. */
+typedef struct boxrig_encoding_buffer boxrig_encoding_buffer;
+
+/**
+ * Reserves output before advancing a stateful converter.
+ * @param buffer Destination passed to the current callback.
+ * @param capacity Maximum bytes the converter will write.
+ * @param bytes_out Receives writable storage, possibly NULL for zero.
+ * @return OK, WOULD_BLOCK for temporary queue pressure, or a resource error.
+ * @remarks Reserve once and report actual bytes produced on success.
+ */
+boxrig_status boxrig_encoding_reserve(boxrig_encoding_buffer *buffer,
+    size_t capacity, uint8_t **bytes_out);
+
+/** Codec registration copied by the terminal. */
+typedef struct boxrig_encoding_hooks {
+    boxrig_encoding_mode mode; /**< Field or whole-stream conversion. */
+    void *context; /**< Borrowed until replacement, removal or destruction. */
+    /**
+     * Transforms a fragment or finalizes a channel.
+     * @param context Registered application state.
+     * @param channel Independent converter to use.
+     * @param input Borrowed input, NULL when finishing.
+     * @param length Input byte count.
+     * @param finish Finalize this channel, handling incomplete input.
+     * @param buffer Reservation for the result.
+     * @param written Actual output byte count, initially zero.
+     * @return OK after accepting all input. Preserve the prior state on error.
+     * @remarks Reserve before committing codec state. Field decoders produce
+     * printable UTF-8. A finished channel starts fresh on its next input.
+     * Callbacks must not reenter the terminal or propagate exceptions.
+     */
+    boxrig_status (*convert)(void *context, boxrig_encoding_channel channel,
+        const uint8_t *input, size_t length, bool finish,
+        boxrig_encoding_buffer *buffer, size_t *written);
+    /** Receives committed cooked bytes including control syntax, in order.
+     * The optional observer borrows the span only during this call. */
+    void (*received)(void *context, const uint8_t *bytes, size_t length);
+} boxrig_encoding_hooks;
+
+/**
+ * Registers, replaces or removes a codec while retaining the screen and history.
+ * @param terminal Terminal to configure.
+ * @param hooks Registration to copy, or NULL to resume built-in UTF-8.
+ * @return OK, INVALID_ARGUMENT, or BUSY while input, output or syntax is pending.
+ * @remarks Drain retained session input, finish input and encoding output and
+ * drain wire output before exchanging a live codec.
+ */
+boxrig_status boxrig_terminal_set_encoding_hooks(boxrig_terminal *terminal,
+    const boxrig_encoding_hooks *hooks);
+
+/**
+ * Emits the encoder's final shift sequence once.
+ * @param terminal Terminal whose send channel is being finalized.
+ * @return OK or an output status. Retry WOULD_BLOCK after draining output.
+ */
+boxrig_status boxrig_terminal_finish_encoding_output(boxrig_terminal *terminal);
+#endif
 
 /** Exclusive host ownership of a terminal animation clock. */
 typedef struct boxrig_animation_clock boxrig_animation_clock;
@@ -485,14 +560,6 @@ typedef enum boxrig_receive_newline {
     BOXRIG_RECEIVE_NEWLINE_CRLF
 } boxrig_receive_newline;
 
-/** Text encoding used for the terminal client connection. */
-typedef enum boxrig_encoding {
-    /** Unicode UTF-8, the default encoding. */
-    BOXRIG_ENCODING_UTF8 = 0,
-    /** WHATWG Shift_JIS, including its index and replacement rules. */
-    BOXRIG_ENCODING_SHIFT_JIS
-} boxrig_encoding;
-
 /** Storage policy for offscreen primary-screen history, selected per terminal. */
 typedef enum boxrig_scrollback_compression {
     /** Retain the original cells. This is the default. */
@@ -628,10 +695,9 @@ typedef struct boxrig_terminal_config {
      * boundaries; any intervening byte ends the pair. Retained across resets.
      */
     boxrig_receive_newline receive_newline;
-    /** Text codec, fixed at construction and retained across terminal resets. */
-    boxrig_encoding encoding;
 } boxrig_terminal_config;
 
+#if !BOXRIG_FEATURE_COMPACT_CELLS
 /**
  * Captures the live terminal on its owner thread between API calls.
  * @param terminal Source, retained unchanged on success or failure.
@@ -643,7 +709,7 @@ typedef struct boxrig_terminal_config {
  * @remarks Stop dispatch and drain any input retained by the transport
  * session first. The checkpoint excludes transport and UI resources.
  * Complete host requests and any open graphics command/upload, drain events,
- * and detach application monitors and recognizers before export. Bind host
+ * and detach application monitors, recognizers and encoding hooks before export. Bind host
  * callbacks to the restored terminal. Use the same maximum_bytes on import.
  * Both operations bound eager workspace dimensions using maximum_bytes,
  * with a 16 MiB floor for default workspaces and a 1 GiB ceiling.
@@ -673,6 +739,7 @@ boxrig_status boxrig_terminal_import_checkpoint(
  * @param data Owned bytes returned by export, or NULL.
  */
 void boxrig_checkpoint_free(uint8_t *data);
+#endif /* !BOXRIG_FEATURE_COMPACT_CELLS */
 
 /** The representation used by a terminal color. */
 typedef enum boxrig_color_kind {
@@ -1258,6 +1325,7 @@ struct boxrig_key_mapping {
     size_t length;
 };
 
+#if !BOXRIG_FEATURE_COMPACT_CELLS
 /**
  * Returns default runtime input settings, also used by terminal construction.
  * @return Terminal-mode Enter, Auto erase bindings, and no arrow overrides.
@@ -1318,6 +1386,7 @@ boxrig_status boxrig_terminal_set_tty_erase(
  */
 boxrig_status boxrig_terminal_get_tty_erase(
     const boxrig_terminal *terminal, boxrig_tty_erase *erase_out);
+#endif /* !BOXRIG_FEATURE_COMPACT_CELLS */
 
 /** Logical key transition type. */
 typedef enum boxrig_key_action {
@@ -1464,6 +1533,7 @@ boxrig_status boxrig_terminal_create(
  */
 void boxrig_terminal_destroy(boxrig_terminal *terminal);
 
+#if !BOXRIG_FEATURE_COMPACT_CELLS
 /**
  * Returns the immutable ambiguous-width policy.
  * @param terminal Terminal to inspect, or NULL for the narrow default.
@@ -1518,6 +1588,7 @@ boxrig_status boxrig_terminal_measure_text_cluster(
     const uint8_t *text,
     size_t text_length,
     boxrig_text_cluster_measurement *measurement_out);
+#endif /* !BOXRIG_FEATURE_COMPACT_CELLS */
 
 /**
  * Completes one input stream, replacing incomplete text and cancelling syntax.
@@ -1553,7 +1624,8 @@ boxrig_status boxrig_terminal_feed(
  * @param columns New nonzero column count.
  * @return BOXRIG_STATUS_OK on success, or an error status.
  *
- * @remarks Primary scrollback and visible rows are joined using soft-wrap
+ * @remarks Compact cells preserve the top-left intersection when resizing
+ * and clamp the cursor to the new grid. With Unicode cells, primary scrollback and visible rows are joined using soft-wrap
  * metadata before reflow. The alternate screen preserves its intersecting
  * cells without splitting wide cells. A primary viewport at live output stays
  * live. A viewport in history keeps its logical top anchor when retained and
@@ -1576,6 +1648,7 @@ void boxrig_terminal_size(
     size_t *rows_out,
     size_t *columns_out);
 
+#if !BOXRIG_FEATURE_COMPACT_CELLS
 /**
  * Reads the number of primary-screen rows retained in scrollback.
  *
@@ -2243,6 +2316,7 @@ boxrig_text_screen boxrig_terminal_active_text_screen(
 boxrig_status boxrig_terminal_set_viewport_offset(
     boxrig_terminal *terminal,
     size_t row_offset);
+#endif /* !BOXRIG_FEATURE_COMPACT_CELLS */
 
 /**
  * Reads a cell from the active viewport.
@@ -2259,6 +2333,7 @@ boxrig_status boxrig_terminal_get_cell(
     size_t column,
     boxrig_cell_view *cell_out);
 
+#if !BOXRIG_FEATURE_COMPACT_CELLS
 /**
  * Reads a storage cell from any retained physical text fragment.
  * @param terminal Terminal to inspect without changing its viewport.
@@ -2348,6 +2423,7 @@ boxrig_status boxrig_terminal_get_dynamic_color(
  * @remarks Renderers can cache platform colors until this value changes.
  */
 uint64_t boxrig_terminal_color_revision(const boxrig_terminal *terminal);
+#endif /* !BOXRIG_FEATURE_COMPACT_CELLS */
 
 /**
  * Reads the current cursor state.
@@ -2359,6 +2435,7 @@ void boxrig_terminal_get_cursor(
     const boxrig_terminal *terminal,
     boxrig_cursor_view *cursor_out);
 
+#if !BOXRIG_FEATURE_COMPACT_CELLS
 /**
  * Reports whether the client is delimiting a synchronized output update.
  *
@@ -2373,6 +2450,7 @@ void boxrig_terminal_get_cursor(
  */
 bool boxrig_terminal_synchronized_output(
     const boxrig_terminal *terminal);
+#endif /* !BOXRIG_FEATURE_COMPACT_CELLS */
 
 /**
  * Removes and returns the next changed row interval.
@@ -2385,6 +2463,7 @@ bool boxrig_terminal_take_dirty(
     boxrig_terminal *terminal,
     boxrig_dirty *dirty_out);
 
+#if !BOXRIG_FEATURE_COMPACT_CELLS
 /**
  * Validates terminal-cell pixel dimensions without changing terminal state.
  *
@@ -2574,6 +2653,7 @@ boxrig_status boxrig_terminal_get_image_placement(
 bool boxrig_terminal_take_image_dirty(
     boxrig_terminal *terminal,
     boxrig_dirty *dirty_out);
+#endif /* !BOXRIG_FEATURE_COMPACT_CELLS */
 
 /**
  * Marks the entire screen as needing redraw.
@@ -2582,6 +2662,7 @@ bool boxrig_terminal_take_image_dirty(
  */
 void boxrig_terminal_invalidate(boxrig_terminal *terminal);
 
+#if !BOXRIG_FEATURE_COMPACT_CELLS
 /**
  * Reads the next host event or request without removing it.
  *
@@ -2658,8 +2739,7 @@ boxrig_status boxrig_terminal_send_key(
  * @remarks A transaction starts with BOXRIG_PASTE_BEGIN, contains zero or
  * more BOXRIG_PASTE_CHUNK events, and ends with BOXRIG_PASTE_END. Begin and
  * end events must have empty text. Each chunk must contain complete, valid
- * UTF-8; characters may not span chunks. Text is encoded using the configured
- * codec and unrepresentable Shift_JIS scalars become ASCII question marks.
+ * UTF-8; characters may not span chunks.
  * ESC bytes are rejected from chunks so a
  * pasted payload cannot forge the bracketed-paste end marker. When this
  * function returns BOXRIG_STATUS_WOULD_BLOCK, no bytes or transaction state
@@ -2733,6 +2813,7 @@ bool boxrig_terminal_alternate_scroll_enabled(const boxrig_terminal *terminal);
 boxrig_status boxrig_terminal_send_mouse(
     boxrig_terminal *terminal,
     const boxrig_mouse_event *event);
+#endif /* !BOXRIG_FEATURE_COMPACT_CELLS */
 
 /**
  * Queues already encoded bytes without text or newline conversion.
@@ -2752,8 +2833,7 @@ boxrig_status boxrig_terminal_send_bytes(
  * @param text Length-delimited UTF-8, including any NUL or control characters.
  * @param length Number of bytes in text.
  * @return OK, INVALID_ARGUMENT for malformed UTF-8, or a capacity/error status.
- * @remarks Unrepresentable Shift_JIS scalars become ASCII question marks.
- * No newline conversion is performed; a failed event queues no prefix.
+ * @remarks No newline conversion is performed; a failed event queues no prefix.
  */
 boxrig_status boxrig_terminal_send_text(
     boxrig_terminal *terminal,

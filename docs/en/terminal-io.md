@@ -3,8 +3,8 @@
 [日本語](../ja/terminal-io.md)
 
 You can adjust Enter and paste newlines, received newlines, and character encoding to match the communication peer.
-Examples include devices that expect LF for Enter and peers using Shift_JIS.
-These are boxrig core settings supplied when creating the terminal.
+Examples include devices that expect LF for Enter.
+Supply the initial newline and key settings at terminal creation. Register an external encoding converter after creation.
 Enter, erase bindings, and arrow mappings can also be exchanged together at runtime.
 All views of the same terminal share these I/O rules.
 They are independent of UI colors and fonts.
@@ -48,7 +48,7 @@ Kitty key reporting and application-keypad Enter follow their respective protoco
 
 Paste does not accept TERMINAL.
 The standard UI normalizes clipboard CR and CRLF to LF, and core converts them to the selected outgoing newline sequence.
-Bracketed-paste start and end sequences are not converted.
+Paste newline settings apply only to the content between the bracketed-paste delimiters.
 Paste settings do not apply to `send_text()` either.
 
 ## Received CR and LF
@@ -82,7 +82,7 @@ Duplicate mappings are invalid.
 Limits are 64 entries, 4096 bytes per entry, and 65536 bytes in total.
 
 Mappings apply to legacy key input and take precedence over application cursor mode.
-No Alt ESC prefix or character encoding conversion is added to the completed sequence.
+The terminal sends the completed mapping without adding an Alt ESC prefix. Field mode sends the registered bytes directly. Stream mode passes them through the send converter along with other control sequences. [Choose what to convert](./encoding-hooks.md#choose-what-to-convert)
 Events selected for Kitty key reporting retain Kitty format.
 Build the [key mapping example](../../examples/core/key_mapping.c) with `make example-key-mapping` to compare the default Up sequence with a mapping to `55 00`.
 
@@ -169,22 +169,21 @@ actual bytes received by the PTY child.
 
 ## Character encodings and raw bytes
 
-Choose `encoding` from the default `BOXRIG_ENCODING_UTF8` and `BOXRIG_ENCODING_SHIFT_JIS`.
-With Shift_JIS, received characters are converted to Unicode, and outgoing UTF-8 text is converted to Shift_JIS.
-Text in cells, search, selection, copying, and IME remains UTF-8.
+The default encoding is UTF-8. Its built-in decoder displays U+FFFD for an incomplete character at end of input.
 
-Shift_JIS support follows the [WHATWG Encoding Standard](https://encoding.spec.whatwg.org/#shift_jis).
-Invalid received data becomes U+FFFD, and unrepresentable outgoing characters become ASCII `?`.
-This does not guarantee exact equivalence to other CP932 implementations or round trips for every character.
-Include the mapping table's [license](../../data/encoding/whatwg/LICENSE) when redistributing it.
+Register an application converter after creating the terminal with `boxrig_terminal_set_encoding_hooks()`. Select `BOXRIG_ENCODING_FIELDS` for screen text and titles with independent URI and image encodings, or `BOXRIG_ENCODING_STREAM` when the encoding also covers control syntax or uses escape sequences to select a character set. Explicit `send_bytes()` sends wire bytes directly.
+
+Keep separate receive, title and send states. Reserve output with `boxrig_encoding_reserve()` before advancing the converter, then return the actual number of bytes written. The optional `received` callback observes committed bytes including control syntax. To exchange codecs, drain retained session input, call `boxrig_terminal_finish_input()` and `boxrig_terminal_finish_encoding_output()`, drain wire output and register the replacement. Detach the codec this way before exporting a checkpoint.
+
+Build with `CPPFLAGS=-DBOXRIG_FEATURE_ENCODING_HOOKS=0` for UTF-8 only. The converter guide includes a C99 registration example, handling fragmented input and full queues, and the procedure for switching on a live connection. [Connect a character encoding converter](./encoding-hooks.md)
 
 Pass complete UTF-8 to `send_text()`.
 Invalid or incomplete text returns an error without being appended.
 Use `send_bytes()` for already encoded sequences or custom control sequences.
-Encoding conversion is not applied again to query responses or image payloads.
+In field mode, protocol responses and image payloads retain their wire bytes. In stream mode, terminal-generated controls pass through the send hook as well.
 
 Build the [encoding example](../../examples/core/encoding.c) with `make example-encoding`.
-The outgoing text “日本語” becomes `93 fa 96 7b 8c ea`, and received cells can be inspected as UTF-8.
+The example feeds the UTF-8 string `日本語` one byte at a time and checks the cells and output queue.
 
 ## Capacity limits and end of input
 

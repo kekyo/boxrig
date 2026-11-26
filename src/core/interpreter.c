@@ -5,6 +5,7 @@
  */
 
 #include "terminal_internal.h"
+#include "log_controls.h"
 
 #include "utf8proc.h"
 
@@ -14,6 +15,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if BOXRIG_FEATURE_EXTENDED_VT
 static uint32_t first_parameter(
     const boxrig_parser_parameter *parameters,
     size_t parameter_count,
@@ -38,7 +40,7 @@ static uint32_t parameter_at(
     }
     return parameters[index].value;
 }
-
+#endif
 static boxrig_status emit_codepoint(void *context, int32_t codepoint)
 {
     boxrig_terminal *terminal = context;
@@ -54,7 +56,7 @@ static boxrig_status emit_codepoint(void *context, int32_t codepoint)
 static boxrig_status interpreter_print(void *context, uint8_t byte)
 {
     boxrig_terminal *terminal = context;
-    return boxrig_codec_decoder_put(&terminal->decoder, terminal->encoding,
+    return boxrig_unicode_decoder_put(&terminal->decoder,
         byte, emit_codepoint, terminal);
 }
 
@@ -68,8 +70,7 @@ static boxrig_status interpreter_print_run(
 
     *consumed_out = 0;
     while (*consumed_out < length) {
-        if (terminal->encoding == BOXRIG_ENCODING_UTF8 &&
-            terminal->decoder.utf8.length == 0) {
+        if (terminal->decoder.length == 0) {
             size_t placed = boxrig_screen_put_ascii_run(
                 &terminal->screen,
                 bytes + *consumed_out,
@@ -97,8 +98,7 @@ static boxrig_status interpreter_print_run(
 static boxrig_status interpreter_flush_print(void *context)
 {
     boxrig_terminal *terminal = context;
-    boxrig_status status = boxrig_codec_decoder_flush(&terminal->decoder,
-        terminal->encoding, emit_codepoint, terminal);
+    boxrig_status status = boxrig_unicode_decoder_flush(&terminal->decoder, emit_codepoint, terminal);
     if (status == BOXRIG_STATUS_OK) boxrig_screen_end_text(&terminal->screen);
     return status;
 }
@@ -107,6 +107,8 @@ static boxrig_status interpreter_execute(void *context, uint8_t control)
 {
     boxrig_terminal *terminal = context;
 
+    if (!BOXRIG_FEATURE_EXTENDED_VT && control != 0x08 && control != 0x09 &&
+        control != 0x0a && control != 0x0d) return BOXRIG_STATUS_OK;
     if (control == 0x07) {
         return boxrig_terminal_push_host_item(
             terminal,
@@ -140,6 +142,7 @@ static boxrig_status interpreter_execute(void *context, uint8_t control)
     return BOXRIG_STATUS_OK;
 }
 
+#if BOXRIG_FEATURE_EXTENDED_VT
 static boxrig_status interpreter_dispatch_escape(
     void *context,
     const uint8_t *intermediates,
@@ -154,8 +157,10 @@ static boxrig_status interpreter_dispatch_escape(
     if (intermediate_count == 0 && final_byte == (uint8_t)'c') {
         boxrig_notification_reset(terminal);
         boxrig_dcs_reset(&terminal->dcs);
+#if BOXRIG_FEATURE_KITTY_GRAPHICS
         boxrig_kitty_graphics_reset(&terminal->graphics);
         boxrig_kitty_graphics_protocol_reset(terminal);
+#endif
     }
     boxrig_input_dispatch_escape(
         &terminal->input,
@@ -275,32 +280,30 @@ static boxrig_status append_pixel_geometry_report(
     boxrig_terminal *terminal,
     uint32_t operation)
 {
-    const boxrig_kitty_graphics_protocol_state *graphics =
-        &terminal->graphics_protocol;
     char response[96];
     size_t height;
     size_t width;
     unsigned int response_kind;
     int length;
 
-    if (graphics->cell_pixel_width == 0 ||
-        graphics->cell_pixel_height == 0) {
+    if (terminal->graphics_protocol.cell_pixel_width == 0 ||
+        terminal->graphics_protocol.cell_pixel_height == 0) {
         return BOXRIG_STATUS_OK;
     }
     if (operation == 14) {
         if (terminal->screen.rows >
-                SIZE_MAX / graphics->cell_pixel_height ||
+                SIZE_MAX / terminal->graphics_protocol.cell_pixel_height ||
             terminal->screen.columns >
-                SIZE_MAX / graphics->cell_pixel_width) {
+                SIZE_MAX / terminal->graphics_protocol.cell_pixel_width) {
             return BOXRIG_STATUS_LIMIT_EXCEEDED;
         }
         response_kind = 4;
-        height = terminal->screen.rows * graphics->cell_pixel_height;
-        width = terminal->screen.columns * graphics->cell_pixel_width;
+        height = terminal->screen.rows * terminal->graphics_protocol.cell_pixel_height;
+        width = terminal->screen.columns * terminal->graphics_protocol.cell_pixel_width;
     } else {
         response_kind = 6;
-        height = graphics->cell_pixel_height;
-        width = graphics->cell_pixel_width;
+        height = terminal->graphics_protocol.cell_pixel_height;
+        width = terminal->graphics_protocol.cell_pixel_width;
     }
     length = snprintf(
         response,
@@ -567,7 +570,7 @@ static boxrig_status interpreter_dcs_unhook(
 {
     return boxrig_dcs_unhook(context, cancelled, terminator);
 }
-
+#endif
 static boxrig_status interpreter_string_start(
     void *context,
     boxrig_parser_string_kind kind)
@@ -575,9 +578,16 @@ static boxrig_status interpreter_string_start(
     boxrig_terminal *terminal = context;
 
     terminal->active_string_kind = kind;
+#if BOXRIG_FEATURE_ENCODING_HOOKS
+    terminal->osc_title = false;
+    terminal->osc_selector_done = false;
+#endif
+#if BOXRIG_FEATURE_KITTY_GRAPHICS
     if (kind == BOXRIG_PARSER_STRING_APC) {
         boxrig_kitty_graphics_start(&terminal->graphics);
-    } else if (kind == BOXRIG_PARSER_STRING_OSC) {
+    } else
+#endif
+    if (kind == BOXRIG_PARSER_STRING_OSC) {
         terminal->osc_buffer_length = 0;
     }
     return BOXRIG_STATUS_OK;
@@ -587,15 +597,27 @@ static boxrig_status interpreter_string_put(void *context, uint8_t byte)
 {
     boxrig_terminal *terminal = context;
 
+#if BOXRIG_FEATURE_KITTY_GRAPHICS
     if (terminal->active_string_kind == BOXRIG_PARSER_STRING_APC) {
         return boxrig_kitty_graphics_put(&terminal->graphics, byte);
     }
+#endif
     if (terminal->active_string_kind != BOXRIG_PARSER_STRING_OSC) {
         return BOXRIG_STATUS_OK;
     }
     if (terminal->osc_buffer_length >= terminal->osc_buffer_capacity) {
         return BOXRIG_STATUS_LIMIT_EXCEEDED;
     }
+#if BOXRIG_FEATURE_ENCODING_HOOKS
+    if (terminal->encoding_hooks.convert && !terminal->osc_selector_done && byte == ';') {
+        size_t n = terminal->osc_buffer_length;
+        size_t i = 0;
+        while (i + 1 < n && terminal->osc_buffer[i] == '0') i++;
+        terminal->osc_title = n && i == n - 1 &&
+            terminal->osc_buffer[i] >= '0' && terminal->osc_buffer[i] <= '2';
+        terminal->osc_selector_done = true;
+    }
+#endif
     terminal->osc_buffer[terminal->osc_buffer_length] = byte;
     terminal->osc_buffer_length++;
     return BOXRIG_STATUS_OK;
@@ -607,12 +629,13 @@ static boxrig_status interpreter_string_put_run(
     size_t length,
     size_t *consumed_out)
 {
+#if BOXRIG_FEATURE_KITTY_GRAPHICS
     boxrig_terminal *terminal = context;
-
     if (terminal->active_string_kind == BOXRIG_PARSER_STRING_APC) {
         return boxrig_kitty_graphics_put_run(
             &terminal->graphics, bytes, length, consumed_out);
     }
+#endif
     for (size_t index = 0; index < length; index++) {
         boxrig_status status = interpreter_string_put(context, bytes[index]);
 
@@ -625,6 +648,7 @@ static boxrig_status interpreter_string_put_run(
     return BOXRIG_STATUS_OK;
 }
 
+#if BOXRIG_FEATURE_EXTENDED_VT
 static bool is_host_text_control(utf8proc_int32_t codepoint)
 {
     return (codepoint >= 0 && codepoint <= 0x1f) ||
@@ -684,45 +708,6 @@ static boxrig_status sanitize_host_text(
     return BOXRIG_STATUS_OK;
 }
 
-typedef struct boxrig_title_decoder_output {
-    uint8_t *bytes;
-    size_t length;
-} boxrig_title_decoder_output;
-
-static boxrig_status append_title_scalar(void *context, int32_t codepoint)
-{
-    boxrig_title_decoder_output *output = context;
-    if (!is_host_text_control(codepoint)) {
-        uint8_t encoded[4];
-        size_t length = boxrig_unicode_encode(codepoint, encoded);
-        memcpy(output->bytes + output->length, encoded, length);
-        output->length += length;
-    }
-    return BOXRIG_STATUS_OK;
-}
-
-static boxrig_status decode_title_text(
-    const uint8_t *input, size_t length, uint8_t **output_out, size_t *length_out)
-{
-    *output_out = NULL;
-    *length_out = 0;
-    if (length == 0) return BOXRIG_STATUS_OK;
-    if (length > SIZE_MAX / 3) return BOXRIG_STATUS_LIMIT_EXCEEDED;
-    boxrig_title_decoder_output output = {malloc(length * 3), 0};
-    if (output.bytes == NULL) return BOXRIG_STATUS_OUT_OF_MEMORY;
-    boxrig_codec_decoder decoder = {0};
-    /* Shift_JIS maps into the BMP, so three UTF-8 bytes per source byte also
-     * bound malformed prefixes followed by an independently restored ASCII. */
-    for (size_t index = 0; index < length; index++)
-        (void)boxrig_codec_decoder_put(&decoder, BOXRIG_ENCODING_SHIFT_JIS,
-            input[index], append_title_scalar, &output);
-    (void)boxrig_codec_decoder_flush(&decoder, BOXRIG_ENCODING_SHIFT_JIS,
-        append_title_scalar, &output);
-    *output_out = output.bytes;
-    *length_out = output.length;
-    return BOXRIG_STATUS_OK;
-}
-
 static boxrig_status push_text_host_item(
     boxrig_terminal *terminal,
     boxrig_host_item_type type,
@@ -732,9 +717,7 @@ static boxrig_status push_text_host_item(
 {
     uint8_t *sanitized = NULL;
     size_t sanitized_length = 0;
-    boxrig_status status = type == BOXRIG_HOST_ITEM_TITLE &&
-        terminal->encoding == BOXRIG_ENCODING_SHIFT_JIS ? decode_title_text(
-            payload, payload_length, &sanitized, &sanitized_length) : sanitize_host_text(
+    boxrig_status status = sanitize_host_text(
         payload,
         payload_length,
         &sanitized,
@@ -1725,7 +1708,7 @@ static boxrig_status dispatch_osc(
     }
     return BOXRIG_STATUS_OK;
 }
-
+#endif
 static boxrig_status interpreter_string_end(
     void *context,
     bool cancelled,
@@ -1734,9 +1717,13 @@ static boxrig_status interpreter_string_end(
     boxrig_terminal *terminal = context;
     boxrig_status status = BOXRIG_STATUS_OK;
 
+#if BOXRIG_FEATURE_KITTY_GRAPHICS
     if (terminal->active_string_kind == BOXRIG_PARSER_STRING_APC) {
         status = boxrig_kitty_graphics_end(&terminal->graphics, cancelled);
-    } else if (!cancelled &&
+    }
+#endif
+#if BOXRIG_FEATURE_EXTENDED_VT
+    if (!cancelled &&
                terminal->active_string_kind == BOXRIG_PARSER_STRING_OSC) {
         status = dispatch_osc(terminal, terminator);
     }
@@ -1744,26 +1731,66 @@ static boxrig_status interpreter_string_end(
         terminal->active_string_kind == BOXRIG_PARSER_STRING_OSC) {
         terminal->osc_buffer_length = 0;
     }
+#else
+    (void)terminal; (void)cancelled; (void)terminator;
+#endif
     return status;
 }
 
 boxrig_parser_actions boxrig_interpreter_actions(boxrig_terminal *terminal)
 {
-    boxrig_parser_actions actions;
+    boxrig_parser_actions actions = {0};
 
     actions.context = terminal;
     actions.print = interpreter_print;
     actions.print_run = interpreter_print_run;
     actions.flush_print = interpreter_flush_print;
     actions.execute = interpreter_execute;
+#if BOXRIG_FEATURE_EXTENDED_VT
     actions.dispatch_escape = interpreter_dispatch_escape;
     actions.dispatch_csi = interpreter_dispatch_csi;
     actions.dcs_hook = interpreter_dcs_hook;
     actions.dcs_put = interpreter_dcs_put;
     actions.dcs_unhook = interpreter_dcs_unhook;
+#else
+    actions.dispatch_csi = boxrig_log_dispatch_csi;
+#endif
     actions.string_start = interpreter_string_start;
     actions.string_put = interpreter_string_put;
     actions.string_put_run = interpreter_string_put_run;
     actions.string_end = interpreter_string_end;
     return actions;
 }
+
+#if !BOXRIG_FEATURE_EXTENDED_VT
+#if BOXRIG_FEATURE_LOG_CURSOR
+void boxrig_log_cursor(boxrig_terminal *terminal, uint8_t marker,
+    const boxrig_parser_parameter *parameters, size_t count, uint8_t final)
+{
+    boxrig_text_monitor_begin_mutation(terminal);
+    boxrig_screen_dispatch_csi(&terminal->screen, marker, parameters, count, NULL, 0, final);
+    boxrig_text_monitor_end_mutation(terminal);
+}
+#endif
+
+void boxrig_log_set_color(boxrig_terminal *terminal, bool foreground, int index)
+{
+    boxrig_color color = {0};
+    if (index >= 0) {
+        color.kind = BOXRIG_COLOR_INDEXED;
+        color.index = (uint8_t)index;
+    }
+    if (foreground) terminal->screen.style.foreground = color;
+    else terminal->screen.style.background = color;
+}
+
+void boxrig_log_erase(boxrig_terminal *terminal, unsigned mode)
+{
+    boxrig_screen *screen = &terminal->screen;
+    size_t column = screen->active->cursor.column;
+    boxrig_text_monitor_begin_mutation(terminal);
+    boxrig_screen_erase_cells(screen, screen->active->cursor.row,
+        mode == 0 ? column : 0, mode == 1 ? column + 1 : screen->columns);
+    boxrig_text_monitor_end_mutation(terminal);
+}
+#endif

@@ -209,6 +209,20 @@ CONPTY_X86_HOST := $(CONPTY_BUILD_DIR)/hosts/x86/OpenConsole.exe
 CONPTY_X64_HOST := $(CONPTY_BUILD_DIR)/hosts/x64/OpenConsole.exe
 CONPTY_ARM64_HOST := $(CONPTY_BUILD_DIR)/hosts/arm64/OpenConsole.exe
 CORE_SOURCES := $(wildcard src/core/*.c)
+ifneq ($(filter BOXRIG_FEATURE_TEXT_RECOGNIZER=0,$(BOXRIG_FEATURE_SETTINGS)),)
+CORE_SOURCES := $(filter-out src/core/recognizer.c,$(CORE_SOURCES))
+endif
+ifneq ($(filter BOXRIG_FEATURE_KITTY_GRAPHICS=0,$(BOXRIG_FEATURE_SETTINGS)),)
+CORE_SOURCES := $(filter-out src/core/graphics.c src/core/graphics_protocol.c src/core/graphics_base64.c,$(CORE_SOURCES))
+endif
+ifneq ($(filter BOXRIG_FEATURE_CHECKPOINT=0,$(BOXRIG_FEATURE_SETTINGS)),)
+CORE_SOURCES := $(filter-out src/core/checkpoint%.c,$(CORE_SOURCES))
+endif
+ifneq ($(filter BOXRIG_FEATURE_COMPACT_CELLS=1,$(BOXRIG_FEATURE_SETTINGS)),)
+CORE_SOURCES := $(addprefix src/core/,compact.c codec.c encoding.c io.c log_controls.c parser.c utf8.c)
+else
+CORE_SOURCES := $(filter-out src/core/compact.c,$(CORE_SOURCES))
+endif
 CORE_OBJECTS := $(patsubst src/core/%.c,$(BUILD_DIR)/core/%.o,$(CORE_SOURCES))
 TEXT_MEASUREMENT_BUILD_DIR := $(BUILD_DIR)/text-measurement
 TEXT_MEASUREMENT_TEXT_OBJECT := $(TEXT_MEASUREMENT_BUILD_DIR)/text.o
@@ -293,7 +307,7 @@ WAYLAND_OBJECTS := $(patsubst src/wayland/%.c,$(BUILD_DIR)/wayland/%.o,$(WAYLAND
 WAYLAND_OBJECTS += $(IME_OBJECTS) $(PANGO_CANDIDATE_OBJECT)
 WAYLAND_OBJECTS += $(BUILD_DIR)/background_effect/wayland.o $(BUILD_DIR)/background_effect/protocol.o
 UTF8PROC_SOURCE := deps/utf8proc/utf8proc.c
-UTF8PROC_OBJECT := $(BUILD_DIR)/core/utf8proc.o
+UTF8PROC_OBJECT := $(if $(filter BOXRIG_FEATURE_COMPACT_CELLS=0,$(BOXRIG_FEATURE_SETTINGS)),$(BUILD_DIR)/core/utf8proc.o)
 ZLIB_SOURCES := deps/zlib/adler32.c deps/zlib/compress.c deps/zlib/crc32.c \
 	deps/zlib/deflate.c deps/zlib/infback.c deps/zlib/inffast.c \
 	deps/zlib/inflate.c deps/zlib/inftrees.c deps/zlib/trees.c \
@@ -308,10 +322,17 @@ LIBPNG_SOURCES := deps/libpng/png.c deps/libpng/pngerror.c \
 # guards, so they must accompany the generic decoder even in cross builds.
 LIBPNG_SOURCES += deps/libpng/arm/arm_init.c \
 	deps/libpng/arm/filter_neon_intrinsics.c deps/libpng/arm/palette_neon_intrinsics.c
+ifneq ($(filter BOXRIG_FEATURE_KITTY_GRAPHICS=0,$(BOXRIG_FEATURE_SETTINGS)),)
+LIBPNG_SOURCES :=
+ifeq ($(filter BOXRIG_FEATURE_HISTORY_DEFLATE=1 BOXRIG_FEATURE_CHECKPOINT=1,$(BOXRIG_FEATURE_SETTINGS)),)
+ZLIB_SOURCES :=
+endif
+endif
 ZLIB_OBJECTS := $(patsubst deps/zlib/%.c,$(BUILD_DIR)/deps/zlib/%.o,$(ZLIB_SOURCES))
 LIBPNG_OBJECTS := $(patsubst deps/libpng/%.c,$(BUILD_DIR)/deps/libpng/%.o,$(LIBPNG_SOURCES))
-CORE_PUBLIC_HEADERS := include/boxrig/terminal.h include/boxrig/regex.h include/boxrig/status.h
-CORE_HEADERS := src/core/checkpoint_internal.h src/core/codec.h src/core/shift_jis_table.h $(CORE_PUBLIC_HEADERS) src/core/dcs.h src/core/graphics.h src/core/parser.h src/core/regex.h src/core/terminal_internal.h src/core/unicode.h
+CORE_PUBLIC_HEADERS := include/boxrig/config.h include/boxrig/terminal.h include/boxrig/regex.h include/boxrig/status.h
+CORE_SDK_HEADERS = $(filter-out include/boxrig/config.h,$(CORE_PUBLIC_HEADERS)) $(SDK_CONFIG)
+CORE_HEADERS := src/core/log_controls.h src/core/checkpoint_internal.h src/core/codec.h $(CORE_PUBLIC_HEADERS) src/core/dcs.h src/core/graphics.h src/core/parser.h src/core/regex.h src/core/terminal_internal.h src/core/unicode.h
 LIBRARY := $(BUILD_DIR)/libboxrig.a
 UI_LIBRARY := $(BUILD_DIR)/libboxrig-ui.a
 SESSION_LIBRARY := $(BUILD_DIR)/libboxrig-session.a
@@ -657,8 +678,8 @@ WIN32_SOURCES := $(wildcard src/win32/*.c)
 WIN32_HEADERS := include/boxrig/win32.h $(wildcard include/boxrig/win32/*.h)
 MINGW_AMD64_WIN32_OBJECTS := $(patsubst src/win32/%.c,$(MINGW_AMD64_BUILD_DIR)/win32/%.o,$(WIN32_SOURCES))
 MINGW_I686_WIN32_OBJECTS := $(patsubst src/win32/%.c,$(MINGW_I686_BUILD_DIR)/win32/%.o,$(WIN32_SOURCES))
-MINGW_AMD64_UTF8PROC_OBJECT := $(MINGW_AMD64_BUILD_DIR)/core/utf8proc.o
-MINGW_I686_UTF8PROC_OBJECT := $(MINGW_I686_BUILD_DIR)/core/utf8proc.o
+MINGW_AMD64_UTF8PROC_OBJECT := $(if $(filter BOXRIG_FEATURE_COMPACT_CELLS=0,$(BOXRIG_FEATURE_SETTINGS)),$(MINGW_AMD64_BUILD_DIR)/core/utf8proc.o)
+MINGW_I686_UTF8PROC_OBJECT := $(if $(filter BOXRIG_FEATURE_COMPACT_CELLS=0,$(BOXRIG_FEATURE_SETTINGS)),$(MINGW_I686_BUILD_DIR)/core/utf8proc.o)
 MINGW_AMD64_ZLIB_OBJECTS := $(patsubst deps/zlib/%.c,$(MINGW_AMD64_BUILD_DIR)/deps/zlib/%.o,$(ZLIB_SOURCES))
 MINGW_I686_ZLIB_OBJECTS := $(patsubst deps/zlib/%.c,$(MINGW_I686_BUILD_DIR)/deps/zlib/%.o,$(ZLIB_SOURCES))
 MINGW_AMD64_LIBPNG_OBJECTS := $(patsubst deps/libpng/%.c,$(MINGW_AMD64_BUILD_DIR)/deps/libpng/%.o,$(LIBPNG_SOURCES))
@@ -850,7 +871,7 @@ install-win32-opengl-amd64: win32-opengl-amd64 $(MINGW_AMD64_BUILD_DIR)/libboxri
 	$(INSTALL) -d $(DESTDIR)$(LIBDIR) $(DESTDIR)$(PREFIX)/bin $(DESTDIR)$(PKGCONFIGDIR) $(DESTDIR)$(INCLUDEDIR)/boxrig/ui $(DESTDIR)$(INCLUDEDIR)/boxrig/render $(DESTDIR)$(INCLUDEDIR)/boxrig/win32
 	$(INSTALL) -m 644 $(MINGW_AMD64_WIN32_LIBRARY) $(MINGW_AMD64_UI_LIBRARY) $(MINGW_AMD64_LIBRARY) $(MINGW_AMD64_OGL_LIBRARY) $(MINGW_AMD64_WGL_LIBRARY) $(MINGW_AMD64_BUILD_DIR)/libboxrig-render-ogl.dll.a $(MINGW_AMD64_BUILD_DIR)/libboxrig-win32-ogl.dll.a $(DESTDIR)$(LIBDIR)
 	$(INSTALL) -m 755 $(MINGW_AMD64_OGL_DLL) $(MINGW_AMD64_WGL_DLL) $(DESTDIR)$(PREFIX)/bin
-	$(INSTALL) -m 644 $(CORE_PUBLIC_HEADERS) include/boxrig/ui.h $(DESTDIR)$(INCLUDEDIR)/boxrig
+	$(INSTALL) -m 644 $(CORE_SDK_HEADERS) include/boxrig/ui.h $(DESTDIR)$(INCLUDEDIR)/boxrig
 	$(INSTALL) -m 644 $(wildcard include/boxrig/ui/*.h) $(DESTDIR)$(INCLUDEDIR)/boxrig/ui
 	$(INSTALL) -m 644 $(OPENGL_RENDERER_HEADERS) $(DESTDIR)$(INCLUDEDIR)/boxrig/render
 	$(INSTALL) -m 644 $(filter-out include/boxrig/win32/d3d11_component.h,$(wildcard include/boxrig/win32/*.h)) $(DESTDIR)$(INCLUDEDIR)/boxrig/win32
@@ -902,7 +923,7 @@ install-win32-opengl-i686: win32-opengl-i686 $(MINGW_I686_BUILD_DIR)/libboxrig-r
 	$(INSTALL) -d $(DESTDIR)$(LIBDIR) $(DESTDIR)$(PREFIX)/bin $(DESTDIR)$(PKGCONFIGDIR) $(DESTDIR)$(INCLUDEDIR)/boxrig/ui $(DESTDIR)$(INCLUDEDIR)/boxrig/render $(DESTDIR)$(INCLUDEDIR)/boxrig/win32
 	$(INSTALL) -m 644 $(MINGW_I686_WIN32_LIBRARY) $(MINGW_I686_UI_LIBRARY) $(MINGW_I686_LIBRARY) $(MINGW_I686_OGL_LIBRARY) $(MINGW_I686_WGL_LIBRARY) $(MINGW_I686_BUILD_DIR)/libboxrig-render-ogl.dll.a $(MINGW_I686_BUILD_DIR)/libboxrig-win32-ogl.dll.a $(DESTDIR)$(LIBDIR)
 	$(INSTALL) -m 755 $(MINGW_I686_OGL_DLL) $(MINGW_I686_WGL_DLL) $(DESTDIR)$(PREFIX)/bin
-	$(INSTALL) -m 644 $(CORE_PUBLIC_HEADERS) include/boxrig/ui.h $(DESTDIR)$(INCLUDEDIR)/boxrig
+	$(INSTALL) -m 644 $(CORE_SDK_HEADERS) include/boxrig/ui.h $(DESTDIR)$(INCLUDEDIR)/boxrig
 	$(INSTALL) -m 644 $(wildcard include/boxrig/ui/*.h) $(DESTDIR)$(INCLUDEDIR)/boxrig/ui
 	$(INSTALL) -m 644 $(OPENGL_RENDERER_HEADERS) $(DESTDIR)$(INCLUDEDIR)/boxrig/render
 	$(INSTALL) -m 644 $(filter-out include/boxrig/win32/d3d11_component.h,$(wildcard include/boxrig/win32/*.h)) $(DESTDIR)$(INCLUDEDIR)/boxrig/win32
@@ -926,7 +947,14 @@ install-win32-opengl-i686: win32-opengl-i686 $(MINGW_I686_BUILD_DIR)/libboxrig-r
 	verify-i686-session-archive verify-amd64-win32-archive \
 	verify-i686-win32-archive
 
+.PHONY: core
+core: $(LIBRARY)
+
+ifneq ($(filter BOXRIG_FEATURE_COMPACT_CELLS=1,$(BOXRIG_FEATURE_SETTINGS)),)
+all: core
+else
 all: native win32
+endif
 
 .PHONY: test-wayland-protocol-build
 test: test-wayland-protocol-build
@@ -961,7 +989,7 @@ install-gtk4: $(LIBRARY) $(UI_LIBRARY) $(GTK4_LIBRARY) \
 		$(DESTDIR)$(PKGCONFIGDIR)
 	$(INSTALL) -m 644 $(LIBRARY) $(UI_LIBRARY) $(GTK4_LIBRARY) \
 		$(DESTDIR)$(LIBDIR)
-	$(INSTALL) -m 644 $(CORE_PUBLIC_HEADERS) include/boxrig/ui.h \
+	$(INSTALL) -m 644 $(CORE_SDK_HEADERS) include/boxrig/ui.h \
 		include/boxrig/gtk4.h include/boxrig/ime.h $(DESTDIR)$(INCLUDEDIR)/boxrig
 	$(INSTALL) -m 644 include/boxrig/ui/*.h \
 		$(DESTDIR)$(INCLUDEDIR)/boxrig/ui
@@ -982,7 +1010,7 @@ install-gtk3: $(LIBRARY) $(UI_LIBRARY) $(GTK3_LIBRARY) \
 		$(DESTDIR)$(PKGCONFIGDIR)
 	$(INSTALL) -m 644 $(LIBRARY) $(UI_LIBRARY) $(GTK3_LIBRARY) \
 		$(DESTDIR)$(LIBDIR)
-	$(INSTALL) -m 644 $(CORE_PUBLIC_HEADERS) include/boxrig/ui.h \
+	$(INSTALL) -m 644 $(CORE_SDK_HEADERS) include/boxrig/ui.h \
 		include/boxrig/gtk3.h include/boxrig/ime.h $(DESTDIR)$(INCLUDEDIR)/boxrig
 	$(INSTALL) -m 644 include/boxrig/ui/*.h \
 		$(DESTDIR)$(INCLUDEDIR)/boxrig/ui
@@ -1001,7 +1029,7 @@ install-wayland: $(LIBRARY) $(UI_LIBRARY) $(WAYLAND_LIBRARY) \
 		$(DESTDIR)$(PKGCONFIGDIR)
 	$(INSTALL) -m 644 $(LIBRARY) $(UI_LIBRARY) $(WAYLAND_LIBRARY) \
 		$(DESTDIR)$(LIBDIR)
-	$(INSTALL) -m 644 $(CORE_PUBLIC_HEADERS) include/boxrig/ui.h \
+	$(INSTALL) -m 644 $(CORE_SDK_HEADERS) include/boxrig/ui.h \
 		include/boxrig/wayland.h include/boxrig/ime.h $(DESTDIR)$(INCLUDEDIR)/boxrig
 	$(INSTALL) -m 644 include/boxrig/ui/*.h \
 		$(DESTDIR)$(INCLUDEDIR)/boxrig/ui
@@ -1020,7 +1048,7 @@ install-render-ogl: $(LIBRARY) $(UI_LIBRARY) $(OPENGL_RENDERER_LIBRARY) \
 		$(DESTDIR)$(PKGCONFIGDIR)
 	$(INSTALL) -m 644 $(LIBRARY) $(UI_LIBRARY) $(OPENGL_RENDERER_LIBRARY) \
 		$(DESTDIR)$(LIBDIR)
-	$(INSTALL) -m 644 $(CORE_PUBLIC_HEADERS) include/boxrig/ui.h \
+	$(INSTALL) -m 644 $(CORE_SDK_HEADERS) include/boxrig/ui.h \
 		$(DESTDIR)$(INCLUDEDIR)/boxrig
 	$(INSTALL) -m 644 include/boxrig/ui/*.h \
 		$(DESTDIR)$(INCLUDEDIR)/boxrig/ui
@@ -1041,7 +1069,7 @@ install-x11-opengl: $(LIBRARY) $(UI_LIBRARY) $(X11_LIBRARY) \
 	$(INSTALL) -m 644 $(LIBRARY) $(UI_LIBRARY) $(X11_LIBRARY) \
 		$(OPENGL_RENDERER_LIBRARY) $(X11_OPENGL_LIBRARY) \
 		$(DESTDIR)$(LIBDIR)
-	$(INSTALL) -m 644 $(CORE_PUBLIC_HEADERS) include/boxrig/ui.h \
+	$(INSTALL) -m 644 $(CORE_SDK_HEADERS) include/boxrig/ui.h \
 		include/boxrig/x11.h $(DESTDIR)$(INCLUDEDIR)/boxrig
 	$(INSTALL) -m 644 include/boxrig/ui/*.h \
 		$(DESTDIR)$(INCLUDEDIR)/boxrig/ui
@@ -1067,7 +1095,7 @@ install-wayland-opengl: $(LIBRARY) $(UI_LIBRARY) $(WAYLAND_LIBRARY) \
 	$(INSTALL) -m 644 $(LIBRARY) $(UI_LIBRARY) $(WAYLAND_LIBRARY) \
 		$(OPENGL_RENDERER_LIBRARY) $(WAYLAND_OPENGL_LIBRARY) \
 		$(DESTDIR)$(LIBDIR)
-	$(INSTALL) -m 644 $(CORE_PUBLIC_HEADERS) include/boxrig/ui.h \
+	$(INSTALL) -m 644 $(CORE_SDK_HEADERS) include/boxrig/ui.h \
 		include/boxrig/wayland.h include/boxrig/ime.h $(DESTDIR)$(INCLUDEDIR)/boxrig
 	$(INSTALL) -m 644 include/boxrig/ui/*.h \
 		$(DESTDIR)$(INCLUDEDIR)/boxrig/ui
@@ -1580,7 +1608,7 @@ test-core-ui-boundary: $(CORE_UI_BOUNDARY_TEST_SOURCE) \
 		$(CORE_UI_BOUNDARY_TEST_ROOT)/usr/include/boxrig/ui
 	$(INSTALL) -m 644 $(LIBRARY) $(UI_LIBRARY) \
 		$(CORE_UI_BOUNDARY_TEST_ROOT)/usr/lib
-	$(INSTALL) -m 644 $(CORE_PUBLIC_HEADERS) include/boxrig/ui.h \
+	$(INSTALL) -m 644 $(CORE_SDK_HEADERS) include/boxrig/ui.h \
 		$(CORE_UI_BOUNDARY_TEST_ROOT)/usr/include/boxrig
 	$(INSTALL) -m 644 include/boxrig/ui/*.h \
 		$(CORE_UI_BOUNDARY_TEST_ROOT)/usr/include/boxrig/ui
@@ -2225,7 +2253,7 @@ $(BUILD_DIR)/deps/libpng/%.o: deps/libpng/%.c $(PNG_CONFIG) | $(BUILD_DIR)/deps/
 
 $(UTF8PROC_OBJECT) $(LIBPNG_OBJECTS) $(ZLIB_OBJECTS): Makefile
 
-$(CORE_OBJECTS): $(CORE_HEADERS) $(PNG_CONFIG) Makefile
+$(CORE_OBJECTS): $(CORE_HEADERS) $(if $(LIBPNG_SOURCES),$(PNG_CONFIG)) Makefile
 
 $(MINGW_AMD64_LIBRARY): $(MINGW_AMD64_CORE_OBJECTS) $(MINGW_AMD64_UTF8PROC_OBJECT) $(MINGW_AMD64_LIBPNG_OBJECTS) $(MINGW_AMD64_ZLIB_OBJECTS) | $(MINGW_AMD64_BUILD_DIR) verify-amd64-core-archive
 	$(RM) $@
@@ -2318,7 +2346,7 @@ $(MINGW_AMD64_ZLIB_OBJECTS) $(MINGW_I686_ZLIB_OBJECTS) \
 $(MINGW_AMD64_LIBPNG_OBJECTS) $(MINGW_I686_LIBPNG_OBJECTS): Makefile
 
 $(MINGW_AMD64_CORE_OBJECTS) $(MINGW_I686_CORE_OBJECTS): \
-	$(CORE_HEADERS) $(PNG_CONFIG) Makefile
+	$(CORE_HEADERS) $(if $(LIBPNG_SOURCES),$(PNG_CONFIG)) Makefile
 
 $(UI_OBJECTS) $(MINGW_AMD64_UI_OBJECTS) $(MINGW_I686_UI_OBJECTS): \
 	include/boxrig/ui.h include/boxrig/ui/view.h include/boxrig/ui/color.h \
@@ -2445,8 +2473,8 @@ $(PARSER_TEST_BINARY): tests/test_parser.c src/core/parser.c src/core/parser.h |
 $(GRAPHICS_TEST_BINARY): tests/test_graphics.c $(LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(LIBRARY) $(SANITIZERS) -o $@
 
-$(SCREEN_TEST_BINARY): tests/test_screen.c src/core/screen.c src/core/history.c src/core/text.c src/core/regex.c src/core/unicode.c $(UTF8PROC_SOURCE) $(CORE_HEADERS) $(ZLIB_OBJECTS) | $(BUILD_DIR)/tests
-	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) tests/test_screen.c src/core/screen.c src/core/history.c src/core/text.c src/core/regex.c src/core/unicode.c $(UTF8PROC_SOURCE) $(ZLIB_OBJECTS) $(SANITIZERS) -o $@
+$(SCREEN_TEST_BINARY): tests/test_screen.c src/core/screen.c src/core/history.c src/core/text.c src/core/regex.c src/core/unicode.c src/core/utf8.c $(UTF8PROC_SOURCE) $(CORE_HEADERS) $(ZLIB_OBJECTS) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) tests/test_screen.c src/core/screen.c src/core/history.c src/core/text.c src/core/regex.c src/core/unicode.c src/core/utf8.c $(UTF8PROC_SOURCE) $(ZLIB_OBJECTS) $(SANITIZERS) -o $@
 
 $(TEXT_LAYOUT_TEST_BINARY): tests/test_text_layout.c $(UI_LIBRARY) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) tests/test_text_layout.c $(UI_LIBRARY) $(SANITIZERS) -o $@
@@ -3822,7 +3850,7 @@ WIN32_SOFTWARE_HEADERS := $(filter-out include/boxrig/win32/d3d11_component.h in
 install-win32-amd64: $(MINGW_AMD64_WIN32_LIBRARY) $(MINGW_AMD64_UI_LIBRARY) $(MINGW_AMD64_LIBRARY) $(MINGW_AMD64_SESSION_LIBRARY) examples/win32/component.c examples/win32/host_opacity.c examples/win32/pty.c packaging/win32/boxrig-win32.pc
 	$(INSTALL) -d $(DESTDIR)$(LIBDIR) $(DESTDIR)$(PKGCONFIGDIR) $(DESTDIR)$(INCLUDEDIR)/boxrig/ui $(DESTDIR)$(INCLUDEDIR)/boxrig/win32 $(DESTDIR)$(PREFIX)/share/boxrig/examples/win32
 	$(INSTALL) -m 644 $(MINGW_AMD64_WIN32_LIBRARY) $(MINGW_AMD64_UI_LIBRARY) $(MINGW_AMD64_LIBRARY) $(MINGW_AMD64_SESSION_LIBRARY) $(DESTDIR)$(LIBDIR)
-	$(INSTALL) -m 644 $(CORE_PUBLIC_HEADERS) include/boxrig/ui.h include/boxrig/session.h include/boxrig/win32.h $(DESTDIR)$(INCLUDEDIR)/boxrig
+	$(INSTALL) -m 644 $(CORE_SDK_HEADERS) include/boxrig/ui.h include/boxrig/session.h include/boxrig/win32.h $(DESTDIR)$(INCLUDEDIR)/boxrig
 	$(INSTALL) -m 644 $(wildcard include/boxrig/ui/*.h) $(DESTDIR)$(INCLUDEDIR)/boxrig/ui
 	$(INSTALL) -m 644 $(WIN32_SOFTWARE_HEADERS) $(DESTDIR)$(INCLUDEDIR)/boxrig/win32
 	$(INSTALL) -m 644 packaging/win32/boxrig-win32.pc $(DESTDIR)$(PKGCONFIGDIR)
@@ -3835,7 +3863,7 @@ install-win32-opengl-amd64: install-win32-amd64
 install-win32-i686: $(MINGW_I686_WIN32_LIBRARY) $(MINGW_I686_UI_LIBRARY) $(MINGW_I686_LIBRARY) $(MINGW_I686_SESSION_LIBRARY) examples/win32/component.c examples/win32/host_opacity.c examples/win32/pty.c packaging/win32/boxrig-win32.pc
 	$(INSTALL) -d $(DESTDIR)$(LIBDIR) $(DESTDIR)$(PKGCONFIGDIR) $(DESTDIR)$(INCLUDEDIR)/boxrig/ui $(DESTDIR)$(INCLUDEDIR)/boxrig/win32 $(DESTDIR)$(PREFIX)/share/boxrig/examples/win32
 	$(INSTALL) -m 644 $(MINGW_I686_WIN32_LIBRARY) $(MINGW_I686_UI_LIBRARY) $(MINGW_I686_LIBRARY) $(MINGW_I686_SESSION_LIBRARY) $(DESTDIR)$(LIBDIR)
-	$(INSTALL) -m 644 $(CORE_PUBLIC_HEADERS) include/boxrig/ui.h include/boxrig/session.h include/boxrig/win32.h $(DESTDIR)$(INCLUDEDIR)/boxrig
+	$(INSTALL) -m 644 $(CORE_SDK_HEADERS) include/boxrig/ui.h include/boxrig/session.h include/boxrig/win32.h $(DESTDIR)$(INCLUDEDIR)/boxrig
 	$(INSTALL) -m 644 $(wildcard include/boxrig/ui/*.h) $(DESTDIR)$(INCLUDEDIR)/boxrig/ui
 	$(INSTALL) -m 644 $(WIN32_SOFTWARE_HEADERS) $(DESTDIR)$(INCLUDEDIR)/boxrig/win32
 	$(INSTALL) -m 644 packaging/win32/boxrig-win32.pc $(DESTDIR)$(PKGCONFIGDIR)
@@ -3980,7 +4008,7 @@ $(D3D11_AMD64_OBJECTS) $(D3D11_I686_OBJECTS): src/win32/text_state.h
 install-render-d3d11-amd64: render-d3d11-amd64 packaging/win32/boxrig-render-d3d11.pc examples/win32/d3d11_renderer.c
 	$(INSTALL) -d $(DESTDIR)$(LIBDIR) $(DESTDIR)$(PKGCONFIGDIR) $(DESTDIR)$(INCLUDEDIR)/boxrig/ui $(DESTDIR)$(INCLUDEDIR)/boxrig/render
 	$(INSTALL) -m 644 $(D3D11_AMD64_LIBRARY) $(MINGW_AMD64_WIN32_LIBRARY) $(MINGW_AMD64_UI_LIBRARY) $(MINGW_AMD64_LIBRARY) $(DESTDIR)$(LIBDIR)
-	$(INSTALL) -m 644 $(CORE_PUBLIC_HEADERS) include/boxrig/ui.h $(DESTDIR)$(INCLUDEDIR)/boxrig
+	$(INSTALL) -m 644 $(CORE_SDK_HEADERS) include/boxrig/ui.h $(DESTDIR)$(INCLUDEDIR)/boxrig
 	$(INSTALL) -m 644 $(wildcard include/boxrig/ui/*.h) $(DESTDIR)$(INCLUDEDIR)/boxrig/ui
 	$(INSTALL) -m 644 include/boxrig/render/d3d11.h $(DESTDIR)$(INCLUDEDIR)/boxrig/render
 	$(INSTALL) -m 644 packaging/win32/boxrig-render-d3d11.pc $(DESTDIR)$(PKGCONFIGDIR)
@@ -4003,7 +4031,7 @@ uninstall-win32-d3d11-amd64:
 install-render-d3d11-i686: render-d3d11-i686 packaging/win32/boxrig-render-d3d11.pc examples/win32/d3d11_renderer.c
 	$(INSTALL) -d $(DESTDIR)$(LIBDIR) $(DESTDIR)$(PKGCONFIGDIR) $(DESTDIR)$(INCLUDEDIR)/boxrig/ui $(DESTDIR)$(INCLUDEDIR)/boxrig/render
 	$(INSTALL) -m 644 $(D3D11_I686_LIBRARY) $(MINGW_I686_WIN32_LIBRARY) $(MINGW_I686_UI_LIBRARY) $(MINGW_I686_LIBRARY) $(DESTDIR)$(LIBDIR)
-	$(INSTALL) -m 644 $(CORE_PUBLIC_HEADERS) include/boxrig/ui.h $(DESTDIR)$(INCLUDEDIR)/boxrig
+	$(INSTALL) -m 644 $(CORE_SDK_HEADERS) include/boxrig/ui.h $(DESTDIR)$(INCLUDEDIR)/boxrig
 	$(INSTALL) -m 644 $(wildcard include/boxrig/ui/*.h) $(DESTDIR)$(INCLUDEDIR)/boxrig/ui
 	$(INSTALL) -m 644 include/boxrig/render/d3d11.h $(DESTDIR)$(INCLUDEDIR)/boxrig/render
 	$(INSTALL) -m 644 packaging/win32/boxrig-render-d3d11.pc $(DESTDIR)$(PKGCONFIGDIR)
@@ -4180,7 +4208,7 @@ test-p2-win32: $(BUILD_DIR)/boxrig_term/win32/i686/boxrig_term_ime_probe.exe
 install-core-win32-amd64: $(MINGW_AMD64_LIBRARY) packaging/win32/boxrig.pc
 	$(INSTALL) -d $(DESTDIR)$(LIBDIR) $(DESTDIR)$(PKGCONFIGDIR) $(DESTDIR)$(INCLUDEDIR)/boxrig
 	$(INSTALL) -m 644 $(MINGW_AMD64_LIBRARY) $(DESTDIR)$(LIBDIR)
-	$(INSTALL) -m 644 $(CORE_PUBLIC_HEADERS) $(DESTDIR)$(INCLUDEDIR)/boxrig
+	$(INSTALL) -m 644 $(CORE_SDK_HEADERS) $(DESTDIR)$(INCLUDEDIR)/boxrig
 	$(INSTALL) -m 644 packaging/win32/boxrig.pc $(DESTDIR)$(PKGCONFIGDIR)
 
 uninstall-core-win32-amd64:
@@ -4203,7 +4231,7 @@ uninstall-win32-opengl-amd64:
 install-core-win32-i686: $(MINGW_I686_LIBRARY) packaging/win32/boxrig.pc
 	$(INSTALL) -d $(DESTDIR)$(LIBDIR) $(DESTDIR)$(PKGCONFIGDIR) $(DESTDIR)$(INCLUDEDIR)/boxrig
 	$(INSTALL) -m 644 $(MINGW_I686_LIBRARY) $(DESTDIR)$(LIBDIR)
-	$(INSTALL) -m 644 $(CORE_PUBLIC_HEADERS) $(DESTDIR)$(INCLUDEDIR)/boxrig
+	$(INSTALL) -m 644 $(CORE_SDK_HEADERS) $(DESTDIR)$(INCLUDEDIR)/boxrig
 	$(INSTALL) -m 644 packaging/win32/boxrig.pc $(DESTDIR)$(PKGCONFIGDIR)
 
 uninstall-core-win32-i686:
@@ -4970,18 +4998,14 @@ $(MINGW_I686_BUILD_DIR)/tests/test_terminal_key_mapping.exe: tests/test_terminal
 $(MINGW_I686_BUILD_DIR)/tests/key_mapping_example.exe: examples/core/key_mapping.c $(MINGW_I686_LIBRARY) $(CORE_HEADERS) | $(MINGW_I686_BUILD_DIR)/tests
 	$(MINGW_I686_CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(MINGW_I686_CORE_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) -static-libgcc $< $(MINGW_I686_LIBRARY) -lm -o $@
 
-.PHONY: test-terminal-codec test-terminal-codec-frontends test-terminal-codec-win32 example-encoding generate-shift-jis install-common-licenses
-test-terminal-codec: $(BUILD_DIR)/tests/test_terminal_codec $(BUILD_DIR)/tests/test_codec_decoder $(BUILD_DIR)/tests/test_session_codec $(BUILD_DIR)/tests/test_input_text_chunk $(BUILD_DIR)/examples/encoding
+.PHONY: test-terminal-codec test-terminal-codec-frontends test-terminal-codec-win32 example-encoding install-common-licenses
+test-terminal-codec: $(BUILD_DIR)/tests/test_terminal_codec $(BUILD_DIR)/tests/test_session_codec $(BUILD_DIR)/tests/test_input_text_chunk $(BUILD_DIR)/examples/encoding
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(BUILD_DIR)/tests/test_terminal_codec
-	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(BUILD_DIR)/tests/test_codec_decoder
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(BUILD_DIR)/tests/test_session_codec
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(BUILD_DIR)/tests/test_input_text_chunk
 	$(BUILD_DIR)/examples/encoding
 
 $(BUILD_DIR)/tests/test_terminal_codec: tests/test_terminal_codec.c $(LIBRARY) $(CORE_HEADERS) | $(BUILD_DIR)/tests
-	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(LIBRARY) -lm -o $@
-
-$(BUILD_DIR)/tests/test_codec_decoder: tests/test_codec_decoder.c $(LIBRARY) $(CORE_HEADERS) | $(BUILD_DIR)/tests
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(LIBRARY) -lm -o $@
 
 $(BUILD_DIR)/tests/test_session_codec: tests/test_session_codec.c $(SESSION_LIBRARY) $(LIBRARY) $(CORE_HEADERS) include/boxrig/session.h | $(BUILD_DIR)/tests
@@ -5038,9 +5062,6 @@ test-p2-win32: $(MINGW_AMD64_BUILD_DIR)/tests/test_terminal_codec.exe $(MINGW_AM
 test: test-codegen
 test-codegen: codegen-tools
 	npm --prefix tools/codegen test
-
-generate-shift-jis: codegen-tools
-	node $(CODEGEN_DIR)/generate-shift-jis.mjs .
 
 install-gtk3 install-gtk4 install-wayland install-render-ogl install-x11-opengl install-wayland-opengl install-core-win32-amd64 install-win32-amd64 install-win32-opengl-amd64 install-render-d3d11-amd64 install-win32-d3d11-amd64 install-core-win32-i686 install-win32-i686 install-win32-opengl-i686 install-render-d3d11-i686 install-win32-d3d11-i686: install-common-licenses
 
@@ -5621,7 +5642,7 @@ test-notification-samples: $(GTK3_EXAMPLE_BINARY) $(GTK4_EXAMPLE_BINARY) $(WAYLA
 install-notification: $(NOTIFICATION_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(NOTIFICATION_HEADERS) pkgconfig/boxrig-notification.pc install-common-licenses
 	$(INSTALL) -d $(DESTDIR)$(LIBDIR) $(DESTDIR)$(INCLUDEDIR)/boxrig/notification $(DESTDIR)$(INCLUDEDIR)/boxrig/ui $(DESTDIR)$(PKGCONFIGDIR)
 	$(INSTALL) -m 644 $(NOTIFICATION_LIBRARY) $(UI_LIBRARY) $(LIBRARY) $(DESTDIR)$(LIBDIR)
-	$(INSTALL) -m 644 $(CORE_PUBLIC_HEADERS) include/boxrig/ui.h $(DESTDIR)$(INCLUDEDIR)/boxrig
+	$(INSTALL) -m 644 $(CORE_SDK_HEADERS) include/boxrig/ui.h $(DESTDIR)$(INCLUDEDIR)/boxrig
 	$(INSTALL) -m 644 $(NOTIFICATION_HEADERS) $(DESTDIR)$(INCLUDEDIR)/boxrig/notification
 	$(INSTALL) -m 644 include/boxrig/ui/*.h $(DESTDIR)$(INCLUDEDIR)/boxrig/ui
 	$(INSTALL) -m 644 pkgconfig/boxrig-notification.pc $(DESTDIR)$(PKGCONFIGDIR)
@@ -5755,7 +5776,7 @@ $(BUILD_DIR)/tests/background_effect_wayland: tests/background_effect_probe.c $(
 install-background-wayland: $(BACKGROUND_WAYLAND_LIBRARY) pkgconfig/boxrig-background-wayland.pc
 	$(INSTALL) -d $(DESTDIR)$(LIBDIR) $(DESTDIR)$(INCLUDEDIR)/boxrig/wayland $(DESTDIR)$(INCLUDEDIR)/boxrig/ui $(DESTDIR)$(PKGCONFIGDIR)
 	$(INSTALL) -m 644 $(BACKGROUND_WAYLAND_LIBRARY) $(DESTDIR)$(LIBDIR)
-	$(INSTALL) -m 644 $(CORE_PUBLIC_HEADERS) include/boxrig/ui.h $(DESTDIR)$(INCLUDEDIR)/boxrig
+	$(INSTALL) -m 644 $(CORE_SDK_HEADERS) include/boxrig/ui.h $(DESTDIR)$(INCLUDEDIR)/boxrig
 	$(INSTALL) -m 644 include/boxrig/ui/*.h $(DESTDIR)$(INCLUDEDIR)/boxrig/ui
 	$(INSTALL) -m 644 include/boxrig/wayland/background_effect.h $(DESTDIR)$(INCLUDEDIR)/boxrig/wayland
 	$(INSTALL) -m 644 pkgconfig/boxrig-background-wayland.pc $(DESTDIR)$(PKGCONFIGDIR)
@@ -6312,7 +6333,7 @@ test-input-profile: $(BUILD_DIR)/tests/performance/profile_input
 	bash tests/performance/test_input_profile.sh $< $(BUILD_DIR)/tests/performance
 
 $(BUILD_DIR)/tests/performance/profile_input: INPUT_PROFILE_FLAGS = \
-	-Wl,--wrap=boxrig_screen_put_ascii_run -Wl,--wrap=boxrig_codec_decoder_put \
+	-Wl,--wrap=boxrig_screen_put_ascii_run -Wl,--wrap=boxrig_unicode_decoder_put \
 	-Wl,--wrap=boxrig_screen_put_codepoint -Wl,--wrap=utf8proc_grapheme_break_stateful \
 	-Wl,--wrap=utf8proc_get_property -Wl,--wrap=utf8proc_charwidth
 $(BUILD_DIR)/tests/performance/profile_input_unwrapped: INPUT_PROFILE_FLAGS = -DBOXRIG_INPUT_UNWRAPPED
@@ -6496,3 +6517,54 @@ test-sample-grid-alignment: $(EXAMPLE_BINARY) $(GTK4_EXAMPLE_BINARY) $(WAYLAND_E
 	$(XVFB_RUN) -a node tests/run_sample_grid_alignment.mjs gtk4 $(GTK4_EXAMPLE_BINARY) opengl
 	$(XVFB_RUN) -a node tests/run_sample_grid_alignment.mjs wayland $(WAYLAND_EXAMPLE_BINARY) wayland
 	$(XVFB_RUN) -a node tests/run_sample_grid_alignment.mjs wayland $(WAYLAND_EXAMPLE_BINARY) opengl
+
+$(CORE_OBJECTS) $(MINGW_AMD64_CORE_OBJECTS) $(MINGW_I686_CORE_OBJECTS) $(UI_OBJECTS) $(SESSION_OBJECTS) $(TEXT_MEASUREMENT_CORE_OBJECTS): $(BOXRIG_CONFIG_STAMP)
+install-common-licenses test-core-ui-boundary: $(SDK_CONFIG)
+
+.PHONY: install-core test-encoding-hooks
+install-core: $(LIBRARY) $(SDK_CONFIG) install-common-licenses
+	$(INSTALL) -d $(DESTDIR)$(LIBDIR) $(DESTDIR)$(INCLUDEDIR)/boxrig
+	$(INSTALL) -m 644 $(LIBRARY) $(DESTDIR)$(LIBDIR)
+	$(INSTALL) -m 644 $(CORE_SDK_HEADERS) $(DESTDIR)$(INCLUDEDIR)/boxrig
+
+test: test-encoding-hooks
+.PHONY: test-core-features
+test-core-features:
+	+sh tests/check_core_features.sh "$(MAKE)" "$(BUILD_DIR)/core-features" KITTY_GRAPHICS TEXT_MONITOR TEXT_RECOGNIZER HISTORY_DEFLATE CHECKPOINT ALT_SCREEN
+test: test-core-features
+.PHONY: test-elder-terms-encoding
+ELDER_TERMS_DIR ?= ../elder-terms
+ELDER_SDK_DIR := $(abspath $(BUILD_DIR)/elder-terms-sdk)
+ELDER_CODEC_DIR = $(ELDER_TERMS_DIR)/elder-terms-terminal/src/terminal-sessions
+test-elder-terms-encoding: $(BUILD_DIR)/tests/test_elder_terms_encoding
+	$<
+$(BUILD_DIR)/tests/test_elder_terms_encoding: tests/test_elder_terms_encoding.cpp $(ELDER_CODEC_DIR)/terminal-text-stream.cpp $(ELDER_CODEC_DIR)/terminal-text-stream.h $(LIBRARY) $(CORE_SDK_HEADERS) | $(BUILD_DIR)/tests
+	+$(MAKE) install-core PREFIX=/usr DESTDIR="$(ELDER_SDK_DIR)"
+	$(CXX) $(CXXFLAGS) -std=c++20 $(WARNINGS) -I$(ELDER_SDK_DIR)/usr/include -I$(ELDER_CODEC_DIR) $< $(ELDER_CODEC_DIR)/terminal-text-stream.cpp $(ELDER_SDK_DIR)/usr/lib/libboxrig.a -lm -o $@
+
+test-encoding-hooks: $(BUILD_DIR)/tests/test_encoding_hooks
+	$<
+$(BUILD_DIR)/tests/test_encoding_hooks: tests/test_encoding_hooks.c $(LIBRARY) $(CORE_PUBLIC_HEADERS) | $(BUILD_DIR)/tests
+	$(CC) $(CPPFLAGS) $(PUBLIC_CPPFLAGS) $(CFLAGS) $(PROJECT_CFLAGS) $(SANITIZERS) $< $(LIBRARY) -lm -o $@
+
+.PHONY: test-embedded-log
+test-embedded-log: $(LIBRARY)
+	+sh tests/check_embedded_log.sh "$(MAKE)" "$(BUILD_DIR)/embedded-log" "$(LIBRARY)"
+test: test-embedded-log
+
+.PHONY: test-encoding-sdk
+test-encoding-sdk: $(CODEGEN_DIR)/generate-config.mjs
+	+sh tests/check_encoding_sdk.sh "$(MAKE)" "$(BUILD_DIR)/encoding-sdk" "$(abspath $(CODEGEN_DIR))"
+test: test-encoding-sdk
+
+.PHONY: test-checkpoint-builds
+test-checkpoint-builds: $(LIBRARY) | $(BUILD_DIR)/tests
+	+$(MAKE) BUILD_DIR="$(BUILD_DIR)/checkpoint-log" CPPFLAGS="-DBOXRIG_FEATURE_EXTENDED_VT=0" core
+	$(CC) $(PUBLIC_CPPFLAGS) $(PROJECT_CFLAGS) tests/test_checkpoint_build.c $(LIBRARY) -lm -o $(BUILD_DIR)/tests/checkpoint-full
+	$(CC) $(PUBLIC_CPPFLAGS) $(PROJECT_CFLAGS) -DBOXRIG_FEATURE_EXTENDED_VT=0 tests/test_checkpoint_build.c $(BUILD_DIR)/checkpoint-log/libboxrig.a -lm -o $(BUILD_DIR)/checkpoint-log/checkpoint-log
+	$(BUILD_DIR)/tests/checkpoint-full write $(BUILD_DIR)/checkpoint-log/full.cp
+	$(BUILD_DIR)/checkpoint-log/checkpoint-log reject $(BUILD_DIR)/checkpoint-log/full.cp
+	$(BUILD_DIR)/checkpoint-log/checkpoint-log write $(BUILD_DIR)/checkpoint-log/log.cp
+	$(BUILD_DIR)/checkpoint-log/checkpoint-log read $(BUILD_DIR)/checkpoint-log/log.cp
+	$(BUILD_DIR)/tests/checkpoint-full reject $(BUILD_DIR)/checkpoint-log/log.cp
+test: test-checkpoint-builds

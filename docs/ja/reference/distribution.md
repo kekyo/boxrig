@@ -13,6 +13,7 @@ SDKは、ヘッダー、ライブラリ、pkg-config定義、利用例、ライ�
 
 | 構成 | インストール対象・pkg-config名 |
 | --- | --- |
+| 静的coreのみ | `install-core`。付属の設定ヘッダーと`libboxrig.a`を使って直接リンク。[機能を指定してSDKを作る](../core-features.md#機能を指定してsdkを作る) |
 | Linux共有版の基礎4ライブラリ | `install-shared-base`。`boxrig`、`boxrig-ui`、`boxrig-session`、`boxrig-posix` |
 | Linux共有版のGTK | `install-shared-gtk3`／`install-shared-gtk4`、両版なら`install-shared`。`boxrig-gtk3`／`boxrig-gtk4`と基礎4ライブラリ |
 | GTK 3／4 | `install-gtk3`／`install-gtk4`、`boxrig-gtk3`／`boxrig-gtk4` |
@@ -42,8 +43,7 @@ Windows向けのリンクでは`PKG_CONFIG_LIBDIR`を対象SDKだけに設定し
 静的ライブラリをリンクしても、GTK、Pango、Cairoなどのシステム共有ライブラリまで実行ファイルへ入るわけではありません。
 必要な実行時依存は選んだ構成で変わります。
 
-coreがウィンドウシステムに依存しないことと、第三者コードを含まないことは別です。
-utf8proc、libpng、zlibはcoreへ組み込まれるため、coreだけを配布する場合も[第三者ライセンス](#第三者ライセンスと出典)を確認してください。
+既定のcoreはutf8proc、libpng、zlibを含みます。小型セルではutf8procを省きます。libpngは画像、zlibは画像・履歴圧縮・チェックポイントに使うため、選んだ機能に応じてリンク対象が変わります。[第三者ライセンス](#第三者ライセンスと出典)
 
 ## Linuxで配布する
 
@@ -99,7 +99,7 @@ PREFERREDは全ての失敗を隠す設定ではありません。
 
 boxrigは[MIT License](../../../LICENSE)です。
 第三者コードとデータの条件は、それぞれの原文を保持します。
-SDKの`share/licenses/boxrig/`にはutf8proc、libpng、zlib、Unicode、WHATWG Encoding、構成別のWayland、cardio、MinGW-w64、GCCなどの資料が入ります。
+SDKの`share/licenses/boxrig/`にはutf8proc、libpng、zlib、Unicode、構成別のWayland、cardio、MinGW-w64、GCCなどの資料が入ります。
 
 取得元URLとハッシュは[sources.json](../../../packaging/licenses/sources.json)、構成ごとの説明は[第三者ライセンス資料](../../../packaging/licenses/README_ja.md)にあります。
 GCCのランタイムには[GCC Runtime Library Exception](https://www.gnu.org/licenses/gcc-exception-3.1.html)も関係します。

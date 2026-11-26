@@ -14,11 +14,9 @@ boxrig自身のコードはMITライセンスです。本文は`LICENSE`にあ�
 | [libpng](https://github.com/pnggroup/libpng) | coreのPNG処理 | `libpng-LICENSE`。PNG Reference Library License |
 | [zlib](https://github.com/madler/zlib) | coreの圧縮処理 | `zlib-LICENSE` |
 | [Unicode 18.0.0](https://www.unicode.org/Public/18.0.0/ucd/) | UIの単語境界テーブル | `Unicode-LICENSE.txt`。Unicode License V3 |
-| [WHATWG Encoding](https://encoding.spec.whatwg.org/) | coreのShift_JIS変換テーブル | `WHATWG-Encoding-LICENSE`。コードへ組み込んだ部分はBSD-3-Clause |
 
 libpngとzlibのバイナリ配布時の謝辞は必須ではありませんが、SDKには本文を収録しています。
 utf8procに含まれるUnicodeデータの表示と、UIのUnicode License V3は両方を保持します。
-WHATWGの本文には仕様文書向けのCC BY 4.0と、コードへ組み込む部分向けのBSD-3-Clauseが含まれます。
 これらのファイルのライセンスをboxrigのMITへ置き換えるものではありません。
 
 ## Linux

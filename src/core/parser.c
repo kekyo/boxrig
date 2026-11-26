@@ -91,7 +91,9 @@ static boxrig_status begin_string(
     boxrig_parser *parser,
     boxrig_parser_string_kind kind)
 {
-    boxrig_status status = parser->actions.string_start(
+    bool discard = (!BOXRIG_FEATURE_EXTENDED_VT && kind != BOXRIG_PARSER_STRING_APC) ||
+                   (!BOXRIG_FEATURE_KITTY_GRAPHICS && kind == BOXRIG_PARSER_STRING_APC);
+    boxrig_status status = discard ? BOXRIG_STATUS_OK : parser->actions.string_start(
         parser->actions.context,
         kind);
 
@@ -100,7 +102,7 @@ static boxrig_status begin_string(
         parser->state = BOXRIG_PARSER_STRING;
         parser->string_length = 0;
         parser->string_escape_delivered = false;
-        parser->string_discarding = false;
+        parser->string_discarding = discard;
     }
     return status;
 }
@@ -108,7 +110,7 @@ static boxrig_status begin_string(
 static void begin_dcs(boxrig_parser *parser)
 {
     clear_sequence(parser);
-    parser->state = BOXRIG_PARSER_DCS_ENTRY;
+    parser->state = BOXRIG_FEATURE_EXTENDED_VT ? BOXRIG_PARSER_DCS_ENTRY : BOXRIG_PARSER_DCS_IGNORE;
     parser->dcs_length = 0;
     parser->dcs_escape_delivered = false;
 }
@@ -502,7 +504,7 @@ static boxrig_status feed_escape_byte(boxrig_parser *parser, uint8_t byte)
         return BOXRIG_STATUS_OK;
     }
     if (byte >= 0x30 && byte <= 0x7e) {
-        status = parser->actions.dispatch_escape(
+        status = !BOXRIG_FEATURE_EXTENDED_VT ? BOXRIG_STATUS_OK : parser->actions.dispatch_escape(
             parser->actions.context,
             parser->intermediates,
             parser->intermediate_count,

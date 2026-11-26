@@ -3,7 +3,7 @@
 [日本語](../../ja/reference/terminal-sequences.md)
 
 Control sequences sent to a terminal specify operations such as red text, cursor movement, and screen switching.
-This reference lists sequences interpreted by boxrig core and bytes returned for input and queries.
+The tables cover the sequences interpreted by the default core and the bytes it returns for input and queries. Builds with `BOXRIG_FEATURE_EXTENDED_VT=0` use the controls for log output. [Control sequences for logs](../core-features.md#control-sequences-for-logs)
 
 For example, the [README's red-text example](../../../README.md#add-a-terminal-display-to-an-application) uses SGR color settings.
 Use [boxrig_emitter](../boxrig_emitter.md) to try short output examples, or [Terminal I/O settings](../terminal-io.md) to configure newlines and encodings through the API.
@@ -35,7 +35,7 @@ UTF-8 is interpreted incrementally by default.
 Characters split across input calls are retained for the next call; invalid sequences become replacement characters.
 Combining characters and emoji are retained as character clusters, with a limit of 4,096 bytes per cluster.
 Ambiguous-width characters can occupy one, two, or font-dependent columns. See [Fonts and layout](../fonts-and-layout.md) for configuration and centering.
-See [Terminal I/O settings](../terminal-io.md) for Shift_JIS conversion and compatibility settings, and [Fonts and layout](../fonts-and-layout.md) for shaping.
+See [Terminal I/O settings](../terminal-io.md) for compatibility settings, and [Fonts and layout](../fonts-and-layout.md) for shaping.
 
 | Input | Behavior and conditions |
 | --- | --- |

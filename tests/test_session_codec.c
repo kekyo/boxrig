@@ -45,10 +45,9 @@ static bool partial_io_eof_and_barrier(void)
 {
     boxrig_terminal *terminal = NULL;
     boxrig_session *session = NULL;
-    const uint8_t input[] = {7,7,0x93,0xfa,0x82};
+    const uint8_t input[] = {7,7,0xe6,0x97,0xa5,0xe6};
     transport_state state = {.input = input, .length = sizeof(input), .blocked = true};
     boxrig_terminal_config config = boxrig_terminal_config_default();
-    config.encoding = BOXRIG_ENCODING_SHIFT_JIS;
     config.host_item_capacity = 2;
     CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
     boxrig_session_config sc = boxrig_session_config_default();
@@ -93,7 +92,7 @@ static bool partial_io_eof_and_barrier(void)
     CHECK(boxrig_session_dispatch(session, BOXRIG_SESSION_READY_WRITE, &result) == BOXRIG_SESSION_OK);
     CHECK(result.transport_bytes_written == 0 && state.output_length == 0);
     state.blocked = false;
-    const uint8_t expected[] = "\033]52;c;WA==\007\x93\xfa\0\xff";
+    const uint8_t expected[] = "\033]52;c;WA==\007日\0\xff";
     for (size_t i = 0; i < sizeof(expected) - 1; i++) {
         CHECK(boxrig_session_dispatch(session, BOXRIG_SESSION_READY_WRITE, &result) == BOXRIG_SESSION_OK);
         CHECK(result.transport_bytes_written == 1 && result.peer_closed);

@@ -1,5 +1,4 @@
 import { execFile } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import {
   cp,
   mkdir,
@@ -117,81 +116,4 @@ test('a protocol without a copyright block fails without publishing notices', as
   await expect(readFile(resolve(root, 'notices.md'))).rejects.toMatchObject({
     code: 'ENOENT',
   });
-});
-
-test('generated tables decode entries and choose the permitted encoding pointer', async () => {
-  const index =
-    '0\t0x3000\tIDEOGRAPHIC SPACE\n8272\t0x3001\tDUPLICATE\n9000\t0x3001\tIDEOGRAPHIC COMMA\n';
-  await mkdir(resolve(root, 'data/encoding/whatwg'), { recursive: true });
-  await mkdir(resolve(root, 'src/core'), { recursive: true });
-  await writeFile(
-    resolve(root, 'data/encoding/whatwg/index-jis0208.txt'),
-    index
-  );
-  await writeFile(
-    resolve(root, 'data/encoding/whatwg/source.json'),
-    JSON.stringify({
-      files: [
-        {
-          file: 'index-jis0208.txt',
-          sha256: createHash('sha256').update(index).digest('hex'),
-        },
-      ],
-    })
-  );
-  await execute(
-    process.execPath,
-    ['build/tools/codegen/generate-shift-jis.mjs', '.'],
-    { cwd: root }
-  );
-  await writeFile(
-    resolve(root, 'consumer.c'),
-    `
-#include <assert.h>
-#include <stdint.h>
-#include "src/core/shift_jis_table.h"
-int main(void)
-{
-    assert(shift_jis_decode[0] == 0x3000);
-    assert(shift_jis_decode[1] == 0);
-    assert(shift_jis_decode[8272] == 0x3001);
-    assert(shift_jis_decode[9000] == 0x3001);
-    assert(sizeof(shift_jis_encode) / sizeof(*shift_jis_encode) == 2);
-    assert(shift_jis_encode[0] == UINT32_C(0x30000000));
-    assert(shift_jis_encode[1] == ((UINT32_C(0x3001) << 16) | 9000));
-    return 0;
-}
-`
-  );
-  await execute(
-    'cc',
-    ['-std=c99', '-Wall', '-Wextra', '-Werror', 'consumer.c', '-o', 'consumer'],
-    { cwd: root }
-  );
-  await execute(resolve(root, 'consumer'), [], { cwd: root });
-});
-
-test('a modified source index fails without publishing a table', async () => {
-  await mkdir(resolve(root, 'data/encoding/whatwg'), { recursive: true });
-  await mkdir(resolve(root, 'src/core'), { recursive: true });
-  await writeFile(
-    resolve(root, 'data/encoding/whatwg/index-jis0208.txt'),
-    'modified'
-  );
-  await writeFile(
-    resolve(root, 'data/encoding/whatwg/source.json'),
-    JSON.stringify({
-      files: [{ file: 'index-jis0208.txt', sha256: 'incorrect' }],
-    })
-  );
-  await expect(
-    execute(
-      process.execPath,
-      ['build/tools/codegen/generate-shift-jis.mjs', '.'],
-      { cwd: root }
-    )
-  ).rejects.toThrow('does not match its recorded hash');
-  await expect(
-    readFile(resolve(root, 'src/core/shift_jis_table.h'))
-  ).rejects.toMatchObject({ code: 'ENOENT' });
 });

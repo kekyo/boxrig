@@ -317,6 +317,7 @@ struct boxrig_text_search_cursor {
     bool complete;
 };
 
+#if BOXRIG_FEATURE_TEXT_MONITOR
 typedef enum boxrig_text_monitor_phase {
     BOXRIG_TEXT_MONITOR_PHASE_ACTIVE = 0,
     BOXRIG_TEXT_MONITOR_PHASE_INITIALIZING,
@@ -416,7 +417,7 @@ struct boxrig_text_monitor_state {
     bool mutation_alternate;
     bool mutation_capture_valid;
 };
-
+#endif
 static bool text_screen_valid(boxrig_text_screen screen)
 {
     return screen == BOXRIG_TEXT_SCREEN_PRIMARY ||
@@ -441,7 +442,7 @@ static size_t document_fragment_count(
 {
     return text_screen == BOXRIG_TEXT_SCREEN_PRIMARY
                ? screen->history_count + screen->rows
-               : screen->rows;
+               : (BOXRIG_FEATURE_ALT_SCREEN ? screen->rows : 0);
 }
 
 static size_t history_slot(
@@ -855,9 +856,11 @@ void boxrig_screen_text_initialize(boxrig_screen *screen)
         boxrig_screen_text_reset_fragment(
             screen,
             &screen->primary.text_fragments[row]);
+#if BOXRIG_FEATURE_ALT_SCREEN
         boxrig_screen_text_reset_fragment(
             screen,
             &screen->alternate.text_fragments[row]);
+#endif
     }
     boxrig_screen_text_sync(screen);
 }
@@ -3025,6 +3028,7 @@ void boxrig_text_search_destroy(boxrig_text_search_cursor *cursor)
     free(cursor);
 }
 
+#if BOXRIG_FEATURE_TEXT_MONITOR
 static bool monitor_scope_contains(
     boxrig_text_monitor_scope scope,
     boxrig_text_screen screen)
@@ -5000,3 +5004,4 @@ void boxrig_text_monitor_test_set_mutation_serial(
     state->current_mutation_serial = mutation_serial;
     state->mutation_serial_limit = mutation_serial == UINT64_MAX;
 }
+#endif

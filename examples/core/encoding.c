@@ -6,12 +6,11 @@
 int main(void)
 {
     boxrig_terminal_config config = boxrig_terminal_config_default();
-    config.encoding = BOXRIG_ENCODING_SHIFT_JIS;
     boxrig_terminal *terminal = NULL;
     if (boxrig_terminal_create(&config, &terminal) != BOXRIG_STATUS_OK) return 1;
-    const uint8_t received[] = {0x93,0xfa,0x96,0x7b,0x8c,0xea};
+    const uint8_t received[] = "日本語";
     int result = 1;
-    for (size_t offset = 0; offset < sizeof(received); offset++) {
+    for (size_t offset = 0; offset < (sizeof(received) - 1); offset++) {
         size_t consumed = 0;
         if (boxrig_terminal_feed(terminal, received + offset, 1, &consumed) != BOXRIG_STATUS_OK ||
             consumed != 1) goto finish;
@@ -28,8 +27,8 @@ int main(void)
     if (boxrig_terminal_send_text(terminal, "日本語", 9) != BOXRIG_STATUS_OK) goto finish;
     const uint8_t *bytes;
     size_t length = boxrig_terminal_output_peek(terminal, &bytes);
-    if (length != sizeof(received) || memcmp(bytes, received, length) != 0) goto finish;
-    fputs("\npeer Shift_JIS: ", stdout);
+    if (length != (sizeof(received) - 1) || memcmp(bytes, received, length) != 0) goto finish;
+    fputs("\npeer UTF-8: ", stdout);
     for (size_t offset = 0; offset < length; offset++) printf("%02x", bytes[offset]);
     puts("\nPASS public C99 encoding example");
     result = 0;
