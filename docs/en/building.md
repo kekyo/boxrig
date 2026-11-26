@@ -41,7 +41,7 @@ The shared Makefile queries dependencies beyond the requested target while readi
 You may see missing pkg-config dependency messages even when you do not link the corresponding UI library.
 First check the intended configuration and the target you ran.
 
-Core bundles utf8proc for Unicode processing and libpng and zlib for PNG images into `libboxrig.a`.
+The default core bundles utf8proc for Unicode processing and libpng and zlib for PNG images into `libboxrig.a`.
 Applications using only core do not need to link X11 or GTK.
 Consult the table above for the system libraries needed to build and run each UI configuration.
 
@@ -75,7 +75,7 @@ Specify `native` if you do not need Windows.
 
 | Required output | Command | Main output path |
 | --- | --- | --- |
-| Core only | `make build/libboxrig.a` | `build/libboxrig.a` |
+| Core only | `make core` | `build/libboxrig.a` |
 | GTK 3 demo | `make boxrig-term-gtk3` | `build/boxrig_term/gtk3/boxrig_term` |
 | GTK 4 demo | `make boxrig-term-gtk4` | `build/boxrig_term/gtk4/boxrig_term` |
 | Native Wayland demo | `make boxrig-term-wayland` | `build/boxrig_term/wayland/boxrig_term` |
@@ -234,6 +234,7 @@ make install-gtk4 PREFIX="$PWD/build/sdk-gtk4"
 
 | Configuration | Installation target | pkg-config name |
 | --- | --- | --- |
+| Static core only | `install-core` | Link directly to `lib/libboxrig.a` |
 | GTK 3 | `install-gtk3` | `boxrig-gtk3` |
 | GTK 4 | `install-gtk4` | `boxrig-gtk4` |
 | Native Wayland | `install-wayland` | `boxrig-wayland` |
@@ -286,6 +287,34 @@ Explicitly choosing bundled ConPTY requires DLLs for the target architecture, th
 See the [ConPTY distribution files](../../deps/conpty/README.md).
 
 ## Select optional features
+
+### Select core features
+
+Build the static terminal library with `make core`. The default terminal has Unicode cells and the full control language. The configuration header lists the available definitions and their defaults. [Configuration header](../../include/boxrig/config.h)
+
+For example, build a terminal with Unicode text and extended VT controls while omitting image handling and libpng.
+
+```sh
+make core BUILD_DIR=build/text-terminal CPPFLAGS='-DBOXRIG_FEATURE_KITTY_GRAPHICS=0'
+```
+
+| Definition after `BOXRIG_FEATURE_` | Effect |
+| --- | --- |
+| `ENCODING_HOOKS` | Enables application-provided character converters. Defaults to 1 with either cell format. [Character encodings and raw bytes](./terminal-io.md#character-encodings-and-raw-bytes) |
+| `KITTY_GRAPHICS` | Set to 0 to omit image handling and libpng. |
+| `TEXT_MONITOR`, `TEXT_RECOGNIZER` | Select text monitoring and pattern recognition independently. Regular text search remains available with Unicode cells. |
+| `HISTORY_DEFLATE`, `CHECKPOINT` | Select compressed history and checkpoint export/import independently. Disable both and graphics to omit zlib. Set the number of retained rows with `scrollback_capacity` at creation. |
+| `ALT_SCREEN` | Set to 0 to allocate only the primary screen. |
+| `EXTENDED_VT`, `LOG_CURSOR` | Set `EXTENDED_VT=0` for CR/LF/BS/HT, wrap, scroll, 16-color SGR and line erase. Add `LOG_CURSOR=1` for cursor movement, visibility and display erase. |
+| `COMPACT_CELLS` | Set to 1 for one ASCII byte and two four-bit colors per cell. Each unrepresentable scalar displays as a one-column `?`. Use the default Unicode cells to display multilingual text or emoji. |
+
+Compact cells support a single core screen with zero scrollback. Graphics, monitoring, recognition, DEFLATE history, checkpoints, the alternate screen and extended VT default to 0 in that configuration. Render changed regions with `boxrig_terminal_take_dirty()` and reread any cell using `boxrig_terminal_get_cell()`. Resizing a compact screen retains the intersecting cells at the top left.
+
+Use the same `BUILD_DIR` and `CPPFLAGS` with `make install-core` to distribute the library. Applications can inspect the installed `boxrig/config.h` for the available API. Compare linked code, read-only data, and initial heap across configurations with the same driver. [Core features and size measurements](./core-features.md#compare-code-size-and-memory-use)
+
+To build an SDK from source on another machine, run `make package-codegen` with the same `CPPFLAGS` on the build host. Ship the resulting `$(BUILD_DIR)/generated/include/boxrig/config.h` and pass its path to the target Make invocation through `BOXRIG_PREGENERATED_CONFIG`. The target library and SDK will use those settings.
+
+### Select a GUI renderer
 
 The default GTK build includes both Cairo and OpenGL.
 Build a Cairo-only configuration as follows.

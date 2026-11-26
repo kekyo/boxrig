@@ -333,6 +333,9 @@ BOXRIG_PUBLIC_CONTRACT(
 BOXRIG_PUBLIC_CONTRACT(
     OPERATION, "include/boxrig/terminal.h", VALUE_CORE_UI_SEMANTICS, 31u,
     "boxrig_terminal_config_default "
+    "boxrig_encoding_reserve "
+    "boxrig_terminal_set_encoding_hooks "
+    "boxrig_terminal_finish_encoding_output "
     "boxrig_terminal_ambiguous_width "
     "boxrig_terminal_emoji_variation_width "
     "boxrig_terminal_create "

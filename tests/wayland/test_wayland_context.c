@@ -8517,107 +8517,102 @@ static void test_input_inhibition(void)
 
 static void test_terminal_io_configuration(void)
 {
-    for (unsigned encoding = 0; encoding < 2; encoding++) {
-        fake_server server;
-        host_registry_state host;
-        const uint8_t mapped[] = {0x1b, 'U', 0};
-        const boxrig_key_mapping mapping = {BOXRIG_KEY_UP, 0, mapped, sizeof(mapped)};
-        boxrig_terminal_config config = boxrig_terminal_config_default();
-        config.encoding = (boxrig_encoding)encoding;
-        config.input.enter_newline = BOXRIG_NEWLINE_LF;
-        config.paste_newline = BOXRIG_NEWLINE_CRLF;
-        config.input.key_mappings = &mapping;
-        config.input.key_mapping_count = 1;
-        boxrig_terminal *terminal = NULL;
-        boxrig_ui_model *model = NULL;
-        boxrig_wayland_context *context = NULL;
-        boxrig_wayland_terminal_component *component = NULL;
-        create_server(&server, true, false, true);
-        struct wl_registry *registry = create_host_registry(&server, &host);
-        CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
-        CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
-        CHECK(create_protocol_context(server.client_display, server.client_queue,
-                  NULL, &context) == BOXRIG_UI_OK);
-        pump(&server); pump(&server); pump(&server);
-        struct wl_surface *parent = wl_compositor_create_surface(host.compositor);
-        CHECK(parent != NULL);
-        wl_proxy_set_queue((struct wl_proxy *)parent, server.client_queue);
-        CHECK(create_steady_component(context, parent, model, NULL, &component) == BOXRIG_UI_OK);
-        boxrig_ui_component_allocation allocation = {0};
-        allocation.width = 80;
-        allocation.height = 40;
-        allocation.window_state = BOXRIG_UI_WINDOW_EMBEDDED;
-        boxrig_ui_layout_result layout;
-        CHECK(boxrig_wayland_terminal_component_allocate(component, &allocation, &layout) == BOXRIG_UI_OK);
-        pump(&server);
-        send_keymap(&server, 0);
-        struct wl_array keys;
-        wl_array_init(&keys);
-        wl_keyboard_send_enter(server.keyboard_resources[0], 61, server.child_resource, &keys);
-        zwp_text_input_v3_send_enter(server.text_input_resources[0], server.child_resource);
-        pump(&server);
-        dispatch_context(context);
-        pump(&server);
-        CHECK(server.text_input_commit_count == 1);
-        zwp_text_input_v3_send_commit_string(server.text_input_resources[0], "日本");
-        zwp_text_input_v3_send_done(server.text_input_resources[0], server.text_input_commit_serials[0]);
-        pump(&server);
-        dispatch_context(context);
-        const uint32_t keycodes[] = {103, 28};
-        for (unsigned index = 0; index < 2; index++) {
-            wl_keyboard_send_key(server.keyboard_resources[0], 62 + index * 2, 10 + index * 2,
-                keycodes[index], WL_KEYBOARD_KEY_STATE_PRESSED);
-            wl_keyboard_send_key(server.keyboard_resources[0], 63 + index * 2, 11 + index * 2,
-                keycodes[index], WL_KEYBOARD_KEY_STATE_RELEASED);
-        }
-        pump(&server);
-        dispatch_context(context);
-        const char *mimes[] = {"text/plain;charset=utf-8"};
-        send_selection_offer(&server, 0, false, mimes, 1);
-        pump(&server);
-        boxrig_ui_view_action action = {0};
-        action.kind = BOXRIG_UI_VIEW_ACTION_PASTE;
-        action.clipboard_target = BOXRIG_UI_CLIPBOARD_TARGET_CLIPBOARD;
-        uint32_t seat = wl_global_get_name(server.seats[0], server.server_client);
-        CHECK(boxrig_wayland_terminal_component_apply_view_action(component, seat, NULL, &action) == BOXRIG_UI_OK);
-        pump(&server);
-        CHECK(server.offer_receive_count == 1);
-        CHECK(write(server.offer_receive_descriptors[0], "日本\n", 7) == 7);
-        close(server.offer_receive_descriptors[0]);
-        bool complete = false;
-        for (unsigned attempt = 0; attempt < 16; attempt++) {
-            boxrig_wayland_wait_source sources[2];
-            size_t count;
-            CHECK(boxrig_wayland_context_prepare_wait_sources(context, sources, 2, &count) == BOXRIG_UI_OK);
-            for (size_t index = 0; index < count; index++) sources[index].readiness = BOXRIG_WAYLAND_WAIT_READABLE;
-            boxrig_wayland_transfer_dispatch_result result;
-            CHECK(boxrig_wayland_context_dispatch_wait_sources(context, sources, count, 1, &result) == BOXRIG_UI_OK);
-            dispatch_context(context);
-            boxrig_wayland_component_diagnostic diagnostic;
-            CHECK(boxrig_wayland_terminal_component_get_diagnostic(component, &diagnostic) == BOXRIG_UI_OK);
-            CHECK(boxrig_wayland_context_prepare_wait_sources(context, sources, 2, &count) == BOXRIG_UI_OK);
-            if (count == 0 && !diagnostic.paste_active && diagnostic.input_queue_depth == 0) { complete = true; break; }
-        }
-        CHECK(complete);
-        const uint8_t utf8_expected[] = "日本\033U\0\n日本\r\n";
-        const uint8_t sjis_expected[] = "\x93\xfa\x96\x7b\033U\0\n\x93\xfa\x96\x7b\r\n";
-        const uint8_t *expected = encoding ? sjis_expected : utf8_expected;
-        size_t length = encoding ? sizeof(sjis_expected) - 1 : sizeof(utf8_expected) - 1;
-        const uint8_t *output;
-        CHECK(boxrig_terminal_output_peek(terminal, &output) == length);
-        CHECK(memcmp(output, expected, length) == 0);
-        wl_array_release(&keys);
-        boxrig_wayland_terminal_component_destroy(component);
-        wl_surface_destroy(parent);
-        wl_compositor_destroy(host.compositor);
-        wl_registry_destroy(registry);
-        pump(&server);
-        boxrig_wayland_context_destroy(context);
-        boxrig_ui_model_destroy(model);
-        boxrig_terminal_destroy(terminal);
-        destroy_server(&server);
+    fake_server server;
+    host_registry_state host;
+    const uint8_t mapped[] = {0x1b, 'U', 0};
+    const boxrig_key_mapping mapping = {BOXRIG_KEY_UP, 0, mapped, sizeof(mapped)};
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    config.input.enter_newline = BOXRIG_NEWLINE_LF;
+    config.paste_newline = BOXRIG_NEWLINE_CRLF;
+    config.input.key_mappings = &mapping;
+    config.input.key_mapping_count = 1;
+    boxrig_terminal *terminal = NULL;
+    boxrig_ui_model *model = NULL;
+    boxrig_wayland_context *context = NULL;
+    boxrig_wayland_terminal_component *component = NULL;
+    create_server(&server, true, false, true);
+    struct wl_registry *registry = create_host_registry(&server, &host);
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    CHECK(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
+    CHECK(create_protocol_context(server.client_display, server.client_queue,
+              NULL, &context) == BOXRIG_UI_OK);
+    pump(&server); pump(&server); pump(&server);
+    struct wl_surface *parent = wl_compositor_create_surface(host.compositor);
+    CHECK(parent != NULL);
+    wl_proxy_set_queue((struct wl_proxy *)parent, server.client_queue);
+    CHECK(create_steady_component(context, parent, model, NULL, &component) == BOXRIG_UI_OK);
+    boxrig_ui_component_allocation allocation = {0};
+    allocation.width = 80;
+    allocation.height = 40;
+    allocation.window_state = BOXRIG_UI_WINDOW_EMBEDDED;
+    boxrig_ui_layout_result layout;
+    CHECK(boxrig_wayland_terminal_component_allocate(component, &allocation, &layout) == BOXRIG_UI_OK);
+    pump(&server);
+    send_keymap(&server, 0);
+    struct wl_array keys;
+    wl_array_init(&keys);
+    wl_keyboard_send_enter(server.keyboard_resources[0], 61, server.child_resource, &keys);
+    zwp_text_input_v3_send_enter(server.text_input_resources[0], server.child_resource);
+    pump(&server);
+    dispatch_context(context);
+    pump(&server);
+    CHECK(server.text_input_commit_count == 1);
+    zwp_text_input_v3_send_commit_string(server.text_input_resources[0], "日本");
+    zwp_text_input_v3_send_done(server.text_input_resources[0], server.text_input_commit_serials[0]);
+    pump(&server);
+    dispatch_context(context);
+    const uint32_t keycodes[] = {103, 28};
+    for (unsigned index = 0; index < 2; index++) {
+        wl_keyboard_send_key(server.keyboard_resources[0], 62 + index * 2, 10 + index * 2,
+            keycodes[index], WL_KEYBOARD_KEY_STATE_PRESSED);
+        wl_keyboard_send_key(server.keyboard_resources[0], 63 + index * 2, 11 + index * 2,
+            keycodes[index], WL_KEYBOARD_KEY_STATE_RELEASED);
     }
-    puts("PASS native Wayland UTF-8/Shift_JIS IME, key and paste settings");
+    pump(&server);
+    dispatch_context(context);
+    const char *mimes[] = {"text/plain;charset=utf-8"};
+    send_selection_offer(&server, 0, false, mimes, 1);
+    pump(&server);
+    boxrig_ui_view_action action = {0};
+    action.kind = BOXRIG_UI_VIEW_ACTION_PASTE;
+    action.clipboard_target = BOXRIG_UI_CLIPBOARD_TARGET_CLIPBOARD;
+    uint32_t seat = wl_global_get_name(server.seats[0], server.server_client);
+    CHECK(boxrig_wayland_terminal_component_apply_view_action(component, seat, NULL, &action) == BOXRIG_UI_OK);
+    pump(&server);
+    CHECK(server.offer_receive_count == 1);
+    CHECK(write(server.offer_receive_descriptors[0], "日本\n", 7) == 7);
+    close(server.offer_receive_descriptors[0]);
+    bool complete = false;
+    for (unsigned attempt = 0; attempt < 16; attempt++) {
+        boxrig_wayland_wait_source sources[2];
+        size_t count;
+        CHECK(boxrig_wayland_context_prepare_wait_sources(context, sources, 2, &count) == BOXRIG_UI_OK);
+        for (size_t index = 0; index < count; index++) sources[index].readiness = BOXRIG_WAYLAND_WAIT_READABLE;
+        boxrig_wayland_transfer_dispatch_result result;
+        CHECK(boxrig_wayland_context_dispatch_wait_sources(context, sources, count, 1, &result) == BOXRIG_UI_OK);
+        dispatch_context(context);
+        boxrig_wayland_component_diagnostic diagnostic;
+        CHECK(boxrig_wayland_terminal_component_get_diagnostic(component, &diagnostic) == BOXRIG_UI_OK);
+        CHECK(boxrig_wayland_context_prepare_wait_sources(context, sources, 2, &count) == BOXRIG_UI_OK);
+        if (count == 0 && !diagnostic.paste_active && diagnostic.input_queue_depth == 0) { complete = true; break; }
+    }
+    CHECK(complete);
+    const uint8_t expected[] = "日本\033U\0\n日本\r\n";
+    size_t length = sizeof(expected) - 1;
+    const uint8_t *output;
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == length);
+    CHECK(memcmp(output, expected, length) == 0);
+    wl_array_release(&keys);
+    boxrig_wayland_terminal_component_destroy(component);
+    wl_surface_destroy(parent);
+    wl_compositor_destroy(host.compositor);
+    wl_registry_destroy(registry);
+    pump(&server);
+    boxrig_wayland_context_destroy(context);
+    boxrig_ui_model_destroy(model);
+    boxrig_terminal_destroy(terminal);
+    destroy_server(&server);
+    puts("PASS native Wayland UTF-8 IME, key and paste settings");
 }
 
 static void test_standard_scrollbar_visibility(void)

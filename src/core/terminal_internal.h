@@ -301,13 +301,53 @@ bool boxrig_monitor_checkpoint_config(const boxrig_terminal *terminal, boxrig_te
 bool boxrig_recognizer_checkpoint_config(const boxrig_terminal *terminal, boxrig_terminal_config *config);
 bool boxrig_notification_checkpoint_ready(const boxrig_terminal *terminal);
 
+#if BOXRIG_FEATURE_ENCODING_HOOKS
+boxrig_status boxrig_encoding_resolve_barrier(boxrig_terminal *terminal, boxrig_output_segment *barrier,
+    const uint8_t *response, size_t length);
+#endif
+
 struct boxrig_terminal {
     boxrig_parser parser;
-    boxrig_encoding encoding;
-    boxrig_codec_decoder decoder;
+    boxrig_unicode_decoder decoder;
+#if BOXRIG_FEATURE_ENCODING_HOOKS
+    boxrig_encoding_hooks encoding_hooks;
+    uint8_t *decoded_bytes;
+    size_t decoded_capacity;
+    size_t decoded_length;
+    size_t decoded_offset;
+    boxrig_encoding_channel receive_channel;
+    bool receive_active;
+    bool decoded_for_input;
+    bool send_active;
+    bool osc_title;
+    bool osc_selector_done;
+#endif
+    size_t output_capacity;
+    size_t output_usage;
+    boxrig_output_segment *output_head;
+    boxrig_output_segment *output_tail;
+#if BOXRIG_FEATURE_COMPACT_CELLS
+    struct boxrig_compact_cell { uint8_t character, colors; } *cells;
+    struct boxrig_compact_damage { size_t start, end; } *damage;
+    size_t rows, columns, row, column;
+    uint8_t colors;
+#if BOXRIG_FEATURE_LOG_CURSOR
+    bool cursor_hidden;
+#endif
+    bool pending_wrap;
+    boxrig_receive_newline receive_newline;
+#else
     boxrig_dcs_state dcs;
+#if BOXRIG_FEATURE_KITTY_GRAPHICS
     boxrig_kitty_graphics_state graphics;
     boxrig_kitty_graphics_protocol_state graphics_protocol;
+#else
+    struct {
+        uint32_t cell_pixel_width, cell_pixel_height;
+        uint64_t monotonic_time_milliseconds;
+        bool monotonic_time_set;
+    } graphics_protocol;
+#endif
     boxrig_screen screen;
     boxrig_input_state input;
     boxrig_rgb palette[256];
@@ -340,15 +380,16 @@ struct boxrig_terminal {
     boxrig_tty_erase tty_erase;
     boxrig_newline paste_newline;
     boxrig_receive_newline receive_newline;
-    size_t output_capacity;
-    size_t output_usage;
-    boxrig_output_segment *output_head;
-    boxrig_output_segment *output_tail;
     uint64_t next_text_search_result_id;
     bool text_search_result_limit;
+#if BOXRIG_FEATURE_TEXT_MONITOR
     boxrig_text_monitor_state *text_monitor_state;
+#endif
+#if BOXRIG_FEATURE_TEXT_RECOGNIZER
     boxrig_text_recognizer_state *text_recognizer_state;
+#endif
     boxrig_animation_clock *animation_clock;
+#endif
 };
 
 boxrig_status boxrig_screen_initialize(
@@ -363,6 +404,7 @@ boxrig_status boxrig_screen_initialize_configured(
     boxrig_ambiguous_width ambiguous_width,
     boxrig_emoji_variation_width emoji_variation_width,
     boxrig_cursor_column_mode cursor_column_mode);
+boxrig_status boxrig_update_monotonic_time(boxrig_terminal *terminal, uint64_t milliseconds);
 void boxrig_screen_destroy(boxrig_screen *screen);
 boxrig_status boxrig_screen_measure_text_cluster(const boxrig_screen *screen,
     const uint8_t *text, size_t text_length, uint32_t attributes,
@@ -708,5 +750,10 @@ boxrig_status boxrig_notification_dispatch(
     boxrig_parser_string_terminator terminator);
 
 boxrig_parser_actions boxrig_interpreter_actions(boxrig_terminal *terminal);
+
+#if !BOXRIG_FEATURE_TEXT_MONITOR
+#define boxrig_text_monitor_begin_mutation(terminal) ((void)(terminal))
+#define boxrig_text_monitor_end_mutation(terminal) ((void)(terminal))
+#endif
 
 #endif

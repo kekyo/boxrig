@@ -155,7 +155,9 @@ static void recount_hyperlinks(boxrig_terminal *terminal)
     }
     size_t count = terminal->screen.rows * terminal->screen.columns;
     count_cell_hyperlinks(terminal, terminal->screen.primary.cell_storage, count);
+#if BOXRIG_FEATURE_ALT_SCREEN
     count_cell_hyperlinks(terminal, terminal->screen.alternate.cell_storage, count);
+#endif
     for (size_t index = 0u; index < terminal->screen.history_count; index++) {
         boxrig_screen *screen = &terminal->screen;
         const boxrig_history_line *line = &screen->history[
@@ -254,6 +256,7 @@ static boxrig_status append_cell_text(
     return BOXRIG_STATUS_OK;
 }
 
+#if BOXRIG_FEATURE_ALT_SCREEN
 static boxrig_status clone_cell(boxrig_cell *destination, const boxrig_cell *source)
 {
     char *text = NULL;
@@ -275,6 +278,7 @@ static boxrig_status clone_cell(boxrig_cell *destination, const boxrig_cell *sou
     destination->borrowed_text = false;
     return BOXRIG_STATUS_OK;
 }
+#endif
 
 static boxrig_status clone_cell_into_uninitialized(
     boxrig_cell *destination, const boxrig_cell *source)
@@ -489,6 +493,7 @@ boxrig_status boxrig_screen_initialize_configured(
         rows, sizeof(*screen->primary.line_soft_wrapped));
     screen->primary.text_fragments = calloc(
         rows, sizeof(*screen->primary.text_fragments));
+#if BOXRIG_FEATURE_ALT_SCREEN
     screen->alternate.cell_storage = calloc(
         cell_count, sizeof(*screen->alternate.cell_storage));
     screen->alternate.row_cells = calloc(rows, sizeof(*screen->alternate.row_cells));
@@ -496,6 +501,7 @@ boxrig_status boxrig_screen_initialize_configured(
         rows, sizeof(*screen->alternate.line_soft_wrapped));
     screen->alternate.text_fragments = calloc(
         rows, sizeof(*screen->alternate.text_fragments));
+#endif
     screen->tab_stops = calloc(columns, sizeof(*screen->tab_stops));
     screen->dirty_start = malloc(rows * sizeof(*screen->dirty_start));
     screen->dirty_end = calloc(rows, sizeof(*screen->dirty_end));
@@ -507,10 +513,12 @@ boxrig_status boxrig_screen_initialize_configured(
     if (screen->cells == NULL || screen->primary.row_cells == NULL ||
         screen->primary.line_soft_wrapped == NULL ||
         screen->primary.text_fragments == NULL ||
+#if BOXRIG_FEATURE_ALT_SCREEN
         screen->alternate.cell_storage == NULL ||
         screen->alternate.row_cells == NULL ||
         screen->alternate.line_soft_wrapped == NULL ||
         screen->alternate.text_fragments == NULL ||
+#endif
         screen->tab_stops == NULL || screen->dirty_start == NULL ||
         screen->dirty_end == NULL ||
         (scrollback_capacity != 0 && screen->history == NULL)) {
@@ -534,6 +542,7 @@ boxrig_status boxrig_screen_initialize_configured(
     screen->primary.horizontal_margin_left = 0;
     screen->primary.horizontal_margin_right = columns - 1;
     screen->primary.saved_cursor.auto_wrap = true;
+#if BOXRIG_FEATURE_ALT_SCREEN
     screen->alternate.scroll_region_top = 0;
     screen->alternate.scroll_region_bottom = rows - 1;
     screen->alternate.horizontal_margin_left = 0;
@@ -541,16 +550,21 @@ boxrig_status boxrig_screen_initialize_configured(
     screen->alternate.saved_cursor.visible = true;
     screen->alternate.saved_cursor.auto_wrap = true;
     screen->alternate.saved_cursor.style = screen->style;
+#endif
     initialize_tabs(screen);
     for (index = 0; index < cell_count; index++) {
         set_blank(screen->owner, &screen->cells[index], screen->style);
+#if BOXRIG_FEATURE_ALT_SCREEN
         set_blank(screen->owner, &screen->alternate.cell_storage[index], screen->style);
+#endif
     }
     for (index = 0; index < rows; index++) {
         screen->primary.row_cells[index] =
             &screen->primary.cell_storage[index * columns];
+#if BOXRIG_FEATURE_ALT_SCREEN
         screen->alternate.row_cells[index] =
             &screen->alternate.cell_storage[index * columns];
+#endif
     }
     boxrig_screen_text_initialize(screen);
     boxrig_screen_mark_all(screen);
@@ -601,7 +615,7 @@ boxrig_status boxrig_screen_set_history_compression(
     boxrig_screen *screen, boxrig_scrollback_compression mode)
 {
     if (mode != BOXRIG_SCROLLBACK_COMPRESSION_NONE && mode != BOXRIG_SCROLLBACK_COMPRESSION_PACKED &&
-        mode != BOXRIG_SCROLLBACK_COMPRESSION_DEFLATE_LEVEL_1)
+        (!BOXRIG_FEATURE_HISTORY_DEFLATE || mode != BOXRIG_SCROLLBACK_COMPRESSION_DEFLATE_LEVEL_1))
         return BOXRIG_STATUS_INVALID_ARGUMENT;
     if (mode == screen->history_mode) return BOXRIG_STATUS_OK;
     boxrig_screen next = *screen;
@@ -892,6 +906,7 @@ static void copy_buffer_state_for_resize(
     destination->pending_wrap = false;
 }
 
+#if BOXRIG_FEATURE_ALT_SCREEN
 static boxrig_status copy_buffer_for_resize(
     boxrig_screen_buffer *destination,
     const boxrig_screen_buffer *source,
@@ -925,6 +940,7 @@ static boxrig_status copy_buffer_for_resize(
         rows, columns);
     return BOXRIG_STATUS_OK;
 }
+#endif
 
 typedef struct boxrig_reflow_row {
     boxrig_history_line line;
@@ -1737,6 +1753,7 @@ static boxrig_status reflow_primary_for_resize(
 
 /* Reuse grapheme reflow for the alternate grid without borrowing primary
  * history ownership. Overflow follows alternate-screen resize clipping. */
+#if BOXRIG_FEATURE_ALT_SCREEN
 static boxrig_status remeasure_alternate(boxrig_screen *destination,
     const boxrig_screen *source)
 {
@@ -1766,6 +1783,7 @@ static boxrig_status remeasure_alternate(boxrig_screen *destination,
     destroy_reflow_rows(&reflow);
     return BOXRIG_STATUS_OK;
 }
+#endif
 
 static int compare_reflow_markers(
     const void *left_pointer,
@@ -1842,9 +1860,11 @@ boxrig_status boxrig_screen_resize_with_markers(
         boxrig_screen_text_reset_fragment(
             &replacement,
             &replacement.primary.text_fragments[column]);
+#if BOXRIG_FEATURE_ALT_SCREEN
         boxrig_screen_text_reset_fragment(
             &replacement,
             &replacement.alternate.text_fragments[column]);
+#endif
     }
     copy_columns = columns < screen->columns ? columns : screen->columns;
     /* Reflow supplies primary cells; only the alternate buffer needs a copy. */
@@ -1863,6 +1883,7 @@ boxrig_status boxrig_screen_resize_with_markers(
             screen->primary.text_fragments[row];
         replacement.primary.text_fragments[row].needs_sync = true;
     }
+#if BOXRIG_FEATURE_ALT_SCREEN
     status = screen->remeasure_widths ? remeasure_alternate(&replacement, screen) : copy_buffer_for_resize(
         &replacement.alternate,
         &screen->alternate,
@@ -1875,6 +1896,7 @@ boxrig_status boxrig_screen_resize_with_markers(
         boxrig_screen_destroy(&replacement);
         return status;
     }
+#endif
     status = reflow_primary_for_resize(
         &replacement,
         screen,
@@ -2105,7 +2127,9 @@ void boxrig_screen_reset(boxrig_screen *screen)
         sizeof(screen->line_drawing_character_sets));
     screen->active_character_set = 0;
     reset_buffer(screen, &screen->primary, screen->style);
+#if BOXRIG_FEATURE_ALT_SCREEN
     reset_buffer(screen, &screen->alternate, screen->style);
+#endif
     screen->active = &screen->primary;
     if (active_buffer_changed) {
         screen->active_buffer_revision++;
@@ -4053,6 +4077,7 @@ static void repeat_last_character(boxrig_screen *screen, size_t amount)
 
 static void switch_screen_buffer(boxrig_screen *screen, bool alternate)
 {
+    if (!BOXRIG_FEATURE_ALT_SCREEN) return;
     bool changed = screen->alternate_active != alternate;
 
     if (changed && screen->graphics_sink.buffer_will_switch != NULL) {
@@ -4078,6 +4103,7 @@ static void set_alternate_screen_mode(
     uint32_t mode,
     bool enabled)
 {
+    if (!BOXRIG_FEATURE_ALT_SCREEN && mode != 1048) return;
     if (mode == 47) {
         switch_screen_buffer(screen, enabled);
         return;

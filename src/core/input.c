@@ -504,6 +504,16 @@ static boxrig_status append_text_key(
                           event->text != NULL &&
                           event->text_length == 1 &&
                           (uint8_t)event->text[0] < 0x80;
+#if BOXRIG_FEATURE_ENCODING_HOOKS
+    if (eight_bit_meta && terminal->encoding_hooks.mode == BOXRIG_ENCODING_STREAM) {
+        /* Stream converters accept UTF-8. Apply the Meta bit to the scalar
+         * before encoding so multi-byte wire encodings keep their byte order. */
+        unsigned scalar = (uint8_t)event->text[0] | 0x80u;
+        uint8_t utf8[2] = {(uint8_t)(0xc0u | (scalar >> 6)), (uint8_t)(0x80u | (scalar & 0x3fu))};
+        return boxrig_terminal_append_encoded_text(terminal, utf8, sizeof(utf8),
+            BOXRIG_NEWLINE_LF, alt, false, true);
+    }
+#endif
     return boxrig_terminal_append_encoded_text(terminal,
         (const uint8_t *)event->text, event->text_length,
         BOXRIG_NEWLINE_LF, alt, eight_bit_meta, true);

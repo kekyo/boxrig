@@ -28,6 +28,7 @@ typedef struct boxrig_unicode_cluster_analyzer {
 
 typedef boxrig_status (*boxrig_unicode_emit)(void *context, int32_t codepoint);
 
+size_t boxrig_utf8_scalar(const uint8_t *bytes, size_t length, int32_t *scalar);
 void boxrig_unicode_decoder_initialize(boxrig_unicode_decoder *decoder);
 boxrig_status boxrig_unicode_decoder_put(
     boxrig_unicode_decoder *decoder,

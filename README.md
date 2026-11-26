@@ -215,6 +215,8 @@ To learn by building an application, choose the guide for your purpose.
 The [documentation index](./docs/en/index.md) covers integration, individual features, and supported specifications.
 Start with the introductory guide, then move to the feature pages you need.
 
+Choose the core features your application needs to control binary size and memory per terminal. For connections that use an encoding other than UTF-8, register a converter per terminal. [Core features and size](./docs/en/core-features.md) and [Character encoding converters](./docs/en/encoding-hooks.md).
+
 ---
 
 ## License

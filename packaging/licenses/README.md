@@ -15,11 +15,9 @@ Using an individual library does not necessarily use every component listed belo
 | [libpng](https://github.com/pnggroup/libpng) | PNG handling in core | `libpng-LICENSE`, PNG Reference Library License |
 | [zlib](https://github.com/madler/zlib) | Compression in core | `zlib-LICENSE` |
 | [Unicode 18.0.0](https://www.unicode.org/Public/18.0.0/ucd/) | UI word-boundary tables | `Unicode-LICENSE.txt`, Unicode License V3 |
-| [WHATWG Encoding](https://encoding.spec.whatwg.org/) | Shift_JIS conversion tables in core | `WHATWG-Encoding-LICENSE`; portions incorporated into code use BSD-3-Clause |
 
 Acknowledgment in binary distributions is not mandatory for libpng or zlib, but the SDK includes their license texts.
 Keep both utf8proc's Unicode data notices and the UI's Unicode License V3.
-The WHATWG text includes CC BY 4.0 for the specification and BSD-3-Clause for portions incorporated into code.
 boxrig's MIT license does not replace these licenses.
 
 ## Linux

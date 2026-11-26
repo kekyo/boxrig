@@ -7,6 +7,7 @@
 #ifndef BOXRIG_REGEX_H
 #define BOXRIG_REGEX_H
 
+#include "boxrig/config.h"
 #include "boxrig/status.h"
 
 #include <stdbool.h>
@@ -117,6 +118,7 @@ typedef struct boxrig_regex_capture {
     size_t end;
 } boxrig_regex_capture;
 
+#if !BOXRIG_FEATURE_COMPACT_CELLS
 /**
  * Returns finite default limits.
  * @return 64 KiB patterns, 32768 states, 4096 repetitions, 1 MiB inputs,
@@ -304,6 +306,7 @@ boxrig_status boxrig_regex_result_get_named_capture(
  * @param result Result to release; NULL is ignored.
  */
 void boxrig_regex_result_destroy(boxrig_regex_result *result);
+#endif /* !BOXRIG_FEATURE_COMPACT_CELLS */
 
 #ifdef __cplusplus
 }

@@ -36,8 +36,8 @@ On-screen text changes after normal allocation and frame processing complete.
 
 ## Unicode and fallback fonts
 
-Core retains characters and cell widths based on Unicode 18.0.0, and the UI text system maps them to available fonts.
-Even with Shift_JIS input, text passed to fonts is Unicode.
+With the default Unicode cells, core stores character clusters and column widths according to Unicode 18.0.0. The UI selects glyphs from the available fonts.
+The built-in decoder handles multilingual text on UTF-8 connections. Register a converter when the peer uses another encoding. [Character encoding converters](./encoding-hooks.md)
 
 Ambiguous-width characters, such as `①`, can occupy either one or two terminal columns.
 Choose the width with `boxrig_terminal_config.ambiguous_width` when creating the terminal.

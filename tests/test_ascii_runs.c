@@ -225,8 +225,6 @@ static bool test_every_split_of_boundary_sequences(void)
         "\x1b[31mABCD\x1b[0m\rxy\bZ\tW\x7f";
     static const uint8_t incomplete_utf8[] =
         "\xe3\x81" "ABC\r\nDEF";
-    static const uint8_t shift_jis_lead[] =
-        {0x82, 'A', 'B', 0x82, 0x60, 'C'};
     static const uint8_t dec_drawing[] =
         "\x1b(0lqqk\x1b(BABC";
     static const uint8_t insert_and_margins[] =
@@ -255,28 +253,19 @@ static bool test_every_split_of_boundary_sequences(void)
     static const struct {
         const uint8_t *bytes;
         size_t length;
-        boxrig_encoding encoding;
     } cases[] = {
-        {control, sizeof(control) - 1, BOXRIG_ENCODING_UTF8},
-        {incomplete_utf8, sizeof(incomplete_utf8) - 1, BOXRIG_ENCODING_UTF8},
-        {shift_jis_lead, sizeof(shift_jis_lead), BOXRIG_ENCODING_SHIFT_JIS},
-        {dec_drawing, sizeof(dec_drawing) - 1, BOXRIG_ENCODING_UTF8},
-        {insert_and_margins, sizeof(insert_and_margins) - 1,
-         BOXRIG_ENCODING_UTF8},
-        {wrap_and_combining, sizeof(wrap_and_combining) - 1,
-         BOXRIG_ENCODING_UTF8},
-        {prepend, sizeof(prepend) - 1, BOXRIG_ENCODING_UTF8},
-        {wide_overwrite, sizeof(wide_overwrite) - 1, BOXRIG_ENCODING_UTF8},
-        {overwrite_soft_wrap, sizeof(overwrite_soft_wrap) - 1,
-         BOXRIG_ENCODING_UTF8},
-        {no_autowrap_right_edge, sizeof(no_autowrap_right_edge) - 1,
-         BOXRIG_ENCODING_UTF8},
-        {linked_protected_rgb, sizeof(linked_protected_rgb) - 1,
-         BOXRIG_ENCODING_UTF8},
-        {keycap_promotion_at_edge, sizeof(keycap_promotion_at_edge) - 1,
-         BOXRIG_ENCODING_UTF8},
-        {scroll_and_alternate, sizeof(scroll_and_alternate) - 1,
-         BOXRIG_ENCODING_UTF8},
+        {control, sizeof(control) - 1},
+        {incomplete_utf8, sizeof(incomplete_utf8) - 1},
+        {dec_drawing, sizeof(dec_drawing) - 1},
+        {insert_and_margins, sizeof(insert_and_margins) - 1},
+        {wrap_and_combining, sizeof(wrap_and_combining) - 1},
+        {prepend, sizeof(prepend) - 1},
+        {wide_overwrite, sizeof(wide_overwrite) - 1},
+        {overwrite_soft_wrap, sizeof(overwrite_soft_wrap) - 1},
+        {no_autowrap_right_edge, sizeof(no_autowrap_right_edge) - 1},
+        {linked_protected_rgb, sizeof(linked_protected_rgb) - 1},
+        {keycap_promotion_at_edge, sizeof(keycap_promotion_at_edge) - 1},
+        {scroll_and_alternate, sizeof(scroll_and_alternate) - 1},
     };
 
     for (size_t index = 0; index < sizeof(cases) / sizeof(cases[0]); index++) {
@@ -289,7 +278,6 @@ static bool test_every_split_of_boundary_sequences(void)
             config.rows = 4;
             config.columns = 8;
             config.scrollback_capacity = 4;
-            config.encoding = cases[index].encoding;
             CHECK(boxrig_terminal_create(&config, &whole) == BOXRIG_STATUS_OK);
             CHECK(boxrig_terminal_create(&config, &fragmented) ==
                   BOXRIG_STATUS_OK);

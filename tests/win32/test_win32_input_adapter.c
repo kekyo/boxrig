@@ -4155,46 +4155,41 @@ static bool test_terminal_io_configuration(void)
     HWND window = CreateWindowExW(0, L"STATIC", L"boxrig terminal IO settings",
         WS_OVERLAPPED, 0, 0, 80, 60, NULL, NULL, GetModuleHandleW(NULL), NULL);
     CHECK(window != NULL);
-    for (unsigned encoding = 0; encoding < 2; encoding++) {
 
-        const uint8_t mapped[] = {0x1b, 'U', 0};
-        const boxrig_key_mapping mapping = {BOXRIG_KEY_UP, 0, mapped, sizeof(mapped)};
-        boxrig_terminal_config config = boxrig_terminal_config_default();
-        config.encoding = (boxrig_encoding)encoding;
-        config.input.enter_newline = BOXRIG_NEWLINE_LF;
-        config.paste_newline = BOXRIG_NEWLINE_CRLF;
-        config.input.key_mappings = &mapping;
-        config.input.key_mapping_count = 1;
-        boxrig_terminal *terminal = NULL;
-        CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+    const uint8_t mapped[] = {0x1b, 'U', 0};
+    const boxrig_key_mapping mapping = {BOXRIG_KEY_UP, 0, mapped, sizeof(mapped)};
+    boxrig_terminal_config config = boxrig_terminal_config_default();
+    config.input.enter_newline = BOXRIG_NEWLINE_LF;
+    config.paste_newline = BOXRIG_NEWLINE_CRLF;
+    config.input.key_mappings = &mapping;
+    config.input.key_mapping_count = 1;
+    boxrig_terminal *terminal = NULL;
+    CHECK(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
 
-        boxrig_win32_input_adapter *adapter = NULL;
-        CHECK(boxrig_win32_input_adapter_create(window, terminal,
-                  10, 20, 1024, config.output_capacity, &adapter) == 0);
-        const WCHAR committed[] = {0x65e5, 0x672c};
-        CHECK(boxrig_win32_input_adapter_composition_start(adapter) == 0);
-        CHECK(boxrig_win32_input_adapter_composition_commit_utf16(adapter, committed, 2) == 0);
-        const WPARAM keys[] = {VK_UP, VK_RETURN};
-        LRESULT result;
-        for (unsigned index = 0; index < 2; index++) {
-            CHECK(boxrig_win32_input_adapter_process_message(adapter, WM_KEYDOWN,
-                      keys[index], key_parameter(keys[index], false, false), &result) == 1);
-            CHECK(boxrig_win32_input_adapter_process_message(adapter, WM_KEYUP,
-                      keys[index], key_parameter(keys[index], false, true), &result) == 1);
-        }
-        CHECK(boxrig_win32_input_adapter_queue_paste(adapter, (const uint8_t *)"日本\n", 7) == 0);
-
-        const uint8_t utf8_expected[] = "日本\033U\0\n日本\r\n";
-        const uint8_t sjis_expected[] = "\x93\xfa\x96\x7b\033U\0\n\x93\xfa\x96\x7b\r\n";
-        const uint8_t *expected = encoding ? sjis_expected : utf8_expected;
-        size_t length = encoding ? sizeof(sjis_expected) - 1 : sizeof(utf8_expected) - 1;
-        const uint8_t *output;
-        CHECK(boxrig_terminal_output_peek(terminal, &output) == length);
-        CHECK(memcmp(output, expected, length) == 0);
-
-        boxrig_win32_input_adapter_destroy(adapter);
-        boxrig_terminal_destroy(terminal);
+    boxrig_win32_input_adapter *adapter = NULL;
+    CHECK(boxrig_win32_input_adapter_create(window, terminal,
+              10, 20, 1024, config.output_capacity, &adapter) == 0);
+    const WCHAR committed[] = {0x65e5, 0x672c};
+    CHECK(boxrig_win32_input_adapter_composition_start(adapter) == 0);
+    CHECK(boxrig_win32_input_adapter_composition_commit_utf16(adapter, committed, 2) == 0);
+    const WPARAM keys[] = {VK_UP, VK_RETURN};
+    LRESULT result;
+    for (unsigned index = 0; index < 2; index++) {
+        CHECK(boxrig_win32_input_adapter_process_message(adapter, WM_KEYDOWN,
+                  keys[index], key_parameter(keys[index], false, false), &result) == 1);
+        CHECK(boxrig_win32_input_adapter_process_message(adapter, WM_KEYUP,
+                  keys[index], key_parameter(keys[index], false, true), &result) == 1);
     }
+    CHECK(boxrig_win32_input_adapter_queue_paste(adapter, (const uint8_t *)"日本\n", 7) == 0);
+
+    const uint8_t expected[] = "日本\033U\0\n日本\r\n";
+    size_t length = sizeof(expected) - 1;
+    const uint8_t *output;
+    CHECK(boxrig_terminal_output_peek(terminal, &output) == length);
+    CHECK(memcmp(output, expected, length) == 0);
+
+    boxrig_win32_input_adapter_destroy(adapter);
+    boxrig_terminal_destroy(terminal);
     CHECK(DestroyWindow(window));
     return true;
 }
@@ -4326,7 +4321,7 @@ int wmain(int argc, wchar_t **argv)
 {
     if (argc == 2 && wcscmp(argv[1], L"--terminal-io-only") == 0) {
         if (!test_terminal_io_configuration()) return 1;
-        puts("PASS native Win32 UTF-8/Shift_JIS IME, key and paste settings");
+        puts("PASS native Win32 UTF-8 IME, key and paste settings");
         return 0;
     }
     static const struct {
@@ -4334,7 +4329,7 @@ int wmain(int argc, wchar_t **argv)
         bool (*run)(void);
     } tests[] = {
         {"input inhibition cancels native generations and completes paste", test_input_inhibition},
-        {"terminal UTF-8/Shift_JIS IME, key and paste settings", test_terminal_io_configuration},
+        {"terminal UTF-8 IME, key and paste settings", test_terminal_io_configuration},
         {"application key routing captures the key series",
          test_application_key_routing_captures_the_key_series},
         {"key identity preserves PC-101 base layout",

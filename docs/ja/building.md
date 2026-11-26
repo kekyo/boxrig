@@ -41,7 +41,7 @@ Makefileが参照する主な開発環境は次のとおりです。
 不要なUIをリンクしない場合でも、pkg-configの不足メッセージが出ることがあります。
 まず、導入する構成と実行したターゲットを確認してください。
 
-coreにはUnicode処理のutf8proc、PNG画像のlibpngとzlibを同梱し、`libboxrig.a`へ組み込みます。
+既定のcoreにはUnicode処理のutf8proc、PNG画像のlibpngとzlibを同梱し、`libboxrig.a`へ組み込みます。
 coreだけを使うアプリケーションには、X11やGTKをリンクする必要はありません。
 UIのビルド・実行に必要なシステムライブラリは、上の表で環境ごとに確認してください。
 
@@ -75,7 +75,7 @@ Windowsを使用しない場合は`native`を指定してください。
 
 | 必要な成果物 | コマンド | 主な出力先 |
 | --- | --- | --- |
-| coreだけ | `make build/libboxrig.a` | `build/libboxrig.a` |
+| coreだけ | `make core` | `build/libboxrig.a` |
 | GTK 3のデモ | `make boxrig-term-gtk3` | `build/boxrig_term/gtk3/boxrig_term` |
 | GTK 4のデモ | `make boxrig-term-gtk4` | `build/boxrig_term/gtk4/boxrig_term` |
 | native Waylandのデモ | `make boxrig-term-wayland` | `build/boxrig_term/wayland/boxrig_term` |
@@ -235,6 +235,7 @@ make install-gtk4 PREFIX="$PWD/build/sdk-gtk4"
 
 | 使用する構成 | インストールターゲット | pkg-config名 |
 | --- | --- | --- |
+| coreの静的ライブラリのみ | `install-core` | `lib/libboxrig.a`を直接指定 |
 | GTK 3 | `install-gtk3` | `boxrig-gtk3` |
 | GTK 4 | `install-gtk4` | `boxrig-gtk4` |
 | native Wayland | `install-wayland` | `boxrig-wayland` |
@@ -287,6 +288,34 @@ OS付属ConPTYにも追加のDLLやEXEは不要ですが、任意のboxrig DLL�
 [ConPTYの配布ファイル](../../deps/conpty/README.md)を確認してください。
 
 ## 任意機能を選ぶ
+
+### coreの機能を選ぶ
+
+`make core`で端末本体の静的ライブラリを作れます。利用できる定義と既定値は設定ヘッダーにあります。既定の端末はUnicodeを扱い、すべての端末機能を使えます。[設定ヘッダー](../../include/boxrig/config.h)
+
+例えば、Unicode表示と拡張VT制御を使い、画像処理とlibpngを省いた端末をビルドできます。
+
+```sh
+make core BUILD_DIR=build/text-terminal CPPFLAGS='-DBOXRIG_FEATURE_KITTY_GRAPHICS=0'
+```
+
+| 定義（接頭辞は`BOXRIG_FEATURE_`） | 選べる内容 |
+| --- | --- |
+| `ENCODING_HOOKS` | `1`で外部の文字コード変換器を登録できます。既定値はどちらのセル形式でも`1`です。[文字コードと生バイト](./terminal-io.md#文字コードと生バイト) |
+| `KITTY_GRAPHICS` | `0`で画像の処理とlibpngを省けます。 |
+| `TEXT_MONITOR`、`TEXT_RECOGNIZER` | 文字列の出現監視とパターン認識を個別に選べます。Unicode構成では、両方を`0`にしても通常の検索が使えます。 |
+| `HISTORY_DEFLATE`、`CHECKPOINT` | 履歴の圧縮と端末状態の保存・復元を個別に選べます。この2つと画像を`0`にするとzlibを省けます。保持する履歴の行数は生成時の`scrollback_capacity`で指定します。 |
+| `ALT_SCREEN` | `0`で主画面だけを確保します。 |
+| `EXTENDED_VT`、`LOG_CURSOR` | `EXTENDED_VT=0`で、復帰・改行・後退・タブ、折り返し、スクロール、16色、行消去を使うログ表示になります。`LOG_CURSOR=1`を加えるとカーソルの移動・表示切り替えと画面消去も使えます。 |
+| `COMPACT_CELLS` | `1`で1セルをASCII文字1バイトと前景・背景色各4ビットで保持します。セルに書く文字がASCIIの範囲外なら、符号位置1個につき1列の`?`になります。多言語の本文や絵文字を表示する場合は既定のUnicodeセルを使います。 |
+
+小型セルは履歴のない単画面のcore用です。画像、文字監視・認識、履歴圧縮、チェックポイント、代替画面、拡張VTの既定値が`0`になります。描画側は`boxrig_terminal_take_dirty()`で変更範囲を取得し、`boxrig_terminal_get_cell()`で任意のセルを読み直せます。小型セルで画面サイズを変えると、左上を基準に重なる範囲が残ります。
+
+配布時は上と同じ`BUILD_DIR`と`CPPFLAGS`を指定して`make install-core`を実行してください。インストール先の`boxrig/config.h`には確定した設定が入ります。SDKを使うアプリは、このヘッダーで利用できるAPIを判定できます。構成ごとのコード・定数のサイズと初期ヒープは、同じドライバーで比較できます。[coreの機能選択とサイズの実測値](./core-features.md#構成別のコードサイズとメモリ使用量)
+
+配布先でSDKをソースから作る場合は、ビルドホストで同じ`CPPFLAGS`を使って`make package-codegen`を実行できます。生成された`$(BUILD_DIR)/generated/include/boxrig/config.h`を同梱し、配布先のMakeに`BOXRIG_PREGENERATED_CONFIG`でそのパスを渡すと、ライブラリとSDKが同じ設定になります。
+
+### GUIの描画方式を選ぶ
 
 GTKの既定ビルドはCairoとOpenGLの両方を含みます。
 Cairoだけの構成は次のように作ります。

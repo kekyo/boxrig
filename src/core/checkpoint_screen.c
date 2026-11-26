@@ -199,6 +199,7 @@ void boxrig_checkpoint_screen(boxrig_checkpoint_io *io, boxrig_terminal *termina
     boxrig_cp_bool(io, &screen->synchronized_output_deadline_set);
     boxrig_cp_u64(io, &screen->synchronized_output_deadline_milliseconds);
     boxrig_cp_bool(io, &screen->alternate_active);
+    if (!BOXRIG_FEATURE_ALT_SCREEN && screen->alternate_active) boxrig_cp_fail(io);
     boxrig_cp_u64(io, &screen->active_buffer_revision);
     boxrig_cp_u64(io, &screen->text_epoch);
     boxrig_cp_u64(io, &screen->next_text_line_serial);
@@ -236,7 +237,9 @@ void boxrig_checkpoint_screen(boxrig_checkpoint_io *io, boxrig_terminal *termina
     for (size_t i = 0; i < columns && io->status == BOXRIG_STATUS_OK; i++)
         boxrig_cp_bool(io, &screen->tab_stops[i]);
     buffer(io, terminal, &screen->primary);
+#if BOXRIG_FEATURE_ALT_SCREEN
     buffer(io, terminal, &screen->alternate);
+#endif
     if (io->reading) {
         screen->active = screen->alternate_active ? &screen->alternate : &screen->primary;
         screen->grapheme_buffer = screen->grapheme_active ? screen->active : NULL;

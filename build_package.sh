@@ -95,7 +95,7 @@ if [ -n "$selected" ]; then
     tar -cf "$snapshot" --exclude='./build' --exclude='./artifacts' \
         --exclude='.git' --exclude='node_modules' -C "$repository" .
     tar -rf "$snapshot" -C "$repository" build/tools/codegen \
-        build/generated/licenses/Wayland-protocols-NOTICES.md build/generated/pkgconfig
+        build/generated/licenses/Wayland-protocols-NOTICES.md build/generated/include build/generated/pkgconfig
     while read -r distro release arch platform; do
         image=$(package_image "$distro" "$release" "$arch")
         name="boxrig-$version-linux-$distro-$release-$arch"

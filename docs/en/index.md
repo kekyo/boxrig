@@ -16,6 +16,7 @@ Try the examples in [Getting started](./getting-started.md), then build a small 
 | [README](../../README.md) | What boxrig can do, with short code examples |
 | [Getting started](./getting-started.md) | Choosing a configuration and running examples |
 | [Building and installing](./building.md) | Sources, dependencies, SDKs, and linking |
+| [Choose core features and compare sizes](./core-features.md) | Compile-time features, linked code size, and memory use by configuration |
 | [Basic concepts](./architecture.md) | The roles of core, UI, communication, and your application |
 
 ## Adding features
@@ -27,6 +28,7 @@ Each guide presents the feature and a code example before explaining its setting
 | Document | What it covers |
 | --- | --- |
 | [Terminal I/O settings](./terminal-io.md) | Newlines, key sequences, and character encodings |
+| [Encoding converters](./encoding-hooks.md) | Conversion scope, C99 registration, logs, raw bytes, and changing encodings mid-connection |
 | [Retrieving, selecting, and searching text](./text.md) | Text extraction, exact search, monitoring, and recognition |
 | [Regular expressions for arbitrary text](./regex.md) | UTF-8 matching, diagnostics, and resumable execution without a terminal |
 | [Input and IME](./input-ime.md) | Preedit, candidates, and editing application-owned documents |

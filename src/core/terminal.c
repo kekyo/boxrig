@@ -112,6 +112,7 @@ bool boxrig_terminal_reset_dynamic_color(
     return changed;
 }
 
+#if BOXRIG_FEATURE_KITTY_GRAPHICS
 static bool graphics_config_valid(const boxrig_terminal_config *config)
 {
     bool storage_zero = config->graphics_storage_capacity == 0;
@@ -138,22 +139,24 @@ static bool graphics_config_valid(const boxrig_terminal_config *config)
                SIZE_MAX / sizeof(boxrig_image_placement_view) &&
            config->graphics_frame_capacity <= SIZE_MAX / sizeof(void *);
 }
+#endif
 
 boxrig_terminal_config boxrig_terminal_config_default(void)
 {
-    boxrig_terminal_config config;
+    boxrig_terminal_config config = {0};
 
     config.rows = 24;
     config.columns = 80;
     config.host_item_capacity = 64;
     config.host_payload_capacity = 1024 * 1024;
     config.output_capacity = 64 * 1024;
-    config.control_string_capacity = 1024 * 1024;
+    config.control_string_capacity = BOXRIG_FEATURE_EXTENDED_VT ? 1024 * 1024 : 4096;
     config.hyperlink_capacity = 1024 * 1024;
     config.clipboard_capacity = 32 * 1024;
-    config.notification_capacity = 32 * 1024;
-    config.notification_pending_capacity = 16;
+    config.notification_capacity = BOXRIG_FEATURE_EXTENDED_VT ? 32 * 1024 : 0;
+    config.notification_pending_capacity = BOXRIG_FEATURE_EXTENDED_VT ? 16 : 0;
     config.scrollback_capacity = 10000;
+#if BOXRIG_FEATURE_TEXT_MONITOR
     config.text_monitor_capacity = 32;
     config.text_monitor_pattern_capacity = 256u * 1024u;
     config.text_monitor_snapshot_byte_capacity = 8u * 1024u * 1024u;
@@ -162,9 +165,13 @@ boxrig_terminal_config boxrig_terminal_config_default(void)
     config.text_monitor_event_capacity = 4096;
     config.text_monitor_change_byte_capacity = 1024u * 1024u;
     config.text_monitor_change_line_capacity = 4096;
+#endif
+#if BOXRIG_FEATURE_TEXT_RECOGNIZER
     config.text_recognizer_capacity = 32u;
     config.text_recognizer_pattern_capacity = 256u * 1024u;
     config.text_recognizer_event_capacity = 4096u;
+#endif
+#if BOXRIG_FEATURE_KITTY_GRAPHICS
     config.graphics_storage_capacity = 128u * 1024u * 1024u;
     config.graphics_decode_capacity = 192u * 1024u * 1024u;
     config.graphics_image_capacity = 4096;
@@ -172,13 +179,13 @@ boxrig_terminal_config boxrig_terminal_config_default(void)
     config.graphics_transport_name_capacity = 4u * 1024u;
     config.graphics_animation_storage_capacity = 640u * 1024u * 1024u;
     config.graphics_frame_capacity = 16384;
+#endif
     config.ambiguous_width = BOXRIG_AMBIGUOUS_WIDTH_NARROW;
     config.emoji_variation_width = BOXRIG_EMOJI_VARIATION_WIDTH_PRESERVE;
     config.cursor_column_mode = BOXRIG_CURSOR_COLUMN_MODE_TERMINAL;
     config.input = boxrig_input_config_default();
     config.paste_newline = BOXRIG_NEWLINE_LF;
     config.receive_newline = BOXRIG_RECEIVE_NEWLINE_TERMINAL;
-    config.encoding = BOXRIG_ENCODING_UTF8;
     return config;
 }
 
@@ -200,13 +207,16 @@ boxrig_status boxrig_terminal_create(
         (config->notification_capacity != 0 &&
          config->notification_capacity >
              SIZE_MAX / config->notification_pending_capacity) ||
+#if BOXRIG_FEATURE_TEXT_RECOGNIZER
         config->text_recognizer_capacity == 0u ||
         config->text_recognizer_pattern_capacity == 0u ||
         config->text_recognizer_event_capacity == 0u ||
         config->text_recognizer_capacity >
             SIZE_MAX / sizeof(boxrig_text_recognizer_state *) ||
+#endif
+#if BOXRIG_FEATURE_KITTY_GRAPHICS
         !graphics_config_valid(config) ||
-        (unsigned int)config->encoding > (unsigned int)BOXRIG_ENCODING_SHIFT_JIS ||
+#endif
         (unsigned int)config->paste_newline > BOXRIG_NEWLINE_CRLF ||
         (unsigned int)config->receive_newline > BOXRIG_RECEIVE_NEWLINE_CRLF ||
         (config->ambiguous_width != BOXRIG_AMBIGUOUS_WIDTH_NARROW &&
@@ -233,9 +243,9 @@ boxrig_status boxrig_terminal_create(
     terminal->pending_requests = calloc(
         config->host_item_capacity,
         sizeof(*terminal->pending_requests));
-    terminal->osc_buffer = malloc(config->control_string_capacity);
+    if (BOXRIG_FEATURE_EXTENDED_VT) terminal->osc_buffer = malloc(config->control_string_capacity);
     if (terminal->host_items == NULL || terminal->pending_requests == NULL ||
-        terminal->osc_buffer == NULL) {
+        (BOXRIG_FEATURE_EXTENDED_VT && terminal->osc_buffer == NULL)) {
         boxrig_terminal_destroy(terminal);
         return BOXRIG_STATUS_OUT_OF_MEMORY;
     }
@@ -250,13 +260,14 @@ boxrig_status boxrig_terminal_create(
     terminal->output_capacity = config->output_capacity;
     terminal->paste_newline = config->paste_newline;
     terminal->receive_newline = config->receive_newline;
-    terminal->encoding = config->encoding;
     terminal->next_request_id = 1;
     terminal->next_text_search_result_id = 1;
     initialize_colors(terminal);
     boxrig_dcs_reset(&terminal->dcs);
+#if BOXRIG_FEATURE_KITTY_GRAPHICS
     boxrig_kitty_graphics_initialize(&terminal->graphics);
     boxrig_kitty_graphics_protocol_initialize(terminal, config);
+#endif
     boxrig_input_reset(&terminal->input);
     status = boxrig_notification_initialize(terminal);
     if (status != BOXRIG_STATUS_OK) {
@@ -276,6 +287,7 @@ boxrig_status boxrig_terminal_create(
         return status;
     }
     terminal->screen.owner = terminal;
+#if BOXRIG_FEATURE_KITTY_GRAPHICS
     terminal->screen.graphics_sink.scroll_will_change =
         boxrig_kitty_graphics_screen_scroll_will_change;
     terminal->screen.graphics_sink.scroll_did_change =
@@ -292,16 +304,21 @@ boxrig_status boxrig_terminal_create(
         boxrig_kitty_graphics_screen_buffer_did_switch;
     terminal->screen.graphics_sink.buffer_reset =
         boxrig_kitty_graphics_screen_buffer_reset;
+#endif
+#if BOXRIG_FEATURE_TEXT_MONITOR
     status = boxrig_text_monitor_initialize(terminal, config);
     if (status != BOXRIG_STATUS_OK) {
         boxrig_terminal_destroy(terminal);
         return status;
     }
+#endif
+#if BOXRIG_FEATURE_TEXT_RECOGNIZER
     status = boxrig_text_recognizer_initialize(terminal, config);
     if (status != BOXRIG_STATUS_OK) {
         boxrig_terminal_destroy(terminal);
         return status;
     }
+#endif
     actions = boxrig_interpreter_actions(terminal);
     memset(&terminal->decoder, 0, sizeof(terminal->decoder));
     boxrig_parser_initialize(
@@ -325,11 +342,17 @@ void boxrig_terminal_destroy(boxrig_terminal *terminal)
     }
     free((void *)terminal->input_config.key_mappings);
     boxrig_dcs_reset(&terminal->dcs);
+#if BOXRIG_FEATURE_KITTY_GRAPHICS
     boxrig_kitty_graphics_reset(&terminal->graphics);
     boxrig_kitty_graphics_protocol_destroy(terminal);
+#endif
     boxrig_notification_destroy(terminal);
+#if BOXRIG_FEATURE_TEXT_RECOGNIZER
     boxrig_text_recognizer_destroy(terminal);
+#endif
+#if BOXRIG_FEATURE_TEXT_MONITOR
     boxrig_text_monitor_destroy(terminal);
+#endif
     boxrig_screen_destroy(&terminal->screen);
     for (index = 0; index < terminal->hyperlink_slot_count; index++) {
         free(terminal->hyperlinks[index].id);
@@ -346,6 +369,9 @@ void boxrig_terminal_destroy(boxrig_terminal *terminal)
         free(segment);
         segment = next;
     }
+#if BOXRIG_FEATURE_ENCODING_HOOKS
+    free(terminal->decoded_bytes);
+#endif
     free(terminal->osc_buffer);
     free(terminal->host_items);
     free(terminal->pending_requests);
@@ -368,7 +394,7 @@ boxrig_emoji_variation_width boxrig_terminal_emoji_variation_width(
 static boxrig_status font_widths_changed(const boxrig_screen *screen, bool *changed_out)
 {
     *changed_out = false;
-    for (size_t row = 0; row < screen->history_count + screen->rows * 2; row++) {
+    for (size_t row = 0; row < screen->history_count + screen->rows * (1 + BOXRIG_FEATURE_ALT_SCREEN); row++) {
         bool primary = row < screen->history_count + screen->rows;
         size_t fragment = primary ? row : row - screen->history_count - screen->rows;
         for (size_t column = 0; column < screen->columns; column++) {
@@ -436,33 +462,6 @@ boxrig_status boxrig_terminal_measure_text_cluster(
         measurement_out);
 }
 
-boxrig_status boxrig_terminal_feed(
-    boxrig_terminal *terminal,
-    const uint8_t *bytes,
-    size_t length,
-    size_t *consumed_out)
-{
-    boxrig_status status;
-
-    if (terminal == NULL || consumed_out == NULL ||
-        (bytes == NULL && length != 0)) {
-        return BOXRIG_STATUS_INVALID_ARGUMENT;
-    }
-    *consumed_out = 0;
-    if (length == 0) {
-        return BOXRIG_STATUS_OK;
-    }
-    status = boxrig_parser_feed(
-        &terminal->parser,
-        bytes,
-        length,
-        consumed_out);
-    boxrig_screen_pack_pending_history(&terminal->screen);
-    boxrig_kitty_graphics_refresh_placeholders(terminal);
-    boxrig_screen_text_sync(&terminal->screen);
-    return status;
-}
-
 boxrig_status boxrig_terminal_resize(
     boxrig_terminal *terminal,
     size_t rows,
@@ -479,10 +478,14 @@ boxrig_status boxrig_terminal_resize(
             terminal->screen.font_width_resolver != NULL &&
             (rows != terminal->screen.rows || columns != terminal->screen.columns))
             terminal->screen.remeasure_widths = true;
+#if BOXRIG_FEATURE_KITTY_GRAPHICS
         boxrig_status status = boxrig_kitty_graphics_protocol_resize(
             terminal,
             rows,
             columns);
+#else
+        boxrig_status status = boxrig_screen_resize(&terminal->screen, rows, columns);
+#endif
 
         terminal->screen.remeasure_widths = remeasuring;
         boxrig_text_monitor_end_mutation(terminal);
@@ -576,10 +579,14 @@ boxrig_status boxrig_terminal_set_viewport_offset(
         return BOXRIG_STATUS_INVALID_ARGUMENT;
     }
     if (terminal->screen.viewport_offset != row_offset) {
+#if BOXRIG_FEATURE_KITTY_GRAPHICS
         boxrig_kitty_graphics_viewport_will_change(terminal);
+#endif
         boxrig_screen_change_history_view(&terminal->screen, row_offset);
         terminal->screen.viewport_anchor_column = 0;
+#if BOXRIG_FEATURE_KITTY_GRAPHICS
         boxrig_kitty_graphics_viewport_did_change(terminal);
+#endif
         boxrig_screen_mark_all(&terminal->screen);
     }
     return BOXRIG_STATUS_OK;
@@ -610,12 +617,15 @@ static boxrig_status describe_cell(
     const boxrig_cell *cell,
     boxrig_cell_view *cell_out)
 {
+#if BOXRIG_FEATURE_KITTY_GRAPHICS
     if (terminal->graphics_protocol.enabled && !cell->continuation &&
         cell->text_length >= 4 && boxrig_cell_text(cell) != NULL &&
         memcmp(boxrig_cell_text(cell), "\xf4\x8e\xbb\xae", 4) == 0) {
         cell_out->text = " ";
         cell_out->text_length = 1;
-    } else if (cell->text_length == 0 && !cell->continuation) {
+    } else
+#endif
+    if (cell->text_length == 0 && !cell->continuation) {
         cell_out->text = " ";
         cell_out->text_length = 1;
     } else {
@@ -1286,6 +1296,9 @@ boxrig_status boxrig_terminal_queue_clipboard_request(
         return BOXRIG_STATUS_INVALID_ARGUMENT;
     }
     if (read) {
+#if BOXRIG_FEATURE_ENCODING_HOOKS
+        if (boxrig_encoding_barrier_pending(terminal)) return BOXRIG_STATUS_WOULD_BLOCK;
+#endif
         if (response_reservation > terminal->output_capacity) {
             return BOXRIG_STATUS_LIMIT_EXCEEDED;
         }
@@ -1366,6 +1379,9 @@ boxrig_status boxrig_terminal_queue_graphics_request(
             terminal->output_capacity - terminal->output_usage) {
         return BOXRIG_STATUS_WOULD_BLOCK;
     }
+#if BOXRIG_FEATURE_ENCODING_HOOKS
+    if (response_reservation && boxrig_encoding_barrier_pending(terminal)) return BOXRIG_STATUS_WOULD_BLOCK;
+#endif
     name_copy = malloc(transport->name_length);
     if (name_copy == NULL) {
         return BOXRIG_STATUS_OUT_OF_MEMORY;
@@ -1477,6 +1493,10 @@ boxrig_status boxrig_terminal_resolve_graphics_barrier(
         return response_length == 0 ? BOXRIG_STATUS_OK
                                     : BOXRIG_STATUS_INVALID_ARGUMENT;
     }
+#if BOXRIG_FEATURE_ENCODING_HOOKS
+    if (response_length && terminal->encoding_hooks.mode == BOXRIG_ENCODING_STREAM)
+        return boxrig_encoding_resolve_barrier(terminal, barrier, response, response_length);
+#endif
     if (response_length > barrier->reservation) {
         return BOXRIG_STATUS_LIMIT_EXCEEDED;
     }
@@ -1670,6 +1690,13 @@ static boxrig_status resolve_clipboard_barrier(
         response[offset] = 0x1b;
         response[offset + 1] = (uint8_t)'\\';
     }
+#if BOXRIG_FEATURE_ENCODING_HOOKS
+    if (terminal->encoding_hooks.mode == BOXRIG_ENCODING_STREAM) {
+        boxrig_status status = boxrig_encoding_resolve_barrier(terminal, barrier, response, response_length);
+        free(response);
+        return status;
+    }
+#endif
     terminal->output_usage -= barrier->reservation;
     terminal->output_usage += response_length;
     barrier->kind = BOXRIG_OUTPUT_SEGMENT_DATA;
@@ -1726,6 +1753,7 @@ boxrig_status boxrig_terminal_complete_host_request(
         if (status != BOXRIG_STATUS_OK) {
             return status;
         }
+#if BOXRIG_FEATURE_KITTY_GRAPHICS
     } else if (pending->type == BOXRIG_HOST_ITEM_GRAPHICS_DATA) {
         if (result != BOXRIG_HOST_REQUEST_SUCCESS && payload_length != 0) {
             return BOXRIG_STATUS_INVALID_ARGUMENT;
@@ -1739,6 +1767,7 @@ boxrig_status boxrig_terminal_complete_host_request(
         if (status != BOXRIG_STATUS_OK) {
             return status;
         }
+#endif
     } else {
         return BOXRIG_STATUS_INVALID_ARGUMENT;
     }
@@ -1783,11 +1812,13 @@ boxrig_status boxrig_terminal_host_item_consume(boxrig_terminal *terminal)
         terminal->pending_requests[pending_index].type = entry->item.type;
         terminal->pending_requests[pending_index].active = true;
         terminal->pending_request_count++;
+#if BOXRIG_FEATURE_KITTY_GRAPHICS
         if (entry->item.type == BOXRIG_HOST_ITEM_GRAPHICS_DATA) {
             boxrig_kitty_graphics_protocol_host_item_consumed(
                 terminal,
                 entry->item.request_id);
         }
+#endif
     }
     terminal->host_payload_length -= entry->payload_storage_length;
     free(entry->payload_storage);
@@ -1795,148 +1826,5 @@ boxrig_status boxrig_terminal_host_item_consume(boxrig_terminal *terminal)
     terminal->host_item_head =
         (terminal->host_item_head + 1) % terminal->host_item_capacity;
     terminal->host_item_count--;
-    return BOXRIG_STATUS_OK;
-}
-
-boxrig_status boxrig_terminal_append_output(
-    boxrig_terminal *terminal,
-    const uint8_t *bytes,
-    size_t length)
-{
-    boxrig_output_segment *segment;
-    uint8_t *copy;
-
-    if (length == 0) {
-        return BOXRIG_STATUS_OK;
-    }
-    if (length > terminal->output_capacity) {
-        return BOXRIG_STATUS_LIMIT_EXCEEDED;
-    }
-    if (length > terminal->output_capacity - terminal->output_usage) {
-        return BOXRIG_STATUS_WOULD_BLOCK;
-    }
-    if (terminal->output_tail != NULL &&
-        terminal->output_tail->kind == BOXRIG_OUTPUT_SEGMENT_DATA) {
-        size_t retained = terminal->output_tail->length -
-                          terminal->output_tail->offset;
-
-        copy = malloc(retained + length);
-        if (copy == NULL) {
-            return BOXRIG_STATUS_OUT_OF_MEMORY;
-        }
-        memcpy(
-            copy,
-            terminal->output_tail->bytes + terminal->output_tail->offset,
-            retained);
-        memcpy(copy + retained, bytes, length);
-        free(terminal->output_tail->bytes);
-        terminal->output_tail->bytes = copy;
-        terminal->output_tail->length = retained + length;
-        terminal->output_tail->offset = 0;
-        terminal->output_usage += length;
-        return BOXRIG_STATUS_OK;
-    }
-    segment = calloc(1, sizeof(*segment));
-    copy = malloc(length);
-    if (segment == NULL || copy == NULL) {
-        free(copy);
-        free(segment);
-        return BOXRIG_STATUS_OUT_OF_MEMORY;
-    }
-    memcpy(copy, bytes, length);
-    segment->kind = BOXRIG_OUTPUT_SEGMENT_DATA;
-    segment->bytes = copy;
-    segment->length = length;
-    if (terminal->output_tail == NULL) {
-        terminal->output_head = segment;
-    } else {
-        terminal->output_tail->next = segment;
-    }
-    terminal->output_tail = segment;
-    terminal->output_usage += length;
-    return BOXRIG_STATUS_OK;
-}
-
-
-boxrig_status boxrig_terminal_finish_input(boxrig_terminal *terminal)
-{
-    if (terminal == NULL) return BOXRIG_STATUS_INVALID_ARGUMENT;
-    boxrig_status status = boxrig_parser_finish(&terminal->parser);
-    boxrig_screen_pack_pending_history(&terminal->screen);
-    boxrig_history_seal_tail(&terminal->screen);
-    boxrig_kitty_graphics_refresh_placeholders(terminal);
-    boxrig_screen_text_sync(&terminal->screen);
-    return status;
-}
-
-boxrig_status boxrig_terminal_send_bytes(
-    boxrig_terminal *terminal, const uint8_t *bytes, size_t length)
-{
-    if (terminal == NULL || (bytes == NULL && length != 0))
-        return BOXRIG_STATUS_INVALID_ARGUMENT;
-    return boxrig_terminal_append_output(terminal, bytes, length);
-}
-
-boxrig_status boxrig_terminal_send_text(
-    boxrig_terminal *terminal,
-    const char *text,
-    size_t length)
-{
-    if (terminal == NULL || (text == NULL && length != 0)) {
-        return BOXRIG_STATUS_INVALID_ARGUMENT;
-    }
-    return boxrig_terminal_append_encoded_text(
-        terminal,
-        (const uint8_t *)text,
-        length, BOXRIG_NEWLINE_LF, false, false, false);
-}
-
-size_t boxrig_terminal_output_peek(
-    const boxrig_terminal *terminal,
-    const uint8_t **bytes_out)
-{
-    if (terminal == NULL || bytes_out == NULL) {
-        return 0;
-    }
-    *bytes_out = NULL;
-    if (terminal->output_head == NULL ||
-        terminal->output_head->kind == BOXRIG_OUTPUT_SEGMENT_BARRIER) {
-        return 0;
-    }
-    *bytes_out = terminal->output_head->bytes + terminal->output_head->offset;
-    return terminal->output_head->length - terminal->output_head->offset;
-}
-
-boxrig_status boxrig_terminal_output_consume(
-    boxrig_terminal *terminal,
-    size_t length)
-{
-    boxrig_output_segment *segment;
-    size_t available;
-
-    if (terminal == NULL) {
-        return BOXRIG_STATUS_INVALID_ARGUMENT;
-    }
-    if (length == 0) {
-        return BOXRIG_STATUS_OK;
-    }
-    segment = terminal->output_head;
-    if (segment == NULL || segment->kind != BOXRIG_OUTPUT_SEGMENT_DATA) {
-        return BOXRIG_STATUS_INVALID_ARGUMENT;
-    }
-    available = segment->length - segment->offset;
-    if (length > available) {
-        return BOXRIG_STATUS_INVALID_ARGUMENT;
-    }
-    segment->offset += length;
-    terminal->output_usage -= length;
-    if (segment->offset == segment->length) {
-        terminal->output_head = segment->next;
-        if (terminal->output_head == NULL) {
-            terminal->output_tail = NULL;
-        }
-        free(segment->bytes);
-        free(segment);
-    }
     return BOXRIG_STATUS_OK;
 }

@@ -1,0 +1,21 @@
+BOXRIG_0 {
+    global:
+        boxrig_encoding_reserv[e];
+        boxrig_terminal_*encoding_*;
+        boxrig_terminal_config_default;
+        boxrig_terminal_create;
+        boxrig_terminal_destroy;
+        boxrig_terminal_feed;
+        boxrig_terminal_finish_input;
+        boxrig_terminal_get_cell;
+        boxrig_terminal_get_cursor;
+        boxrig_terminal_invalidate;
+        boxrig_terminal_output_consume;
+        boxrig_terminal_output_peek;
+        boxrig_terminal_resize;
+        boxrig_terminal_send_bytes;
+        boxrig_terminal_send_text;
+        boxrig_terminal_size;
+        boxrig_terminal_take_dirty;
+    local: *;
+};

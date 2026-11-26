@@ -14,7 +14,9 @@ Header comments at each link specify the individual API contracts.
 
 | Purpose | Public header | Guide |
 | --- | --- | --- |
+| Core feature selection and installed SDK settings | [config.h](../../../include/boxrig/config.h) | [Feature definitions and defaults](../core-features.md#feature-definitions-and-defaults) |
 | Terminal creation, parsing, cells, history, output, and host requests | [terminal.h](../../../include/boxrig/terminal.h) | [Core step-by-step](../step-by-step/step-by-step-core.md) |
+| Encoding converters, output reservations, and decoded receive notifications | [terminal.h](../../../include/boxrig/terminal.h) | [Register and switch converters](../encoding-hooks.md) |
 | Text, selection, search, monitoring, recognition, images, and time | [terminal.h](../../../include/boxrig/terminal.h) | [Text](../text.md), [Graphics specification](./graphics.md) |
 | Regular expressions, captures, and name validation before matching | [regex.h](../../../include/boxrig/regex.h) | [Regular expressions](../regex.md) |
 | Nonblocking communication sessions | [session.h](../../../include/boxrig/session.h) | [Sessions](../sessions.md) |

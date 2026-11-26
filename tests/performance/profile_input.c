@@ -75,13 +75,13 @@ size_t __wrap_boxrig_screen_put_ascii_run(boxrig_screen *screen, const uint8_t *
     return placed;
 }
 
-boxrig_status __real_boxrig_codec_decoder_put(boxrig_codec_decoder *, boxrig_encoding,
+boxrig_status __real_boxrig_unicode_decoder_put(boxrig_unicode_decoder *,
     uint8_t, boxrig_unicode_emit, void *);
-boxrig_status __wrap_boxrig_codec_decoder_put(boxrig_codec_decoder *decoder,
-    boxrig_encoding encoding, uint8_t byte, boxrig_unicode_emit emit, void *context)
+boxrig_status __wrap_boxrig_unicode_decoder_put(boxrig_unicode_decoder *decoder,
+    uint8_t byte, boxrig_unicode_emit emit, void *context)
 {
     if (allocation_tracking) decoded_bytes++;
-    return __real_boxrig_codec_decoder_put(decoder, encoding, byte, emit, context);
+    return __real_boxrig_unicode_decoder_put(decoder, byte, emit, context);
 }
 
 boxrig_status __real_boxrig_screen_put_codepoint(boxrig_screen *, int32_t);

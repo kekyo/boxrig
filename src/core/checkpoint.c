@@ -7,16 +7,29 @@
 
 /* The eight-byte signature includes the incompatible wire-format version.
  * A little-endian CRC-32 of the entire payload follows the payload. */
-static const uint8_t signature[8] = { 'B', 'O', 'X', 'R', 'I', 'G', 1, 0 };
+static const uint8_t signature[8] = { 'B', 'O', 'X', 'R', 'I', 'G', 2,
+    BOXRIG_FEATURE_ALT_SCREEN | (BOXRIG_FEATURE_KITTY_GRAPHICS << 1) |
+    (BOXRIG_FEATURE_HISTORY_DEFLATE << 2) | (BOXRIG_FEATURE_EXTENDED_VT << 3) |
+    (BOXRIG_FEATURE_TEXT_MONITOR << 4) | (BOXRIG_FEATURE_TEXT_RECOGNIZER << 5) |
+    ((!BOXRIG_FEATURE_EXTENDED_VT && BOXRIG_FEATURE_LOG_CURSOR) << 6) };
 
 static boxrig_status capture_config(const boxrig_terminal *t, boxrig_terminal_config *cfg)
 {
-    if (t->host_item_count || t->pending_request_count || t->graphics.active ||
-        !boxrig_notification_checkpoint_ready(t) ||
-        !boxrig_monitor_checkpoint_config(t, cfg) ||
-        !boxrig_recognizer_checkpoint_config(t, cfg)) return BOXRIG_STATUS_BUSY;
+#if BOXRIG_FEATURE_ENCODING_HOOKS
+    if (t->encoding_hooks.convert) return BOXRIG_STATUS_BUSY;
+#endif
+    if (t->host_item_count || t->pending_request_count || !boxrig_notification_checkpoint_ready(t)) return BOXRIG_STATUS_BUSY;
 
+#if BOXRIG_FEATURE_TEXT_MONITOR
+    if (!boxrig_monitor_checkpoint_config(t, cfg)) return BOXRIG_STATUS_BUSY;
+#endif
+#if BOXRIG_FEATURE_TEXT_RECOGNIZER
+    if (!boxrig_recognizer_checkpoint_config(t, cfg)) return BOXRIG_STATUS_BUSY;
+#endif
+#if BOXRIG_FEATURE_KITTY_GRAPHICS
+    if (t->graphics.active) return BOXRIG_STATUS_BUSY;
     const boxrig_kitty_graphics_protocol_state *g = &t->graphics_protocol;
+#endif
     cfg->rows = t->screen.rows;
     cfg->columns = t->screen.columns;
     cfg->scrollback_capacity = t->screen.history_capacity;
@@ -30,7 +43,7 @@ static boxrig_status capture_config(const boxrig_terminal *t, boxrig_terminal_co
     cfg->notification_pending_capacity = t->notification_pending_capacity;
     cfg->receive_newline = t->receive_newline;
     cfg->paste_newline = t->paste_newline;
-    cfg->encoding = t->encoding;
+#if BOXRIG_FEATURE_KITTY_GRAPHICS
     cfg->graphics_storage_capacity = g->storage_capacity;
     cfg->graphics_decode_capacity = g->decode_capacity;
     cfg->graphics_image_capacity = g->image_capacity;
@@ -38,6 +51,7 @@ static boxrig_status capture_config(const boxrig_terminal *t, boxrig_terminal_co
     cfg->graphics_transport_name_capacity = g->transport_name_capacity;
     cfg->graphics_animation_storage_capacity = g->animation_storage_capacity;
     cfg->graphics_frame_capacity = g->frame_capacity;
+#endif
     cfg->input = t->input_config;
     cfg->ambiguous_width = t->screen.ambiguous_width;
     cfg->emoji_variation_width = t->screen.emoji_variation_width;
@@ -82,7 +96,6 @@ static void configuration(boxrig_checkpoint_io *io, boxrig_terminal_config *cfg,
     boxrig_cp_enum(io, &cfg->ambiguous_width);
     boxrig_cp_enum(io, &cfg->emoji_variation_width);
     boxrig_cp_enum(io, &cfg->cursor_column_mode);
-    boxrig_cp_enum(io, &cfg->encoding);
     boxrig_cp_enum(io, &cfg->receive_newline);
     boxrig_cp_enum(io, &cfg->paste_newline);
     boxrig_cp_enum(io, &cfg->input.enter_newline);
@@ -135,7 +148,7 @@ static bool allocation_sizes_valid(const boxrig_terminal_config *cfg, size_t max
 static void fixed_buffer(boxrig_checkpoint_io *io, uint8_t *bytes, size_t *used, size_t capacity)
 {
     boxrig_cp_size(io, used);
-    if (*used > capacity) boxrig_cp_fail(io);
+    if (*used > capacity || (*used && !bytes)) boxrig_cp_fail(io);
     boxrig_cp_bytes(io, bytes, *used);
 }
 
@@ -145,6 +158,12 @@ static void parser_state(boxrig_checkpoint_io *io, boxrig_terminal *t)
     boxrig_cp_enum(io, &p->state);
     boxrig_cp_size(io, &p->parameter_count);
     if (p->state > BOXRIG_PARSER_STRING_ESCAPE || p->parameter_count > BOXRIG_PARSER_MAX_PARAMETERS) {
+        boxrig_cp_fail(io);
+        return;
+    }
+    if (!BOXRIG_FEATURE_EXTENDED_VT && p->state >= BOXRIG_PARSER_DCS_ENTRY &&
+        p->state <= BOXRIG_PARSER_DCS_PASSTHROUGH_ESCAPE &&
+        p->state != BOXRIG_PARSER_DCS_IGNORE && p->state != BOXRIG_PARSER_DCS_IGNORE_ESCAPE) {
         boxrig_cp_fail(io);
         return;
     }
@@ -172,13 +191,12 @@ static void parser_state(boxrig_checkpoint_io *io, boxrig_terminal *t)
     boxrig_cp_bool(io, &t->dcs.request_overflow);
     boxrig_cp_bool(io, &t->dcs.response_ready);
     boxrig_cp_bool(io, &t->dcs.active);
-    boxrig_unicode_decoder *u = &t->decoder.utf8;
+    boxrig_unicode_decoder *u = &t->decoder;
     boxrig_cp_u8(io, &u->length);
     boxrig_cp_u8(io, &u->expected_length);
     if ((u->length && (u->length >= u->expected_length || u->expected_length > 4)) ||
         (!u->length && u->expected_length)) boxrig_cp_fail(io);
     boxrig_cp_bytes(io, u->bytes, u->length);
-    boxrig_cp_u8(io, &t->decoder.lead);
 }
 
 static void keyboard(boxrig_checkpoint_io *io, boxrig_kitty_keyboard_mode *k)
@@ -308,7 +326,9 @@ static void body(boxrig_checkpoint_io *io, boxrig_terminal *terminal)
     output_queue(io, terminal);
     hyperlinks(io, terminal);
     if (!io->status) boxrig_checkpoint_screen(io, terminal);
+#if BOXRIG_FEATURE_KITTY_GRAPHICS
     if (!io->status) boxrig_checkpoint_graphics(io, terminal);
+#endif
 }
 
 boxrig_status boxrig_terminal_export_checkpoint(const boxrig_terminal *terminal,
