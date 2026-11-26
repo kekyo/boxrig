@@ -1,0 +1,158 @@
+# boxrig coreの機能とサイズを調整する
+
+[English](../en/core-features.md)
+
+boxrig coreは、アプリケーションで使う機能をコンパイル時に選べます。
+例えば、デスクトップ端末でUnicode表示と代替画面を使いながら、画像処理だけを外して配布できます。
+設定を選ぶときは、実行ファイルに含まれるコードと定数のサイズ、端末ごとに確保するメモリの両方を比較してください。
+
+## 必要な機能から構成を選ぶ
+
+セルは画面上の文字と表示属性を保持する単位です。カーソルの位置や画面の切り替えなどは、通信相手が送るVT制御列で指定します。
+
+| 用途 | ビルド時の指定 | 得られる動作とサイズへの影響 |
+| --- | --- | --- |
+| 対話型の端末 | 既定のUnicodeセルと拡張VT制御 | 全画面アプリの代替画面、画像、検索などが使える |
+| テキストを扱うデスクトップ端末 | `BOXRIG_FEATURE_KITTY_GRAPHICS=0` | Unicode表示や代替画面を保ち、Kitty画像の処理とlibpngをリンク対象から外す |
+| 端末出力を画面に出さずに検索するツール | `BOXRIG_FEATURE_TEXT_MONITOR=0`、`BOXRIG_FEATURE_TEXT_RECOGNIZER=0` | 通常の文字列検索を使い、監視と正規表現による認識に使うバッファを省く |
+| コマンドの出力を色付きで表示するログビューアー | `BOXRIG_FEATURE_EXTENDED_VT=0` | Unicodeセルを使い、制御列を色指定や行消去などログ表示で使うものに絞る |
+| ASCIIと16色で足りるログ表示 | `BOXRIG_FEATURE_COMPACT_CELLS=1` | 履歴のない単画面を使い、1セルを2バイトで保持する |
+
+Unicodeセルは文字のまとまりと表示幅を保持します。既定の設定では、例えば`e`と結合アクセント（U+0301）は合わせて1列、ハングルの`가`（U+AC00）は2列です。
+画面上の字形は描画側がフォントから取得します。[文字の幅とフォント](./fonts-and-layout.md)
+
+小型セルの2バイトは、ASCII文字1バイトと前景・背景色各4ビットに使います。表示できないUnicode符号位置は1個につき1列の`?`になります。
+通信路に使う文字コードとセル形式は別々の設定です。標準のUTF-8で多言語の文字列を受信でき、別の文字コードを使う接続には変換器を登録できます。[文字コード変換器の接続](./encoding-hooks.md)
+
+## 機能を指定してSDKを作る
+
+画像を扱わない端末用の静的SDKを作る例です。ソースツリーのルートで実行してください。[ビルドの準備](./building.md)
+
+```sh
+make install-core BUILD_DIR=build/text-terminal \
+  CPPFLAGS='-DBOXRIG_FEATURE_KITTY_GRAPHICS=0' PREFIX="$PWD/build/text-sdk"
+```
+
+`build/text-sdk`に静的ライブラリとヘッダーが入ります。ライブラリだけを作る場合は同じ`BUILD_DIR`と`CPPFLAGS`で`make core`を実行してください。
+
+ソースの`<boxrig/config.h>`には`#ifndef`で既定値が定義されています。`CPPFLAGS`で使える値は整数リテラルの`0`と`1`です。
+配布SDKにはビルド時の値を確定したヘッダーが入るため、利用側はこのヘッダーと同じSDKのライブラリを使います。
+機能判定は`#if BOXRIG_FEATURE_ENCODING_HOOKS`のように値で行います。SDKと矛盾する再定義はコンパイルエラーです。[設定ヘッダー](../../include/boxrig/config.h)
+
+## 機能定義と既定値
+
+表の名前にはすべて`BOXRIG_FEATURE_`を付けます。右の数値列は`COMPACT_CELLS=1`を指定した場合の既定値です。
+
+| 定義 | Unicodeセル | ASCII・16色セル | `1`で利用できる機能 |
+| --- | ---: | ---: | --- |
+| `COMPACT_CELLS` | 0 | 1 | ASCIIと16色を保持する、履歴のない単画面 |
+| `EXTENDED_VT` | 1 | 0 | 拡張VT制御とタイトルなどのホスト要求 |
+| `LOG_CURSOR` | 0 | 0 | ログ表示にカーソルの移動・表示切り替えと画面消去を追加。拡張VT制御には標準で含まれる |
+| `ENCODING_HOOKS` | 1 | 1 | 端末ごとに外部の文字コード変換器を登録 |
+| `KITTY_GRAPHICS` | 1 | 0 | Kitty画像の転送・配置。libpngとzlibを使用 |
+| `TEXT_MONITOR` | 1 | 0 | 指定した文字列の出現を監視 |
+| `TEXT_RECOGNIZER` | 1 | 0 | 正規表現で端末上の文字列を認識 |
+| `HISTORY_DEFLATE` | 1 | 0 | スクロール履歴をzlibで圧縮 |
+| `CHECKPOINT` | 1 | 0 | zlibを使うチェックポイントで端末状態を保存・復元 |
+| `ALT_SCREEN` | 1 | 0 | 主画面とは別に、全画面アプリ用の代替画面を確保 |
+
+Unicode構成では各機能を個別に選べます。例えば`HISTORY_DEFLATE=0`でも、生成時に`scrollback_capacity`に行数を指定すれば圧縮せずに履歴を保持できます。
+監視・認識を外した構成でも、通常の文字列検索は有効です。画像、履歴圧縮、チェックポイントをすべて外すとzlibへの依存もなくなります。
+
+例えば次のコマンドで、Unicodeの文字と列幅、外部変換フックを保ち、制御列をログ用に絞ったcoreを作れます。次節の表で容量を比較した構成の一つです。
+
+```sh
+flags='-DBOXRIG_FEATURE_EXTENDED_VT=0 -DBOXRIG_FEATURE_KITTY_GRAPHICS=0'
+flags="$flags -DBOXRIG_FEATURE_TEXT_MONITOR=0 -DBOXRIG_FEATURE_TEXT_RECOGNIZER=0"
+flags="$flags -DBOXRIG_FEATURE_HISTORY_DEFLATE=0 -DBOXRIG_FEATURE_CHECKPOINT=0"
+make core BUILD_DIR=build/unicode-log CPPFLAGS="$flags -DBOXRIG_FEATURE_ALT_SCREEN=0"
+```
+
+小型セルではutf8proc、libpng、zlibを省けます。この構成と組み合わせられるのは`LOG_CURSOR`と`ENCODING_HOOKS`です。
+拡張VTや上表の6つの端末機能を明示的に有効にすると、設定ヘッダーでエラーになります。
+小型構成の公開APIには、端末の生成・リサイズ、受信、セルとカーソルの取得、テキストと生バイトの送信があります。
+標準UIやキー・貼り付けイベントを使うアプリはUnicode構成を選んでください。[端末の公開API](../../include/boxrig/terminal.h)
+
+## 構成別のコードサイズとメモリ使用量
+
+以下の表は、Linux x86-64、GCC 13.3.0、`-O2`で、同じログを扱うCドライバーを静的リンクしたときの実測値です。
+各端末を80列×24行、履歴0行にそろえました。コードと読み取り専用データはリンク後のELFのセクションサイズ、ヒープは端末生成直後に確保中の要求バイト数です。
+
+| 構成 | コード（`.text`） | 定数（`.rodata`） | 初期ヒープ |
+| --- | ---: | ---: | ---: |
+| 既定のUnicode端末 | 435,168 B | 385,492 B | 5,287,962 B |
+| Unicode端末、画像・監視・認識・履歴圧縮・チェックポイント・代替画面なし | 131,646 B | 348,724 B | 1,226,544 B |
+| 上と同じUnicode端末で制御列をログ用に限定 | 123,278 B | 348,340 B | 160,920 B |
+| ASCIIログ、変換フックあり | 15,167 B | 872 B | 4,848 B |
+| ASCIIログ、変換フックなし | 11,614 B | 872 B | 4,768 B |
+
+画面の行数と列数によってもヒープ使用量は変わります。40列×15行では、ASCII・16色のセル600個で1,200バイトです。
+この端末の初期ヒープはフックなしで1,984バイト、ありで2,064バイトでした。
+複数の端末を同時に開くアプリでは、画面や履歴のメモリが端末ごとに必要です。
+アプリケーション全体のメモリを見積もるときは、ピーク時の送受信データ、変換器、フォント、描画バッファ、アロケーターの管理領域も含めてください。
+`make test-embedded-log`で同じ条件の測定を再現できます。[測定に使うドライバー](../../tests/measure_embedded_core.c)
+
+## ログで使える制御列
+
+`EXTENDED_VT=0`では、復帰（CR）、改行（LF）、後退（BS）、水平タブ（HT）を扱います。行末で折り返し、画面下端でスクロールします。
+表の`CSI`はESCバイト（`0x1b`）と`[`の並びです。
+
+| 用途 | 指定 |
+| --- | --- |
+| 文字色・背景色 | `CSI … m`。前景`30–37`、`90–97`、背景`40–47`、`100–107`。`39`と`49`で各色を既定に戻し、`0`で両方を戻す |
+| 行の消去 | `CSI 0 K`でカーソルから行末、`CSI 1 K`で行頭からカーソル、`CSI 2 K`で行全体 |
+| `LOG_CURSOR=1`での位置指定 | `CSI n A/B/C/D`で相対移動、`CSI n G`で列指定、`CSI row ; column H/f`で行・列指定。行・列は1から数える |
+| `LOG_CURSOR=1`での表示・消去 | `CSI ? 25 h/l`でカーソルを表示・非表示。`CSI 0/1/2 J`でカーソルから画面末尾、画面先頭からカーソル、画面全体を消去 |
+
+例えば`"\r\033[32mOK\033[K"`は、行頭に緑の`OK`を書き、その右側に残った古い表示を消します。
+タイトル指定（OSC）や機器制御文字列（DCS）は、ログ表示では終端まで読み飛ばします。
+Unicode構成でのKitty画像は、`KITTY_GRAPHICS`で選ぶ別の機能です。[通常の端末が扱う制御列](./reference/terminal-sequences.md)
+
+## ASCIIと16色のログ表示
+
+UTF-8で届く英数字のシリアルログを表示する例です。ASCII・16色セルを選び、外部変換フックを省いたSDKを使います。
+
+```sh
+sdk="$PWD/build/serial-sdk"
+flags='-DBOXRIG_FEATURE_COMPACT_CELLS=1 -DBOXRIG_FEATURE_ENCODING_HOOKS=0'
+make install-core BUILD_DIR=build/serial CPPFLAGS="$flags" PREFIX="$sdk"
+cc -std=c99 -I"$sdk/include" tests/test_embedded_log.c \
+  "$sdk/lib/libboxrig.a" -lm -o build/serial/log-demo
+build/serial/log-demo
+```
+
+最後のコマンドは端末にログを送り、折り返し、スクロール、色、行末消去と変更範囲を検査して`PASS`を出力します。[ログを送るCドライバー](../../tests/test_embedded_log.c)
+
+### 変更のあったセルを描く
+
+`boxrig_terminal_config_default()`で初期値を取得し、`columns`と`rows`を設定して端末を生成します。
+小型セルでは`scrollback_capacity`を既定の`0`にしてください。
+受信したバイトを`boxrig_terminal_feed()`へ渡し、処理したバイト数を確認したら、次の関数で変更範囲を描けます。
+`paint`には、指定位置に文字と背景色を描くアプリ側の関数を渡します。
+
+```c
+#include <boxrig/terminal.h>
+
+void draw_log(boxrig_terminal *terminal,
+    void (*paint)(size_t row, size_t column, const boxrig_cell_view *cell))
+{
+    boxrig_dirty dirty;
+    while (boxrig_terminal_take_dirty(terminal, &dirty)) {
+        for (size_t i = 0; i < dirty.column_count; ++i) {
+            size_t column = dirty.column + i;
+            boxrig_cell_view cell;
+            if (boxrig_terminal_get_cell(terminal, dirty.row, column, &cell) == BOXRIG_STATUS_OK)
+                paint(dirty.row, column, &cell);
+        }
+    }
+}
+```
+
+APIで使う行と列の先頭は0です。小型セルでは`cell.text[0]`がASCII文字で、`foreground.index`と`background.index`が0～15の色番号です。
+消去された空白も背景色で塗り直してください。セルの文字を参照できるのは次に端末を変更するまでです。
+
+ASCII・16色のセルを使う画面をリサイズすると、左上で重なるセルは残り、画面全体が次の描画の対象になります。
+アプリから全面再描画を要求するには`boxrig_terminal_invalidate()`を使います。カーソルを重ねる場合は`boxrig_terminal_get_cursor()`で位置と表示状態を取得してください。
+例えば、組み込み機器向けの描画ライブラリである [LovyanGFX](https://github.com/lovyan03/LovyanGFX/) や [LVGL](https://github.com/lvgl/lvgl/) への移植で用意するのは、この`paint`に相当する描画処理です。
+
+[文書目次](./index.md)

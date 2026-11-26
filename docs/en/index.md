@@ -16,7 +16,7 @@ Try the examples in [Getting started](./getting-started.md), then build a small 
 | [README](../../README.md) | What boxrig can do, with short code examples |
 | [Getting started](./getting-started.md) | Choosing a configuration and running examples |
 | [Building and installing](./building.md) | Sources, dependencies, SDKs, and linking |
-| [Display a serial log on a small screen](./embedded-core.md) | Per-feature defaults, log controls, changed-cell rendering, and measured memory use |
+| [Choose core features and compare sizes](./core-features.md) | Compile-time features, linked code size, and memory use by configuration |
 | [Basic concepts](./architecture.md) | The roles of core, UI, communication, and your application |
 
 ## Adding features

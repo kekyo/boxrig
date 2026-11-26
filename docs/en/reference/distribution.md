@@ -13,7 +13,7 @@ This is not a claim that a single archive containing every feature is available 
 
 | Configuration | Installation targets and pkg-config names |
 | --- | --- |
-| Static core only | `install-core`. Link directly to `libboxrig.a` with the accompanying configuration header. [Build a compact static SDK](../embedded-core.md#build-a-compact-static-sdk) |
+| Static core only | `install-core`. Link directly to `libboxrig.a` with the accompanying configuration header. [Build an SDK with selected features](../core-features.md#build-an-sdk-with-selected-features) |
 | Linux shared base libraries | `install-shared-base`; `boxrig`, `boxrig-ui`, `boxrig-session`, `boxrig-posix` |
 | Linux shared GTK libraries | `install-shared-gtk3`/`install-shared-gtk4`, or `install-shared` for both; `boxrig-gtk3`/`boxrig-gtk4` and the four base libraries |
 | GTK 3/4 | `install-gtk3`/`install-gtk4`, `boxrig-gtk3`/`boxrig-gtk4` |

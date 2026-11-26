@@ -292,11 +292,10 @@ See the [ConPTY distribution files](../../deps/conpty/README.md).
 
 Build the static terminal library with `make core`. The default terminal has Unicode cells and the full control language. The configuration header lists the available definitions and their defaults. [Configuration header](../../include/boxrig/config.h)
 
-For a UTF-8 serial log display with ASCII glyphs and 16 colors, build with:
+For example, build a terminal with Unicode text and extended VT controls while omitting image handling and libpng.
 
 ```sh
-make core BUILD_DIR=build/serial \
-  CPPFLAGS='-DBOXRIG_FEATURE_COMPACT_CELLS=1 -DBOXRIG_FEATURE_ENCODING_HOOKS=0'
+make core BUILD_DIR=build/text-terminal CPPFLAGS='-DBOXRIG_FEATURE_KITTY_GRAPHICS=0'
 ```
 
 | Definition after `BOXRIG_FEATURE_` | Effect |
@@ -307,11 +306,11 @@ make core BUILD_DIR=build/serial \
 | `HISTORY_DEFLATE`, `CHECKPOINT` | Select compressed history and checkpoint export/import independently. Disable both and graphics to omit zlib. Set the number of retained rows with `scrollback_capacity` at creation. |
 | `ALT_SCREEN` | Set to 0 to allocate only the primary screen. |
 | `EXTENDED_VT`, `LOG_CURSOR` | Set `EXTENDED_VT=0` for CR/LF/BS/HT, wrap, scroll, 16-color SGR and line erase. Add `LOG_CURSOR=1` for cursor movement, visibility and display erase. |
-| `COMPACT_CELLS` | Set to 1 for one ASCII byte and two four-bit colors per cell. Each unrepresentable scalar displays as one `?`. Choose the default Unicode cells for Japanese and combining characters. |
+| `COMPACT_CELLS` | Set to 1 for one ASCII byte and two four-bit colors per cell. Each unrepresentable scalar displays as a one-column `?`. Use the default Unicode cells to display multilingual text or emoji. |
 
 Compact cells support a single core screen with zero scrollback. Graphics, monitoring, recognition, DEFLATE history, checkpoints, the alternate screen and extended VT default to 0 in that configuration. Render changed regions with `boxrig_terminal_take_dirty()` and reread any cell using `boxrig_terminal_get_cell()`. Resizing a compact screen retains the intersecting cells at the top left.
 
-Use the same `BUILD_DIR` and `CPPFLAGS` with `make install-core` to distribute the library. Applications can inspect the installed `boxrig/config.h` for the available API. The embedded guide lists supported log controls, shows how to paint changed cells, and reports measurements you can reproduce with `make test-embedded-log`. [Display a serial log on a small screen](./embedded-core.md)
+Use the same `BUILD_DIR` and `CPPFLAGS` with `make install-core` to distribute the library. Applications can inspect the installed `boxrig/config.h` for the available API. Compare linked code, read-only data, and initial heap across configurations with the same driver. [Core features and size measurements](./core-features.md#compare-code-size-and-memory-use)
 
 To build an SDK from source on another machine, run `make package-codegen` with the same `CPPFLAGS` on the build host. Ship the resulting `$(BUILD_DIR)/generated/include/boxrig/config.h` and pass its path to the target Make invocation through `BOXRIG_PREGENERATED_CONFIG`. The target library and SDK will use those settings.
 

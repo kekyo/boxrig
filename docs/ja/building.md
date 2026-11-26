@@ -293,11 +293,10 @@ OS付属ConPTYにも追加のDLLやEXEは不要ですが、任意のboxrig DLL�
 
 `make core`で端末本体の静的ライブラリを作れます。利用できる定義と既定値は設定ヘッダーにあります。既定の端末はUnicodeを扱い、すべての端末機能を使えます。[設定ヘッダー](../../include/boxrig/config.h)
 
-例えば、UTF-8で受信した英数字を16色で表示する機器には、次の構成を使えます。
+例えば、Unicode表示と拡張VT制御を使い、画像処理とlibpngを省いた端末をビルドできます。
 
 ```sh
-make core BUILD_DIR=build/serial \
-  CPPFLAGS='-DBOXRIG_FEATURE_COMPACT_CELLS=1 -DBOXRIG_FEATURE_ENCODING_HOOKS=0'
+make core BUILD_DIR=build/text-terminal CPPFLAGS='-DBOXRIG_FEATURE_KITTY_GRAPHICS=0'
 ```
 
 | 定義（接頭辞は`BOXRIG_FEATURE_`） | 選べる内容 |
@@ -308,11 +307,11 @@ make core BUILD_DIR=build/serial \
 | `HISTORY_DEFLATE`、`CHECKPOINT` | 履歴の圧縮と端末状態の保存・復元を個別に選べます。この2つと画像を`0`にするとzlibを省けます。保持する履歴の行数は生成時の`scrollback_capacity`で指定します。 |
 | `ALT_SCREEN` | `0`で主画面だけを確保します。 |
 | `EXTENDED_VT`、`LOG_CURSOR` | `EXTENDED_VT=0`で、復帰・改行・後退・タブ、折り返し、スクロール、16色、行消去を使うログ表示になります。`LOG_CURSOR=1`を加えるとカーソルの移動・表示切り替えと画面消去も使えます。 |
-| `COMPACT_CELLS` | `1`で1セルをASCII文字1バイトと前景・背景色各4ビットで保持します。表示できない文字は1文字につき`?`が1列を占めます。日本語や結合文字を表示するときは既定のUnicodeセルを選びます。 |
+| `COMPACT_CELLS` | `1`で1セルをASCII文字1バイトと前景・背景色各4ビットで保持します。セルに書く文字がASCIIの範囲外なら、符号位置1個につき1列の`?`になります。多言語の本文や絵文字を表示する場合は既定のUnicodeセルを使います。 |
 
 小型セルは履歴のない単画面のcore用です。画像、文字監視・認識、履歴圧縮、チェックポイント、代替画面、拡張VTの既定値が`0`になります。描画側は`boxrig_terminal_take_dirty()`で変更範囲を取得し、`boxrig_terminal_get_cell()`で任意のセルを読み直せます。小型セルで画面サイズを変えると、左上を基準に重なる範囲が残ります。
 
-配布時は上と同じ`BUILD_DIR`と`CPPFLAGS`を指定して`make install-core`を実行してください。インストール先の`boxrig/config.h`には確定した設定が入ります。SDKを使うアプリは、このヘッダーで利用できるAPIを判定できます。制御列の対応表、描画例、`make test-embedded-log`で再現できる構成別の容量は、組み込み向けガイドにあります。[小型画面でシリアルログを表示する](./embedded-core.md)
+配布時は上と同じ`BUILD_DIR`と`CPPFLAGS`を指定して`make install-core`を実行してください。インストール先の`boxrig/config.h`には確定した設定が入ります。SDKを使うアプリは、このヘッダーで利用できるAPIを判定できます。構成ごとのコード・定数のサイズと初期ヒープは、同じドライバーで比較できます。[coreの機能選択とサイズの実測値](./core-features.md#構成別のコードサイズとメモリ使用量)
 
 配布先でSDKをソースから作る場合は、ビルドホストで同じ`CPPFLAGS`を使って`make package-codegen`を実行できます。生成された`$(BUILD_DIR)/generated/include/boxrig/config.h`を同梱し、配布先のMakeに`BOXRIG_PREGENERATED_CONFIG`でそのパスを渡すと、ライブラリとSDKが同じ設定になります。
 

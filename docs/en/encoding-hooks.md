@@ -2,7 +2,8 @@
 
 [日本語](../ja/encoding-hooks.md)
 
-boxrig uses UTF-8 by default. An application talking to a CP932 instrument or an ISO-2022-JP peer can register a converter per terminal to translate between the peer's encoding and UTF-8. Screen text, search text, and strings passed to `boxrig_terminal_send_text()` use UTF-8.
+Screen text, search text, and strings passed to `boxrig_terminal_send_text()` use UTF-8. A UTF-8 connection can send and receive multilingual text with the default settings.
+For a peer that uses another encoding, register an application converter that supports that encoding on its terminal.
 
 ## Choose what to convert
 
@@ -11,16 +12,18 @@ Incoming data contains characters to display and control sequences for operation
 | Format used by the peer | Setting | Data reaching the converter |
 | --- | --- | --- |
 | UTF-8, or data the connection already converts to UTF-8 | Leave the hooks unregistered | Pass UTF-8 to `boxrig_terminal_feed()`. At end of input the built-in decoder displays `�` (U+FFFD) for an incomplete character |
-| Text in CP932 or a similar encoding, terminal controls in ASCII | `BOXRIG_ENCODING_FIELDS` | Decode screen text and titles separately to UTF-8. Encode outgoing text and paste content for the peer |
-| ISO-2022-JP, which uses ESC to switch character sets, or UTF-16LE, which also encodes control sequences | `BOXRIG_ENCODING_STREAM` | Decode the entire received stream before parsing controls. Encode terminal-generated key sequences, paste delimiters, and replies on output |
+| Text and titles use another encoding and terminal controls remain in ASCII | `BOXRIG_ENCODING_FIELDS` | Decode screen text and titles separately to UTF-8. Encode outgoing text and paste content for the peer |
+| The encoding covers control sequences or uses ESC to switch character sets | `BOXRIG_ENCODING_STREAM` | Decode the entire received stream before parsing controls. Encode terminal-generated key sequences, paste delimiters, and replies on output |
 
-Field decoders produce printable UTF-8 for screen text and title fields (`OSC 0/1/2`). For example, the pair `93 FA` in the body or title can decode to the CP932 character 日, while the UTF-8 URI in a working-directory notice (`OSC 7`) and Kitty image data keep their original bytes. Title handling uses extended VT. A stream decoder can consume an ISO-2022-JP character-set switch and pass a cursor movement such as `ESC [ 2 ; 3 H` on to the terminal parser.
+Field decoders produce printable UTF-8 for screen text and title fields (`OSC 0/1/2`). For example, a decoder can convert the ISO-8859-1 text byte `E9` to `C3 A9`, the UTF-8 representation of `é`. The UTF-8 URI in a working-directory notice (`OSC 7`) and Kitty image data keep their original bytes. Title handling uses extended VT.
 
-Transport encoding and display format are independent. With compact ASCII cells, a decoded Japanese character appears on screen as `?`. [Embedded cell formats and terminal controls](./embedded-core.md)
+Stream mode decodes the input before the terminal interprets any controls. For example, `1B 00 5B 00` received in UTF-16LE reaches the parser as `ESC [`.
+
+Once the bytes are decoded, the cell format determines what the terminal retains. A Unicode cell stores `é`, and a compact ASCII cell displays it as a one-column `?`. [Choose cell formats and terminal controls](./core-features.md#choose-features-for-an-application)
 
 ## Register a converter in C99
 
-This example connects a 7-bit ASCII device. Sending the UTF-8 text `日A` produces `?A` on the wire. On receive, it substitutes `?` for any byte outside printable ASCII in screen text or titles.
+This example connects to a peer that uses 7-bit ASCII. Sending the UTF-8 text `café` produces `caf?` on the wire. On receive, it substitutes `?` for any byte outside printable ASCII in screen text or titles.
 
 ```c
 #include <boxrig/terminal.h>
@@ -72,7 +75,7 @@ Call `attach_ascii(terminal)` after creating the terminal and before the first I
 
 ## Handle fragmented input and a full output queue
 
-Use independent states for received text (`BOXRIG_ENCODING_RECEIVE`), titles (`BOXRIG_ENCODING_TITLE`), and output (`BOXRIG_ENCODING_SEND`). Stream mode delivers titles as part of `RECEIVE`. Input may arrive one byte at a time. A CP932 decoder can accept a lead byte, retain it for the next call, and return success with zero output bytes.
+Use independent states for received text (`BOXRIG_ENCODING_RECEIVE`), titles (`BOXRIG_ENCODING_TITLE`), and output (`BOXRIG_ENCODING_SEND`). Stream mode delivers titles as part of `RECEIVE`. Input may arrive one byte at a time. A decoder that receives part of a multibyte character can retain it for the next call and return success with zero output bytes.
 
 Returning success from `convert` accepts the entire input fragment. Reserve the destination once with `boxrig_encoding_reserve()` and set `*written` to the number of bytes actually produced. It starts at zero. For a stateful converter, reserve the required space before advancing its state. Preserve the previous state on any error. Input and output pointers are borrowed for the duration of the callback. Handle C++ exceptions inside the callback and defer operations on the same terminal until the callback returns.
 
@@ -87,7 +90,7 @@ For a raw receive log, record bytes once when the transport reads them. For a de
 ## Switch encodings on a live connection
 
 1. Pause new reads and sends. Process bytes already received in the old encoding and finish any paste in progress. If the communication session has retained input, make room in the queues or answer host requests and dispatch with `BOXRIG_SESSION_READY_NONE`.
-2. Call `boxrig_terminal_finish_input()`. The converter receives `finish=true`, `input=NULL`, and `length=0`. Apply the converter's incomplete-character policy. For example, it can emit `�` for a trailing CP932 lead byte. A finished channel starts fresh on its next input.
+2. Call `boxrig_terminal_finish_input()`. The converter receives `finish=true`, `input=NULL`, and `length=0`. Apply the converter's incomplete-character policy. For example, it can emit `�` (U+FFFD) for bytes left over when the input ends mid-character. A finished channel starts fresh on its next input.
 3. Call `boxrig_terminal_finish_encoding_output()` to finalize the send channel, including any final shift sequence. On `WOULD_BLOCK`, follow the table above and retry. Drain all output in the old encoding to the transport.
 4. Pass the next registration to `boxrig_terminal_set_encoding_hooks()`, or pass `NULL` to resume built-in UTF-8. On `BOXRIG_STATUS_BUSY`, retain the old registration, resolve the pending work, and retry. After a successful switch, the same screen and scrollback continue in the new encoding.
 

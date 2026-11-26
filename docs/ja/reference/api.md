@@ -14,7 +14,7 @@
 
 | 用途 | 公開ヘッダー | ガイド |
 | --- | --- | --- |
-| coreの機能選択、配布SDKの設定値 | [config.h](../../../include/boxrig/config.h) | [組み込み向けの構成と描画](../embedded-core.md) |
+| coreの機能選択、配布SDKの設定値 | [config.h](../../../include/boxrig/config.h) | [機能定義と既定値](../core-features.md#機能定義と既定値) |
 | 端末生成、解析、セル、履歴、送信、ホスト要求 | [terminal.h](../../../include/boxrig/terminal.h) | [core step-by-step](../step-by-step/step-by-step-core.md) |
 | 文字コード変換、出力予約、変換後の受信通知 | [terminal.h](../../../include/boxrig/terminal.h) | [変換器の登録と切り替え](../encoding-hooks.md) |
 | 文字列、選択、検索、監視、認識、画像、時計 | [terminal.h](../../../include/boxrig/terminal.h) | [文字列](../text.md)、[画像仕様](./graphics.md) |

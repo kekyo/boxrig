@@ -55,7 +55,7 @@ Run the full suite at the end.
 | --- | --- |
 | Newlines, keys, encodings | `test-terminal-newline`, `test-terminal-key-mapping`, `test-terminal-codec` |
 | Encoding hooks and installed SDKs | `test-encoding-hooks`, `test-encoding-sdk`. The external converter test takes an elder-terms source checkout. [Integration example](../encoding-hooks.md#migrate-an-existing-connection) |
-| Embedded configurations, rendering, memory, and checkpoint format | `test-core-features`, `test-embedded-log`, `test-checkpoint-builds`. [Measurement conditions](../embedded-core.md#estimate-flash-and-ram) |
+| Core feature selection, rendering, code and heap sizes, and checkpoint format | `test-core-features`, `test-embedded-log`, `test-checkpoint-builds`. [Measurement conditions](../core-features.md#compare-code-size-and-memory-use) |
 | Blinking and decorations | `test-text-blink`, `test-cursor-style`, `test-selection-style` |
 | Backgrounds and notifications | `test-background-layers`, `test-notification-dispatch`, `test-notification-samples` |
 | GTK and IME | `test-ime-clause`, `test-gtk-ime-routing`, `test-gtk-ibus-direct` |

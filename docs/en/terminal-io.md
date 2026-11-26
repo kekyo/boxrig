@@ -171,7 +171,7 @@ actual bytes received by the PTY child.
 
 The default encoding is UTF-8. Its built-in decoder displays U+FFFD for an incomplete character at end of input.
 
-Register an application converter after creating the terminal with `boxrig_terminal_set_encoding_hooks()`. Select `BOXRIG_ENCODING_FIELDS` for screen text and titles with independent URI and image encodings, or `BOXRIG_ENCODING_STREAM` for peers that encode control syntax too, such as ISO-2022-JP. Explicit `send_bytes()` sends wire bytes directly.
+Register an application converter after creating the terminal with `boxrig_terminal_set_encoding_hooks()`. Select `BOXRIG_ENCODING_FIELDS` for screen text and titles with independent URI and image encodings, or `BOXRIG_ENCODING_STREAM` when the encoding also covers control syntax or uses escape sequences to select a character set. Explicit `send_bytes()` sends wire bytes directly.
 
 Keep separate receive, title and send states. Reserve output with `boxrig_encoding_reserve()` before advancing the converter, then return the actual number of bytes written. The optional `received` callback observes committed bytes including control syntax. To exchange codecs, drain retained session input, call `boxrig_terminal_finish_input()` and `boxrig_terminal_finish_encoding_output()`, drain wire output and register the replacement. Detach the codec this way before exporting a checkpoint.
 
@@ -183,7 +183,7 @@ Use `send_bytes()` for already encoded sequences or custom control sequences.
 In field mode, protocol responses and image payloads retain their wire bytes. In stream mode, terminal-generated controls pass through the send hook as well.
 
 Build the [encoding example](../../examples/core/encoding.c) with `make example-encoding`.
-It receives Japanese text one byte at a time and checks the UTF-8 in the cells and output queue.
+The example feeds the UTF-8 string `日本語` one byte at a time and checks the cells and output queue.
 
 ## Capacity limits and end of input
 

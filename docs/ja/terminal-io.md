@@ -161,7 +161,7 @@ POSIXドライバーでの値の変更と受信バイトを確認するコマン
 
 既定の文字コードはUTF-8です。標準のデコーダーでは、未完の受信文字は入力終了時にU+FFFDになります。
 
-別の文字コードを使うときは、端末生成後に`boxrig_terminal_set_encoding_hooks()`で変換器を登録してください。`BOXRIG_ENCODING_FIELDS`で変換するのは本文とタイトルで、URIや画像データは元の符号化です。ISO-2022-JPなど、制御列を含む接続全体の変換には`BOXRIG_ENCODING_STREAM`を使います。
+別の文字コードを使うときは、端末生成後に`boxrig_terminal_set_encoding_hooks()`で変換器を登録してください。`BOXRIG_ENCODING_FIELDS`で変換するのは本文とタイトルで、URIや画像データは元の符号化です。制御列も通信相手の文字コードで表す場合など、接続全体の変換には`BOXRIG_ENCODING_STREAM`を使います。
 
 変換器は受信・タイトル・送信の状態をアプリ側に持ちます。コールバックは `boxrig_encoding_reserve()` で出力先を確保してから状態を進め、実際に書いたバイト数を返します。`received` で制御列を含む変換後の受信バイトを観測できます。接続中に交換するときはセッションの保留入力を処理し、`boxrig_terminal_finish_input()` と `boxrig_terminal_finish_encoding_output()` を呼び、残りの出力を送ってから登録し直します。チェックポイントの保存前も同じ手順で登録を解除します。
 
@@ -173,7 +173,7 @@ UTF-8専用ビルドでは`CPPFLAGS=-DBOXRIG_FEATURE_ENCODING_HOOKS=0`を指定�
 フィールド単位の変換では、問い合わせ応答と画像のデータはそのまま送ります。ストリーム単位では、端末が生成する制御列も送信フックを通ります。
 
 [文字コードの例](../../examples/core/encoding.c)は`make example-encoding`で作れます。
-「日本語」を1バイトずつ受信し、セルと送信キューのUTF-8を確認できます。
+この例ではUTF-8の文字列`日本語`を1バイトずつ渡し、セルと送信キューの内容を確かめます。
 
 ## 容量不足と受信終了
 

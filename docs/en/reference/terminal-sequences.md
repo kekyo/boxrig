@@ -3,7 +3,7 @@
 [日本語](../../ja/reference/terminal-sequences.md)
 
 Control sequences sent to a terminal specify operations such as red text, cursor movement, and screen switching.
-The tables cover the sequences interpreted by the default core and the bytes it returns for input and queries. For builds with `BOXRIG_FEATURE_EXTENDED_VT=0`, see the embedded guide. [Control sequences for logs](../embedded-core.md#control-sequences-for-logs)
+The tables cover the sequences interpreted by the default core and the bytes it returns for input and queries. Builds with `BOXRIG_FEATURE_EXTENDED_VT=0` use the controls for log output. [Control sequences for logs](../core-features.md#control-sequences-for-logs)
 
 For example, the [README's red-text example](../../../README.md#add-a-terminal-display-to-an-application) uses SGR color settings.
 Use [boxrig_emitter](../boxrig_emitter.md) to try short output examples, or [Terminal I/O settings](../terminal-io.md) to configure newlines and encodings through the API.

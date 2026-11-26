@@ -3,7 +3,7 @@
 [English](../../en/reference/terminal-sequences.md)
 
 文字を赤くする、カーソルを動かす、画面を切り替えるといった操作を、端末へ送る制御シーケンスで指定できます。
-以下の表は、既定のcoreが解釈する制御列と、入力や問い合わせに応じて返すバイト列を示します。`BOXRIG_FEATURE_EXTENDED_VT=0`で使える制御列は、組み込み向けガイドにまとめています。[ログで使える制御列](../embedded-core.md#ログで使える制御列)
+以下の表は、既定のcoreが解釈する制御列と、入力や問い合わせに応じて返すバイト列を示します。`BOXRIG_FEATURE_EXTENDED_VT=0`を選んだ場合はログ表示用の制御列を使えます。[ログで使える制御列](../core-features.md#ログで使える制御列)
 
 例えば[READMEの赤い文字を表示する例](../../../README_ja.md#アプリケーションへ端末表示を加える)では、SGRによる色指定を使っています。
 短い出力で表示を試す場合は[boxrig_emitter](../boxrig_emitter.md)、APIから改行や文字コードを設定する場合は[送受信設定](../terminal-io.md)を参照してください。
