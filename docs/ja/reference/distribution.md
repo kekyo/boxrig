@@ -13,6 +13,7 @@ SDKは、ヘッダー、ライブラリ、pkg-config定義、利用例、ライ�
 
 | 構成 | インストール対象・pkg-config名 |
 | --- | --- |
+| 静的coreのみ | `install-core`。付属の設定ヘッダーと`libboxrig.a`を使って直接リンク。[機能を選んでSDKを作る](../embedded-core.md#小型の静的sdkを作る) |
 | Linux共有版の基礎4ライブラリ | `install-shared-base`。`boxrig`、`boxrig-ui`、`boxrig-session`、`boxrig-posix` |
 | Linux共有版のGTK | `install-shared-gtk3`／`install-shared-gtk4`、両版なら`install-shared`。`boxrig-gtk3`／`boxrig-gtk4`と基礎4ライブラリ |
 | GTK 3／4 | `install-gtk3`／`install-gtk4`、`boxrig-gtk3`／`boxrig-gtk4` |
@@ -42,8 +43,7 @@ Windows向けのリンクでは`PKG_CONFIG_LIBDIR`を対象SDKだけに設定し
 静的ライブラリをリンクしても、GTK、Pango、Cairoなどのシステム共有ライブラリまで実行ファイルへ入るわけではありません。
 必要な実行時依存は選んだ構成で変わります。
 
-coreがウィンドウシステムに依存しないことと、第三者コードを含まないことは別です。
-utf8proc、libpng、zlibはcoreへ組み込まれるため、coreだけを配布する場合も[第三者ライセンス](#第三者ライセンスと出典)を確認してください。
+既定のcoreはutf8proc、libpng、zlibを含みます。小型セルではutf8procを省きます。libpngは画像、zlibは画像・履歴圧縮・チェックポイントに使うため、選んだ機能に応じてリンク対象が変わります。[第三者ライセンス](#第三者ライセンスと出典)
 
 ## Linuxで配布する
 

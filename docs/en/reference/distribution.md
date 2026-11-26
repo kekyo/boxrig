@@ -13,6 +13,7 @@ This is not a claim that a single archive containing every feature is available 
 
 | Configuration | Installation targets and pkg-config names |
 | --- | --- |
+| Static core only | `install-core`. Link directly to `libboxrig.a` with the accompanying configuration header. [Build a compact static SDK](../embedded-core.md#build-a-compact-static-sdk) |
 | Linux shared base libraries | `install-shared-base`; `boxrig`, `boxrig-ui`, `boxrig-session`, `boxrig-posix` |
 | Linux shared GTK libraries | `install-shared-gtk3`/`install-shared-gtk4`, or `install-shared` for both; `boxrig-gtk3`/`boxrig-gtk4` and the four base libraries |
 | GTK 3/4 | `install-gtk3`/`install-gtk4`, `boxrig-gtk3`/`boxrig-gtk4` |
@@ -42,8 +43,7 @@ Retrieve additional static-link dependencies with `pkg-config --static --libs`.
 Linking a static archive does not embed system shared libraries such as GTK, Pango, or Cairo into the executable.
 Runtime dependencies vary with the selected configuration.
 
-Core's independence from window systems does not mean it contains no third-party code.
-utf8proc, libpng, and zlib are compiled into core, so check [Third-party licenses](#third-party-licenses-and-sources) even when distributing core alone.
+The default core includes utf8proc, libpng, and zlib. Compact cells omit utf8proc. Image support uses libpng, and images, compressed history, and checkpoints use zlib. The linked dependencies follow the selected features. [Third-party licenses](#third-party-licenses-and-sources)
 
 ## Distribute on Linux
 

@@ -41,7 +41,7 @@ Makefileが参照する主な開発環境は次のとおりです。
 不要なUIをリンクしない場合でも、pkg-configの不足メッセージが出ることがあります。
 まず、導入する構成と実行したターゲットを確認してください。
 
-coreにはUnicode処理のutf8proc、PNG画像のlibpngとzlibを同梱し、`libboxrig.a`へ組み込みます。
+既定のcoreにはUnicode処理のutf8proc、PNG画像のlibpngとzlibを同梱し、`libboxrig.a`へ組み込みます。
 coreだけを使うアプリケーションには、X11やGTKをリンクする必要はありません。
 UIのビルド・実行に必要なシステムライブラリは、上の表で環境ごとに確認してください。
 
@@ -75,7 +75,7 @@ Windowsを使用しない場合は`native`を指定してください。
 
 | 必要な成果物 | コマンド | 主な出力先 |
 | --- | --- | --- |
-| coreだけ | `make build/libboxrig.a` | `build/libboxrig.a` |
+| coreだけ | `make core` | `build/libboxrig.a` |
 | GTK 3のデモ | `make boxrig-term-gtk3` | `build/boxrig_term/gtk3/boxrig_term` |
 | GTK 4のデモ | `make boxrig-term-gtk4` | `build/boxrig_term/gtk4/boxrig_term` |
 | native Waylandのデモ | `make boxrig-term-wayland` | `build/boxrig_term/wayland/boxrig_term` |
@@ -235,6 +235,7 @@ make install-gtk4 PREFIX="$PWD/build/sdk-gtk4"
 
 | 使用する構成 | インストールターゲット | pkg-config名 |
 | --- | --- | --- |
+| coreの静的ライブラリのみ | `install-core` | `lib/libboxrig.a`を直接指定 |
 | GTK 3 | `install-gtk3` | `boxrig-gtk3` |
 | GTK 4 | `install-gtk4` | `boxrig-gtk4` |
 | native Wayland | `install-wayland` | `boxrig-wayland` |
@@ -311,7 +312,9 @@ make core BUILD_DIR=build/serial \
 
 小型セルは履歴のない単画面のcore用です。画像、文字監視・認識、履歴圧縮、チェックポイント、代替画面、拡張VTの既定値が`0`になります。描画側は`boxrig_terminal_take_dirty()`で変更範囲を取得し、`boxrig_terminal_get_cell()`で任意のセルを読み直せます。小型セルで画面サイズを変えると、左上を基準に重なる範囲が残ります。
 
-配布時は上と同じ`BUILD_DIR`と`CPPFLAGS`を指定して`make install-core`を実行してください。インストール先の`boxrig/config.h`には確定した設定が入ります。SDKを使うアプリは、このヘッダーで利用できるAPIを判定できます。`make test-embedded-log`で、同じログを各構成に入力して実行ファイルとヒープのサイズを比較できます。
+配布時は上と同じ`BUILD_DIR`と`CPPFLAGS`を指定して`make install-core`を実行してください。インストール先の`boxrig/config.h`には確定した設定が入ります。SDKを使うアプリは、このヘッダーで利用できるAPIを判定できます。制御列の対応表、描画例、`make test-embedded-log`で再現できる構成別の容量は、組み込み向けガイドにあります。[小型画面でシリアルログを表示する](./embedded-core.md)
+
+配布先でSDKをソースから作る場合は、ビルドホストで同じ`CPPFLAGS`を使って`make package-codegen`を実行できます。生成された`$(BUILD_DIR)/generated/include/boxrig/config.h`を同梱し、配布先のMakeに`BOXRIG_PREGENERATED_CONFIG`でそのパスを渡すと、ライブラリとSDKが同じ設定になります。
 
 ### GUIの描画方式を選ぶ
 

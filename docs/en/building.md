@@ -41,7 +41,7 @@ The shared Makefile queries dependencies beyond the requested target while readi
 You may see missing pkg-config dependency messages even when you do not link the corresponding UI library.
 First check the intended configuration and the target you ran.
 
-Core bundles utf8proc for Unicode processing and libpng and zlib for PNG images into `libboxrig.a`.
+The default core bundles utf8proc for Unicode processing and libpng and zlib for PNG images into `libboxrig.a`.
 Applications using only core do not need to link X11 or GTK.
 Consult the table above for the system libraries needed to build and run each UI configuration.
 
@@ -75,7 +75,7 @@ Specify `native` if you do not need Windows.
 
 | Required output | Command | Main output path |
 | --- | --- | --- |
-| Core only | `make build/libboxrig.a` | `build/libboxrig.a` |
+| Core only | `make core` | `build/libboxrig.a` |
 | GTK 3 demo | `make boxrig-term-gtk3` | `build/boxrig_term/gtk3/boxrig_term` |
 | GTK 4 demo | `make boxrig-term-gtk4` | `build/boxrig_term/gtk4/boxrig_term` |
 | Native Wayland demo | `make boxrig-term-wayland` | `build/boxrig_term/wayland/boxrig_term` |
@@ -234,6 +234,7 @@ make install-gtk4 PREFIX="$PWD/build/sdk-gtk4"
 
 | Configuration | Installation target | pkg-config name |
 | --- | --- | --- |
+| Static core only | `install-core` | Link directly to `lib/libboxrig.a` |
 | GTK 3 | `install-gtk3` | `boxrig-gtk3` |
 | GTK 4 | `install-gtk4` | `boxrig-gtk4` |
 | Native Wayland | `install-wayland` | `boxrig-wayland` |
@@ -310,7 +311,9 @@ make core BUILD_DIR=build/serial \
 
 Compact cells support a single core screen with zero scrollback. Graphics, monitoring, recognition, DEFLATE history, checkpoints, the alternate screen and extended VT default to 0 in that configuration. Render changed regions with `boxrig_terminal_take_dirty()` and reread any cell using `boxrig_terminal_get_cell()`. Resizing a compact screen retains the intersecting cells at the top left.
 
-Use the same `BUILD_DIR` and `CPPFLAGS` with `make install-core` to distribute the library. Applications can inspect the installed `boxrig/config.h` for the available API. Run `make test-embedded-log` to compare executable and heap sizes across configurations using the same serial records.
+Use the same `BUILD_DIR` and `CPPFLAGS` with `make install-core` to distribute the library. Applications can inspect the installed `boxrig/config.h` for the available API. The embedded guide lists supported log controls, shows how to paint changed cells, and reports measurements you can reproduce with `make test-embedded-log`. [Display a serial log on a small screen](./embedded-core.md)
+
+To build an SDK from source on another machine, run `make package-codegen` with the same `CPPFLAGS` on the build host. Ship the resulting `$(BUILD_DIR)/generated/include/boxrig/config.h` and pass its path to the target Make invocation through `BOXRIG_PREGENERATED_CONFIG`. The target library and SDK will use those settings.
 
 ### Select a GUI renderer
 

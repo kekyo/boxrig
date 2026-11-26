@@ -14,6 +14,7 @@
 
 | 用途 | 公開ヘッダー | ガイド |
 | --- | --- | --- |
+| coreの機能選択、配布SDKの設定値 | [config.h](../../../include/boxrig/config.h) | [組み込み向けの構成と描画](../embedded-core.md) |
 | 端末生成、解析、セル、履歴、送信、ホスト要求 | [terminal.h](../../../include/boxrig/terminal.h) | [core step-by-step](../step-by-step/step-by-step-core.md) |
 | 文字列、選択、検索、監視、認識、画像、時計 | [terminal.h](../../../include/boxrig/terminal.h) | [文字列](../text.md)、[画像仕様](./graphics.md) |
 | 任意文字列の正規表現、キャプチャ、照合前の名前検証 | [regex.h](../../../include/boxrig/regex.h) | [正規表現](../regex.md) |

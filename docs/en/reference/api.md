@@ -14,6 +14,7 @@ Header comments at each link specify the individual API contracts.
 
 | Purpose | Public header | Guide |
 | --- | --- | --- |
+| Core feature selection and installed SDK settings | [config.h](../../../include/boxrig/config.h) | [Embedded builds and rendering](../embedded-core.md) |
 | Terminal creation, parsing, cells, history, output, and host requests | [terminal.h](../../../include/boxrig/terminal.h) | [Core step-by-step](../step-by-step/step-by-step-core.md) |
 | Text, selection, search, monitoring, recognition, images, and time | [terminal.h](../../../include/boxrig/terminal.h) | [Text](../text.md), [Graphics specification](./graphics.md) |
 | Regular expressions, captures, and name validation before matching | [regex.h](../../../include/boxrig/regex.h) | [Regular expressions](../regex.md) |
