@@ -70,6 +70,7 @@ For complete UI examples, use the web guides below and the repository's [example
 | Location in the SDK | Contents |
 | --- | --- |
 | `include/boxrig/` | Public headers and API comments |
+| `include/boxrig/config.h` | Core features built into this SDK. Use `#if BOXRIG_FEATURE_ENCODING_HOOKS` to check for application encoding converters. |
 | `lib/`, `lib/pkgconfig/` | Libraries and link requirements |
 | `share/licenses/boxrig/` | Original licenses and configuration-specific notes |
 

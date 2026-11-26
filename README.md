@@ -215,6 +215,8 @@ To learn by building an application, choose the guide for your purpose.
 The [documentation index](./docs/en/index.md) covers integration, individual features, and supported specifications.
 Start with the introductory guide, then move to the feature pages you need.
 
+For serial displays and devices that use encodings such as CP932, see the two integration guides. [Embedded builds and rendering](./docs/en/embedded-core.md) and [Character encoding converters](./docs/en/encoding-hooks.md).
+
 ---
 
 ## License

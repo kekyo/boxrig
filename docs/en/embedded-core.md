@@ -6,13 +6,15 @@ For a small display attached to a serial device, you can build boxrig core with 
 
 ## Choose the characters and controls
 
+A cell holds a character and its display attributes. The peer sends VT control sequences to position the cursor, switch screens, and perform other terminal operations.
+
 | What you want to display | Build setting | Example |
 | --- | --- | --- |
 | Terminal applications with Japanese text | Keep the default Unicode cells and extended VT controls | A full-screen application can use the alternate screen |
 | Instrument logs with Japanese text | Keep Unicode cells and set `BOXRIG_FEATURE_EXTENDED_VT=0` | In `日Z` the first character occupies two columns and `Z` starts in the third |
 | An alphanumeric serial log in 16 colors | Set `BOXRIG_FEATURE_COMPACT_CELLS=1` | The same input appears as `?Z` in two columns |
 
-A cell holds a character and its display attributes. A compact cell uses one byte for an ASCII character and four bits each for the foreground and background. Each unrepresentable Unicode scalar appears as a one-column `?`. Choose the transport encoding separately. For example, to display Japanese from a CP932 device, use Unicode cells and have an application converter decode the incoming text to UTF-8.
+A compact cell uses one byte for an ASCII character and four bits each for the foreground and background. Each unrepresentable Unicode scalar appears as a one-column `?`. Choose the transport encoding separately. For example, to display Japanese from a CP932 device, use Unicode cells and have an application converter decode the incoming text to UTF-8. [Connect a character encoding converter](./encoding-hooks.md)
 
 ## Build a compact static SDK
 
@@ -50,7 +52,16 @@ Prefix each name below with `BOXRIG_FEATURE_`. The compact column gives the sett
 
 Unicode builds let you select these services independently. With `HISTORY_DEFLATE=0` you can keep uncompressed history by setting `scrollback_capacity` to the desired row count at creation. Ordinary text search remains available when monitoring and recognition are off. Disabling images, history compression, and checkpoints together removes the zlib dependency.
 
-Compact cells accept `LOG_CURSOR` and `ENCODING_HOOKS`. Explicitly enabling extended VT or any of the six terminal services with compact cells produces a configuration error. The compact public API covers terminal creation, resize, receiving bytes, reading cells and the cursor, and sending text and raw bytes. Use Unicode cells for the standard UI or key and paste events. [Public terminal API](../../include/boxrig/terminal.h)
+For example, this builds a log terminal that preserves Japanese column widths and accepts encoding hooks. It matches the Unicode log configuration in the measurements below.
+
+```sh
+flags='-DBOXRIG_FEATURE_EXTENDED_VT=0 -DBOXRIG_FEATURE_KITTY_GRAPHICS=0'
+flags="$flags -DBOXRIG_FEATURE_TEXT_MONITOR=0 -DBOXRIG_FEATURE_TEXT_RECOGNIZER=0"
+flags="$flags -DBOXRIG_FEATURE_HISTORY_DEFLATE=0 -DBOXRIG_FEATURE_CHECKPOINT=0"
+make core BUILD_DIR=build/unicode-log CPPFLAGS="$flags -DBOXRIG_FEATURE_ALT_SCREEN=0"
+```
+
+A compact build omits utf8proc, libpng, and zlib. Compact cells accept `LOG_CURSOR` and `ENCODING_HOOKS`. Explicitly enabling extended VT or any of the six terminal services with compact cells produces a configuration error. The compact public API covers terminal creation, resize, receiving bytes, reading cells and the cursor, and sending text and raw bytes. Use Unicode cells for the standard UI or key and paste events. [Public terminal API](../../include/boxrig/terminal.h)
 
 ## Control sequences for logs
 
@@ -87,7 +98,9 @@ void draw_log(boxrig_terminal *terminal,
 }
 ```
 
-API rows and columns start at zero. In compact cells `cell.text[0]` is the ASCII character, and `foreground.index` and `background.index` are color indices from 0 to 15. Repaint the background of erased spaces too. Cell text is borrowed until the next terminal mutation. Use `boxrig_terminal_invalidate()` to request a full redraw and `boxrig_terminal_get_cursor()` to overlay the cursor. A LovyanGFX or LVGL port would supply the equivalent of `paint` for its display.
+API rows and columns start at zero. In compact cells `cell.text[0]` is the ASCII character, and `foreground.index` and `background.index` are color indices from 0 to 15. Repaint the background of erased spaces too. Cell text is borrowed until the next terminal mutation.
+
+Resizing a compact screen preserves the intersecting cells at the top left and marks the entire screen for repainting. Use `boxrig_terminal_invalidate()` to request a full redraw and `boxrig_terminal_get_cursor()` to obtain the position and visibility when overlaying the cursor. A LovyanGFX or LVGL port would supply the equivalent of `paint` for its display.
 
 ## Estimate flash and RAM
 

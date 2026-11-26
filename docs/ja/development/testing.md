@@ -54,6 +54,8 @@ make test-gtk3-orca test-gtk4-orca
 | 対象 | 主なtarget |
 | --- | --- |
 | 改行・キー・文字コード | `test-terminal-newline`、`test-terminal-key-mapping`、`test-terminal-codec` |
+| 文字コード変換フックと配布SDK | `test-encoding-hooks`、`test-encoding-sdk`。実際の外部変換器を使う試験にはelder-termsのソースを指定。[接続例](../encoding-hooks.md#既存の接続を移行する) |
+| 組み込み構成、セルの描画・容量、保存形式 | `test-core-features`、`test-embedded-log`、`test-checkpoint-builds`。[測定条件](../embedded-core.md#フラッシュとramの見積もり) |
 | 点滅・装飾 | `test-text-blink`、`test-cursor-style`、`test-selection-style` |
 | 背景・通知 | `test-background-layers`、`test-notification-dispatch`、`test-notification-samples` |
 | GTKとIME | `test-ime-clause`、`test-gtk-ime-routing`、`test-gtk-ibus-direct` |

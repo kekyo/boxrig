@@ -6,13 +6,15 @@
 
 ## 表示する文字と端末制御を選ぶ
 
+セルは画面上の文字と表示属性を保持する単位です。カーソルの位置や画面の切り替えなどは、通信相手が送るVT制御列で指定します。
+
 | 表示したい内容 | ビルド時の指定 | 表示例 |
 | --- | --- | --- |
 | 日本語を含む端末アプリの画面 | 既定のUnicodeセルと拡張VT制御を使う | 全画面アプリが代替画面を使える |
 | 日本語を含む計測ログ | Unicodeセルのまま`BOXRIG_FEATURE_EXTENDED_VT=0` | `日Z`を受け取ると「日」が2列を占め、「Z」が3列目に出る |
 | 英数字と16色のシリアルログ | `BOXRIG_FEATURE_COMPACT_CELLS=1` | 同じ入力は`?Z`になり、2列に収まる |
 
-セルは画面上の文字と表示属性を保持する単位です。小型セルはASCII文字に1バイト、前景色と背景色に各4ビットを使います。表示できないUnicode符号位置1個に割り当てるのは、1列の`?`です。通信相手の文字コードは別に選べます。例えばCP932の日本語を表示する場合は、Unicodeセルを選び、アプリ側の変換器で受信本文をUTF-8にしてください。
+小型セルはASCII文字に1バイト、前景色と背景色に各4ビットを使います。表示できないUnicode符号位置1個に割り当てるのは、1列の`?`です。通信相手の文字コードは別に選べます。例えばCP932の日本語を表示する場合は、Unicodeセルを選び、アプリ側の変換器で受信本文をUTF-8にしてください。[文字コード変換器の接続](./encoding-hooks.md)
 
 ## 小型の静的SDKを作る
 
@@ -50,7 +52,16 @@ build/serial/log-demo
 
 Unicode構成では各機能を個別に選べます。例えば`HISTORY_DEFLATE=0`でも、生成時に`scrollback_capacity`に行数を指定すれば圧縮せずに履歴を保持できます。監視・認識を外した構成でも、通常の文字列検索は有効です。画像、履歴圧縮、チェックポイントをすべて外すとzlibへの依存もなくなります。
 
-小型セルと組み合わせられるのは`LOG_CURSOR`と`ENCODING_HOOKS`です。拡張VTや上表の6つの端末機能を明示的に有効にすると、設定ヘッダーでエラーになります。小型構成の公開APIには、端末の生成・リサイズ、受信、セルとカーソルの取得、テキストと生バイトの送信があります。標準UIやキー・貼り付けイベントを使うアプリはUnicode構成を選んでください。[端末の公開API](../../include/boxrig/terminal.h)
+例えば次のコマンドで、日本語の列幅と変換フックを使えるログ端末を作れます。末尾の測定表と同じUnicodeログ構成です。
+
+```sh
+flags='-DBOXRIG_FEATURE_EXTENDED_VT=0 -DBOXRIG_FEATURE_KITTY_GRAPHICS=0'
+flags="$flags -DBOXRIG_FEATURE_TEXT_MONITOR=0 -DBOXRIG_FEATURE_TEXT_RECOGNIZER=0"
+flags="$flags -DBOXRIG_FEATURE_HISTORY_DEFLATE=0 -DBOXRIG_FEATURE_CHECKPOINT=0"
+make core BUILD_DIR=build/unicode-log CPPFLAGS="$flags -DBOXRIG_FEATURE_ALT_SCREEN=0"
+```
+
+小型セルではutf8proc、libpng、zlibを省けます。この構成と組み合わせられるのは`LOG_CURSOR`と`ENCODING_HOOKS`です。拡張VTや上表の6つの端末機能を明示的に有効にすると、設定ヘッダーでエラーになります。小型構成の公開APIには、端末の生成・リサイズ、受信、セルとカーソルの取得、テキストと生バイトの送信があります。標準UIやキー・貼り付けイベントを使うアプリはUnicode構成を選んでください。[端末の公開API](../../include/boxrig/terminal.h)
 
 ## ログで使える制御列
 
@@ -87,7 +98,9 @@ void draw_log(boxrig_terminal *terminal,
 }
 ```
 
-APIで使う行と列の先頭は0です。小型セルでは`cell.text[0]`がASCII文字で、`foreground.index`と`background.index`が0～15の色番号です。消去された空白も背景色で塗り直してください。セルの文字を参照できるのは次に端末を変更するまでです。画面を全面的に描き直すときは`boxrig_terminal_invalidate()`、カーソルを重ねるときは`boxrig_terminal_get_cursor()`を使います。LovyanGFXやLVGLで描画する場合も、この`paint`に相当する処理を移植先で用意します。
+APIで使う行と列の先頭は0です。小型セルでは`cell.text[0]`がASCII文字で、`foreground.index`と`background.index`が0～15の色番号です。消去された空白も背景色で塗り直してください。セルの文字を参照できるのは次に端末を変更するまでです。
+
+小型画面のサイズを変えると、左上で重なるセルは残り、画面全体が次の描画の対象になります。アプリから全面再描画を要求するには`boxrig_terminal_invalidate()`を使います。カーソルを重ねる場合は`boxrig_terminal_get_cursor()`で位置と表示状態を取得してください。LovyanGFXやLVGLへの移植で用意するのは、この`paint`に相当する描画処理です。
 
 ## フラッシュとRAMの見積もり
 
